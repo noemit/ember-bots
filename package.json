@@ -1,0 +1,113 @@
+{
+  "name": "ember",
+  "version": "0.94.2",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noemit/ember-bots.git"
+  },
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "description": "A calm desktop control room for Ember Harness (Kiln / Hearth) and OpenChamber agents",
+  "main": "dist-electron/main.js",
+  "bin": {
+    "ember": "./cli/ember.ts",
+    "tinder": "./cli/ember.ts",
+    "kiln": "./cli/ember.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
+    "dev": "bun run build && electron .",
+    "dev:web": "vite --port 5179",
+    "dist": "bun run build && electron-builder",
+    "dist:mac": "bun run build && electron-builder --mac",
+    "dist:win": "bun run build && electron-builder --win",
+    "dist:linux": "bun run build && electron-builder --linux",
+    "buddy-arena": "bun run buddy-arena/server.ts",
+    "test": "bun test",
+    "test:e2e": "playwright test",
+    "test:native": "bun run build && playwright test --config playwright.native.config.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && bun run --cwd packages/kiln typecheck",
+    "check": "bun run typecheck && bun run lint && bun test",
+    "check:kiln": "bun run --cwd packages/kiln check",
+    "kiln:start": "bun run --cwd packages/kiln start",
+    "kiln:dev": "bun run --cwd packages/kiln dev"
+  },
+  "build": {
+    "appId": "dev.ember.app",
+    "productName": "Ember",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "category": "Development",
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "3.14.11",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "lucide-react": "1.34.0",
+    "motion": "13.1.1",
+    "radix-ui": "^1.6.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "tailwind-merge": "^3.6.0",
+    "tw-animate-css": "^1.4.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.55.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "^22.9.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@vitejs/plugin-react": "6.1.0",
+    "electron": "42.10.1",
+    "eslint": "10.8.1",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.10.0",
+    "paper": "^0.12.18",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "8.66.0",
+    "vite": "8.2.2"
+  }
+}

@@ -1,0 +1,151 @@
+import type { SessionRef } from '../types';
+
+/** Soft cap on side-by-side columns in split view. */
+export const MIN_COLUMN_WIDTH = 420;
+
+/** Hard cap on how many sessions can be open at once. */
+export const MAX_OPEN_SESSIONS = 8;
+
+/** Split an `"instance::session"` workspace key back into its parts; null when malformed. */
+export const parseSessionKey = (key: string | null | undefined): SessionRef | null => {
+  if (!key) return null;
+  const separator = key.indexOf('::');
+  if (separator <= 0 || separator >= key.length - 2) return null;
+  const instanceId = key.slice(0, separator);
+  const sessionId = key.slice(separator + 2);
+  if (!instanceId || !sessionId) return null;
+  return { instanceId, sessionId };
+};
+
+/** Inverse of `parseSessionKey`, kept here so the format is defined in one place. */
+export const formatSessionKey = (ref: SessionRef): string => `${ref.instanceId}::${ref.sessionId}`;
+
+/**
+ * The sessions to draw as columns.
+ *
+ * An open column shows its session. There is no overflow tab strip any more: a session that has to
+ * make room is not hidden behind a tab, because nothing is left to hide it behind.
+ *
+ *   - **`splitView: false`** (the default) — one column, the active session. Opening another
+ *     replaces it rather than sitting beside it. A closed session simply leaves; its row is still
+ *     in the rail.
+ *   - **`splitView: true`** — as many as fit, active first when it would otherwise overflow, capped
+ *     by `floor(width / minWidth)` but never below one.
+ *
+ * With nothing active (a fresh workspace) the open order decides, so the first column is stable
+ * rather than flicking to whichever key sorts first.
+ */
+export const visibleColumns = (
+  active: string | null,
+  open: readonly string[],
+  width: number,
+  options: { splitView?: boolean; minWidth?: number } = {}
+): string[] => {
+  const { splitView = false, minWidth = MIN_COLUMN_WIDTH } = options;
+  const candidates = open.filter(Boolean);
+  if (candidates.length === 0) return [];
+  const preferred = active && candidates.includes(active) ? active : candidates[0];
+  if (!splitView) return [preferred];
+  if (!Number.isFinite(width) || width <= 0 || minWidth <= 0) return candidates;
+  const capacity = Math.max(1, Math.floor(width / minWidth));
+  const ordered = [preferred, ...candidates.filter((key) => key !== preferred)];
+  return ordered.slice(0, Math.min(capacity, ordered.length));
+};
+
+export type Workspace = {
+  open: string[];
+  active: string | null;
+  minimized: string[];
+};
+
+/**
+ * Validate a workspace key. Returns `false` to drop it, `true` to keep it, and `undefined` when
+ * the answer isn't known yet (the instance's session list hasn't loaded), which also keeps it.
+ */
+export type WorkspaceKeyCheck = (ref: SessionRef) => boolean | undefined;
+
+/**
+ * Drop stale/duplicate open and minimized keys and re-point `active` at the first open,
+ * non-minimized session when the active one is gone. A `null` active is preserved so a
+ * new-agent draft can occupy the workspace without a session being selected.
+ */
+export const pruneWorkspace = (
+  workspace: Workspace,
+  check: WorkspaceKeyCheck,
+  maxOpen = MAX_OPEN_SESSIONS
+): Workspace => {
+  const keep = (key: string): boolean => {
+    const ref = parseSessionKey(key);
+    if (!ref) return false;
+    return check(ref) !== false;
+  };
+
+  const open = workspace.open.filter(keep).slice(0, maxOpen);
+  const minimized = [...new Set(workspace.minimized.filter(keep))];
+  const minimizedSet = new Set(minimized);
+
+  let active = workspace.active;
+  if (active !== null && (!keep(active) || !open.includes(active) || minimizedSet.has(active))) {
+    active = open.find((key) => !minimizedSet.has(key)) ?? null;
+  }
+
+  return { open, active, minimized };
+};
+
+/**
+ * Transcript keys worth keeping in memory: every open session (so a column or tab paints from cache
+ * before its refresh lands), every key the bounded message cache still holds, and the active
+ * session. Everything else can be refetched, so dropping it keeps `transcripts` from growing with
+ * every session ever shown.
+ */
+export const transcriptKeysToKeep = (
+  open: readonly string[],
+  cached: readonly string[],
+  active: string | null
+): Set<string> => {
+  const keep = new Set(open);
+  cached.forEach((key) => keep.add(key));
+  if (active) keep.add(active);
+  return keep;
+};
+
+/**
+ * Drop transcript entries whose key isn't in `keep`. Returns the same object when nothing would
+ * change, so a state setter can bail without a re-render.
+ */
+export const pruneTranscripts = <T>(
+  transcripts: Record<string, T>,
+  keep: ReadonlySet<string>
+): Record<string, T> => {
+  const keys = Object.keys(transcripts);
+  if (keys.every((key) => keep.has(key))) return transcripts;
+  const next: Record<string, T> = {};
+  keys.forEach((key) => {
+    if (keep.has(key)) next[key] = transcripts[key];
+  });
+  return next;
+};
+
+/** Structural equality for workspace snapshots, so state setters can bail when nothing changed. */
+export const sameWorkspace = (a: Workspace, b: Workspace): boolean =>
+  a.active === b.active &&
+  a.open.length === b.open.length &&
+  a.open.every((key, index) => key === b.open[index]) &&
+  a.minimized.length === b.minimized.length &&
+  a.minimized.every((key, index) => key === b.minimized[index]);
+
+/**
+ * The 0-based open-session slot a Cmd/Ctrl+1–9 shortcut targets, or null when the event isn't one.
+ * Shift/Alt are excluded so the binding doesn't collide with other shortcuts.
+ */
+export const numberShortcutSlot = (event: {
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  key: string;
+}): number | null => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return null;
+  if (event.key.length !== 1 || event.key < '1' || event.key > '9') return null;
+  return Number(event.key) - 1;
+};

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="tile-glow" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#292421" />
+      <stop offset="100%" stop-color="#171514" />
+    </radialGradient>
+    <linearGradient id="body-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff9248" />
+      <stop offset="55%" stop-color="#f0722b" />
+      <stop offset="100%" stop-color="#d94f1a" />
+    </linearGradient>
+    <radialGradient id="body-highlight" cx="38%" cy="28%" r="42%">
+      <stop offset="0%" stop-color="#ffc38b" stop-opacity="0.65" />
+      <stop offset="100%" stop-color="#ffc38b" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <!-- macOS squircle tile -->
+  <rect x="36" y="36" width="440" height="440" rx="99" ry="99" fill="url(#tile-glow)" stroke="#38312d" stroke-width="4" />
+  <!-- Buddy jelly silhouette scaled to 512x512 -->
+  <g transform="translate(86, 86) scale(3.4)">
+    <path
+      d="M50 16 C 70 14 90 30 91 54 C 92 72 82 86 62 88 C 54 89 46 89 38 88 C 18 86 8 72 9 54 C 10 30 30 18 50 16 Z"
+      fill="url(#body-grad)"
+    />
+    <path
+      d="M50 16 C 70 14 90 30 91 54 C 92 72 82 86 62 88 C 54 89 46 89 38 88 C 18 86 8 72 9 54 C 10 30 30 18 50 16 Z"
+      fill="url(#body-highlight)"
+    />
+    <!-- Left eye -->
+    <g transform="translate(35, 52)">
+      <ellipse rx="12" ry="13.5" fill="#ffffff" />
+      <circle cx="1.2" cy="-0.5" r="6.5" fill="#2c1608" />
+      <circle cx="-1.2" cy="-2.8" r="2.2" fill="#ffffff" />
+    </g>
+    <!-- Right eye -->
+    <g transform="translate(65, 52)">
+      <ellipse rx="12" ry="13.5" fill="#ffffff" />
+      <circle cx="1.2" cy="-0.5" r="6.5" fill="#2c1608" />
+      <circle cx="-1.2" cy="-2.8" r="2.2" fill="#ffffff" />
+    </g>
+  </g>
+</svg>

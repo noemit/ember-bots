@@ -1,0 +1,422 @@
+import * as React from 'react';
+import { Check, ChevronRight, Loader2, RefreshCw, Search, Sparkles, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DEFAULT_MODEL, modelRefKey } from '../types';
+import type { ModelOption } from '../types';
+import ModelScorecard from './ModelScorecard';
+import { refreshModelStats } from '@/lib/modelStats';
+import { canonicalVariant, resolveComposerModel } from '@/lib/modelSelection';
+
+type Props = {
+  open: boolean;
+  instanceId?: string;
+  directory?: string;
+  models: ModelOption[];
+  /** `provider/model` keys the instance used most recently, newest first. */
+  recentModels: string[];
+  /** Selected key, or DEFAULT_MODEL to let the instance decide. */
+  value: string;
+  /** Selected reasoning effort, or an empty string for the model default. */
+  variant?: string;
+  /** Default key OpenCode resolves when value is DEFAULT_MODEL. */
+  defaultModelId?: string | null;
+  collapseProviders?: boolean;
+  requireConcreteModel?: boolean;
+  onSelect: (key: string, variant: string) => void;
+  onOpenChange: (open: boolean) => void;
+  /** Re-fetch the instance's catalogue. The picker already refreshes on open; this is the manual one. */
+  onRefresh?: () => Promise<unknown> | void;
+};
+
+type Group = { id: string; title: string; models: ModelOption[] };
+
+const formatTokens = (value: number): string =>
+  value >= 1_000_000 ? `${(value / 1_000_000).toFixed(value % 1_000_000 ? 1 : 0)}M` : `${Math.round(value / 1000)}k`;
+
+const formatCost = (value: number): string => (value === 0 ? 'free' : `$${value < 1 ? value.toFixed(2) : value.toFixed(value % 1 ? 2 : 0)}`);
+
+const matches = (model: ModelOption, needle: string): boolean =>
+  [model.details.name, model.modelID, model.details.providerName, model.providerID, model.details.family]
+    .some((field) => field?.toLowerCase().includes(needle));
+
+const Row = React.memo(function Row({
+  model,
+  selected,
+  active,
+  isDefault,
+  onHover,
+  onPick,
+}: {
+  model: ModelOption;
+  selected: boolean;
+  active: boolean;
+  isDefault: boolean;
+  onHover: () => void;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-active={active}
+      onMouseEnter={onHover}
+      onFocus={onHover}
+      onClick={onPick}
+      className={cn(
+        'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] outline-none',
+        active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+      )}
+    >
+      <span className="min-w-0 flex-1 truncate">
+        {model.details.name}
+        {isDefault ? ' (Default)' : ''}
+      </span>
+      {model.details.status && model.details.status !== 'active' ? (
+        <span className="flex-none rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          {model.details.status}
+        </span>
+      ) : null}
+      {selected ? <Check className="size-3.5 flex-none text-highlight" /> : null}
+    </button>
+  );
+});
+
+const Fact = ({ label, value }: { label: string; value: React.ReactNode }) => (
+  <div className="flex items-baseline justify-between gap-3 text-[12px]">
+    <span className="text-muted-foreground">{label}</span>
+    <span className="text-right tabular-nums">{value}</span>
+  </div>
+);
+
+const Details = ({ model, instanceId, directory }: { model: ModelOption; instanceId?: string; directory?: string }) => {
+  const { details } = model;
+  const chips = [
+    details.reasoning && 'Reasoning',
+    details.toolcall && 'Tools',
+    details.attachment && 'Attachments',
+    ...details.inputs.map((kind) => (kind === 'pdf' ? 'PDF' : kind[0].toUpperCase() + kind.slice(1))),
+  ].filter((chip): chip is string => Boolean(chip));
+
+  return (
+    <Card className="h-full border-l-0 rounded-none shadow-none">
+      <CardContent className="flex h-full flex-col gap-4 p-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{details.providerName}</span>
+          <h3 className="text-[15px] font-semibold leading-tight">{details.name}</h3>
+          <code className="truncate text-[11px] text-muted-foreground" title={modelRefKey(model)}>
+            {model.modelID}
+          </code>
+        </div>
+
+        {chips.length ? (
+          <div className="flex flex-wrap gap-1">
+            {chips.map((chip) => (
+              <span key={chip} className="rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                {chip}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex flex-col gap-1.5">
+          {details.contextTokens ? <Fact label="Context" value={`${formatTokens(details.contextTokens)} tokens`} /> : null}
+          {details.outputTokens ? <Fact label="Max output" value={`${formatTokens(details.outputTokens)} tokens`} /> : null}
+          {details.costInput !== undefined && details.costOutput !== undefined ? (
+            <Fact
+              label="Cost / 1M tokens"
+              value={
+                details.costInput === 0 && details.costOutput === 0
+                  ? 'free'
+                  : `${formatCost(details.costInput)} in · ${formatCost(details.costOutput)} out`
+              }
+            />
+          ) : null}
+          {details.family ? <Fact label="Family" value={details.family} /> : null}
+          {details.releaseDate ? <Fact label="Released" value={details.releaseDate} /> : null}
+          {details.variants.length ? <Fact label="Effort levels" value={details.variants.join(' · ')} /> : null}
+        </div>
+        <ModelScorecard model={model} instanceId={instanceId} directory={directory} />
+      </CardContent>
+    </Card>
+  );
+};
+
+export default function ModelPicker({
+  open,
+  instanceId,
+  directory,
+  models,
+  recentModels,
+  value,
+  variant = '',
+  defaultModelId = null,
+  collapseProviders = false,
+  requireConcreteModel = false,
+  onSelect,
+  onOpenChange,
+  onRefresh,
+}: Props) {
+  const [query, setQuery] = React.useState('');
+  const [hovered, setHovered] = React.useState<string | null>(null);
+  const [expandedProviders, setExpandedProviders] = React.useState<Set<string>>(() => new Set());
+  const [selectedKey, setSelectedKey] = React.useState(value);
+  const [selectedVariant, setSelectedVariant] = React.useState(variant);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const searchRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (open) {
+      void refreshModelStats();
+      setQuery('');
+      setHovered(null);
+      setExpandedProviders(new Set());
+      setSelectedKey(value);
+      setSelectedVariant(variant);
+      // Radix moves focus after mount; wait a tick so ours wins.
+      window.setTimeout(() => searchRef.current?.focus(), 30);
+    }
+  }, [open, value, variant]);
+
+  const byKey = React.useMemo(() => new Map(models.map((model) => [modelRefKey(model), model])), [models]);
+  const defaultModel = defaultModelId ? byKey.get(defaultModelId) ?? null : null;
+  const defaultLabel = defaultModel
+    ? `${defaultModel.details.providerName} / ${defaultModel.details.name} (Default)`
+    : 'Server default';
+
+  const groups = React.useMemo<Group[]>(() => {
+    const needle = query.trim().toLowerCase();
+    const visible = needle ? models.filter((model) => matches(model, needle)) : models;
+    const recent = recentModels
+      .map((key) => byKey.get(key))
+      .filter((model): model is ModelOption => Boolean(model) && visible.includes(model as ModelOption));
+    const byProvider = new Map<string, Group>();
+    visible.forEach((model) => {
+      const group = byProvider.get(model.providerID) ?? {
+        id: model.providerID,
+        title: model.details.providerName,
+        models: [],
+      };
+      group.models.push(model);
+      byProvider.set(model.providerID, group);
+    });
+    const providers = [...byProvider.values()].sort((a, b) => a.title.localeCompare(b.title));
+    return recent.length ? [{ id: 'recent', title: 'Recent', models: recent }, ...providers] : providers;
+  }, [models, recentModels, byKey, query]);
+
+  const selectedModel = selectedKey === DEFAULT_MODEL ? defaultModel : byKey.get(selectedKey) ?? null;
+  const variantOptions = selectedModel?.details.variants ?? [];
+  // A saved variant can differ from the catalogue only by case ('High' vs 'high'), and a saved
+  // 'default' means the model default; show and store the advertised spelling.
+  const canonicalSelected = canonicalVariant(variantOptions, selectedVariant) ?? selectedVariant;
+  const selectionError = requireConcreteModel && selectedKey === DEFAULT_MODEL && !defaultModel
+    ? 'The instance default model is unavailable. Choose an available model.'
+    : resolveComposerModel(selectedKey, selectedVariant, models, defaultModelId).error;
+  const activeKey = hovered && byKey.has(hovered) ? hovered : selectedKey !== DEFAULT_MODEL ? selectedKey : null;
+  const activeModel = activeKey ? byKey.get(activeKey) ?? null : null;
+  const total = groups.reduce((sum, group) => sum + (group.id === 'recent' ? 0 : group.models.length), 0);
+
+  const pick = (key: string) => {
+    const nextModel = key === DEFAULT_MODEL ? defaultModel : byKey.get(key) ?? null;
+    setSelectedKey(key);
+    if (key !== selectedKey) setSelectedVariant((current) => canonicalVariant(nextModel?.details.variants, current) ?? '');
+    setHovered(key === DEFAULT_MODEL ? null : key);
+  };
+
+  const apply = () => {
+    if (selectionError) return;
+    onSelect(selectedKey, canonicalSelected);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex h-[calc(100dvh-1rem)] max-h-[560px] w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[min(560px,80vh)] sm:w-[min(820px,92vw)] sm:max-w-[820px]"
+        showCloseButton={false}
+        // First Escape clears the search, the next one closes — like a native combobox.
+        onEscapeKeyDown={(event) => {
+          if (query) {
+            event.preventDefault();
+            setQuery('');
+          }
+        }}
+      >
+        <DialogTitle className="sr-only">Choose a model</DialogTitle>
+        <DialogDescription className="sr-only">
+          Pick the model and reasoning effort for this session, or leave them on their defaults.
+        </DialogDescription>
+
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 w-full flex-none flex-col sm:w-[360px] sm:border-r">
+            <div className="relative border-b p-2.5">
+              <Search className="pointer-events-none absolute top-1/2 left-5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={searchRef}
+                type="search"
+                value={query}
+                placeholder={`Search ${models.length} models…`}
+                aria-label="Search models"
+                onChange={(event) => setQuery(event.target.value)}
+                className="h-9 pl-8 pr-7 text-base shadow-none sm:h-8 sm:text-xs [&::-webkit-search-cancel-button]:hidden"
+              />
+              {query ? (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Clear search"
+                  onClick={() => setQuery('')}
+                  className="absolute top-1/2 right-4 -translate-y-1/2"
+                >
+                  <X />
+                </Button>
+              ) : null}
+            </div>
+
+            <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-1.5" onMouseLeave={() => setHovered(null)}>
+              {!query ? (
+                <button
+                  type="button"
+                  onMouseEnter={() => setHovered(null)}
+                  onClick={() => pick(DEFAULT_MODEL)}
+                  className={cn(
+                    'mb-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px]',
+                    selectedKey === DEFAULT_MODEL ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                  )}
+                >
+                  <Sparkles className="size-3.5 flex-none" />
+                  <span className="flex-1 truncate">{defaultLabel}</span>
+                  {selectedKey === DEFAULT_MODEL ? <Check className="size-3.5 flex-none text-highlight" /> : null}
+                </button>
+              ) : null}
+
+              {groups.map((group) => {
+                const collapsible = collapseProviders && group.id !== 'recent' && !query.trim();
+                const expanded = !collapsible || expandedProviders.has(group.id);
+                return (
+                  <div key={group.id} className="mb-2">
+                    {collapsible ? (
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        onClick={() => setExpandedProviders((current) => {
+                          const next = new Set(current);
+                          if (next.has(group.id)) next.delete(group.id);
+                          else next.add(group.id);
+                          return next;
+                        })}
+                        className="sticky top-0 z-10 flex w-full items-center bg-popover px-2.5 pt-1.5 pb-1 text-left text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                      >
+                        <ChevronRight className={cn('mr-1 size-3 transition-transform', expanded && 'rotate-90')} />
+                        {group.title}
+                        <span className="ml-auto tabular-nums opacity-70">{group.models.length}</span>
+                      </button>
+                    ) : (
+                      <div className="sticky top-0 z-10 bg-popover px-2.5 pt-1.5 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {group.title}
+                        <span className="ml-1.5 tabular-nums opacity-70">{group.models.length}</span>
+                      </div>
+                    )}
+                    {expanded ? group.models.map((model) => {
+                      const key = modelRefKey(model);
+                      return (
+                        <Row
+                          key={`${group.id}:${key}`}
+                          model={model}
+                          selected={key === selectedKey}
+                          active={key === activeKey}
+                          isDefault={key === defaultModelId}
+                          onHover={() => setHovered(key)}
+                          onPick={() => pick(key)}
+                        />
+                      );
+                    }) : null}
+                  </div>
+                );
+              })}
+
+              {groups.length === 0 ? (
+                <div className="px-3 py-10 text-center text-[12px] text-muted-foreground">
+                  {models.length === 0
+                    ? 'No models loaded from this instance yet.'
+                    : `No models match “${query.trim()}”.`}
+                </div>
+              ) : null}
+            </div>
+
+            {selectedModel ? <div className="max-h-64 overflow-auto border-t p-3 sm:hidden"><ModelScorecard model={{ ...selectedModel, variant: selectedVariant }} instanceId={instanceId} directory={directory} /></div> : null}
+            <div className="flex-none border-t px-3 py-1.5 text-[10.5px] text-muted-foreground">
+              {total} models from {groups.filter((group) => group.id !== 'recent').length} connected providers
+            </div>
+          </div>
+
+          <div className="hidden min-w-0 flex-1 overflow-y-auto p-5 sm:block">
+            {activeModel ? (
+              <Details model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} />
+            ) : (
+              <div className="flex h-full flex-col justify-center gap-2 text-center text-muted-foreground">
+                <Sparkles className="mx-auto size-5" />
+                <p className="text-[13px] font-medium text-foreground">{selectedKey !== DEFAULT_MODEL ? 'Selected model unavailable' : defaultLabel}</p>
+                <p className="text-[12px]">
+                  {selectedKey !== DEFAULT_MODEL ? selectedKey : defaultModel
+                    ? 'The instance uses this configured model unless you choose another.'
+                    : 'The instance picks its configured default. Hover a model on the left to see what it offers.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+        {selectionError ? <p role="status" className="border-t px-3 py-2 text-xs text-destructive">{selectionError}</p> : null}
+        <div className="flex flex-none items-center gap-2 border-t p-2.5">
+          <span className="text-[11px] font-medium text-muted-foreground">Reasoning</span>
+          <Select
+            value={canonicalSelected || '__default'}
+            disabled={variantOptions.length === 0 && !selectedVariant}
+            onValueChange={(next) => setSelectedVariant(next === '__default' ? '' : next)}
+          >
+            <SelectTrigger size="sm" aria-label="Reasoning level" className="h-7 min-w-32 text-xs capitalize">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__default">Default</SelectItem>
+              {canonicalVariant(variantOptions, selectedVariant) === undefined ? <SelectItem value={selectedVariant} disabled>{selectedVariant} (unavailable)</SelectItem> : null}
+              {variantOptions.map((option) => (
+                <SelectItem key={option} value={option} className="capitalize">
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="min-w-0 flex-1" />
+          {onRefresh ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={refreshing}
+              aria-label={refreshing ? 'Refreshing models' : 'Refresh the model list'}
+              title="Re-fetch this instance's model catalogue"
+              onClick={() => {
+                setRefreshing(true);
+                void Promise.resolve(onRefresh())
+                  .catch(() => {})
+                  .finally(() => setRefreshing(false));
+              }}
+            >
+              {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={apply} disabled={Boolean(selectionError)}>
+            Done
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

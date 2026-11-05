@@ -1,0 +1,172 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Hidden window: keep each animation's progress, stop paying for it. Toggled by useMotionPause
+ * (lib/useMotionPause.ts) rather than by a media query, because "is this window visible" is not
+ * something a media query can answer.
+ */
+html.motion-paused *,
+html.motion-paused *::before,
+html.motion-paused *::after {
+  animation-play-state: paused !important;
+}
+
+:root {
+  --radius: 0.625rem;
+
+  /* Defaults mirror the "stone" theme; applyTheme overrides these at runtime. */
+  --background: #151413;
+  --foreground: #efece7;
+  --card: #1b1a18;
+  --card-foreground: #efece7;
+  --popover: #1b1a18;
+  --popover-foreground: #efece7;
+  --primary: #efece7;
+  --primary-foreground: #151413;
+  --user-bubble: #4b4038;
+  --user-bubble-foreground: #efece7;
+  --warning: #f0b36b;
+  --secondary: #242220;
+  --secondary-foreground: #efece7;
+  --muted: #242220;
+  --muted-foreground: #9b958c;
+  --accent: #242220;
+  --accent-foreground: #efece7;
+  --destructive: #ff5c5c;
+  --border: #2c2a26;
+  --input: #2c2a26;
+  --ring: #ff7a1a;
+  --sidebar: #1b1a18;
+  --highlight: #ff7a1a;
+  --highlight-foreground: #151413;
+  --success: #34d399;
+  --diff-add: #6ee7b7;
+  --diff-del: #fca5a5;
+  /* First entries of the generated palette; applyTheme sets the full --blob-0..21 at runtime. */
+  --blob-0: #cd366c;
+  --blob-1: #9e1614;
+  --blob-2: #fc6b33;
+  --blob-3: #af630f;
+  --blob-4: #6f4d27;
+  --blob-5: #dab78c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-user-bubble: var(--user-bubble);
+  --color-user-bubble-foreground: var(--user-bubble-foreground);
+  --color-warning: var(--warning);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-highlight: var(--highlight);
+  --color-highlight-foreground: var(--highlight-foreground);
+  --color-success: var(--success);
+  --color-diff-add: var(--diff-add);
+  --color-diff-del: var(--diff-del);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  #root {
+    height: 100dvh;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 13px;
+    overflow: hidden;
+    transition:
+      background-color 0.35s var(--ease-spring),
+      color 0.35s var(--ease-spring);
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--muted-foreground) 35%, transparent);
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Native drag region for the frameless-feeling top bar. */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.drag-region button,
+.drag-region [role='button'],
+.drag-region a {
+  -webkit-app-region: no-drag;
+}
+
+.safe-top-bar {
+  height: calc(2.75rem + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+}
+
+.mobile-rail {
+  top: calc(2.75rem + env(safe-area-inset-top));
+  bottom: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-composer {
+  padding-bottom: max(0.625rem, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,18 @@
+node_modules/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.log
+*.token
+auth.json
+models-store.json
+models-store.json.tmp
+.DS_Store
+.playwright-mcp/
+*.png
+
+# per-machine agent notes: tracked AGENTS.md is public, this is not
+AGENTS.local.md
+
+# python bytecode from scripts/
+__pycache__/

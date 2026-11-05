@@ -1,0 +1,47 @@
+# dependencies
+node_modules
+node_modules/
+packages/*/node_modules
+packages/*/node_modules/
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# build output
+dist/
+dist-electron/
+release/
+test-results/
+playwright-report/
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env
+.env
+.env.local
+.env.*.local
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# scratch: audit runs and one-off CDP/screenshot probes (109MB of shots, never committed)
+.audit/
+docs/public-release/
+/*.mjs
+!eslint.config.mjs
+
+# per-machine agent notes: tracked AGENTS.md is public, this is not
+AGENTS.local.md
+TODO.md
+maybe.md
+openquestions.md
+release/
+packages/*/node_modules/

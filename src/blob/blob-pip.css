@@ -1,0 +1,141 @@
+/*
+ * Pip: a flat circle whose face has rolled somewhere onto its surface.
+ *
+ * The reference sheet's whole charm is that the marks sit *on* the ball — angled with it, and cut
+ * off by the rim when they reach the edge. So the motion is a rotation about the circle's centre,
+ * not a translation, and the face is clipped by the ball.
+ *
+ * Two motions, because one was too placid:
+ *   - `spin`   — steady rotation in one direction (thinking, question). A slow orbit.
+ *   - `tumble` — a wide fast arc that reverses each pass, and starts from a different angle per
+ *                instance (busy, input). This is what reads as a ball being thrown around rather
+ *                than a turntable turning.
+ */
+
+.blob-pip {
+  display: block;
+  border-radius: 50%;
+  /* No shadow, no gloss, no gradient: the reference is one flat colour. */
+}
+
+.blob-pip svg {
+  display: block;
+}
+
+.blob-pip-roller {
+  transform-origin: 50px 50px;
+  transform-box: view-box;
+}
+
+/* Steady orbit: one direction, full circle, at the state's pace. */
+.blob-pip[data-motion='spin'] .blob-pip-roller {
+  animation: pip-spin var(--pip-pass, 6s) linear infinite;
+}
+
+@keyframes pip-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * The tumble: a fast swing out to the state's amplitude and back, reversing each pass. Linear timing
+ * with a reversal at each end gives it a thrown quality — the face does not ease to a stop and drift
+ * back, it swings through.
+ *
+ * Four paths, selected by `data-path`, so a rail of busy agents does not swing along one rail. They
+ * differ in both the arc travelled and where it sits, which is what makes the set look alive.
+ */
+.blob-pip[data-motion='tumble'] .blob-pip-roller {
+  animation: pip-tumble-a var(--pip-pass, 3s) ease-in-out infinite alternate;
+}
+
+.blob-pip[data-motion='tumble'] .blob-pip-roller[data-path='1'] {
+  animation-name: pip-tumble-b;
+}
+.blob-pip[data-motion='tumble'] .blob-pip-roller[data-path='2'] {
+  animation-name: pip-tumble-c;
+}
+.blob-pip[data-motion='tumble'] .blob-pip-roller[data-path='3'] {
+  animation-name: pip-tumble-d;
+}
+
+@keyframes pip-tumble-a {
+  from {
+    transform: rotate(-80deg);
+  }
+  to {
+    transform: rotate(80deg);
+  }
+}
+
+@keyframes pip-tumble-b {
+  from {
+    transform: rotate(60deg);
+  }
+  to {
+    transform: rotate(-120deg);
+  }
+}
+
+@keyframes pip-tumble-c {
+  from {
+    transform: rotate(-40deg);
+  }
+  to {
+    transform: rotate(150deg);
+  }
+}
+
+@keyframes pip-tumble-d {
+  from {
+    transform: rotate(110deg);
+  }
+  to {
+    transform: rotate(-60deg);
+  }
+}
+
+/*
+ * Resting and broken states hold completely still. A circle that keeps turning reads as busy, and
+ * "nothing is happening" is exactly the information these states carry — so the guarantee is
+ * structural rather than a very long duration.
+ */
+.blob-pip[data-rolling='false'] .blob-pip-roller {
+  animation: none;
+}
+
+/* The needs-input ring, drawn outside the ball and never clipped. */
+.blob-pip-orbit {
+  fill: none;
+  stroke: var(--highlight);
+  stroke-width: 2.5;
+  stroke-dasharray: 26 14;
+  transform-origin: 50px 50px;
+  transform-box: view-box;
+  animation: pip-orbit 5s linear infinite;
+}
+
+@keyframes pip-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Keep the information, drop the movement: a rolling face becomes a still one. The face is
+   * positioned by an SVG transform attribute, so freezing the animation leaves it exactly where the
+   * state put it, and the mood is still readable from the shape of the marks.
+   */
+  .blob-pip-roller,
+  .blob-pip-orbit {
+    animation: none !important;
+  }
+
+  /* A frozen dashed ring still says "needs input" — it just does not travel. */
+  .blob-pip-orbit {
+    stroke-dasharray: none;
+    opacity: 0.85;
+  }
+}

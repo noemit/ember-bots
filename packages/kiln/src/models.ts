@@ -1,0 +1,240 @@
+import { dirname, join } from "node:path";
+import { createModels, createProvider, envApiKeyAuth, type CredentialStore, type Model, type Models } from "@earendil-works/pi-ai";
+import { FileCredentialStore, FileModelsStore, importOpenCodeCredentials } from "./credentials";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
+import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
+import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
+import { fireworksProvider } from "@earendil-works/pi-ai/providers/fireworks";
+import { googleProvider } from "@earendil-works/pi-ai/providers/google";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
+import { openCodeZenWithDiscovery } from "./model-discovery";
+import {
+  kimiCodingModel,
+  kimiKeyPresent,
+  kimiOptions,
+  moonshotContextWindow,
+  moonshotModel,
+  type KimiOptions,
+  type MoonshotCatalogEntry,
+} from "./kimi";
+import { orcarouterModel, orcarouterOptions, routerLimits, type RouterCatalogEntry } from "./orcarouter";
+
+export type HearthDefault = { model: { provider: string; modelId: string } };
+
+const envString = (name: string, env: Record<string, string | undefined> = process.env): string | undefined => {
+  const value = env[name];
+  return value && value.trim() ? value.trim() : undefined;
+};
+
+/**
+ * The bearer header for a catalog fetch. pi-ai hands the resolved credential to
+ * `fetchModels`, but a bare `fetch()` sends none - Moonshot answers 401 without it and the
+ * provider silently falls back to its (stale) shipped catalog, hiding models the account has.
+ */
+const catalogAuth = (credential: unknown): Record<string, string> => {
+  const key = credential as { type?: string; key?: string } | undefined;
+  return key?.type === "api_key" && key.key ? { Authorization: `Bearer ${key.key}` } : {};
+};
+
+/**
+ * The dynamic orcarouter provider (custom baseURL + env key + fetched catalog), when
+ * ORCAROUTER_BASE_URL and ORCAROUTER_API_KEY are set. Fetched models carry the full Model
+ * shape - api, baseUrl, cost, limits - as the Phase 0 spike established. What the slot
+ * advertises beyond that (reasoning, image input, limit fallbacks) comes from the
+ * ORCAROUTER_* env vars, mapped in ./orcarouter.ts.
+ */
+export const orcarouterProvider = (env: Record<string, string | undefined> = process.env) => {
+  const baseUrl = envString("ORCAROUTER_BASE_URL", env);
+  if (!baseUrl || !env.ORCAROUTER_API_KEY) return undefined;
+  const options = orcarouterOptions(env);
+  console.log(
+    `[hearth] orcarouter ${baseUrl}: reasoning ${options.reasoning}, input ${options.input.join("+")}, ` +
+      `fallback window ${options.contextWindow ?? "default"}, fallback output ${options.maxTokens ?? "default"}`
+  );
+  const router = createProvider({
+    id: "orcarouter",
+    name: "Orcarouter",
+    baseUrl,
+    auth: { apiKey: envApiKeyAuth("Orcarouter API key", ["ORCAROUTER_API_KEY"]) },
+    models: [],
+    api: openAICompletionsApi(),
+    fetchModels: async (ctx) => {
+      const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
+        headers: catalogAuth(ctx.credential),
+        signal: ctx.signal,
+      });
+      if (!response.ok) throw new Error(`orcarouter /models failed: ${response.status}`);
+      const body = (await response.json()) as { data?: RouterCatalogEntry[] };
+      const entries = Array.isArray(body.data) ? body.data : [];
+      // A catalog that reports no limits leaves the built-in default in place; name what was not
+      // reported rather than let a guessed 128k window look like the provider's own number.
+      const guessed = entries
+        .map((entry) => ({ id: entry.id, limits: routerLimits(entry, options) }))
+        .filter(({ limits }) => limits.guessed.length > 0)
+        .map(({ id, limits }) => `${id} (${limits.guessed.join(", ")})`);
+      if (guessed.length > 0) {
+        console.log(
+          `[hearth] orcarouter: ${guessed.length} model(s) report no limit, using built-in defaults: ${guessed.join("; ")}`
+        );
+      }
+      return entries.map((entry): Model<"openai-completions"> => orcarouterModel(entry, baseUrl, options));
+    },
+  });
+  return router;
+};
+
+/**
+ * The Moonshot platform provider (`moonshotai`), reading `/models` at boot or refresh and falling
+ * back to pi-ai's shipped Moonshot catalog offline.
+ */
+export const createMoonshotProvider = (options: KimiOptions = kimiOptions()) =>
+  createProvider({
+    id: "moonshotai",
+    name: "Moonshot AI (Kimi)",
+    baseUrl: options.baseUrl,
+    auth: { apiKey: envApiKeyAuth("Moonshot AI API key", ["KIMI_API_KEY", "MOONSHOT_API_KEY"]) },
+    models: moonshotaiProvider().getModels(),
+    api: openAICompletionsApi(),
+    fetchModels: (ctx) => fetchMoonshotCatalog(options, ctx.credential, ctx.signal),
+  });
+
+/**
+ * Kimi under its own provider ids, holding pi-ai's Moonshot catalog as the offline list.
+ *
+ * `moonshotai` (platform key) additionally reads `/models` at boot and serves what the account
+ * lists - the same shape as the orcarouter slot, but with the provider's real ids (`kimi-k3`
+ * stays `kimi-k3`), its real windows and its image support, so a Kimi conversation survives a
+ * model switch to another host's Kimi entry instead of being pinned to `orcarouter/kimi-k3`.
+ *
+ * `kimi-coding` (coding-plan key) keeps pi-ai's list: a plan key need not answer `/models`, and
+ * its ids (`k3`, `kimi-for-coding`) are what the plan serves.
+ *
+ * `kimi-coding` is registered always, with or without a key. Its credential can come from a
+ * subscription sign-in instead of a key (pi-ai ships "Sign in with Kimi Code"), and gating the
+ * provider on a key would hide the only button that can obtain one. Registering it unkeyed is what
+ * every other built-in does: calls fail with an auth error until a credential exists, and the model
+ * list skips providers whose credential does not resolve.
+ *
+ * `moonshotai` is registered by `kimiProviders` when a key is configured (env, or a stored
+ * credential), and always registered in `hearthModels` / `refreshProviders` so `GET /providers`
+ * lists it and `POST /providers/moonshotai` can add a key at runtime.
+ */
+export const kimiProviders = (storedIds: string[], env: Record<string, string | undefined> = process.env) => {
+  const options = kimiOptions(env);
+  const providers = [];
+  const coding = kimiCodingProvider();
+  providers.push(
+    createProvider({
+      id: coding.id,
+      name: coding.name,
+      baseUrl: options.codingBaseUrl,
+      // pi-ai's shipped auth, not a hand-built api-key one: `auth.oauth` is "Sign in with Kimi Code",
+      // and dropping it here is what left `kimi-coding` unable to sign in at all (see ./login).
+      auth: {
+        apiKey: envApiKeyAuth("Kimi Code API key", ["KIMI_CODING_API_KEY", "KIMI_API_KEY"]),
+        ...(coding.auth.oauth === undefined ? {} : { oauth: coding.auth.oauth }),
+      },
+      models: coding.getModels().map((model) => kimiCodingModel(model, options)),
+      api: openAICompletionsApi(),
+    })
+  );
+  // A stored credential (Ember's Providers settings, or `provider set`) wins; the env var is the
+  // fallback, matching `envApiKeyAuth`.
+  if (storedIds.includes("moonshotai") || kimiKeyPresent(["KIMI_API_KEY", "MOONSHOT_API_KEY"], env)) {
+    providers.push(createMoonshotProvider(options));
+  }
+  return providers;
+};
+
+/**
+ * Re-register conditional providers (such as `moonshotai`) after credentials change at runtime
+ * (`POST /providers/:id` or `POST /providers/import`) and trigger a background catalog refresh.
+ */
+export const refreshProviders = async (
+  models: Models & { setProvider?: (provider: ReturnType<typeof createMoonshotProvider>) => void },
+  store?: CredentialStore,
+  env: Record<string, string | undefined> = process.env
+): Promise<void> => {
+  const storedIds = store ? (await store.list().catch(() => [])).map((entry) => entry.providerId) : [];
+  for (const provider of kimiProviders(storedIds, env)) {
+    models.setProvider?.(provider);
+  }
+  if (!models.getProviders().some((provider) => provider.id === "moonshotai")) {
+    models.setProvider?.(createMoonshotProvider(kimiOptions(env)));
+  }
+  await models.refresh({ allowNetwork: true }).catch(() => undefined);
+};
+
+/**
+ * `GET /models` on the Moonshot platform (or whatever `KIMI_BASE_URL` names). A failure is
+ * thrown so the provider keeps its stored dynamic list, or pi-ai's shipped catalog if there is none.
+ */
+export const fetchMoonshotCatalog = async (
+  options: KimiOptions = kimiOptions(),
+  credential?: unknown,
+  signal?: AbortSignal
+): Promise<Model<"openai-completions">[]> => {
+  const response = await fetch(`${options.baseUrl.replace(/\/+$/, "")}/models`, {
+    headers: catalogAuth(credential),
+    signal,
+  });
+  if (!response.ok) throw new Error(`moonshotai /models failed: ${response.status}`);
+  const body = (await response.json()) as { data?: MoonshotCatalogEntry[] };
+  const entries = Array.isArray(body.data) ? body.data : [];
+  if (entries.length === 0) throw new Error("moonshotai /models listed nothing");
+  const guessed = entries.filter((entry) => moonshotContextWindow(entry) === undefined).map((entry) => entry.id);
+  if (guessed.length > 0) {
+    console.log(`[hearth] moonshotai: ${guessed.length} model(s) report no window, using 262144: ${guessed.join("; ")}`);
+  }
+  return entries.map((entry) => moonshotModel(entry, options));
+};
+
+/** The default agent model: HEARTH_DEFAULT_MODEL ("provider/modelId") or opencode (Zen). */
+export const hearthDefault = (): HearthDefault => {
+  const raw = envString("HEARTH_DEFAULT_MODEL") ?? "opencode/glm-5.3-flash";
+  const separator = raw.indexOf("/");
+  if (separator <= 0) return { model: { provider: "opencode", modelId: "glm-5.3-flash" } };
+  return { model: { provider: raw.slice(0, separator), modelId: raw.slice(separator + 1) } };
+};
+
+/**
+ * Every provider Hearth serves. Built-ins are always registered — a provider without its
+ * credential simply answers its calls with an auth error and is skipped by refresh — and
+ * orcarouter only when its endpoint is configured.
+ */
+export const hearthModels = async (
+  authFile: string,
+  openCodeSource?: string
+): Promise<{ models: Models; seeded: string[]; store: FileCredentialStore }> => {
+  const store = new FileCredentialStore(authFile);
+  // Retired the env bridge: instead of copying OpenCode's keys into the environment, adopt them
+  // into Hearth's own store on first boot (idempotent, no-clobber) so a device that hasn't run
+  // `provider import` still works. Remove this once every device has migrated (PROVIDER_MIGRATION.md).
+  const seeded = await importOpenCodeCredentials(store, openCodeSource);
+  // A stored credential wins over an env var (`envApiKeyAuth` resolves stored-first); env stays
+  // as the fallback. The model-catalog store lives next to the credentials so boot can restore
+  // the last known lists without network access; the network refresh runs in the background
+  // instead of gating startup (see `main` in ./index.ts).
+  const models = createModels({
+    credentials: store,
+    modelsStore: new FileModelsStore(join(dirname(authFile), "models-store.json")),
+  });
+  // OpenCode Zen asks the service which models exist (see ./model-discovery.ts);
+  // every other provider serves the catalog pi-ai ships.
+  models.setProvider(openCodeZenWithDiscovery());
+  models.setProvider(xaiProvider());
+  models.setProvider(openaiProvider());
+  models.setProvider(deepseekProvider());
+  models.setProvider(googleProvider());
+  models.setProvider(fireworksProvider());
+  const storedIds = (await store.list().catch(() => [])).map((entry) => entry.providerId);
+  for (const provider of kimiProviders(storedIds)) models.setProvider(provider);
+  if (!models.getProviders().some((provider) => provider.id === "moonshotai")) {
+    models.setProvider(createMoonshotProvider());
+  }
+  const router = orcarouterProvider();
+  if (router) models.setProvider(router);
+  return { models, seeded, store };
+};

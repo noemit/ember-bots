@@ -1,0 +1,1019 @@
+import * as React from 'react';
+import { AnimatePresence, LayoutGroup } from 'motion/react';
+import {
+  Box,
+  ChevronDown,
+  CalendarClock,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Play,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { normalizeDirectory, projectForSession, projectIdentityKey } from '../blob/seed';
+import { cn } from '@/lib/utils';
+import Blob from '../blob/Blob';
+import { useStableCallback } from '@/lib/useStableCallback';
+import { describeSchedule } from '@/lib/scheduleText';
+import { groupNewAgentTarget } from '@/lib/railStrip';
+import { endpointState, instanceReady, outageCopy, railEmptyCopy, type SilentInstance } from '@/lib/instanceHealth';
+import {
+  buildRailEntries,
+  groupDraftFromEntry,
+  type GroupEntry,
+  type ProjectEntry,
+  type RailEntry,
+} from '@/lib/projectGroups';
+import { instanceMarkerColor } from '../lib/instanceMarker';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import ProjectCard from './ProjectCard';
+import GroupRow from './GroupRow';
+import SessionRow from './SessionRow';
+import { sessionKey } from '../types';
+import type { ScheduledTask } from '../api';
+import type {
+  AvatarIdentity,
+  BallMood,
+  BlobStyle,
+  Instance,
+  InstanceDefaults,
+  Project,
+  RailMode,
+  Session,
+  SessionGroup,
+} from '../types';
+
+type Props = {
+  instances: Instance[];
+  projectsByInstance: Record<string, Project[]>;
+  instanceDefaults: Record<string, InstanceDefaults>;
+  sessions: Session[];
+  /** Every session (active and archived, ignoring the recency window) for broadened search. */
+  everySession: Session[];
+  moods: Record<string, BallMood>;
+  previews: Record<string, string>;
+  selectedKey: string | null;
+  avatarIdentities: Record<string, AvatarIdentity>;
+  blobStyle: BlobStyle;
+  /** The session list's width: a blob dock, the familiar rail, or about half the window. */
+  mode: RailMode;
+  /** Walk mini → normal → wide. */
+  onCycleMode: () => void;
+  /** Compact session rows: smaller blobs, no preview line. */
+  compact: boolean;
+  loading: boolean;
+  /**
+   * The honest one-liner for a launch still coming up ("Connecting to Hearth and loading your
+   * sessions…"), or null once there is nothing left to wait for. Derived by `startupNotice` so the
+   * wording is testable rather than scattered through JSX.
+   */
+  startupMessage: string | null;
+  /**
+   * Configured hosts that are not answering, each with the sessions Ember still lists from its last
+   * answer (`silentInstances` in `lib/instanceHealth`). One row each, above the sessions, because
+   * the alternative — subtracting those sessions from the rail — is indistinguishable from deletion.
+   */
+  silentInstances: SilentInstance[];
+  /** Reprobe every configured instance (what the outage rows' Retry button runs). */
+  onRetryInstances: () => void;
+  /**
+   * "I know, stop telling me" for one host's outage. Only the warning goes away: that host's
+   * last-known sessions stay exactly where they are, and nothing on the host is touched.
+   */
+  onDismissOutage: (entry: SilentInstance) => void;
+  /** A probe is already in flight, so the outage rows' Retry shows a spinner instead of a second run. */
+  retryingInstances: boolean;
+  mobileOpen: boolean;
+  reloadingKeys: Set<string>;
+  archivingKeys: Set<string>;
+  /** Session keys currently rendered as workspace columns; each gets an underline on its blob. */
+  visibleColumnKeys: Set<string>;
+  /** The currently open session, if any. Pinned to the rail when filters hide it. */
+  selectedSession: Session | null;
+  /** Human label for the recency window ("Last 2 days"), or null when everything is shown. */
+  windowLabel: string | null;
+  /**
+   * The scheduling **plans** — triggers, not runs. A run is an ordinary session in the list above,
+   * marked with a calendar so it can be told apart from something a person started.
+   */
+  scheduledTasks: ScheduledTask[];
+  /** Session key → scheduled task, for the run/model actions on a task's run rows. */
+  scheduledTaskBySession: Record<string, ScheduledTask>;
+  runningScheduledKeys: Set<string>;
+  onRunScheduledTask: (task: ScheduledTask) => void;
+  onChangeScheduledTaskModel: (task: ScheduledTask) => void;
+  /** Archived sessions across instances; opens the archive screen. */
+  onOpenArchive: () => void;
+  onSelectSession: (session: Session) => void;
+  /** Opens a project's sessions (those shown on its card) as the open list. */
+  onOpenProject: (instanceId: string, project: Project, sessions: Session[]) => void;
+  onOpenSession: (session: Session) => void;
+  onReload: (session: Session) => void;
+  onArchive: (session: Session, archived: boolean) => void;
+  /** Bulk archive a project's sessions from the card's `+N` menu. */
+  onArchiveMany: (sessions: Session[]) => void;
+  onCustomizeAppearance: (session: Session) => void;
+  /** Right-click "Mark all as read" for a session with unread messages. */
+  onMarkAllRead?: (session: Session) => void;
+  /** Session keys with unread messages, from Home's own read marks. */
+  unreadKeys?: Set<string>;
+  onNewAgent: (instanceId: string, directory?: string) => void;
+  /** Agent groups, already parsed; the rail draws them above projects. */
+  groups: SessionGroup[];
+  onOpenGroup: (members: Session[]) => void;
+  onUngroup: (groupId: string) => void;
+  /** Open the group panel for a group, or start one from a session. */
+  onManageGroup: (draft: { id?: string; name: string; keys: string[]; primaryKey?: string }) => void;
+  onOpenSettings: () => void;
+};
+
+/** No-op for callers that render the rail without read state (tests, the archive screen). */
+const NO_MARKS = (_session: Session): void => {};
+
+const matchesQuery = (haystack: Array<string | undefined>, query: string): boolean =>
+  haystack.some((value) => value?.toLowerCase().includes(query));
+
+export default function LeftRail({
+  instances,
+  projectsByInstance,
+  instanceDefaults,
+  sessions,
+  everySession,
+  moods,
+  previews,
+  selectedKey,
+  avatarIdentities,
+  blobStyle,
+  compact,
+  mode,
+  onCycleMode,
+  loading,
+  startupMessage,
+  silentInstances,
+  onRetryInstances,
+  onDismissOutage,
+  retryingInstances,
+  mobileOpen,
+  reloadingKeys,
+  archivingKeys,
+  visibleColumnKeys,
+  selectedSession,
+  windowLabel,
+  scheduledTasks,
+  scheduledTaskBySession,
+  runningScheduledKeys,
+  onRunScheduledTask,
+  onChangeScheduledTaskModel,
+  onOpenArchive,
+  onSelectSession,
+  onOpenProject,
+  onOpenSession,
+  onReload,
+  onArchive,
+  onArchiveMany,
+  onCustomizeAppearance,
+  onMarkAllRead,
+  unreadKeys,
+  onNewAgent,
+  groups,
+  onOpenGroup,
+  onUngroup,
+  onManageGroup,
+  onOpenSettings,
+}: Props) {
+  const [query, setQuery] = React.useState('');
+  // Search starts scoped to the current view; the empty state can widen it to all time/archived.
+  const [searchAllTime, setSearchAllTime] = React.useState(false);
+  const [searchArchived, setSearchArchived] = React.useState(false);
+
+  React.useEffect(() => {
+    if (query) return;
+    // Clearing the box returns the next search to the default scope.
+    setSearchAllTime(false);
+    setSearchArchived(false);
+  }, [query]);
+
+  const instanceById = React.useMemo(
+    () => Object.fromEntries(instances.map((instance) => [instance.id, instance])),
+    [instances]
+  );
+  const ready = React.useMemo(() => instances.filter(instanceReady), [instances]);
+  const multiInstance = ready.length > 1;
+  const connection = React.useMemo(() => endpointState(instances), [instances]);
+  const needle = query.trim().toLowerCase();
+
+  const activeEverywhere = React.useMemo(
+    () => everySession.filter((session) => !session.archived),
+    [everySession]
+  );
+  const archivedEverywhere = React.useMemo(
+    () => everySession.filter((session) => session.archived),
+    [everySession]
+  );
+
+  // The selected session is pinned into the rail even when a filter would hide it.
+  const itemSessions = React.useMemo(
+    () =>
+      selectedSession && !sessions.some((session) => sessionKey(session) === sessionKey(selectedSession))
+        ? [...sessions, selectedSession]
+        : sessions,
+    [sessions, selectedSession]
+  );
+
+  const entries = React.useMemo(
+    () => buildRailEntries(itemSessions, projectsByInstance, groups),
+    [itemSessions, projectsByInstance, groups]
+  );
+
+  const matchesSession = React.useCallback(
+    (session: Session) => {
+      // A session is also found by its group's name: the group is what the user named, and a
+      // search for "release" that hides the group's sessions makes the group look empty.
+      const groupName = groups.find((group) => group.keys.includes(sessionKey(session)))?.name;
+      return matchesQuery(
+        [
+          session.title,
+          session.id,
+          previews[sessionKey(session)],
+          session.directory,
+          instanceById[session.instanceId]?.label,
+          projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name,
+          groupName,
+        ],
+        needle
+      );
+    },
+    [previews, instanceById, projectsByInstance, needle, groups]
+  );
+
+  // Search pools: active matches keep the project grouping; archived matches stay individual rows.
+  const activeMatches = React.useMemo(() => {
+    if (!needle) return [];
+    const pool = searchAllTime ? activeEverywhere : itemSessions;
+    return pool.filter(matchesSession);
+  }, [needle, searchAllTime, activeEverywhere, itemSessions, matchesSession]);
+
+  const archivedMatches = React.useMemo(() => {
+    if (!needle || !searchArchived) return [];
+    return archivedEverywhere.filter(matchesSession);
+  }, [needle, searchArchived, archivedEverywhere, matchesSession]);
+
+  const railEntries = React.useMemo(() => {
+    if (!needle) return entries;
+    // `groups` in, so a matching group keeps its card and its members stay inside it (they are
+    // grouped sessions: buildRailEntries would otherwise make them standalone rows).
+    const withSessions = buildRailEntries(activeMatches, projectsByInstance, groups);
+    const represented = new Set(
+      withSessions
+        .filter((entry): entry is ProjectEntry => entry.kind === 'project')
+        .map((entry) => entry.id)
+    );
+    const emptyProjects: ProjectEntry[] = [];
+    Object.entries(projectsByInstance).forEach(([instanceId, projects]) => {
+      projects.forEach((project) => {
+        const id = projectIdentityKey(instanceId, project.id);
+        if (represented.has(id)) return;
+        if (!matchesQuery([project.name, project.path], needle)) return;
+        emptyProjects.push({
+          kind: 'project',
+          id,
+          instanceId,
+          project,
+          sessions: [],
+          updated: 0,
+        });
+      });
+    });
+    emptyProjects.sort((a, b) => a.project.name.localeCompare(b.project.name) || a.id.localeCompare(b.id));
+    // A group whose name matches but whose members don't is still a real hit (the same courtesy
+    // `emptyProjects` gives a project name). It is found by name, so every member must resolve —
+    // otherwise the card would claim agents it cannot open.
+    const matchedGroups = groups.flatMap((group) => {
+      if (!matchesQuery([group.name], needle)) return [];
+      const members = group.keys.flatMap((key) => activeMatches.find((session) => sessionKey(session) === key) ?? []);
+      if (members.length === 0) return [];
+      const sorted = [...members].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
+      return [{
+        kind: 'group' as const,
+        id: group.id,
+        name: group.name,
+        keys: [...group.keys],
+        members: sorted,
+        instanceIds: [...new Set(sorted.map((member) => member.instanceId))],
+        primaryKey:
+          group.primaryKey !== undefined && group.keys.includes(group.primaryKey)
+            ? group.primaryKey
+            : sessionKey(sorted[0]),
+        updated: sorted.length > 0 ? (sorted[0].updated ?? 0) : 0,
+      }];
+    });
+    // Group cards found by name go first, like buildRailEntries' own ordering, then projects.
+    return [...matchedGroups, ...withSessions, ...emptyProjects];
+  }, [needle, entries, activeMatches, projectsByInstance, groups]);
+
+  const hasItems = railEntries.length > 0 || archivedMatches.length > 0;
+
+  /**
+   * The "widen the search" actions: reachable whether or not the current scope already found
+   * something. They used to render only inside the empty state, so a search for "audit" that hit
+   * one recent session hid the buttons that would reveal the five older and archived matches —
+   * the reader was told, by omission, that those did not exist.
+   *
+   * Each button is offered only when widening would actually add a row.
+   */
+  const canSearchAllTime =
+    Boolean(needle) &&
+    !searchAllTime &&
+    activeEverywhere.length > activeMatches.length;
+  const canSearchArchived =
+    Boolean(needle) && !searchArchived && archivedEverywhere.length > 0;
+  /** Set while the reader is inside a search, which is what gives these buttons room to breathe. */
+  const breadthControls =
+    canSearchAllTime || canSearchArchived ? (
+      <div
+        className={cn('flex flex-col items-stretch gap-1.5', needle ? 'mt-3' : 'mt-2')}
+        data-testid="rail-search-breadth"
+      >
+        {canSearchAllTime ? (
+          <Button size="xs" variant="outline" onClick={() => setSearchAllTime(true)}>
+            Search all time
+          </Button>
+        ) : null}
+        {canSearchArchived ? (
+          <Button size="xs" variant="outline" onClick={() => setSearchArchived(true)}>
+            Search archived sessions
+          </Button>
+        ) : null}
+      </div>
+    ) : null;
+
+  /**
+   * One row per configured host that is not answering. Deliberately not a session row: no blob, no
+   * preview, no archive control — this is a statement about a host, and the sessions below it are
+   * the ones that host listed the last time it answered.
+   */
+  const renderSilentInstance = (entry: SilentInstance) => {
+    const copy = outageCopy(entry);
+    return (
+      <div
+        key={`silent:${entry.instanceId}`}
+        data-testid="rail-silent-instance"
+        className="mx-1 my-1 flex items-start gap-2 rounded-lg border border-dashed bg-muted/40 px-2.5 py-2"
+      >
+        <span
+          aria-hidden="true"
+          className="mt-1 size-1.5 flex-none rounded-full bg-muted-foreground/60"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="min-w-0 truncate text-[12.5px] font-medium text-foreground">
+              {entry.label}
+            </span>
+            <span className="flex-none text-[11px] text-muted-foreground">{copy.status}</span>
+          </span>
+          <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground">
+            {copy.detail}
+          </span>
+        </span>
+        {copy.retryable ? (
+          <span className="mt-0.5 flex flex-none items-center gap-1">
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={retryingInstances}
+              onClick={onRetryInstances}
+              aria-label={`Retry ${entry.label}`}
+            >
+              {retryingInstances ? (
+                <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+              ) : (
+                <RefreshCw className="size-3" />
+              )}
+              Retry
+            </Button>
+            {/* Only on a plain outage: "Sessions unavailable" is a settings problem, and
+                dismissing that would hide the very thing that needs fixing. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => onDismissOutage(entry)}
+                  aria-label={`Stop warning about ${entry.label}`}
+                >
+                  <X />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Hide this warning until this host answers again</TooltipContent>
+            </Tooltip>
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
+  // Default target for "New agent": whichever instance was active most recently.
+  const defaultInstanceId =
+    [...sessions].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0)).find(
+      (session) => instanceById[session.instanceId]?.attachable
+    )?.instanceId ??
+    ready[0]?.id ??
+    null;
+
+  // App passes inline lambdas; pin their identity so the memoized rows actually hold.
+  const selectSession = useStableCallback(onSelectSession);
+  const openSession = useStableCallback(onOpenSession);
+  const reloadSession = useStableCallback(onReload);
+  const archiveSession = useStableCallback(onArchive);
+  const archiveMany = useStableCallback(onArchiveMany);
+  const customizeAppearance = useStableCallback(onCustomizeAppearance);
+  const markAllRead = useStableCallback(onMarkAllRead ?? NO_MARKS);
+  const newAgent = useStableCallback(onNewAgent);
+  const runScheduledTask = useStableCallback(onRunScheduledTask);
+  const changeScheduledTaskModel = useStableCallback(onChangeScheduledTaskModel);
+
+  // The header line shown above a row's title: project/folder then instance, so every rail entry
+  // is labelled the same way grouped project cards are.
+  const folderNameOf = (session: Session): string | undefined =>
+    projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name ??
+    (session.directory
+      ? normalizeDirectory(session.directory).split(/[\\/]/).filter(Boolean).pop()
+      : undefined);
+  const instanceLabelOf = (session: Session): string | undefined =>
+    instanceById[session.instanceId]?.label;
+  // Instance name, shown with the same cube glyph as the chat header's instance badge.
+  const metadataCache = React.useRef(new Map<string, React.ReactNode>());
+  if (metadataCache.current.size > 2000) metadataCache.current.clear();
+  const instanceMeta = (label: string): React.ReactNode => {
+    const key = `instance:${label}`;
+    if (!metadataCache.current.has(key)) metadataCache.current.set(key, (
+      <span className="flex min-w-0 items-center gap-0.5">
+        <Box className="size-2.5 flex-none" aria-hidden="true" />
+        <span className="truncate">{label}</span>
+      </span>
+    ));
+    return metadataCache.current.get(key);
+  };
+  const topMetaFor = (session: Session): React.ReactNode => {
+    const folder = folderNameOf(session);
+    const instance = instanceLabelOf(session);
+    if (!folder && !instance) return undefined;
+    const key = JSON.stringify([folder, instance]);
+    if (!metadataCache.current.has(key)) metadataCache.current.set(key, (
+      <>
+        {folder ? <span className="truncate">{folder}</span> : null}
+        {folder && instance ? <span aria-hidden>·</span> : null}
+        {instance ? instanceMeta(instance) : null}
+      </>
+    ));
+    return metadataCache.current.get(key);
+  };
+
+  const renderSession = (session: Session) => {
+    const key = sessionKey(session);
+    const instance = instanceById[session.instanceId];
+    const scheduledTask = scheduledTaskBySession[key];
+    return (
+      <SessionRow
+        key={key}
+        session={session}
+        instanceLabel={multiInstance ? instance?.label : undefined}
+        projectName={projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name}
+        topMeta={topMetaFor(session)}
+        preview={previews[key]}
+        selected={key === selectedKey}
+        visibleColumn={visibleColumnKeys.has(key)}
+        mood={moods[key] ?? 'unknown'}
+        reloading={reloadingKeys.has(key)}
+        archiving={archivingKeys.has(key)}
+        markerColor={instanceMarkerColor(session.instanceId, instanceDefaults[session.instanceId])}
+        identity={avatarIdentities[key]}
+        blobStyle={blobStyle}
+        compact={compact}
+        expanded={mode === 'wide'}
+        scheduledTask={scheduledTask}
+        scheduledRunning={scheduledTask ? runningScheduledKeys.has(scheduledTask.key) : false}
+        onRunScheduledTask={runScheduledTask}
+        onChangeScheduledTaskModel={changeScheduledTaskModel}
+        onSelect={selectSession}
+        onReload={reloadSession}
+        onArchive={archiveSession}
+        onCustomizeAppearance={customizeAppearance}
+        onMarkAllRead={markAllRead}
+        hasUnread={unreadKeys?.has(key) ?? false}
+        onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
+        // Every agent gets a plus: the draft opens on this session's instance and folder, both
+        // still changeable in its options row before the first message.
+        onNewAgent={() => newAgent(session.instanceId, session.directory)}
+      />
+    );
+  };
+
+  const projectNewAgent = React.useRef(new Map<string, () => void>());
+  // A group's `+` starts a session on its primary member's instance, in that member's folder — the
+  // way the group panel already seeds one — and is left off when no member resolves.
+  const groupNewAgent = (entry: GroupEntry): (() => void) | undefined => {
+    const target = groupNewAgentTarget(entry.members, entry.primaryKey);
+    return target ? () => newAgent(target.instanceId, target.directory) : undefined;
+  };
+  const renderEntry = (entry: RailEntry) => {
+    if (entry.kind === 'session') return renderSession(entry.session);
+    // Group rows are built by buildRailEntries but not drawn yet: this step adds the rail pass and
+    // its tests, and the row component lands with the Manage group panel.
+    if (entry.kind === 'group') {
+      return (
+        <GroupRow
+          key={entry.id}
+          entry={entry}
+          instanceLabels={Object.fromEntries(instances.map((instance) => [instance.id, instance.label]))}
+          avatarIdentities={avatarIdentities}
+          moods={moods}
+          visibleKeys={visibleColumnKeys}
+          blobStyle={blobStyle}
+          reloadingKeys={reloadingKeys}
+          archivingKeys={archivingKeys}
+          onOpen={() => onOpenGroup(entry.members)}
+          onOpenSession={openSession}
+          onNewAgent={groupNewAgent(entry)}
+          onReload={reloadSession}
+          onArchive={archiveSession}
+          onArchiveMany={archiveMany}
+          onCustomizeAppearance={customizeAppearance}
+          onUngroup={() => onUngroup(entry.id)}
+          // The configured keys, not the resolved members (see `groupDraftFromEntry`): a member
+          // on an unreachable instance is absent from `members`, and deriving the list from it
+          // made saving the panel drop that member for good.
+          onManage={() => onManageGroup(groupDraftFromEntry(entry))}
+        />
+      );
+    }
+    const instance = instanceById[entry.instanceId];
+    const openProject = () => onOpenProject(entry.instanceId, entry.project, entry.sessions);
+    const newAgentKey = `${entry.instanceId}\u0000${entry.project.path ?? ''}`;
+    if (!projectNewAgent.current.has(newAgentKey)) projectNewAgent.current.set(newAgentKey, () => newAgent(entry.instanceId, entry.project.path));
+    // A lone session keeps the familiar full row (big blob, project name as the title); the
+    // grouped card is only worth it once a project has several sessions to show off.
+    if (entry.sessions.length === 1) {
+      const session = entry.sessions[0];
+      const key = sessionKey(session);
+      return (
+        <SessionRow
+          key={entry.id}
+          session={session}
+          instanceLabel={multiInstance ? instance?.label : undefined}
+          projectName={undefined}
+          titleOverride={entry.project.name}
+          onArchiveMany={archiveMany}
+          topMeta={instance?.label ? instanceMeta(instance.label) : undefined}
+          preview={previews[key]}
+          selected={key === selectedKey}
+          visibleColumn={visibleColumnKeys.has(key)}
+          mood={moods[key] ?? 'unknown'}
+          reloading={reloadingKeys.has(key)}
+          archiving={archivingKeys.has(key)}
+          markerColor={instanceMarkerColor(entry.instanceId, instanceDefaults[entry.instanceId])}
+          identity={avatarIdentities[key]}
+          blobStyle={blobStyle}
+          compact={compact}
+          expanded={mode === 'wide'}
+          onSelect={openSession}
+          onNewAgent={projectNewAgent.current.get(newAgentKey)}
+          onReload={reloadSession}
+          onArchive={archiveSession}
+          onCustomizeAppearance={customizeAppearance}
+        onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
+        />
+      );
+    }
+    return (
+      <ProjectCard
+        key={entry.id}
+        project={entry.project}
+        instanceId={entry.instanceId}
+        instanceLabel={instance?.label}
+        markerColor={instanceMarkerColor(entry.instanceId, instanceDefaults[entry.instanceId])}
+        sessions={entry.sessions}
+        moods={moods}
+        visibleKeys={visibleColumnKeys}
+        avatarIdentities={avatarIdentities}
+        blobStyle={blobStyle}
+        reloadingKeys={reloadingKeys}
+        archivingKeys={archivingKeys}
+        onOpenProject={openProject}
+        onOpenSession={openSession}
+        onNewAgent={newAgent}
+        onReload={reloadSession}
+        onArchive={archiveSession}
+        onArchiveMany={archiveMany}
+        onCustomizeAppearance={customizeAppearance}
+        onMarkAllRead={markAllRead}
+        unreadKeys={unreadKeys}
+        // The strip gets the extra room the widened rail bought (roughly: half the window, less
+        // the rail's own padding), so a project's blobs spread out instead of huddling left.
+        stripWidth={mode === 'wide' ? 660 : undefined}
+      />
+    );
+  };
+
+  // Archived search hits are individual rows; clicking one restores it (archived can't stay open).
+  const renderArchivedSession = (session: Session) => {
+    const key = sessionKey(session);
+    const instance = instanceById[session.instanceId];
+    return (
+      <SessionRow
+        key={key}
+        session={session}
+        instanceLabel={multiInstance ? instance?.label : undefined}
+        projectName={projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name}
+        preview={previews[key]}
+        selected={false}
+        mood={moods[key] ?? 'unknown'}
+        reloading={reloadingKeys.has(key)}
+        archiving={archivingKeys.has(key)}
+        markerColor={instanceMarkerColor(session.instanceId, instanceDefaults[session.instanceId])}
+        identity={avatarIdentities[key]}
+        blobStyle={blobStyle}
+        compact={compact}
+        expanded={mode === 'wide'}
+        onSelect={() => archiveSession(session, false)}
+        onReload={reloadSession}
+        onArchive={archiveSession}
+        onCustomizeAppearance={customizeAppearance}
+        onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
+      />
+    );
+  };
+
+  return (
+    <aside
+      className={cn(
+        'mobile-rail fixed left-0 z-40 flex w-[min(88vw,320px)] flex-none flex-col border-r bg-card transition-transform duration-200 md:static md:z-auto md:translate-x-0',
+        // Collapsible: narrow (320px) as before, or about half the window so a row can show the
+        // latest message. The ceiling keeps the text at a readable measure.
+        'md:transition-[width] md:duration-200',
+        mode === 'wide' ? 'md:w-[min(50vw,760px)]' : mode === 'mini' ? 'md:w-[64px]' : 'md:w-[320px]',
+        mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+      )}
+    >
+      <div className={cn('flex flex-col gap-2 border-b', mode === 'mini' ? 'items-center p-1.5' : 'p-2.5')}>
+        {mode === 'mini' ? (
+          <div className="flex flex-col items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon-sm"
+                  disabled={!defaultInstanceId}
+                  onClick={() => defaultInstanceId && onNewAgent(defaultInstanceId)}
+                  aria-label="New agent"
+                  className="size-8"
+                >
+                  <Plus />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>New agent</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={onCycleMode}
+                  aria-label="Show the normal session list"
+                  aria-keyshortcuts="Meta+B Control+B"
+                  className="size-8"
+                >
+                  <PanelLeftOpen className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Back to the normal list (⌘B)</TooltipContent>
+            </Tooltip>
+          </div>
+        ) : null}
+        {mode === 'mini' ? null : multiInstance ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" className="w-full justify-start" size="sm">
+                <Plus />
+                New agent
+                <ChevronDown className="ml-auto opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="min-w-[220px]"
+              // Picking an instance opens a draft whose composer takes focus; don't yank it back here.
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
+              <DropdownMenuLabel>New agent on…</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {ready.map((instance) => (
+                <DropdownMenuItem key={instance.id} onSelect={() => onNewAgent(instance.id)}>
+                  <span className="size-1.5 rounded-full bg-success" />
+                  {instance.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button
+            variant="secondary"
+            className="w-full justify-start"
+            size="sm"
+            disabled={!defaultInstanceId}
+            onClick={() => defaultInstanceId && onNewAgent(defaultInstanceId)}
+          >
+            <Plus />
+            New agent
+          </Button>
+        )}
+
+        {mode === 'mini' ? null : (
+        <div className="flex gap-1.5">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              value={query}
+              placeholder="Search sessions…"
+              aria-label="Search sessions"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query) {
+                  event.preventDefault();
+                  setQuery('');
+                }
+              }}
+              className="h-8 pl-8 pr-7 text-xs shadow-none [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query ? (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+                className="absolute top-1/2 right-1 -translate-y-1/2"
+              >
+                <X />
+              </Button>
+            ) : null}
+          </div>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenArchive}
+                aria-label="Archived sessions"
+                className="w-8 justify-center px-0"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Archived sessions</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onCycleMode}
+                aria-label={mode === 'normal' ? 'Widen the session list' : 'Collapse the session list'}
+                aria-pressed={mode !== 'normal'}
+                aria-keyshortcuts="Meta+B Control+B"
+                className="hidden w-8 justify-center px-0 md:inline-flex"
+              >
+                {mode === 'wide' ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {mode === 'normal' ? 'Widen the list to read messages (⌘B)' : 'Collapse the list to icons (⌘B)'}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        )}
+      </div>
+
+      <div className={cn('min-h-0 flex-1 overflow-y-auto', mode === 'mini' ? 'px-1 py-1' : 'px-1.5 py-1.5')}>
+        {mode === 'mini' ? (
+          <div className="flex flex-col items-center gap-1">
+            {[...itemSessions]
+              .filter((session) => !session.archived)
+              .sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))
+              .map((session) => {
+                const key = sessionKey(session);
+                const label = session.title?.trim() || projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name || session.id;
+                return (
+                  <Tooltip key={key}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => openSession(session)}
+                        aria-label={label}
+                        data-mini-session={key}
+                        className={cn(
+                          'relative grid size-12 place-items-center rounded-lg transition-colors',
+                          key === selectedKey ? 'bg-muted' : 'hover:bg-muted/60'
+                        )}
+                      >
+                        <Blob
+                          style={blobStyle}
+                          seed={key}
+                          identity={avatarIdentities[key]}
+                          size={40}
+                          mood={moods[key] ?? 'unknown'}
+                        />
+                        {visibleColumnKeys.has(key) ? (
+                          <span
+                            data-column-underline
+                            aria-hidden="true"
+                            className="pointer-events-none absolute -bottom-0.5 left-1/2 h-[3px] w-6 -translate-x-1/2 rounded-full bg-highlight"
+                          />
+                        ) : null}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {label}
+                      {previews[key] ? <span className="mt-1 block max-w-[280px] text-muted-foreground">{previews[key]}</span> : null}
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+          </div>
+        ) : null}
+        {mode === 'mini' ? null : (
+          <>
+        {silentInstances.length > 0 ? (
+          <div className="mb-1 flex flex-col" data-testid="rail-silent-instances">
+            {silentInstances.map(renderSilentInstance)}
+          </div>
+        ) : null}
+        <LayoutGroup>
+          <AnimatePresence initial={false} mode="popLayout">
+            {railEntries.map(renderEntry)}
+          </AnimatePresence>
+        </LayoutGroup>
+
+        {archivedMatches.length > 0 ? (
+          <div className="mt-2 flex flex-col gap-0.5 border-t pt-2">
+            <span className="px-2.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              Archived
+            </span>
+            {archivedMatches.map(renderArchivedSession)}
+          </div>
+        ) : null}
+
+        {/* The plans, not the runs: a run is an ordinary session in the list above (with a calendar
+            mark saying what started it), and this is the trigger that produces them. */}
+        {scheduledTasks.length > 0 && !needle ? (
+          <div className="mt-2 flex flex-col gap-0.5 border-t pt-2" data-testid="rail-scheduled-plan">
+            <span className="px-2.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              Scheduled
+            </span>
+            {scheduledTasks.map((task) => {
+              const lastRun = task.state.lastSessionId
+                ? (everySession.find(
+                    (session) =>
+                      session.instanceId === task.instanceId && session.id === task.state.lastSessionId
+                  ) ?? null)
+                : null;
+              const schedule = describeSchedule(task.raw.schedule);
+              const failed = task.state.lastStatus === 'error' || Boolean(task.state.lastError);
+              return (
+                <div
+                  key={task.key}
+                  className="group/plan flex min-w-0 items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                  data-task-key={task.key}
+                >
+                  <CalendarClock
+                    className={cn(
+                      'mt-0.5 size-3.5 flex-none',
+                      task.enabled ? 'text-muted-foreground' : 'text-muted-foreground/40'
+                    )}
+                    aria-hidden="true"
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => (lastRun ? selectSession(lastRun) : undefined)}
+                        disabled={!lastRun}
+                        title={
+                          lastRun
+                            ? `Open the last run of ${task.name}`
+                            : `${task.name} has not run yet`
+                        }
+                        className={cn(
+                          'min-w-0 truncate text-left text-[12.5px] font-medium',
+                          lastRun ? 'text-foreground' : 'text-muted-foreground'
+                        )}
+                      >
+                        {task.name}
+                      </button>
+                      {!task.enabled ? (
+                        <span className="flex-none rounded-sm bg-muted px-1 text-[9.5px] leading-4 font-semibold text-muted-foreground uppercase">
+                          paused
+                        </span>
+                      ) : null}
+                      {failed ? (
+                        <span
+                          className="flex-none text-[10px] font-medium text-destructive"
+                          title={task.state.lastError}
+                        >
+                          last run failed
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                      {schedule ?? 'No schedule Ember understands'}
+                      {multiInstance ? ` · ${instanceById[task.instanceId]?.label ?? ''}` : ''}
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    disabled={runningScheduledKeys.has(task.key)}
+                    aria-label={`Run ${task.name} now`}
+                    title={runningScheduledKeys.has(task.key) ? 'Starting…' : `Run ${task.name} now`}
+                    onClick={() => runScheduledTask(task)}
+                    className="mt-0.5 flex-none text-muted-foreground opacity-0 group-hover/plan:opacity-100 focus-visible:opacity-100"
+                  >
+                    {runningScheduledKeys.has(task.key) ? <Loader2 className="animate-spin" /> : <Play />}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {!hasItems ? (
+          <div className="px-3 py-8">
+            {loading ? (
+              <div className="flex flex-col gap-3">
+                {startupMessage ? (
+                  <div className="flex items-center gap-1.5 px-0.5 text-[11.5px] text-muted-foreground">
+                    <span className="size-1.5 flex-none animate-pulse rounded-full bg-highlight" />
+                    <span className="min-w-0">{startupMessage}</span>
+                  </div>
+                ) : null}
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : (
+              <Alert variant="default" className="border-dashed">
+                <AlertDescription className="text-center text-[12px]">
+                  {railEmptyCopy({
+                    state: connection,
+                    endpointCount: instances.length,
+                    query: needle ? query : null,
+                    windowLabel,
+                  })}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {breadthControls}
+          </div>
+        ) : null}
+
+        {hasItems ? breadthControls : null}
+          </>
+        )}
+      </div>
+
+      <div className={cn('border-t', mode === 'mini' ? 'flex justify-center p-1.5' : 'p-2')}>
+        <Button
+          variant="ghost"
+          size={mode === 'mini' ? 'icon-sm' : 'sm'}
+          className={mode === 'mini' ? 'size-8' : 'w-full'}
+          onClick={onOpenSettings}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <Settings />
+          {mode === 'mini' ? null : 'Settings'}
+        </Button>
+      </div>
+    </aside>
+  );
+}

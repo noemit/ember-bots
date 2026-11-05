@@ -1,0 +1,32 @@
+{
+  "name": "ember-kiln",
+  "version": "0.42.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/noemit/ember-bots.git",
+    "directory": "packages/kiln"
+  },
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "module": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-codemode": "1.5.0",
+    "@earendil-works/pi-durable": "1.5.0",
+    "@earendil-works/pi-schema": "1.5.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "typescript": "5.9.3"
+  }
+}

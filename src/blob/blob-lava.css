@@ -1,0 +1,203 @@
+/*
+ * Lava (LavaBlob.tsx). The goo filter melts whatever is inside it, so the motion is just circles
+ * moving: lobes drifting apart and together, the bud thrown off and reabsorbed, the colour churning
+ * inside. All of it is transforms on SVG children, which repaint the one blob each frame; idle,
+ * unread and error draw no animation at all, so a rail of resting lamps costs nothing.
+ *
+ * Working has to *look* like working at rail size, where a slow single motion reads as a still
+ * picture: busy runs three at once, on three different clocks.
+ */
+
+.blob-lava {
+  --lava-ink: #16130f;
+}
+
+/* Near-black ink vanishes into a dark surface; a deep shade of the body's own hue still reads. */
+.dark .blob-lava {
+  --lava-ink: var(--lava-deep, #16130f);
+}
+
+.blob-lava .blob-lava-bud,
+.blob-lava .blob-lava-lobe,
+.blob-lava .blob-lava-core,
+.blob-lava .blob-lava-rise,
+.blob-lava .blob-lava-pools,
+.blob-lava .blob-lava-glow {
+  transform-box: view-box;
+}
+
+/*
+ * Busy: the body itself churns. Each middle lobe drifts along the line through it, toward the body
+ * and back out, so the necks between lobes thicken and thin — the silhouette changes shape, which is
+ * the thing a still droplet alone never did. Lobe 1 pulls in while lobe 2 swells out, and each has
+ * its own period, so the body never pulses as one piece.
+ */
+.blob-lava[data-motion='split'] .blob-lava-lobe {
+  animation: lava-slosh var(--slosh-dur, 3.4s) ease-in-out infinite alternate;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+/*
+ * The whole goo drifts: a lamp's lump rises and settles rather than sitting in one place, and that
+ * slow vertical float is the motion the style was missing. It is the outer of the three busy tracks,
+ * so the rise, the swell and the lobes' drift all happen on the same blob at once.
+ */
+.blob-lava[data-motion='split'] .blob-lava-rise {
+  animation: lava-rise 6.2s ease-in-out infinite alternate;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+/*
+ * And the body breathes: the main lobe swells a little and settles, which moves the necks between it
+ * and every other lobe. That is also the whole of the movement for a two-lobe shape (drop, cell),
+ * which has no middle lobe to drift. Two `blob-lava-core` groups (the main body and its pools) carry
+ * the same animation from the same origin, so the goo never comes apart.
+ */
+.blob-lava[data-motion='split'] .blob-lava-core {
+  animation: lava-core 4.2s ease-in-out infinite alternate;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+/*
+ * The bud's resting place while busy is *away* from the body, so a still frame — and reduced
+ * motion — still shows a droplet that has come off, which no other mood draws. The throw runs a
+ * little off the outward line (--lava-wx/-wy), so it arcs instead of sliding.
+ */
+.blob-lava[data-motion='split'] .blob-lava-bud {
+  transform: translate(var(--lava-dx, 0), var(--lava-dy, 0)) scale(0.8);
+  animation: lava-split 2.6s cubic-bezier(0.45, 0, 0.4, 1) infinite;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+/* The pool churns one way and the glow the other, so colour moves against colour inside the body. */
+.blob-lava[data-motion='split'] .blob-lava-pools {
+  animation: lava-swirl 3.8s linear infinite;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+.blob-lava[data-motion='split'] .blob-lava-glow {
+  animation: lava-swirl 5.6s linear infinite reverse;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+/*
+ * Thinking: busy inside, nothing outside. The silhouette holds still — that is the difference the
+ * eye reads at rail size — while the colour churns, and the glow counter-turns more slowly still.
+ */
+.blob-lava[data-motion='swirl'] .blob-lava-pools {
+  animation: lava-swirl 9s linear infinite;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+.blob-lava[data-motion='swirl'] .blob-lava-glow {
+  animation: lava-swirl 13s linear infinite reverse;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+/* Waiting on you: the colour barely sways. The orbit ring and badge carry the ask. */
+.blob-lava[data-motion='wait'] .blob-lava-pools {
+  animation: lava-sway 4.8s ease-in-out infinite alternate;
+  animation-delay: var(--lava-delay, 0s);
+}
+
+/*
+ * Out, hang, fall back, melt. The bud swells as it gathers itself, is thrown along the outward line
+ * (bending off it at the peak, --lava-wx/-wy), hangs free for a beat, then drops back into the body
+ * and is absorbed — with a small overshoot inward, because goo does not simply stop.
+ */
+@keyframes lava-split {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  22% {
+    transform: translate(calc(var(--lava-dx, 0) * 0.62), calc(var(--lava-dy, 0) * 0.62)) scale(0.97);
+  }
+  /* LAVA_BUD_SHRINK: the droplet is this small when it hangs free. */
+  46% {
+    transform: translate(
+        calc(var(--lava-dx, 0) + var(--lava-wx, 0) * 0.7),
+        calc(var(--lava-dy, 0) + var(--lava-wy, 0) * 0.7)
+      )
+      scale(0.83);
+  }
+  66% {
+    transform: translate(var(--lava-dx, 0), var(--lava-dy, 0)) scale(0.8);
+  }
+  88% {
+    transform: translate(calc(var(--lava-dx, 0) * -0.1), calc(var(--lava-dy, 0) * -0.1)) scale(1.05);
+  }
+}
+
+/* Toward and away, along the vector the lobe sits on. Distances come from the geometry seed. */
+@keyframes lava-slosh {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(var(--slosh-dx, 0), var(--slosh-dy, 0));
+  }
+}
+
+/*
+ * A lamp's lump drifting up the glass and settling again — 2.4 units of travel in the 100 box — and
+ * turning as it goes, the way convection rolls a real blob. The rock is what carries at rail size: a
+ * 2px float is nearly invisible on a 30px avatar, but a 5 degree lean moves the silhouette's edges by
+ * a couple of pixels, which is what Buddy's hop gets from its 17% squash and this had none of.
+ */
+@keyframes lava-rise {
+  from {
+    transform: translateY(2.4px) rotate(-5deg);
+  }
+  to {
+    transform: translateY(-2.4px) rotate(5deg);
+  }
+}
+
+/*
+ * Swell and squash together, not a clean circle breathing: the goo rises at one end as it settles at
+ * the other, which is what a lamp's lump actually does. Both poses stay inside the box the shape was
+ * drawn to (see the bounds test).
+ */
+@keyframes lava-core {
+  0% {
+    transform: scale(0.99, 0.998);
+  }
+  55% {
+    transform: scale(1.038, 0.978);
+  }
+  100% {
+    transform: scale(0.992, 1.028);
+  }
+}
+
+@keyframes lava-swirl {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes lava-sway {
+  from {
+    transform: rotate(-24deg);
+  }
+  to {
+    transform: rotate(24deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Keep the information, drop the movement: the droplet stays where busy put it (detached), and the
+   * body's churn freezes mid-pull. Nothing here resets a `transform`, because the poses above are the
+   * still frame.
+   */
+  .blob-lava .blob-lava-bud,
+  .blob-lava .blob-lava-lobe,
+  .blob-lava .blob-lava-core,
+  .blob-lava .blob-lava-rise,
+  .blob-lava .blob-lava-pools,
+  .blob-lava .blob-lava-glow {
+    animation: none !important;
+  }
+}

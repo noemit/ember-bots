@@ -1,0 +1,404 @@
+.blob {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+
+.blob svg {
+  display: block;
+}
+
+.blob .blob-body,
+.blob .blob-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/*
+ * Unknown: the host has not said whether this session is idle or working. It draws as neither —
+ * desaturated and half-lit, with no motion of its own — so it cannot be mistaken for an idle blob
+ * that has simply settled, and a rail full of unanswered hosts is visibly different from a quiet one.
+ */
+.blob[data-mood='unknown'] {
+  opacity: 0.55;
+  filter: grayscale(0.9);
+}
+
+.blob[data-mood='unknown'] * {
+  animation-play-state: paused !important;
+}
+
+/*
+ * Buddy's hop/flip wrappers are DOM elements, so their transforms are composited instead of
+ * repainting the SVG every frame. They fill the slot and rotate about its centre, which is where
+ * the SVG's viewBox centre lands, so body and eyes stay locked as before.
+ */
+.blob .blob-hop,
+.blob .blob-flip {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 50%;
+}
+
+/* Everything a style draws that must *not* move with the body (thinking arc, mood badges). */
+.blob .blob-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.blob .blob-eyes .blob-pupil {
+  transition: transform 90ms linear;
+}
+
+/*
+ * Thinking gets the slow, barely-there breathe. Idle deliberately does not animate at all: motion
+ * is how the rail says a session is *doing* something, and a rail of quietly breathing blobs cost
+ * ~12% of a core on the main thread for decoration (measured; a promoted transform on an element
+ * containing an SVG is not composited away). Crystal has always been still when idle — now both
+ * styles agree.
+ */
+.blob-buddy[data-mood='thinking'] .blob-hop {
+  animation: blob-breathe 4.2s ease-in-out infinite;
+}
+
+/* Busy: big squash-and-stretch hops, with an occasional somersault layered on top. */
+.blob-buddy[data-mood='busy'] .blob-hop {
+  animation: blob-hop 1.15s cubic-bezier(0.4, 0, 0.5, 1) infinite;
+}
+
+/* The hop scales body and eyes together, which stretched the eyes with it. Counter-scale the eyes
+   by 75% of the inverse so they mostly keep their shape while the body still squashes. The eyes
+   must share the hop's duration and per-blob delay so the counter-scale stays in step. */
+.blob-buddy[data-mood='busy'] .blob-eyes {
+  animation: blob-hop-eyes 1.15s cubic-bezier(0.4, 0, 0.5, 1) infinite;
+}
+
+.blob-buddy[data-mood='busy'] .blob-flip {
+  animation: blob-flip 12s cubic-bezier(0.62, 0, 0.38, 1) infinite;
+}
+
+/* Input / question / error move the body itself, no hop. */
+.blob-buddy[data-mood='input'] {
+  animation: blob-wiggle 1.4s ease-in-out infinite;
+}
+
+.blob-buddy[data-mood='question'] {
+  animation: blob-tilt 2.6s ease-in-out infinite;
+}
+
+.blob-buddy[data-mood='error'] {
+  animation: blob-wobble 1.6s ease-in-out infinite;
+}
+
+/*
+ * Crystal (CrystalBlob.tsx). Every mood changes the halo's colour and strength *statically* first, so
+ * the state survives a still frame and `prefers-reduced-motion`; the keyframes only add a pulse.
+ * The halo is the only thing that animates (opacity/transform only).
+ */
+.blob-crystal .blob-heat {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  /* Dark by default: an idle crystal is inert. Heat means the session is *doing* something, which is
+     what makes a glowing blob in the rail worth a second look. */
+  opacity: 0;
+}
+
+/* Idle: no heat at all — only the lump's own slow breathe. The arc (thinking) reads the glow. */
+.blob-crystal[data-mood='idle'] .blob-heat,
+.blob-crystal[data-mood='unread'] .blob-heat {
+  opacity: 0;
+}
+
+/* Thinking keeps a steady glow and borrows the shared spinner arc for the "working" read. */
+.blob-crystal[data-mood='thinking'] .blob-heat {
+  opacity: 0.45;
+  animation: blob-breathe 4.2s ease-in-out infinite;
+}
+
+/* Busy: roaring. Brightest static state, plus a fast swell with a flicker on top — a swell alone
+   reads as a pulse, the flicker is what makes it a fire. */
+.blob-crystal[data-mood='busy'] .blob-heat {
+  opacity: 0.9;
+  animation: blob-crystal-swell 1.7s ease-in-out infinite, blob-crystal-flicker 0.9s ease-in-out infinite;
+}
+
+/* Waiting on you: amber, one step quicker than busy so it reads as an ask, not work. */
+.blob-crystal[data-mood='input'] .blob-heat {
+  opacity: 0.72;
+  animation: blob-crystal-swell 1.4s ease-in-out infinite;
+}
+
+/* A question glows steadily: unlike work, it will wait as long as you need. */
+.blob-crystal[data-mood='question'] .blob-heat {
+  opacity: 0.45;
+}
+
+/* Error: the fire is out — grey lump, no halo, no motion. */
+.blob-crystal[data-mood='error'] .blob-heat {
+  opacity: 0;
+}
+
+@keyframes blob-crystal-swell {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes blob-crystal-flicker {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  40% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.75;
+  }
+}
+
+/* Thinking: a soft single arc, loading-style. */
+.blob .blob-arc {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: blob-spin 4s linear infinite;
+}
+
+.blob[data-state='needs-input'] {
+  animation: blob-wiggle 1.4s ease-in-out infinite;
+}
+
+/*
+ * Needs-input orbit (OrbitRing.tsx). The marker rides an elliptical offset-path; the front and
+ * back copies share the same path and alternate visibility at the halfway point so the dot
+ * appears to pass behind the body. offset-distance and opacity are both compositor-friendly.
+ */
+.blob .blob-orbit {
+  offset-rotate: 0deg;
+  animation: blob-orbit 2.6s linear infinite;
+  animation-delay: inherit;
+}
+
+.blob .blob-orbit-front {
+  animation: blob-orbit 2.6s linear infinite, blob-orbit-show-front 2.6s linear infinite;
+  animation-delay: inherit;
+}
+
+.blob .blob-orbit-back {
+  animation: blob-orbit 2.6s linear infinite, blob-orbit-show-back 2.6s linear infinite;
+  animation-delay: inherit;
+}
+
+@keyframes blob-orbit {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+@keyframes blob-orbit-show-front {
+  0%,
+  49.99% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes blob-orbit-show-back {
+  0%,
+  49.99% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+
+.blob[data-state='error'] {
+  animation: blob-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) 1;
+}
+
+@keyframes blob-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.03, 0.97);
+  }
+}
+
+@keyframes blob-bob {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  40% {
+    transform: translateY(-9%) scale(0.96, 1.05);
+  }
+  70% {
+    transform: translateY(0) scale(1.04, 0.96);
+  }
+}
+
+@keyframes blob-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  10% {
+    transform: translateY(2%) scale(1.12, 0.86);
+  }
+  42% {
+    transform: translateY(-17%) scale(0.9, 1.14);
+  }
+  62% {
+    transform: translateY(-17%) scale(0.92, 1.12);
+  }
+  82% {
+    transform: translateY(0) scale(1.16, 0.82);
+  }
+  92% {
+    transform: translateY(-5%) scale(0.97, 1.04);
+  }
+}
+
+/* 75% of the inverse of each blob-hop scale stop, so the eyes deform a quarter as much. */
+@keyframes blob-hop-eyes {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  10% {
+    transform: scale(0.9196, 1.1221);
+  }
+  42% {
+    transform: scale(1.0833, 0.9079);
+  }
+  62% {
+    transform: scale(1.0652, 0.9196);
+  }
+  82% {
+    transform: scale(0.8966, 1.1646);
+  }
+  92% {
+    transform: scale(1.0232, 0.9712);
+  }
+}
+
+/* Mostly still; once per cycle it winds up and does a full somersault. */
+@keyframes blob-flip {
+  0%,
+  86% {
+    transform: rotate(0deg);
+  }
+  94%,
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes blob-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    transform: rotate(-6deg) scale(1.06);
+  }
+  75% {
+    transform: rotate(6deg) scale(1.06);
+  }
+}
+
+@keyframes blob-wobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-5deg);
+  }
+  75% {
+    transform: rotate(5deg);
+  }
+}
+
+@keyframes blob-tilt {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+
+@keyframes blob-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes blob-shake {
+  10%,
+  90% {
+    transform: translateX(-1px);
+  }
+  20%,
+  80% {
+    transform: translateX(2px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-3px);
+  }
+  40%,
+  60% {
+    transform: translateX(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob,
+  .blob .blob-body,
+  .blob .blob-eyes,
+  .blob .blob-hop,
+  .blob .blob-flip,
+  .blob .blob-arc,
+  .blob .blob-orbit,
+  .blob .blob-heat {
+    animation: none !important;
+  }
+
+  /* Busy keeps its roaring static glow, so "working" is still legible without the swell. */
+  .blob-crystal[data-mood='busy'] .blob-heat {
+    opacity: 0.82;
+    transform: none;
+  }
+
+  /* Without motion, park the marker at the front so the ring still reads as "waiting on you". */
+  .blob .blob-orbit-front {
+    offset-distance: 25%;
+    opacity: 1;
+  }
+
+  .blob .blob-orbit-back {
+    opacity: 0;
+  }
+}
