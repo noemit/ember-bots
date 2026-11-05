@@ -7,6 +7,7 @@ import {
   ensureHarnessToken,
   generateDefaultAgentsMd,
   generateServiceConfig,
+  isMain,
   parseArgs,
   runSetup,
   runStatus,
@@ -43,6 +44,20 @@ describe('Tinder / Ember CLI', () => {
     const second = ensureHarnessToken(home);
     expect(second.created).toBe(false);
     expect(second.token).toBe(first.token);
+
+    // Adopts an existing ~/.hearth/hearth.token when initializing ~/.ember for the first time.
+    const fakeUserHome = makeTempDir();
+    const legacyDir = path.join(fakeUserHome, '.hearth');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'hearth.token'), 'legacy-token-12345\n', 'utf8');
+    const adopted = ensureHarnessToken(path.join(fakeUserHome, '.ember'), fakeUserHome);
+    expect(adopted.created).toBe(false);
+    expect(adopted.token).toBe('legacy-token-12345');
+  });
+
+  test('isMain recognizes compiled bun binaries ($bunfs virtual paths)', () => {
+    expect(isMain('/$bunfs/root/tinder-cli', 'file:///$bunfs/root/tinder-cli')).toBe(true);
+    expect(isMain(undefined, 'file:///test')).toBe(false);
   });
 
   test('setup --headless writes token and background service, includes URL & token, and omits desktop GUI steps', () => {

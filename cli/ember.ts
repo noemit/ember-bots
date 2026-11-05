@@ -97,14 +97,25 @@ export const defaultEmberHome = (
 
 /**
  * Ensure `<homeDir>/ember.token` exists with a 64-character hex secret and mode `0o600`.
- * Idempotent: if a valid non-empty token is already on disk, it is preserved and `chmod 0o600` is enforced.
+ * Idempotent: if a valid non-empty token is already on disk in `<homeDir>` or in a legacy
+ * `~/.hearth/hearth.token` (or `/root/.pi/hearth.token`), it is adopted and preserved with `0o600`.
  */
-export const ensureHarnessToken = (homeDir: string): { token: string; tokenPath: string; created: boolean } => {
+export const ensureHarnessToken = (
+  homeDir: string,
+  userHome: string = os.homedir()
+): { token: string; tokenPath: string; created: boolean } => {
   fs.mkdirSync(homeDir, { recursive: true, mode: 0o700 });
   const tokenPath = path.join(homeDir, 'ember.token');
   const legacyPath = path.join(homeDir, 'hearth.token');
+  const candidates = [
+    tokenPath,
+    legacyPath,
+    ...(homeDir === path.join(userHome, '.ember')
+      ? [path.join(userHome, '.hearth', 'hearth.token'), '/root/.pi/hearth.token']
+      : []),
+  ];
 
-  for (const candidate of [tokenPath, legacyPath]) {
+  for (const candidate of candidates) {
     try {
       const existing = fs.readFileSync(candidate, 'utf8').trim();
       if (existing.length > 0) {
@@ -508,7 +519,7 @@ export const runSetup = (
     };
   }
 
-  const { token, tokenPath, created } = ensureHarnessToken(flags.home);
+  const { token, tokenPath, created } = ensureHarnessToken(flags.home, opts.userHome);
   const agentsMd = ensureDefaultAgentsMd({
     platform: flags.platform,
     homeDir: flags.home,
@@ -623,14 +634,20 @@ export const runStatus = async (
   const baseUrl = (flags.url ?? `http://127.0.0.1:${flags.port}`).replace(/\/+$/, '');
   const tokenPath = path.join(flags.home, 'ember.token');
   let token = '';
-  try {
-    token = fs.readFileSync(tokenPath, 'utf8').trim();
-  } catch {
-    // Try legacy hearth.token if ember.token is absent.
+  for (const candidate of [
+    tokenPath,
+    path.join(flags.home, 'hearth.token'),
+    path.join(os.homedir(), '.hearth', 'hearth.token'),
+    '/root/.pi/hearth.token',
+  ]) {
     try {
-      token = fs.readFileSync(path.join(flags.home, 'hearth.token'), 'utf8').trim();
+      const val = fs.readFileSync(candidate, 'utf8').trim();
+      if (val) {
+        token = val;
+        break;
+      }
     } catch {
-      // Leave token empty.
+      // Try next candidate.
     }
   }
 
@@ -737,11 +754,17 @@ export const runCli = async (argv: readonly string[] = process.argv.slice(2)): P
   };
 };
 
-const isMain = (): boolean => {
-  const entry = process.argv[1];
+export const isMain = (
+  entry: string | undefined = process.argv[1],
+  metaUrl: string = import.meta.url
+): boolean => {
   if (!entry) return false;
+  if (entry.includes('$bunfs') || metaUrl.includes('$bunfs')) return true;
   try {
-    return import.meta.url === pathToFileURL(fs.realpathSync(entry)).href || import.meta.url === pathToFileURL(path.resolve(entry)).href;
+    return (
+      metaUrl === pathToFileURL(fs.realpathSync(entry)).href ||
+      metaUrl === pathToFileURL(path.resolve(entry)).href
+    );
   } catch {
     return false;
   }
