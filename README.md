@@ -1,5 +1,7 @@
 # Ember
 
+everything below this line was written by an LLM and not proofread. I'll do it later. -em
+
 **A calm control room for your agents.**
 
 Ember is a desktop client for **Ember Harness** (Kiln / Hearth, Ember's own durable agent harness)
