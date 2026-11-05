@@ -11,6 +11,31 @@ It is not an agent harness: the instance owns execution, queues, permissions, an
 Ember makes that work easier to see and interact with. Both host kinds are named the same way
 everywhere in the app: **ember-harness** and **openchamber**.
 
+## Downloads & Quick Install (v1.0.0)
+
+Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on [**GitHub Releases (`v1.0.0`)**](https://github.com/noemit/ember-bots/releases/tag/v1.0.0):
+
+| Platform | Desktop App | Standalone CLI (`tinder` / `ember` / `kiln`) |
+| --- | --- | --- |
+| **macOS (Apple Silicon)** | [`Ember.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/Ember.dmg) · [`Ember.zip`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/Ember.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/tinder-macos-arm64) |
+| **Linux (x64)** | [`Ember-1.0.0.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/Ember-1.0.0.AppImage) · [`ember-1.0.0.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/ember-1.0.0.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/tinder-linux-x64) |
+
+### Setting up Kiln (`ember-harness`) with Tinder CLI
+
+Whether on your local desktop or a headless remote server:
+
+```sh
+# Local desktop setup (initializes ~/.ember/ember.token + OS-tailored ~/.ember/AGENTS.md)
+./tinder setup
+
+# Headless remote server setup (also writes systemd / launchd background service)
+./tinder setup --headless
+
+# Check Kiln status or print connection URL + bearer token for Ember Desktop
+./tinder status
+./tinder token
+```
+
 ## What it does
 
 - **One workspace, multiple instances.** Browse recent sessions across local, remote, and reachable SSH-backed instances. Healthy instances load without waiting for slow ones.
@@ -38,7 +63,7 @@ version offers. Private Relay instances are not currently supported.
   want to follow configured for desktop use.
 - A graphical desktop environment for Electron.
 
-Desktop behavior and native integration tests have been validated on macOS. Windows and Linux are not yet verified. The current scripts build and launch from source; they do not produce an installer or notarized distribution.
+Desktop behavior, packaging, and native integration tests are verified on **macOS** (Developer ID signed, hardened runtime, Apple notarized & stapled) and **Linux** (`AppImage` and `.tar.gz`).
 
 From a checkout of this repository:
 
