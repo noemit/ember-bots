@@ -296,16 +296,26 @@ export const crewIsResting = (
   });
 
 export const CREW_REPORT_PREFIX = '[crew] ';
+export const SIDE_QUESTION_PREFIX = 'Side question:';
+
+export type ParsedCrewReport = {
+  summary: string;
+  kind: 'crew' | 'side-question';
+};
 
 /**
- * Parse a server-generated crew wake. The leader is woken by an ordinary user input whose text
- * starts with `[crew] ` (e.g. `[crew] Crew report (generation 2): …`); returning its body lets the
- * transcript render a "Crew report" system card instead of a user bubble. Returns null for every
- * normal user message, so it can gate the existing bubble with no other changes.
+ * Parse a server-generated crew wake (`[crew] …`). When the wake was produced by a side question
+ * (`[crew] Side question:\n…`), `kind` is `'side-question'` so the transcript renders a "Side
+ * question" card distinct from a periodic crew report. Returns null for every normal user message.
  */
-export const parseCrewReport = (text: string): { summary: string } | null => {
+export const parseCrewReport = (text: string): ParsedCrewReport | null => {
   const trimmed = text.trimStart();
   if (!trimmed.startsWith(CREW_REPORT_PREFIX)) return null;
-  const summary = trimmed.slice(CREW_REPORT_PREFIX.length).trim();
-  return summary ? { summary } : null;
+  const raw = trimmed.slice(CREW_REPORT_PREFIX.length).trim();
+  if (!raw) return null;
+  if (raw.startsWith(SIDE_QUESTION_PREFIX)) {
+    const summary = raw.slice(SIDE_QUESTION_PREFIX.length).trim();
+    return summary ? { summary, kind: 'side-question' } : null;
+  }
+  return { summary: raw, kind: 'crew' };
 };

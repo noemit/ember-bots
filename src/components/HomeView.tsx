@@ -63,6 +63,7 @@ type Props = {
   /** Read one message in full over Home; marking happens there. */
   onReadItem: (session: Session, item: UnreadItem) => void;
   onMarkAllRead: (session: Session) => void;
+  onQuietChange?: (session: Session, quiet: boolean) => void;
   onNewAgent: (instanceId?: string) => void;
   /** The archived sessions dialog — the rail owned it, and Home must not be a dead end. */
   onOpenArchive?: () => void;
@@ -111,6 +112,7 @@ export default function HomeView({
   onOpenSessionAt,
   onReadItem,
   onMarkAllRead,
+  onQuietChange,
   onNewAgent,
   onOpenArchive,
   activity,
@@ -308,6 +310,10 @@ export default function HomeView({
                   onOpen={() => onOpenSession(row.session)}
                   onReadItem={(item) => onReadItem(row.session, item)}
                   onMarkAllRead={() => onMarkAllRead(row.session)}
+                  quiet={marks[key]?.quiet === true}
+                  onQuietChange={
+                    onQuietChange ? (quiet) => onQuietChange(row.session, quiet) : undefined
+                  }
                 />
               );
             })}

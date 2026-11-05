@@ -944,26 +944,51 @@ export const piSetSessionArchived = async (
   return response.ok;
 };
 
-export const piCompactSession = async (endpointId: string, conversationId: string): Promise<boolean> => {
-  const response = await request(endpointId, `/conversations/${encodeURIComponent(conversationId)}/compact`, {
-    method: 'POST',
-    body: {},
-  });
-  return response.ok;
+export type PiCompactionReceipt = {
+  accepted: boolean;
+  taskId?: number;
 };
 
-/** pi's fork copies the history natively; the handoff prompt is an OpenCode-era shim. */
-export const piForkSession = async (
+export const piCompactSession = async (
   endpointId: string,
   conversationId: string
-): Promise<string | null> => {
+): Promise<PiCompactionReceipt> => {
+  const response = await request<{ taskId?: unknown }>(
+    endpointId,
+    `/conversations/${encodeURIComponent(conversationId)}/compact`,
+    {
+      method: 'POST',
+      body: {},
+    }
+  );
+  if (!response.ok) return { accepted: false };
+  const taskId =
+    response.data && typeof response.data.taskId === 'number' && Number.isFinite(response.data.taskId)
+      ? response.data.taskId
+      : undefined;
+  return { accepted: true, ...(taskId !== undefined ? { taskId } : {}) };
+};
+
+/**
+ * Ask a side question ("btw …"): forks the conversation on the host into a hidden `Aside #N`
+ * worker carrying the leader's full context, submits the question, and reports its answer back
+ * as a side-question card in the leader's transcript.
+ */
+export const piAskSideQuestion = async (
+  endpointId: string,
+  conversationId: string,
+  question: string
+): Promise<Session | null> => {
   const response = await request<PiConversationSummary>(
     endpointId,
-    `/conversations/${encodeURIComponent(conversationId)}/fork`,
-    { method: 'POST', body: {} }
+    `/conversations/${encodeURIComponent(conversationId)}/btw`,
+    {
+      method: 'POST',
+      body: { question },
+    }
   );
   if (!response.ok || !response.data || typeof response.data.id !== 'number') return null;
-  return String(response.data.id);
+  return piConversationToSession(endpointId, response.data, Date.now());
 };
 
 /**

@@ -9,15 +9,21 @@ import { createRegistry, Harness } from '@earendil-works/pi-durable';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import {
+  AGENT_MESSAGE_BUDGET,
   AgentsDoc,
+  MAX_MIRROR_AGENTS,
+  agentMessageRateLimited,
   agentsMdSection,
   agentsMirrorPath,
+  createAgentsMdSection,
   createAgentsTool,
+  formatForeignAgentMessage,
   listAgents,
   mergeDirectory,
   readAgentsMirror,
   registerAgent,
   renderKnownAgents,
+  staleAgentNames,
   writeAgentsMirror,
   type AgentEntry,
 } from '../src/agents';
@@ -36,16 +42,26 @@ const entry = (conversationId: number, overrides: Partial<AgentEntry> = {}): Age
   ...overrides,
 });
 
-test('the agents-md section renders the cwd AGENTS.md into the prompt', () => {
+test('the agents-md section renders the cwd AGENTS.md into the prompt, and falls back to home AGENTS.md', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hearth-agents-'));
+  const home = mkdtempSync(join(tmpdir(), 'hearth-home-'));
+  const emptyCwd = mkdtempSync(join(tmpdir(), 'hearth-empty-'));
   writeFileSync(join(dir, 'AGENTS.md'), '# Project rules\nDo the thing.\n');
+  writeFileSync(join(home, 'AGENTS.md'), '# Default home guide\nUse Playwright and tools.\n');
   try {
-    const rendered = agentsMdSection.render({ agent: { cwd: dir } } as never, BACKGROUND_CONTEXT);
+    const sectionWithHome = createAgentsMdSection(home);
+    // Project AGENTS.md wins when present.
+    const rendered = sectionWithHome.render({ agent: { cwd: dir } } as never, BACKGROUND_CONTEXT);
     expect(String(rendered)).toContain('Do the thing.');
-    // No cwd (or no file) renders nothing.
+    // When project folder has no AGENTS.md, falls back to <home>/AGENTS.md.
+    const fallback = sectionWithHome.render({ agent: { cwd: emptyCwd } } as never, BACKGROUND_CONTEXT);
+    expect(String(fallback)).toContain('Use Playwright and tools.');
+    // No cwd and no home renders nothing.
     expect(agentsMdSection.render({ agent: {} } as never, BACKGROUND_CONTEXT)).toBeUndefined();
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    rmSync(emptyCwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -85,35 +101,30 @@ describe('known_agents formatting', () => {
 });
 
 describe('directory merge', () => {
-  test('omits gone conversations, sorts pinned first then newest activity', () => {
+  test('omits gone and archived conversations, sorts pinned first then newest activity, and identifies stale rows', () => {
     const listed = listAgents({
       entries: {
         old: entry(1, { updatedAt: 1 }),
         pinned: entry(2, { pinned: true, updatedAt: 2 }),
         fresh: entry(3, { updatedAt: 9 }),
+        archivedRow: entry(4, { updatedAt: 50 }),
         gone: entry(999, { updatedAt: 100 }),
       },
     });
-    const merged = mergeDirectory(
-      listed,
-      new Map([
-        [1, { title: 'Old', lastActivity: 5 }],
-        [2, { title: 'Pinned', lastActivity: 2 }],
-        [3, { title: 'Fresh', lastActivity: 50 }],
-      ])
-    );
+    const summaries = new Map([
+      [1, { title: 'Old', lastActivity: 5 }],
+      [2, { title: 'Pinned', lastActivity: 2 }],
+      [3, { title: 'Fresh', lastActivity: 50 }],
+      [4, { title: 'Archived', archived: 12345, lastActivity: 60 }],
+    ]);
+    const merged = mergeDirectory(listed, summaries);
     expect(merged.map((agent) => agent.name)).toEqual(['pinned', 'fresh', 'old']);
-    expect(merged.find((agent) => agent.name === 'fresh')).toMatchObject({
-      title: 'Fresh',
-      busy: false,
-      needsInput: false,
-      lastActivity: 50,
-    });
+    expect(staleAgentNames(listed, summaries).sort()).toEqual(['archivedRow', 'gone']);
   });
 });
 
 describe('agent mirror', () => {
-  test('round-trips through <home>/agents.json and tolerates a missing file', () => {
+  test('round-trips through <home>/agents.json, bounds size by recency, and tolerates a missing file', () => {
     const home = mkdtempSync(join(tmpdir(), 'hearth-mirror-'));
     try {
       expect(readAgentsMirror(home)).toBeUndefined();
@@ -121,6 +132,18 @@ describe('agent mirror', () => {
       const read = readAgentsMirror(home);
       expect(read?.Improver).toMatchObject({ conversationId: 7, host: 'local', pinned: true });
       expect(JSON.parse(readFileSync(agentsMirrorPath(home), 'utf8')).entries.Improver.conversationId).toBe(7);
+
+      // Bounds the mirror to MAX_MIRROR_AGENTS by recency.
+      const many: Record<string, AgentEntry> = {};
+      for (let i = 0; i < MAX_MIRROR_AGENTS + 25; i += 1) {
+        many[`agent-${i}`] = entry(i + 1, { updatedAt: i });
+      }
+      writeAgentsMirror(home, { entries: many });
+      const bounded = readAgentsMirror(home) ?? {};
+      expect(Object.keys(bounded)).toHaveLength(MAX_MIRROR_AGENTS);
+      expect(bounded['agent-0']).toBeUndefined();
+      expect(bounded[`agent-${MAX_MIRROR_AGENTS + 24}`]).toBeDefined();
+
       // Malformed JSON renders nothing rather than throwing into a prompt render.
       writeFileSync(agentsMirrorPath(home), '{nope');
       expect(readAgentsMirror(home)).toBeUndefined();
@@ -200,6 +223,21 @@ describe('agents tool', () => {
       expect(pinnedOrder[0].name).toBe('Recipient');
       await tool.execute({ action: 'unpin', name: 'Recipient' }, api, context);
       expect(readAgentsMirror(directory)?.Recipient.pinned).toBe(false);
+
+      // Lazily prunes archived or gone conversations on `directory` read inside one commit.
+      await harness.commit(async (tx) => {
+        await registerAgent(tx, 'GoneRow', entry(99999));
+        const meta = await tx.doc(MetaDoc, target.id);
+        meta.archived = 12345;
+      }, context);
+      writeAgentsMirror(directory, await harness.snapshot(AgentsDoc, context));
+      expect(readAgentsMirror(directory)?.GoneRow).toBeDefined();
+      await tool.execute({ action: 'directory' }, api, context);
+      const afterPrune = await harness.snapshot(AgentsDoc, context);
+      expect(afterPrune?.entries.GoneRow).toBeUndefined();
+      expect(afterPrune?.entries.Recipient).toBeUndefined();
+      expect(readAgentsMirror(directory)?.GoneRow).toBeUndefined();
+      expect(readAgentsMirror(directory)?.Recipient).toBeUndefined();
     } finally {
       await harness.close(context);
       try {
@@ -346,6 +384,105 @@ describe('agents tool crew messaging', () => {
         rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       } catch {
         // Windows holds the sqlite handle for a moment after close; a leftover temp dir is not a failure.
+      }
+    }
+  }, 20_000);
+
+  test('federates send across hosts, labels foreign messages, and enforces the 60/hour budget', async () => {
+    const now = Date.now();
+    expect(agentMessageRateLimited(Array.from({ length: AGENT_MESSAGE_BUDGET }, () => now - 1000), now)).toBe(true);
+    expect(agentMessageRateLimited(Array.from({ length: AGENT_MESSAGE_BUDGET - 1 }, () => now - 1000), now)).toBe(false);
+    expect(formatForeignAgentMessage('Tower', 'Lazy Librarian', 'Ping')).toBe(
+      '[Message from agent Tower/Lazy Librarian]:\nPing'
+    );
+
+    const directory = mkdtempSync(join(tmpdir(), 'hearth-agents-fed-'));
+    const faux = fauxProvider();
+    faux.setResponses([fauxAssistantMessage([fauxText('ack')])]);
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const storage = await openNodeSqliteStorage(join(directory, 'hearth.sqlite'));
+    const harness = await Harness.open(
+      storage,
+      {
+        models,
+        registry: createRegistry(),
+        env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? process.cwd() }),
+      },
+      context
+    );
+    const receivedBodies: unknown[] = [];
+    const peerServer = Bun.serve({
+      port: 0,
+      fetch: async (req) => {
+        const url = new URL(req.url);
+        if (url.pathname === '/directory') {
+          return Response.json({
+            agents: [
+              {
+                name: 'Archivist',
+                host: 'local',
+                conversationId: 77,
+                title: 'Archivist',
+                busy: false,
+                needsInput: false,
+                pinned: true,
+              },
+            ],
+          });
+        }
+        if (url.pathname === '/directory/send' && req.method === 'POST') {
+          receivedBodies.push(await req.json());
+          return Response.json({ ok: true, name: 'Archivist', conversationId: 77 }, { status: 201 });
+        }
+        return new Response('not found', { status: 404 });
+      },
+    });
+    try {
+      const sender = await harness.createConversation({ ownership: { kind: 'ownerless' } }, context);
+      await harness.commit(async (tx) => {
+        const meta = await tx.doc(MetaDoc, sender.id);
+        meta.title = 'Curious Mechanic';
+        const doc = await tx.doc(AgentsDoc);
+        doc.peers = [
+          {
+            id: 'pi:tower',
+            label: 'Tower',
+            url: `http://127.0.0.1:${peerServer.port}`,
+            token: 'peer-secret-token',
+          },
+        ];
+      }, context);
+
+      const tool = createAgentsTool(directory);
+      const api = {
+        taskId: 99,
+        conversationId: sender.id,
+        snapshot: (token: any, first: any, second?: any) =>
+          second === undefined ? harness.snapshot(token, first) : harness.snapshot(token, first, second),
+        conversation: (id: any, ctx: any) => harness.conversation(id, ctx),
+        commit: (change: any, ctx: any) => harness.commit(change, ctx),
+      } as any;
+
+      const res = await tool.execute(
+        { action: 'send', name: 'Archivist', message: 'Check the schema' },
+        api,
+        context
+      );
+      expect(textOf(res)).toBe('Sent to Tower/Archivist.');
+      expect(receivedBodies).toHaveLength(1);
+      expect(receivedBodies[0]).toMatchObject({
+        name: 'Archivist',
+        message: 'Check the schema',
+        senderName: 'Curious Mechanic',
+      });
+    } finally {
+      peerServer.stop(true);
+      await harness.close(context);
+      try {
+        rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      } catch {
+        // ignore cleanup race
       }
     }
   }, 20_000);

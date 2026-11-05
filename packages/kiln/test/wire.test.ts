@@ -2190,9 +2190,9 @@ describe("hearth wire", () => {
       busy: false,
       needsInput: false,
     });
-    // The registry row survives, but a conversation that is gone is not advertised.
+    // A conversation that is gone is not advertised and is lazily pruned from the registry.
     expect(await findAgent("Gone agent")).toBeUndefined();
-    expect((await stack.harness.snapshot(AgentsDoc, context))?.entries["Gone agent"]).toBeDefined();
+    expect((await stack.harness.snapshot(AgentsDoc, context))?.entries["Gone agent"]).toBeUndefined();
 
     // Busy comes from the live run, the same signal `/conversations` uses.
     faux.setResponses([

@@ -38,6 +38,11 @@ type Props = {
   /** The usage view, as a sibling of Home rather than a dialog over it. */
   onShowUsage: () => void;
   usageActive: boolean;
+  /** The scheduled view: runs newest-first and the plans that trigger them. */
+  onShowScheduled?: () => void;
+  scheduledActive?: boolean;
+  /** Runs that finished since you last looked, for the Scheduled tab's counter. */
+  unseenScheduledRuns?: number;
 
   /** Unread messages across every session, for Home's one counter. */
   unreadMessages?: number;
@@ -133,6 +138,9 @@ export default function InstanceBar({
   onShowSessions,
   onShowUsage,
   usageActive,
+  onShowScheduled,
+  scheduledActive = false,
+  unseenScheduledRuns = 0,
   unreadMessages = 0,
   hideNavigation = false,
 }: Props) {
@@ -206,7 +214,7 @@ export default function InstanceBar({
           }
         />
         <ViewTab
-          active={!activityActive && !usageActive}
+          active={!activityActive && !usageActive && !scheduledActive}
           onClick={onShowSessions}
           label="Sessions"
           ariaLabel="Sessions — the workspace and its columns"
@@ -219,6 +227,26 @@ export default function InstanceBar({
           ariaLabel="Usage — model calls and reported cost"
           title="What each model has been doing"
         />
+        {onShowScheduled ? (
+          <ViewTab
+            active={scheduledActive}
+            onClick={onShowScheduled}
+            label="Scheduled"
+            ariaLabel="Scheduled — runs and recurring plans"
+            title="Scheduled runs, newest first, and the plans that trigger them"
+            badge={
+              unseenScheduledRuns > 0 ? (
+                <span
+                  data-testid="scheduled-count"
+                  className="grid min-w-4 place-items-center rounded-full bg-highlight px-1 text-[10px] font-semibold tabular-nums text-highlight-foreground"
+                  title={`${unseenScheduledRuns} scheduled ${unseenScheduledRuns === 1 ? 'run' : 'runs'} finished since you last looked`}
+                >
+                  {unseenScheduledRuns}
+                </span>
+              ) : null
+            }
+          />
+        ) : null}
       </div>
 
       <DropdownMenu>

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Bell, BellOff, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, Eye, Folder, GitFork, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, ShieldCheck, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
+import { ArrowUp, Bell, BellOff, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, ShieldCheck, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
 import { normalizeDirectory } from '../blob/seed';
 import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
@@ -267,9 +267,10 @@ type Props = {
   /** True while this session's context is being compacted. */
   compacting: boolean;
   onCompact: () => void;
-  /** True while this session is being forked into a handoff session. */
-  handoffing: boolean;
-  onHandoff: () => void;
+  /** True while a side question ("btw …") is being forked into a worker. */
+  askingSideQuestion?: boolean;
+  /** Ask a side question via a forked worker carrying this session's context; omitted when unsupported. */
+  onAskSideQuestion?: (question: string) => Promise<boolean>;
   /** Column chrome: collapse this column into the tab strip. */
   onMinimize?: () => void;
   /** Column chrome: archive this session (Undo is offered by the app-level notice). */
@@ -492,8 +493,8 @@ function ChatView({
   onQuestion,
   compacting,
   onCompact,
-  handoffing,
-  onHandoff,
+  askingSideQuestion = false,
+  onAskSideQuestion,
   onMinimize,
   onActivate,
   onArchive,
@@ -550,6 +551,9 @@ function ChatView({
 
   const [comments, setComments] = React.useState<TranscriptComment[]>([]);
   const [commentsSending, setCommentsSending] = React.useState(false);
+  const [sideQuestionOpen, setSideQuestionOpen] = React.useState(false);
+  const [sideQuestionText, setSideQuestionText] = React.useState('');
+  const sideQuestionInputRef = React.useRef<HTMLInputElement>(null);
   const [focusMessageId, setFocusMessageId] = React.useState<string | null>(null);
   const [focusRequest, setFocusRequest] = React.useState(0);
   const [findRequest, setFindRequest] = React.useState(0);
@@ -1649,23 +1653,29 @@ function ChatView({
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="icon-sm"
+                          size="xs"
                           onClick={() => onQuietChange(session, !readMark?.quiet)}
                           aria-pressed={readMark?.quiet === true}
                           aria-label={
                             readMark?.quiet
-                              ? 'Stop marking new messages read automatically'
-                              : 'Mark new messages read automatically, with no notifications'
+                              ? "New Messages: Don't Notify (click to switch to Notify)"
+                              : "New Messages: Notify (click to switch to Don't Notify)"
                           }
-                          className={cn(readMark?.quiet && 'text-highlight')}
+                          className={cn(
+                            'h-6 gap-1 px-1.5 text-[11px] font-normal text-muted-foreground hover:text-foreground',
+                            readMark?.quiet && 'text-highlight'
+                          )}
                         >
                           {readMark?.quiet ? <BellOff className="size-3.5" /> : <Bell className="size-3.5" />}
+                          <span className="hidden lg:inline">
+                            {readMark?.quiet ? "New Messages: Don't Notify" : 'New Messages: Notify'}
+                          </span>
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
                         {readMark?.quiet
-                          ? 'Quiet: new messages are marked read as they arrive, so this session never shows as unread. Click to turn that off.'
-                          : 'Make this a quiet session: everything is marked read as it arrives, so it never shows as unread. Good for scheduled briefs and long runs you read later.'}
+                          ? "New Messages: Don't Notify — new messages are marked read as they arrive. Click to switch to Notify."
+                          : "New Messages: Notify — new messages appear on Home and increment the unread counter. Click to switch to Don't Notify."}
                       </TooltipContent>
                     </Tooltip>
                   ) : null}
@@ -2049,7 +2059,7 @@ function ChatView({
                         <SessionNotes
                           key={`notes-${notesKey || 'none'}`}
                           notes={sessionNotes}
-                          canSend={loadedComposerKey === composerKey && !modelError}
+                          canSend={loadedComposerKey === composerKey}
                           onSend={sendNote}
                           onBringBack={bringBackNote}
                           onDelete={(note) => {
@@ -2131,25 +2141,77 @@ function ChatView({
                 onSend={() => void sendComments()}
               />
             ) : null}
+            {session && onAskSideQuestion && (sideQuestionOpen || askingSideQuestion) ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const trimmed = sideQuestionText.trim();
+                  if (!trimmed || askingSideQuestion) return;
+                  void onAskSideQuestion(trimmed).then((ok) => {
+                    if (ok) {
+                      setSideQuestionText('');
+                      setSideQuestionOpen(false);
+                    }
+                  });
+                }}
+                className="flex items-center gap-1.5 rounded-lg border bg-muted/40 px-2.5 py-1.5 text-xs"
+              >
+                <CircleHelp className="size-3.5 flex-none text-highlight" aria-hidden="true" />
+                <input
+                  ref={sideQuestionInputRef}
+                  type="text"
+                  value={sideQuestionText}
+                  disabled={askingSideQuestion}
+                  onChange={(event) => setSideQuestionText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      if (!askingSideQuestion) {
+                        setSideQuestionOpen(false);
+                      }
+                    }
+                  }}
+                  placeholder="Ask about this conversation — the answer comes back as a worker's report"
+                  aria-label="Side question"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60"
+                />
+                <Button
+                  type="submit"
+                  size="xs"
+                  variant="secondary"
+                  disabled={!sideQuestionText.trim() || askingSideQuestion}
+                  className="h-6 px-2 text-[11px]"
+                >
+                  {askingSideQuestion ? (
+                    <>
+                      <Loader2 className="size-3 animate-spin" />
+                      <span>Asking…</span>
+                    </>
+                  ) : (
+                    'Ask'
+                  )}
+                </Button>
+                <button
+                  type="button"
+                  disabled={askingSideQuestion}
+                  onClick={() => setSideQuestionOpen(false)}
+                  aria-label="Cancel side question"
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </form>
+            ) : null}
             <motion.div
               layout
-              // Focus is **one edge, heavier** — never a second outline. Two rings were tried before
-              // and both looked broken at the top: a wide outer ring keyed on `:focus-visible` (which
-              // Chromium also sets for a clicked text field, so it painted for the whole of normal
-              // writing), and then a 1px *inset* ring to read as the border thickening. That second
-              // one is subtler but still wrong on a curve: the border and the inset ring are two
-              // concentric arcs 1px apart, and at a 14px radius they round to different pixel
-              // columns, so the hairline breaks into a dotted double line across the top — measured
-              // on the rendered box, rows 17-18 of the corner carry `#+#`, a gap between the two.
-              //
-              // So the focus state is the border itself, one pixel thicker and in the ring colour.
-              // One shape means one set of pixels to round, and `ring-2` on a rounded box is drawn by
-              // the same rasteriser as the border rather than as an offset copy of it.
-              //
-              // `focus-within` alone tints the border (a row control clicked, not tabbed to), so the
-              // two states differ by weight rather than by outline shape — the property that was
-              // right about the earlier attempts and is kept here.
-              className="flex flex-col rounded-xl border bg-background transition-[border-color,box-shadow] duration-200 focus-within:border-ring/55 has-focus-visible:border-ring has-focus-visible:!border-2"
+              // Focus is a soft outer glow, never a recoloured or thickened border and never a
+              // `ring-*` / `inset-ring` utility. Earlier attempts drew concentric arcs at the 14px
+              // corner (`ring`, `inset-ring`, and a 2px recoloured border) that rounded to different
+              // pixel columns and broke into a dotted double hairline at 1:1. A blurred outer
+              // `box-shadow` (`has-focus-visible:shadow-[…]`) has one curve and falls off smoothly
+              // while the border keeps its own colour at every state (`focus-within` and
+              // `:focus-visible` stay distinct: clicking a row control does not trigger the glow).
+              className="group/composer flex flex-col rounded-xl border bg-background transition-shadow duration-200 has-focus-visible:shadow-[0_0_12px_-2px_color-mix(in_oklab,var(--ring)_28%,transparent)]"
             >
             {replyContext ? (
               /* A left accent carries "this is quoted" without drawing a rectangle inside the
@@ -2403,11 +2465,14 @@ function ChatView({
 
             <div className="@container flex items-center gap-1 overflow-x-auto px-2 pt-1.5 pb-2 sm:gap-1.5">
               {/* A container, so everything below is a `@[…]` query on *this row's* width, never on
-                  the window's. The row gives affordances up in one order as the column narrows —
-                  labels (490px), then the handoff button (470px), then the context meter (440px) —
-                  and never gives up the model, attachment or send/stop: those are the composer.
-                  Every threshold is well above the row's width at MIN_COLUMN_WIDTH, so the ladder
-                  has finished by the time a column is as narrow as it gets. */}
+                  the window's. Because this is a block-level `flex` row (not `inline-flex`),
+                  `container-type: inline-size` sizes from the parent column rather than collapsing
+                  to padding (unlike a shrink-to-fit chip). The row gives affordances up in one order
+                  as the column narrows — labels (490px), then the side-question button (470px), then
+                  the context meter (440px) — and never gives up the model, attachment or send/stop:
+                  those are the composer. Every threshold is well above the row's width at
+                  MIN_COLUMN_WIDTH, so the ladder has finished by the time a column is as narrow as
+                  it gets. */}
               <Button
                 variant="ghost"
                 size="sm"
@@ -2503,7 +2568,7 @@ function ChatView({
                 <ShieldCheck className="size-3.5 flex-none" />
                 {/* First thing the row gives up: the two mode toggles lose their text but keep
                     their icon, and `aria-label`/`title` already carry the whole sentence. It goes at
-                    490px, above the handoff button, so the ladder runs in one direction only: once
+                    490px, above the side-question button, so the ladder runs in one direction only: once
                     the text is gone it never comes back as the column narrows. */}
                 <span className="hidden @[490px]:inline">Yolo</span>
               </Toggle>
@@ -2588,28 +2653,41 @@ function ChatView({
                 </div>
               ) : null}
 
-              {active && session ? (
+              {active && session && onAskSideQuestion ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={onHandoff}
-                      disabled={handoffing}
-                      aria-label="Start a new session from a handoff summary"
-                      // Third rung: this one hides before the context meter because the same
-                      // action also sits in the View menu and the session header, so a narrow
-                      // column loses a shortcut rather than a capability. Its threshold sits
-                      // between the labels' (490px) and the context meter's (440px), which is
-                      // what keeps the order of the ladder readable rather than arbitrary.
-                      className="hidden size-7 flex-none items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50 @[470px]:flex"
+                      onClick={() => {
+                        setSideQuestionOpen((open) => {
+                          const next = !open;
+                          if (next) {
+                            window.requestAnimationFrame(() => sideQuestionInputRef.current?.focus());
+                          }
+                          return next;
+                        });
+                      }}
+                      disabled={askingSideQuestion}
+                      aria-label="Ask a side question"
+                      aria-expanded={sideQuestionOpen}
+                      // Third rung: sits between the labels' (490px) and the context meter's (440px)
+                      // so the ladder runs in one direction as the column narrows.
+                      className={cn(
+                        'hidden size-7 flex-none items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50 @[470px]:flex',
+                        sideQuestionOpen && 'bg-muted text-foreground'
+                      )}
                     >
-                      {handoffing ? <Loader2 className="size-3.5 animate-spin" /> : <GitFork className="size-3.5" />}
+                      {askingSideQuestion ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <CircleHelp className="size-3.5" />
+                      )}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    {handoffing
-                      ? 'Starting a new session…'
-                      : 'New session from a handoff summary — keeps this one'}
+                    {askingSideQuestion
+                      ? 'Asking in a side worker…'
+                      : 'Ask a side question ("btw …") — forks a worker with this context and reports back without interrupting'}
                   </TooltipContent>
                 </Tooltip>
               ) : null}
@@ -2669,7 +2747,7 @@ function ChatView({
               <Tooltip><TooltipTrigger asChild>
               <Button
                 size="icon-sm"
-                className="size-7 flex-none rounded-full aria-disabled:opacity-50"
+                className="size-7 flex-none rounded-full group-has-focus-visible/composer:not-aria-disabled:bg-highlight group-has-focus-visible/composer:not-aria-disabled:text-highlight-foreground group-has-focus-visible/composer:not-aria-disabled:hover:bg-highlight/90 aria-disabled:bg-muted aria-disabled:text-muted-foreground aria-disabled:opacity-50"
                 aria-disabled={!canSend}
                 onClick={() => submit()}
                 aria-label={

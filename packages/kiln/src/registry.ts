@@ -5,7 +5,7 @@ import { Approvals } from "./approvals";
 import { Leftovers } from "./leftovers";
 import { AskTool } from "./ask";
 import { Sessions } from "./sessions";
-import { agentsExtension, agentsMdSection } from "./agents";
+import { agentsExtension, createAgentsMdSection } from "./agents";
 import { hearthCodemodeExtensions } from "./codemode";
 import { spawnGuard } from "./crew";
 import { hearthConfig } from "./config";
@@ -16,12 +16,6 @@ import { View } from "./view";
 const Ask = {
   name: "ask",
   tools: [AskTool],
-} as const;
-
-/** The AGENTS.md prompt section, installed as an extension so every conversation gets it. */
-const AgentsMd = {
-  name: "agents-md",
-  sections: [agentsMdSection],
 } as const;
 
 export type HearthRegistryOptions = {
@@ -72,7 +66,10 @@ export const hearthRegistry = (
   registry.install(Ask);
   // The `session` tool: start and manage sibling sessions a human can see in Ember.
   registry.install(Sessions);
-  registry.install(AgentsMd);
+  registry.install({
+    name: "agents-md",
+    sections: [createAgentsMdSection(home)],
+  });
   // `agents`: the local name directory, direct sends, and pin/unpin (no register — humans promote).
   registry.install(agentsExtension(home));
   registry.install(Diagnostics);

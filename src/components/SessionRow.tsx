@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { ArchiveRestore, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { ArchiveRestore, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import Blob from '../blob/Blob';
 import ProjectCleanupMenu from './ProjectCleanupMenu';
 import { normalizeDirectory } from '../blob/seed';
@@ -86,6 +86,10 @@ export type SessionRowProps = {
   /** Right-click "Mark all as read": offered for a session Home says has unread messages. */
   onMarkAllRead?: (session: Session) => void;
   hasUnread?: boolean;
+  /** True when the session is set to "New Messages: Don't Notify" (`readMark.quiet`). */
+  quiet?: boolean;
+  /** Toggle "New Messages: Don't Notify" vs "Notify" for this session. */
+  onQuietChange?: (session: Session, quiet: boolean) => void;
 };
 
 type SessionMenuProps = {
@@ -103,6 +107,8 @@ type SessionMenuProps = {
   onGroupWith?: (session: Session) => void;
   onMarkAllRead?: (session: Session) => void;
   hasUnread?: boolean;
+  quiet?: boolean;
+  onQuietChange?: (session: Session, quiet: boolean) => void;
 };
 
 /** The reload/customize/archive menu shared by full rows and project-card blobs. */
@@ -120,6 +126,8 @@ export const SessionContextMenuContent = ({
   onGroupWith,
   onMarkAllRead,
   hasUnread,
+  quiet,
+  onQuietChange,
 }: SessionMenuProps) => {
   const archived = Boolean(session.archived);
   const archiveLabel = archived ? 'Restore session' : 'Archive session';
@@ -129,12 +137,20 @@ export const SessionContextMenuContent = ({
   const ArchiveIcon = archived ? ArchiveRestore : Trash2;
   return (
     <ContextMenuContent>
-      {onMarkAllRead && hasUnread ? (
+      {(onMarkAllRead && hasUnread) || onQuietChange ? (
         <>
-          <ContextMenuItem onSelect={() => onMarkAllRead(session)}>
-            <CheckCheck />
-            Mark all as read
-          </ContextMenuItem>
+          {onMarkAllRead && hasUnread ? (
+            <ContextMenuItem onSelect={() => onMarkAllRead(session)}>
+              <CheckCheck />
+              Mark all as read
+            </ContextMenuItem>
+          ) : null}
+          {onQuietChange ? (
+            <ContextMenuItem onSelect={() => onQuietChange(session, !quiet)}>
+              {quiet ? <Bell /> : <BellOff />}
+              {quiet ? 'New Messages: Notify' : "New Messages: Don't Notify"}
+            </ContextMenuItem>
+          ) : null}
           <ContextMenuSeparator />
         </>
       ) : null}
@@ -208,6 +224,8 @@ const SessionRow = React.memo(function SessionRow({
   onGroupWith,
   onMarkAllRead,
   hasUnread,
+  quiet,
+  onQuietChange,
 }: SessionRowProps) {
   // The loader is a startup affordance, not a permanent state: a session with nothing summarisable
   // never gets a preview, so after a few seconds it falls back to the folder name.
@@ -368,6 +386,8 @@ const SessionRow = React.memo(function SessionRow({
           onGroupWith={onGroupWith}
           onMarkAllRead={onMarkAllRead}
           hasUnread={hasUnread}
+          quiet={quiet}
+          onQuietChange={onQuietChange}
         />
       </ContextMenu>
 

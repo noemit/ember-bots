@@ -18,11 +18,11 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('textarea')).toHaveCount(2);
 });
 
-test('column X archives once and Undo restores the session and its draft', async ({ page }) => {
+test('column archive button archives once and Undo restores the session and its draft', async ({ page }) => {
   await captureMutations(page);
   const column = page.locator('main').first();
   await column.locator('textarea').fill('Keep this draft through archiving');
-  const archive = column.locator('header button').filter({ has: page.locator('svg.lucide-x') });
+  const archive = column.getByRole('button', { name: 'Archive session', exact: true });
   await expect(archive).toHaveAttribute('aria-label', 'Archive session');
   await expect(column.locator('header svg.lucide-archive')).toHaveCount(0);
   await expect(column.getByRole('button', { name: 'Close session', exact: true })).toHaveCount(0);
@@ -77,21 +77,19 @@ test('archiving a background column leaves the one I am reading alone', async ({
   await expect(page.locator(`main[data-session-key="${backgroundKey}"]`)).toHaveCount(0);
 });
 
-test('all visible columns have underlines regardless of focus; minimized tabs do not', async ({ page }) => {
+test('all visible columns have underlines regardless of focus; closed columns do not', async ({ page }) => {
   await expect(visibleMarkers(page)).toHaveCount(2);
-  await expect(page.locator('main').first().locator('header')).toHaveAttribute('data-active', 'true');
-  await page.locator('main').nth(1).locator('textarea').click();
-  await expect(page.locator('main').nth(1).locator('header')).toHaveAttribute('data-active', 'true');
+  await expect(page.locator('main[data-session-key="local::perf-0"] header')).toHaveAttribute('data-active', 'true');
+  await page.locator('main[data-session-key="local::perf-1"] textarea').click();
+  await expect(page.locator('main[data-session-key="local::perf-1"] header')).toHaveAttribute('data-active', 'true');
   await expect(page.locator('main header[data-active="true"]')).toHaveCount(1);
   await expect(visibleMarkers(page)).toHaveCount(2);
   for (const marker of await visibleMarkers(page).all()) {
     expect((await marker.getAttribute('class'))?.split(/\s+/)).not.toContain('ring-2');
     await expect(marker.locator('[data-column-underline]')).toBeVisible();
   }
-  await page.locator('main').first().getByRole('button', { name: 'Minimize session', exact: true }).click();
+  await page.locator('main').first().getByRole('button', { name: 'Close this column', exact: true }).click();
   await expect(visibleMarkers(page)).toHaveCount(1);
-  await page.keyboard.press('ControlOrMeta+1');
-  await expect(visibleMarkers(page)).toHaveCount(2);
 });
 
 test('X on an inactive column archives on the first click, not just activate', async ({ page }) => {
@@ -104,15 +102,11 @@ test('X on an inactive column archives on the first click, not just activate', a
   expect((await mutations(page))[0].body.ids).toEqual(['perf-1']);
 });
 
-test('tab X archives rather than just removing the workspace entry', async ({ page }) => {
-  await page.locator('main').first().getByRole('button', { name: 'Minimize session', exact: true }).click();
+test('closing a column in split view removes its column underline without archiving', async ({ page }) => {
   await captureMutations(page);
-  const tabs = page.getByLabel('Open sessions', { exact: true });
-  await expect(tabs.locator('svg.lucide-archive')).toHaveCount(0);
-  await tabs.getByRole('button', { name: 'Archive Performance session 0', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
-  await expect.poll(async () => (await mutations(page)).filter((entry: { path: string }) => entry.path === '/api/openchamber/sessions/archive').length).toBe(1);
-  await expect(tabs).toHaveCount(0);
+  await page.locator('main').first().getByRole('button', { name: 'Close this column', exact: true }).click();
+  await expect(visibleMarkers(page)).toHaveCount(1);
+  expect(await mutations(page)).toEqual([]);
 });
 
 for (const status of ['busy', 'waiting']) {
@@ -180,8 +174,7 @@ test('a day-old finished scheduled run archives itself', async ({ page }) => {
 
 test('one-session project rows use the same visible-column indicator', async ({ page }) => {
   await page.goto('/?noDock&legacy');
-  // Home has no rail to click, so open the session the same way a rail-free workspace does.
-  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByRole('button', { name: 'Open command palette' }).click();
   await page.getByRole('combobox', { name: 'Search commands' }).fill('Agent deploy');
   await page.getByRole('option').filter({ hasText: 'Agent deploy smoke test' }).first().click();
   const row = page.locator('aside [data-session-key="studio::ses_b2"]');

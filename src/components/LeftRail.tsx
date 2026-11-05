@@ -134,6 +134,10 @@ type Props = {
   onMarkAllRead?: (session: Session) => void;
   /** Session keys with unread messages, from Home's own read marks. */
   unreadKeys?: Set<string>;
+  /** Session keys set to "New Messages: Don't Notify". */
+  quietKeys?: Set<string>;
+  /** Toggle "New Messages: Don't Notify" vs "Notify" for a session. */
+  onQuietChange?: (session: Session, quiet: boolean) => void;
   onNewAgent: (instanceId: string, directory?: string) => void;
   /** Agent groups, already parsed; the rail draws them above projects. */
   groups: SessionGroup[];
@@ -191,6 +195,8 @@ export default function LeftRail({
   onCustomizeAppearance,
   onMarkAllRead,
   unreadKeys,
+  quietKeys,
+  onQuietChange,
   onNewAgent,
   groups,
   onOpenGroup,
@@ -518,6 +524,8 @@ export default function LeftRail({
         onCustomizeAppearance={customizeAppearance}
         onMarkAllRead={markAllRead}
         hasUnread={unreadKeys?.has(key) ?? false}
+        quiet={quietKeys?.has(key) ?? false}
+        onQuietChange={onQuietChange}
         onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
         // Every agent gets a plus: the draft opens on this session's instance and folder, both
         // still changeable in its options row before the first message.
@@ -598,7 +606,11 @@ export default function LeftRail({
           onReload={reloadSession}
           onArchive={archiveSession}
           onCustomizeAppearance={customizeAppearance}
-        onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
+          onMarkAllRead={markAllRead}
+          hasUnread={unreadKeys?.has(key) ?? false}
+          quiet={quietKeys?.has(key) ?? false}
+          onQuietChange={onQuietChange}
+          onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
         />
       );
     }
@@ -625,6 +637,8 @@ export default function LeftRail({
         onCustomizeAppearance={customizeAppearance}
         onMarkAllRead={markAllRead}
         unreadKeys={unreadKeys}
+        quietKeys={quietKeys}
+        onQuietChange={onQuietChange}
         // The strip gets the extra room the widened rail bought (roughly: half the window, less
         // the rail's own padding), so a project's blobs spread out instead of huddling left.
         stripWidth={mode === 'wide' ? 660 : undefined}

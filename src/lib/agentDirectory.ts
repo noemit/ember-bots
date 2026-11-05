@@ -14,7 +14,8 @@
  * It is also the first piece a cross-host `send` would need (see TODO.md): a name is only addressable
  * if it is unique across every connected host, which cannot be decided without this list.
  */
-import type { Instance } from '../types';
+import type { Instance, Session } from '../types';
+import { isWorker } from './crew';
 
 /** One registered agent, as a host reports it (Hearth's `DirectoryEntry`). */
 export type DirectoryAgent = {
@@ -115,10 +116,195 @@ export const resolveAgentName = (
 ): { kind: 'unique'; row: DirectoryRow } | { kind: 'ambiguous'; rows: DirectoryRow[] } | { kind: 'unknown' } => {
   const wanted = name.trim().toLowerCase();
   if (!wanted) return { kind: 'unknown' };
-  const matches = groups.flatMap((group) => group.rows).filter((row) => row.agent.name.toLowerCase() === wanted);
+  const allRows = groups.flatMap((group) => group.rows);
+  // Support explicit `host/name` qualification as well as bare names.
+  const byAddress = allRows.filter((row) => row.address.toLowerCase() === wanted);
+  if (byAddress.length === 1) return { kind: 'unique', row: byAddress[0] };
+  if (byAddress.length > 1) return { kind: 'ambiguous', rows: byAddress };
+  const matches = allRows.filter((row) => row.agent.name.toLowerCase() === wanted);
   if (matches.length === 0) return { kind: 'unknown' };
   if (matches.length === 1) return { kind: 'unique', row: matches[0] };
   return { kind: 'ambiguous', rows: matches };
+};
+
+/**
+ * Loop control for cross-agent messaging: at most 60 messages per hour per conversation.
+ */
+export const AGENT_MESSAGE_HOURLY_BUDGET = 60;
+export const AGENT_MESSAGE_BUDGET_WINDOW_MS = 60 * 60 * 1000;
+
+export const pruneAgentMessageTimestamps = (
+  sentAt: readonly number[],
+  now: number,
+  windowMs = AGENT_MESSAGE_BUDGET_WINDOW_MS
+): number[] => sentAt.filter((at) => now - at < windowMs);
+
+export const canSendAgentMessage = (
+  sentAt: readonly number[],
+  now: number,
+  budget = AGENT_MESSAGE_HOURLY_BUDGET,
+  windowMs = AGENT_MESSAGE_BUDGET_WINDOW_MS
+): boolean => pruneAgentMessageTimestamps(sentAt, now, windowMs).length < budget;
+
+export const agentMessageBudgetRefusal = (budget = AGENT_MESSAGE_HOURLY_BUDGET): string =>
+  `Refused: this conversation has sent ${budget} agent messages in the last hour. Wait before sending more so two agents cannot loop.`;
+
+/**
+ * Format the window duration in human terms ("last 2 days", "last 5 hours") for the not-found
+ * follow-up question.
+ */
+export const formatWindowLabel = (windowHours: number): string => {
+  if (windowHours <= 0 || !Number.isFinite(windowHours)) return 'all time';
+  if (windowHours % 24 === 0) {
+    const days = windowHours / 24;
+    return `last ${days} ${days === 1 ? 'day' : 'days'}`;
+  }
+  return `last ${windowHours} ${windowHours === 1 ? 'hour' : 'hours'}`;
+};
+
+export type AddressableResolution =
+  | { kind: 'unique'; row: DirectoryRow; source: 'registry' | 'title' }
+  | { kind: 'ambiguous'; rows: DirectoryRow[]; message: string }
+  | { kind: 'outside-window'; rows: DirectoryRow[]; question: string }
+  | { kind: 'silent-hosts'; silentLabels: string[]; message: string }
+  | { kind: 'unknown'; message: string };
+
+/**
+ * Resolve an agent by registry name first, then by session title (including auto-derived titles)
+ * within the active rail window (`windowHours`, default 48h = 2 days).
+ *
+ * Rules:
+ * - Registry name wins first (exact or `host/name`).
+ * - Otherwise, non-worker sessions with a matching title inside `windowHours` are considered.
+ * - If nothing matches inside the window, but a session title matches in all-time history
+ *   (`searchAllTime: false`), returns `outside-window` with the question offering to widen the
+ *   search to all time. When `searchAllTime: true`, those older sessions resolve directly.
+ * - If nothing matches and one or more hosts are `silent`, names the silent host(s) ("Tower didn't
+ *   answer") rather than claiming no such agent exists.
+ */
+export const resolveAddressableAgent = (input: {
+  groups: readonly DirectoryGroup[];
+  sessions?: readonly Session[];
+  name: string;
+  windowHours?: number;
+  searchAllTime?: boolean;
+  now?: number;
+}): AddressableResolution => {
+  const {
+    groups,
+    sessions = [],
+    name,
+    windowHours = 48,
+    searchAllTime = false,
+    now = Date.now(),
+  } = input;
+  const trimmed = name.trim();
+  const wanted = trimmed.toLowerCase();
+  if (!wanted) {
+    return { kind: 'unknown', message: 'Provide an agent name to message.' };
+  }
+
+  // 1. Registry name first (exact bare name or `host/name`).
+  const registryHit = resolveAgentName(groups, trimmed);
+  if (registryHit.kind === 'unique') {
+    return { kind: 'unique', row: registryHit.row, source: 'registry' };
+  }
+  if (registryHit.kind === 'ambiguous') {
+    const addresses = registryHit.rows.map((r) => r.address).join(', ');
+    return {
+      kind: 'ambiguous',
+      rows: registryHit.rows,
+      message: `More than one agent is named "${trimmed}": ${addresses}. Specify the host as host/name.`,
+    };
+  }
+
+  // 2. Session titles (including auto-derived titles), excluding another leader's workers.
+  const hostLabels = new Map(groups.map((g) => [g.instanceId, g.label]));
+  const cutoff =
+    !searchAllTime && windowHours > 0 && Number.isFinite(windowHours)
+      ? now - windowHours * 60 * 60 * 1000
+      : 0;
+
+  const toRow = (session: Session): DirectoryRow => {
+    const hostLabel = hostLabels.get(session.instanceId) ?? session.instanceId;
+    const title = session.title?.trim() || session.id;
+    return {
+      instanceId: session.instanceId,
+      address: agentAddress(hostLabel, title),
+      agent: {
+        name: title,
+        host: hostLabel,
+        conversationId: session.id,
+        title,
+        kind: session.kind,
+        busy: false,
+        needsInput: session.needsInput === true,
+        pinned: false,
+        lastActivity: session.updated,
+      },
+    };
+  };
+
+  const titleMatches = sessions.filter((session) => {
+    if (session.archived || isWorker(session)) return false;
+    const title = session.title?.trim();
+    if (!title) return false;
+    const hostLabel = hostLabels.get(session.instanceId) ?? session.instanceId;
+    return (
+      title.toLowerCase() === wanted ||
+      agentAddress(hostLabel, title).toLowerCase() === wanted
+    );
+  });
+
+  const inWindow = cutoff > 0
+    ? titleMatches.filter((session) => (session.updated ?? 0) >= cutoff)
+    : titleMatches;
+
+  if (inWindow.length === 1) {
+    return { kind: 'unique', row: toRow(inWindow[0]), source: 'title' };
+  }
+  if (inWindow.length > 1) {
+    const rows = inWindow.map(toRow);
+    const addresses = rows.map((r) => `${r.address} (${r.agent.conversationId})`).join(', ');
+    return {
+      kind: 'ambiguous',
+      rows,
+      message: `More than one active session is titled "${trimmed}": ${addresses}.`,
+    };
+  }
+
+  // Found outside the window when `searchAllTime` is false: ask the follow-up question.
+  if (!searchAllTime && titleMatches.length > 0) {
+    const rows = titleMatches.map(toRow);
+    const windowText = formatWindowLabel(windowHours);
+    return {
+      kind: 'outside-window',
+      rows,
+      question: `No agent called "${trimmed}" in the ${windowText}. Would you like to search all of your agents — all time, including ones that have been inactive for longer?`,
+    };
+  }
+
+  // If any host is silent, name the silent host(s) rather than claiming the agent doesn't exist.
+  const silentLabels = groups
+    .filter((group) => group.directory.state === 'silent')
+    .map((group) => group.label);
+  if (silentLabels.length > 0) {
+    const who = silentLabels.join(', ');
+    return {
+      kind: 'silent-hosts',
+      silentLabels,
+      message: `${who} didn't answer, so its agents are unknown right now — not absent. Try again once ${silentLabels.length === 1 ? 'it is' : 'they are'} back.`,
+    };
+  }
+
+  const windowText = formatWindowLabel(windowHours);
+  return {
+    kind: 'unknown',
+    message:
+      !searchAllTime && windowHours > 0
+        ? `No agent called "${trimmed}" in the ${windowText}. Would you like to search all of your agents — all time, including ones that have been inactive for longer?`
+        : `No agent called "${trimmed}".`,
+  };
 };
 
 /** The per-host line under a section heading: what the reader can conclude. */

@@ -34,13 +34,25 @@ import { MetaDoc } from "./meta";
 import {
   AgentsDoc,
   DuplicateAgentError,
+  formatForeignAgentMessage,
   listAgents,
   mergeDirectory,
+  pruneStaleAgents,
   registerAgent,
+  staleAgentNames,
   writeAgentsMirror,
+  writePeersMirror,
   type DirectorySummary,
+  type PeerEndpoint,
 } from "./agents";
-import { SessionsDoc } from "./sessions";
+import {
+  CREW_DEADLINE_MS,
+  SessionsDoc,
+  WORKER_INSTRUCTIONS,
+  nextRoleIndex,
+  pruneSpawns,
+  workerTitle,
+} from "./sessions";
 import { importOpenCodeCredentials, isCredential } from "./credentials";
 import { createLoginSupervisor, loginSupport, type LoginProvider, type LoginState } from "./login";
 import {
@@ -350,6 +362,12 @@ type ConversationSummary = {
   autoAccept?: boolean;
   /** True while a compaction task is in flight (manual, threshold, or overflow). */
   compacting?: boolean;
+  /** The newest compaction failure from `pi.live.compactionFailure`, cleared when a compaction produces a summary. */
+  compactionFailure?: {
+    taskId: number;
+    trigger: string;
+    error: string;
+  };
   /**
    * Processes this conversation's commands left running — the ones a person can stop.
    *
@@ -456,6 +474,15 @@ const summaryOf = async (
     cost: costOfUsage(usage),
     autoAccept: Boolean(auto?.enabled),
     compacting: Boolean(live?.compactions?.length),
+    ...(live?.compactionFailure && typeof live.compactionFailure.error === "string"
+      ? {
+          compactionFailure: {
+            taskId: live.compactionFailure.taskId,
+            trigger: live.compactionFailure.trigger,
+            error: live.compactionFailure.error,
+          },
+        }
+      : {}),
     ...(processes === undefined ? {} : { processes }),
   };
 };
@@ -952,6 +979,8 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/providers\/[^/]+$/, ["POST", "DELETE"]],
   [/^\/directories$/, ["GET"]],
   [/^\/directory$/, ["GET"]],
+  [/^\/directory\/peers$/, ["GET", "PUT"]],
+  [/^\/directory\/send$/, ["POST"]],
   [/^\/queue$/, ["GET"]],
   [/^\/context-rules$/, ["GET", "POST"]],
   [/^\/context-rules\/[^/]+$/, ["PATCH", "DELETE"]],
@@ -976,6 +1005,7 @@ const CONVERSATION_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   compact: ["POST"],
   "queue/order": ["PUT"],
   fork: ["POST"],
+  btw: ["POST"],
   promote: ["POST"],
   reset: ["POST"],
   configure: ["POST"],
@@ -1384,7 +1414,7 @@ const server = Bun.serve<{
 
       // ---- agent directory --------------------------------------------------------------
       // The local registry merged with live conversation status. Entries whose conversation is
-      // gone are omitted (but the registry row stays). Token-authenticated like every route.
+      // gone or archived are omitted and lazily pruned from `AgentsDoc` + `agents.json` in one commit.
       if (request.method === "GET" && path === "/directory") {
         const entries = listAgents(await harness.snapshot(AgentsDoc, context));
         const summaries = new Map<number, DirectorySummary>();
@@ -1394,7 +1424,118 @@ const server = Bun.serve<{
           if (!(await harness.conversation(id, context))) continue;
           summaries.set(entry.conversationId, await summaryOf(harness, { id }));
         }
+        const stale = staleAgentNames(entries, summaries);
+        if (stale.length > 0) {
+          const removed = await harness.commit((tx) => pruneStaleAgents(tx, stale), context);
+          if (removed > 0) {
+            writeAgentsMirror(config.home, await harness.snapshot(AgentsDoc, context));
+          }
+        }
         return json({ agents: mergeDirectory(entries, summaries) });
+      }
+
+      if (path === "/directory/peers") {
+        if (request.method === "GET") {
+          const state = await harness.snapshot(AgentsDoc, context);
+          return json({
+            peers: (state?.peers ?? []).map((p) => ({ id: p.id, label: p.label, url: p.url })),
+          });
+        }
+        if (request.method === "PUT") {
+          const body = await readBody(request);
+          const rawPeers = Array.isArray(body.peers) ? body.peers : null;
+          if (!rawPeers) return badRequest("peers must be an array");
+          const peers: PeerEndpoint[] = [];
+          for (const item of rawPeers) {
+            if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+            const rec = item as Record<string, unknown>;
+            const id = string(rec.id, 120)?.trim();
+            const label = string(rec.label, 120)?.trim();
+            const peerUrl = string(rec.url, 500)?.trim();
+            const peerToken = string(rec.token, 500)?.trim();
+            if (!id || !label || !peerUrl || !peerToken) continue;
+            peers.push({ id, label, url: peerUrl, token: peerToken });
+          }
+          await harness.commit(async (tx) => {
+            const doc = await tx.doc(AgentsDoc);
+            doc.peers = peers;
+          }, context);
+          writePeersMirror(config.home, peers);
+          return json({ ok: true, count: peers.length });
+        }
+        return noRoute(request.method, path, routeMethods(path));
+      }
+
+      if (path === "/directory/send") {
+        if (request.method !== "POST") return noRoute(request.method, path, routeMethods(path));
+        const body = await readBody(request);
+        const name = string(body.name, 200)?.trim();
+        const message = string(body.message, 50_000)?.trim();
+        if (!name) return badRequest("name is required");
+        if (!message) return badRequest("message is required");
+        const followUp = body.followUp === true;
+        const senderHost = string(body.senderHost, 120)?.trim() || "remote";
+        const senderName = string(body.senderName, 200)?.trim() || "agent";
+        const requestId = string(body.requestId, 200)?.trim();
+
+        const state = await harness.snapshot(AgentsDoc, context);
+        const wanted = name.toLowerCase();
+        const regEntry =
+          state && Object.hasOwn(state.entries, name)
+            ? state.entries[name]
+            : state
+              ? Object.entries(state.entries).find(([k]) => k.toLowerCase() === wanted)?.[1]
+              : undefined;
+
+        let targetId: ConversationId | undefined = regEntry
+          ? (regEntry.conversationId as ConversationId)
+          : undefined;
+        let resolvedLabel = name;
+
+        if (targetId === undefined) {
+          // Fall back to non-worker conversations by title.
+          const records = await allConversations(storage);
+          const titleMatches: Array<{ id: ConversationId; title: string }> = [];
+          for (const rec of records) {
+            const meta = await harness.snapshot(MetaDoc, rec.id, context);
+            if (!meta || meta.archived || meta.kind === "worker") continue;
+            const title = meta.title?.trim();
+            if (title && title.toLowerCase() === wanted) {
+              titleMatches.push({ id: rec.id, title });
+            }
+          }
+          if (titleMatches.length > 1) {
+            return json(
+              {
+                error: `More than one conversation on this host is titled "${name}" (${titleMatches.map((m) => m.id).join(", ")}).`,
+              },
+              409
+            );
+          }
+          if (titleMatches.length === 1) {
+            targetId = titleMatches[0].id;
+            resolvedLabel = titleMatches[0].title;
+          }
+        }
+
+        if (targetId === undefined) {
+          return notFound(`no agent named "${brief(name, 100)}" on this host`);
+        }
+        const handle = await harness.conversation(targetId, context);
+        if (!handle) {
+          return notFound(`agent "${brief(name, 100)}" conversation ${targetId} is gone`);
+        }
+        const content = formatForeignAgentMessage(senderHost, senderName, message);
+        await handle.submit(
+          {
+            type: "input",
+            content,
+            whenBusy: followUp ? "followUp" : "steer",
+            ...(requestId ? { requestId } : {}),
+          },
+          context
+        );
+        return json({ ok: true, name: resolvedLabel, conversationId: targetId }, 201);
       }
 
       // ---- queue ------------------------------------------------------------------------
@@ -1963,6 +2104,80 @@ const server = Bun.serve<{
           }
           const fork = await conversation.fork(boundary, { ownership: { kind: "ownerless" } }, context);
           return json(await summaryOf(harness, { id: fork.id }), 201);
+        }
+
+        // Side question ("btw …"): fork the conversation (or start an empty child when the leader
+        // has no entries yet) as a `kind: "worker"` tied to this leader, register it in the leader's
+        // crew doc, and submit the side question so its answer arrives as a side-question report.
+        if (action === "btw" && request.method === "POST") {
+          const body = await readBody(request);
+          const question = string(body.question, 10_000)?.trim();
+          if (!question) return badRequest("question is required");
+          const newest = (await conversation.entries({}, 1, undefined, context)).items[0];
+          const autoAccept = await harness.snapshot(AutoAcceptDoc, conversationId, context);
+          const leaderAgent = await harness.snapshot(AgentDoc, conversationId, context);
+          const now = Date.now();
+          const role = "Aside";
+          const spawned = await harness.commit(async (tx) => {
+            const crew = await tx.doc(SessionsDoc, conversationId);
+            const roleIndex = nextRoleIndex(crew.items, role);
+            const title = workerTitle(role, roleIndex);
+            const key = `btw-${roleIndex}-${now}`;
+            const briefRequestId = `hearth.crew.brief:${conversationId}:${key}:${now}`;
+            const generation = crew.woke ? crew.generation + 1 : Math.max(crew.generation, 1);
+            const child = newest
+              ? await tx.forkConversation(conversationId, newest.id, { ownership: { kind: "ownerless" } })
+              : await tx.createConversation({
+                  ownership: { kind: "ownerless" },
+                  ...(leaderAgent
+                    ? {
+                        agent: {
+                          ...(leaderAgent.cwd ? { cwd: leaderAgent.cwd } : {}),
+                          ...(leaderAgent.model ? { model: leaderAgent.model } : {}),
+                          ...(leaderAgent.thinkingLevel ? { thinkingLevel: leaderAgent.thinkingLevel } : {}),
+                          instructions: WORKER_INSTRUCTIONS,
+                        },
+                      }
+                    : { agent: { instructions: WORKER_INSTRUCTIONS } }),
+                });
+            const meta = await tx.doc(MetaDoc, child.id);
+            meta.title = title;
+            meta.kind = "worker";
+            meta.lead = { conversationId: conversationId as number, host: "local" };
+            meta.delegates = false;
+            (await tx.doc(AutoAcceptDoc, child.id)).enabled = autoAccept?.enabled ?? false;
+            crew.generation = generation;
+            crew.woke = false;
+            delete crew.wokeAt;
+            crew.deadlineAt = now + CREW_DEADLINE_MS;
+            crew.spawnedAt = [...pruneSpawns(crew.spawnedAt, now), now];
+            crew.items[key] = {
+              kind: "worker",
+              conversationId: child.id,
+              title,
+              role,
+              roleIndex,
+              spawnedAt: now,
+              taskAt: now,
+              ...(newest ? { answerFrom: newest.id as number } : {}),
+              state: "starting",
+              generation,
+              briefRequestId,
+              sideQuestion: question.slice(0, 300),
+            };
+            return { id: child.id, briefRequestId };
+          }, context);
+          const childHandle = await harness.conversation(spawned.id, context);
+          if (childHandle) {
+            const prompt =
+              `[Side question from the user — answer concisely using the conversation context above. ` +
+              `Your final message will be reported back to the main session.]\n\n${question}`;
+            await childHandle.submit(
+              { type: "input", content: prompt, requestId: spawned.briefRequestId },
+              context
+            );
+          }
+          return json(await summaryOf(harness, { id: spawned.id }), 201);
         }
 
         // Human promotion: a worker becomes a named peer by forking it ownerless. Ownership is

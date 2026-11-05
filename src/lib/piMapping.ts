@@ -79,6 +79,12 @@ export type PiConversationSummary = {
   autoAccept?: boolean;
   /** True while a compaction task (manual/threshold/overflow) is in flight. */
   compacting?: boolean;
+  /** The newest compaction failure (`pi.live.compactionFailure`). */
+  compactionFailure?: {
+    taskId?: number;
+    trigger?: string;
+    error: string;
+  };
   /** Coagent role: a hidden crew `worker`, or an addressable `peer`. Absent on plain sessions. */
   kind?: 'worker' | 'peer';
   /** The immediate leader, with `host` (`"local"` in Phase 1). Workers carry it; peers keep it as history. */
@@ -121,6 +127,10 @@ export const piConversationToSession = (
   needsInput: conversation.needsInput === true,
   delegates: conversation.delegates === true,
   compacting: conversation.compacting === true,
+  compactionFailure:
+    conversation.compactionFailure && typeof conversation.compactionFailure.error === 'string'
+      ? conversation.compactionFailure
+      : undefined,
   // The newest entry id is what lets Home answer "could this hold anything unread?" for free.
   lastEntryId: typeof conversation.lastEntryId === 'number' ? conversation.lastEntryId : undefined,
   // Only when the host says there are some: an absent field renders nothing, which is what an

@@ -39,6 +39,8 @@ export type SetupResult = {
   tokenPath: string;
   token: string;
   tokenCreated: boolean;
+  agentsMdPath?: string;
+  agentsMdCreated?: boolean;
   localUrl: string;
   tailscaleUrl?: string;
   servicePath?: string;
@@ -248,6 +250,139 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
   ].join('\n');
 };
 
+/**
+ * Generate the default `AGENTS.md` guide tailored to the host OS (`darwin`, `win32`, or `linux`).
+ *
+ * Placed in `<homeDir>/AGENTS.md` on `ember setup` so every agent session on this machine starts
+ * with practical instructions for built-in tools, computer navigation, Playwright/MCP browser
+ * automation, adding model providers, and pairing remote hosts.
+ */
+export const generateDefaultAgentsMd = (opts: {
+  platform: ServicePlatform;
+  homeDir: string;
+  port: number;
+}): string => {
+  const osLabel =
+    opts.platform === 'darwin' ? 'macOS' : opts.platform === 'win32' ? 'Windows' : 'Linux';
+
+  const osSection =
+    opts.platform === 'darwin'
+      ? [
+          '## Computer Navigation & macOS Tools',
+          '',
+          '- **Open URLs, files, or apps:** `open <url-or-path>` or `open -a "App Name"`.',
+          '- **Reveal a file in Finder:** `open -R <path>`.',
+          '- **Clipboard:** `pbcopy` and `pbpaste`.',
+          '- **Screenshots:** `screencapture -x /tmp/screen.png`, then inspect it with the `view` tool (`view({ path: "/tmp/screen.png" })`).',
+          '- **AppleScript / UI automation:** `osascript -e \'...\'`.',
+          '- **Background services:** Managed via `launchctl` (`~/Library/LaunchAgents/dev.ember.kiln.plist`).',
+        ].join('\n')
+      : opts.platform === 'win32'
+        ? [
+            '## Computer Navigation & Windows Tools (Path Rules)',
+            '',
+            '- **CRITICAL — Two path conventions in one session:**',
+            '  - The `bash` tool runs **Git Bash (MSYS)**, where paths look like `/c/Users/<you>/project`.',
+            '  - The `read`, `write`, `edit`, and `view` tools use **Windows paths** (`C:/Users/<you>/project` or `C:\\Users\\<you>\\project`). A leading `/c/...` in a file tool resolves to `C:\\c\\...`!',
+            '  - **Rule:** Always pass `C:/Users/...` to `read`/`write`/`edit`/`view`, and translate `pwd`/`find` output before handing it to a file tool.',
+            '- **Open files, folders, or URLs:** `start "" "<path-or-url>"` or `explorer.exe "<path>"`.',
+            '- **PowerShell commands:** `powershell.exe -NoProfile -Command "..."`.',
+            '- **Processes & ports:** `tasklist`, `taskkill /F /PID <pid>`, `netstat -ano`.',
+            '- **Background services:** Managed via Windows Task Scheduler (`Get-ScheduledTask -TaskName EmberKiln`).',
+          ].join('\n')
+        : [
+            '## Computer Navigation & Linux Tools',
+            '',
+            '- **Open files or URLs on a desktop:** `xdg-open <path-or-url>`.',
+            '- **System & process inspection:** `ps aux`, `ss -tulpn`, `systemctl --user status ember-kiln.service`, `journalctl --user -u ember-kiln.service -n 50`.',
+            '- **Clipboard (when a display is active):** `wl-copy` / `wl-paste` (Wayland) or `xclip -selection clipboard` (X11).',
+            '- **Screenshots:** Use Playwright MCP (`browser` with `action: "take_screenshot"`) or `import` / `grim`, then inspect with `view`.',
+          ].join('\n');
+
+  const mcpPath = path.join(opts.homeDir, 'mcp.json');
+
+  return [
+    `# Agent Environment Guide (${osLabel})`,
+    '',
+    'This file provides default guidance for agents running in **Kiln** (`ember-harness`) and **Ember** on this machine. Project-specific `AGENTS.md` files in a project folder take precedence over this default.',
+    '',
+    '## Core Tools & File Navigation',
+    '',
+    '- **Prefer built-in file tools over shell redirection:**',
+    '  - `read({ path, offset?, limit? })` — read text files.',
+    '  - `write({ path, content })` — create or overwrite files (automatically creates parent directories).',
+    '  - `edit({ path, edits: [{ oldText, newText }] })` — exact text replacements.',
+    '  - `view({ path })` — inspect images (`png`, `jpg`, `webp`, `gif`, `bmp`). Always use `view` for screenshots and images (`read` is for text only).',
+    '- **`bash({ command, timeout? })`:**',
+    '  - Runs shell commands in the session working directory.',
+    '  - Avoid leaving background processes (like dev servers or watchers) running after a turn unless asked; Kiln tracks leftover processes and reports their memory footprint.',
+    '- **`codemode({ code })` & `scratchpad`:**',
+    '  - Chain multiple tool calls (`await tools.read(...)`, `await tools.bash(...)`) inside a single QuickJS turn and persist intermediate JSON across turns with `store(key, value)` / `load(key)`.',
+    '',
+    osSection,
+    '',
+    '## Browser Automation (Playwright MCP)',
+    '',
+    '- If the `browser` tool is loaded, use it to navigate and interact with web pages:',
+    '  - Prefer `browser({ action: "snapshot" })` or `browser({ action: "find", query: "..." })` to inspect the accessibility tree and get element `ref`s before clicking (`action: "click"`) or typing (`action: "type"`).',
+    '  - Use `browser({ action: "take_screenshot" })` when checking visual layout.',
+    '- If `browser` is not yet configured, you can enable Playwright MCP in `' + mcpPath + '` and restart Kiln:',
+    '  ```json',
+    '  {',
+    '    "mcpServers": {',
+    '      "playwright": {',
+    '        "tool": "browser",',
+    '        "command": "npx",',
+    '        "args": ["-y", "@playwright/mcp@latest", "--headless"]',
+    '      }',
+    '    }',
+    '  }',
+    '  ```',
+    '  *(Use `tool_search` to discover any deferred MCP tools.)*',
+    '',
+    '## Coagents, Crews & Messaging',
+    '',
+    '- **`session` tool:** Spawn hidden crew workers (`action: "spawn"`, always pass a short `role` like `"Researcher"` or `"Builder"`) when a task splits cleanly into independent parallel parts, then `wait` and read `results`.',
+    '- **`agents` tool:** List known agents (`action: "directory"`) or message another agent by name (`action: "send"`, `name`, `message`) — works across local sessions and federated remote Kiln hosts.',
+    '',
+    '## Adding Model Providers',
+    '',
+    '- **From Ember Desktop:** Open **Settings → Providers** to add an API key, complete an OAuth device-code sign-in, or import credentials from OpenCode.',
+    '- **From the terminal (headless or local):**',
+    '  ```bash',
+    '  bun packages/kiln/scripts/provider.ts list',
+    '  bun packages/kiln/scripts/provider.ts set <provider-id> <api-key>',
+    '  bun packages/kiln/scripts/provider.ts login <provider-id>',
+    '  bun packages/kiln/scripts/provider.ts import',
+    '  ```',
+    '',
+    '## Adding & Pairing Remote Hosts',
+    '',
+    `1. **On the remote machine (macOS, Windows, or headless Linux):** Run \`ember setup --headless\` (or \`ember token\`). It initializes \`${opts.homeDir}\`, starts Kiln on port \`${opts.port}\`, and prints the URL (including Tailscale IPv4 \`http://100.x.y.z:${opts.port}\` when Tailscale is active) plus the 64-character bearer token.`,
+    '2. **In Ember Desktop:** Open **Settings → Instances → Add endpoint**, enter a label (e.g. `Studio`), the remote URL, and the bearer token. Ember automatically syncs peer lists across your connected hosts so agents can message each other by name across machines.',
+    '',
+  ].join('\n');
+};
+
+/**
+ * Ensure `<homeDir>/AGENTS.md` exists. Preserves any existing file so user customizations are never
+ * overwritten.
+ */
+export const ensureDefaultAgentsMd = (opts: {
+  platform: ServicePlatform;
+  homeDir: string;
+  port: number;
+}): { agentsMdPath: string; created: boolean } => {
+  fs.mkdirSync(opts.homeDir, { recursive: true, mode: 0o700 });
+  const agentsMdPath = path.join(opts.homeDir, 'AGENTS.md');
+  if (fs.existsSync(agentsMdPath)) {
+    return { agentsMdPath, created: false };
+  }
+  const content = generateDefaultAgentsMd(opts);
+  fs.writeFileSync(agentsMdPath, content, 'utf8');
+  return { agentsMdPath, created: true };
+};
+
 export const parseArgs = (
   argv: readonly string[],
   homedir: string = os.homedir(),
@@ -374,10 +509,16 @@ export const runSetup = (
   }
 
   const { token, tokenPath, created } = ensureHarnessToken(flags.home);
+  const agentsMd = ensureDefaultAgentsMd({
+    platform: flags.platform,
+    homeDir: flags.home,
+    port: flags.port,
+  });
   const lines: string[] = [
     'Kiln (ember-harness) setup complete',
     `  Home directory:  ${flags.home}`,
     `  Token file:      ${tokenPath} (${created ? 'generated, mode 0600' : 'existing, mode 0600'})`,
+    `  Agent guide:     ${agentsMd.agentsMdPath} (${agentsMd.created ? `created for ${flags.platform}` : 'existing preserved'})`,
     `  Local URL:       ${localUrl}`,
   ];
   if (tailscaleUrl) {
@@ -431,6 +572,8 @@ export const runSetup = (
     tokenPath,
     token,
     tokenCreated: created,
+    agentsMdPath: agentsMd.agentsMdPath,
+    agentsMdCreated: agentsMd.created,
     localUrl,
     tailscaleUrl,
     servicePath,

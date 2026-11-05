@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import CrewStrip from './src/components/CrewStrip';
+import CrewStrip, { BRICK_CLASS } from './src/components/CrewStrip';
 import type { AvatarIdentity, BallState, Session } from './src/types';
 
 /**
@@ -334,16 +334,20 @@ describe('the parts that must survive the layout change', () => {
     expect(html).not.toContain('aria-pressed');
   });
 
-  test('the word collapses to the shield on a narrow brick, and the brick owns the query', () => {
-    // `@container` is on the brick, so the collapse measures the room this chip has rather than the
-    // window's — the only measure that means anything inside a wrapped strip.
+  test('the word collapses to the shield on a narrow strip, and @container never sits on the brick itself', () => {
+    // `@container` (`container-type: inline-size`) on a shrink-to-fit `inline-flex` brick applies
+    // inline-size containment, collapsing every brick to its 12px padding while its contents paint
+    // over its neighbours. The strip wrapper (`group/strip`) owns `@container`; `BRICK_CLASS` must
+    // never carry it.
+    expect(BRICK_CLASS).not.toContain('@container');
     const html = render({
       workers: [worker('a')],
       stateFor: () => 'active',
       autoAcceptFor: () => true,
       onToggleYolo: () => {},
     });
-    expect(html).toContain('@container');
+    expect(html).toContain('group/strip @container');
+    expect(html).not.toMatch(/data-crew-brick=""[^>]*@container/);
     expect(html).toContain('hidden @[420px]:inline">Yolo<');
   });
 

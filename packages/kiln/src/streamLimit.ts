@@ -30,7 +30,7 @@ export type StreamLimitVerdict = "ok" | "rate" | "concurrent";
  * The burst is what stops a resume-after-sleep turning into a spike; the rate is what bounds a
  * storm. Both are much stricter than the ceiling, which only has to catch runaway accumulation.
  */
-export const STREAM_LIMITS = { burst: 48, perSecond: 6, maxConcurrent: 256 } as const;
+export const STREAM_LIMITS = { burst: 256, perSecond: 6, maxConcurrent: 300 } as const;
 
 export type StreamLimiterOptions = {
   /** Streams a peer may open back-to-back before the bucket has to refill. */

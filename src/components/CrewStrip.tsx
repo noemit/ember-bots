@@ -105,11 +105,14 @@ const BRICK_DOT: Record<CrewBrickTone, string> = {
  * The shared brick shell: one wrapped line, blob + truncated title + signal. The width cap is per
  * tone (`BRICK_MAX_W`) because a brick that prints a word has to fit that word *and* a readable
  * title — six characters of "Migr…" beside "needs input" is worse than one wider brick.
+ *
+ * Never put `@container` on `BRICK_CLASS` itself: `container-type: inline-size` applies inline-size
+ * containment, which makes an `inline-flex` chip ignore its own children when sizing and collapse
+ * to its horizontal padding (`12px`). The container lives on the strip wrapper (`group/strip`)
+ * instead, where the width is governed by the column rather than shrink-to-fit content.
  */
-const BRICK_CLASS =
-  // `@container` on the brick itself: the YOLO chip's word collapses against the room *this* chip
-  // has, not the window's, which is the only measure that means anything inside a wrapped strip.
-  'group/brick @container inline-flex min-w-0 items-center gap-1 rounded-full bg-muted/70 px-1.5 py-1 text-[11px] text-foreground';
+export const BRICK_CLASS =
+  'group/brick inline-flex min-w-0 items-center gap-1 rounded-full bg-muted/70 px-1.5 py-1 text-[11px] text-foreground';
 
 /** A brick stays compact; the loud ones earn the room their word needs. */
 const BRICK_MAX_W: Record<CrewBrickTone, string> = {
@@ -433,7 +436,7 @@ const CrewStrip = React.memo(function CrewStrip({
     <div
       role="group"
       aria-label={leaderTitle ? `Crew of ${leaderTitle}` : 'Crew'}
-      className="group/strip flex min-w-0 flex-wrap items-center gap-1"
+      className="group/strip @container flex min-w-0 flex-wrap items-center gap-1"
     >
       {/* Bricks wrap: no `max-h`, no inner scroll. A crew of ten grows to three short lines, which
           is cheaper to read than a 160px window over the composer with hidden rows in it. */}

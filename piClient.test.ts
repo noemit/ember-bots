@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { framesToHints, PiClient, type PiHint } from './electron/piClient';
+import {
+  framesToHints,
+  PiClient,
+  RECENT_WATCHED_CONVERSATIONS,
+  selectWatchedConversationIds,
+  type PiHint,
+} from './electron/piClient';
 
 /**
  * Hearth's stream frames → the hints the renderer already understands.
@@ -100,5 +106,25 @@ describe('the transport', () => {
       frames({ type: 'changed', kinds: ['run_start'] }, { type: 'text', deltas: [{ index: 0, kind: 'text', text: 'hi' }] })
     );
     expect(emitted.map((hint) => hint.type)).toEqual(['pi:run_start', 'pi:message_update']);
+  });
+
+  test('selectWatchedConversationIds watches on-screen ∪ busy ∪ the N most recent active conversations', () => {
+    const all = Array.from({ length: 168 }, (_, index) => ({
+      id: 1000 - index,
+      busy: index === 50,
+      needsInput: index === 90,
+      archived: index === 2 ? 12345 : undefined,
+    }));
+    const watched = selectWatchedConversationIds(all, {
+      openIds: new Set([1000 - 120]),
+      recentLimit: RECENT_WATCHED_CONVERSATIONS,
+    });
+    // 16 recent non-archived + 1 busy (idx 50) + 1 needsInput (idx 90) + 1 open (idx 120) = 19
+    expect(watched).toHaveLength(RECENT_WATCHED_CONVERSATIONS + 3);
+    expect(watched).toContain(1000 - 50);
+    expect(watched).toContain(1000 - 90);
+    expect(watched).toContain(1000 - 120);
+    // Archived conversation (idx 2) is excluded unless open or busy.
+    expect(watched).not.toContain(1000 - 2);
   });
 });

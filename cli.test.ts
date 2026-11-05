@@ -3,7 +3,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  ensureDefaultAgentsMd,
   ensureHarnessToken,
+  generateDefaultAgentsMd,
   generateServiceConfig,
   parseArgs,
   runSetup,
@@ -147,5 +149,35 @@ describe('Tinder / Ember CLI', () => {
     expect(down.ok).toBe(false);
     expect(down.output).toContain('Kiln did not answer at http://127.0.0.1:3002');
     expect(down.output).toContain('ember setup --service');
+  });
+
+  test('setup writes an OS-customized default AGENTS.md with Playwright, tool navigation, providers, and remotes', () => {
+    const macDoc = generateDefaultAgentsMd({ platform: 'darwin', homeDir: '/Users/alex/.ember', port: 3002 });
+    expect(macDoc).toContain('Agent Environment Guide (macOS)');
+    expect(macDoc).toContain('screencapture');
+    expect(macDoc).toContain('pbcopy');
+    expect(macDoc).toContain('@playwright/mcp@latest');
+    expect(macDoc).toContain('Adding Model Providers');
+    expect(macDoc).toContain('Adding & Pairing Remote Hosts');
+
+    const winDoc = generateDefaultAgentsMd({ platform: 'win32', homeDir: 'C:\\Users\\alex\\.ember', port: 3002 });
+    expect(winDoc).toContain('Agent Environment Guide (Windows)');
+    expect(winDoc).toContain('Git Bash (MSYS)');
+    expect(winDoc).toContain('C:/Users/');
+    expect(winDoc).toContain('powershell.exe');
+
+    const linuxDoc = generateDefaultAgentsMd({ platform: 'linux', homeDir: '/home/alex/.ember', port: 3002 });
+    expect(linuxDoc).toContain('Agent Environment Guide (Linux)');
+    expect(linuxDoc).toContain('xdg-open');
+    expect(linuxDoc).toContain('systemctl --user status ember-kiln.service');
+
+    // Idempotent: ensureDefaultAgentsMd preserves user edits on subsequent runs.
+    const home = path.join(makeTempDir(), '.ember');
+    const first = ensureDefaultAgentsMd({ platform: 'linux', homeDir: home, port: 3002 });
+    expect(first.created).toBe(true);
+    fs.writeFileSync(first.agentsMdPath, '# Custom user rules\n', 'utf8');
+    const second = ensureDefaultAgentsMd({ platform: 'linux', homeDir: home, port: 3002 });
+    expect(second.created).toBe(false);
+    expect(fs.readFileSync(second.agentsMdPath, 'utf8')).toBe('# Custom user rules\n');
   });
 });

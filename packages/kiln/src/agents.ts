@@ -29,27 +29,35 @@ import {
 const CANDIDATES = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
 
 /**
- * The workspace's AGENTS.md for the conversation's cwd, rendered into the system prompt
- * per request (the pi article's pattern). Read at render time so an edit shows up on the
- * next request; absent file renders nothing.
+ * The workspace's AGENTS.md for the conversation's cwd (falling back to `<home>/AGENTS.md` when the
+ * project folder has none), rendered into the system prompt per request. Read at render time so an
+ * edit shows up on the next request; absent file renders nothing.
  */
-export const agentsMdSection = section(
-  "agents_md",
-  (input: PromptInput) => {
-    const cwd = input.agent.cwd;
-    if (!cwd) return undefined;
-    for (const name of CANDIDATES) {
-      try {
-        const content = readFileSync(join(cwd, name), "utf8").trim();
-        if (content) return content;
-      } catch {
-        // try the next candidate
+export const createAgentsMdSection = (home?: string) =>
+  section(
+    "agents_md",
+    (input: PromptInput) => {
+      const cwd = input.agent.cwd;
+      const dirs = [
+        ...(cwd ? [cwd] : []),
+        ...(home && home !== cwd ? [home] : []),
+      ];
+      for (const dir of dirs) {
+        for (const name of CANDIDATES) {
+          try {
+            const content = readFileSync(join(dir, name), "utf8").trim();
+            if (content) return content;
+          } catch {
+            // try the next candidate
+          }
+        }
       }
-    }
-    return undefined;
-  },
-  { tag: false }
-);
+      return undefined;
+    },
+    { tag: false }
+  );
+
+export const agentsMdSection = createAgentsMdSection();
 
 /**
  * The local agent registry (Phase 2 of `COAGENTS_PLAN.md`).
@@ -79,7 +87,35 @@ export type AgentEntry = {
   updatedAt: number;
 };
 
-export type AgentsState = { entries: Record<string, AgentEntry> };
+export type PeerEndpoint = {
+  id: string;
+  label: string;
+  url: string;
+  token: string;
+};
+
+export type AgentsState = {
+  entries: Record<string, AgentEntry>;
+  /** Peer hosts pushed by Ember so `agents directory` and `agents send` federate across hosts. */
+  peers?: PeerEndpoint[];
+};
+
+/** 60 messages per hour per conversation: prevents two agents from ping-ponging in a loop. */
+export const AGENT_MESSAGE_BUDGET = 60;
+export const AGENT_MESSAGE_WINDOW_MS = 60 * 60 * 1000;
+
+export const pruneAgentMessages = (
+  sentAt: readonly number[] | undefined,
+  now: number,
+  windowMs = AGENT_MESSAGE_WINDOW_MS
+): number[] => (sentAt ?? []).filter((at) => now - at < windowMs);
+
+export const agentMessageRateLimited = (
+  sentAt: readonly number[] | undefined,
+  now: number,
+  limit = AGENT_MESSAGE_BUDGET,
+  windowMs = AGENT_MESSAGE_WINDOW_MS
+): boolean => pruneAgentMessages(sentAt, now, windowMs).length >= limit;
 
 /** The host-wide (session-scoped) registry: one name per local conversation. */
 export const AgentsDoc = defineDoc<AgentsState>({
@@ -169,6 +205,7 @@ export const listAgents = (
 /** The subset of a conversation summary the directory merges into each registry entry. */
 export type DirectorySummary = {
   title?: string;
+  archived?: number;
   kind?: "worker" | "peer";
   lead?: { conversationId: number; host: string };
   busy?: boolean;
@@ -187,8 +224,45 @@ export type DirectoryEntry = NamedAgentEntry & {
 };
 
 /**
- * Merge the registry with conversation summaries. An entry whose conversation is gone is
- * dropped here (the registry row stays; a human can clean it up or promote a replacement).
+ *Registry names whose conversation is gone or archived and should be pruned lazily. Pure.
+ */
+export const staleAgentNames = (
+  entries: readonly NamedAgentEntry[],
+  summaries: ReadonlyMap<number, DirectorySummary>
+): string[] => {
+  const stale: string[] = [];
+  for (const entry of entries) {
+    const summary = summaries.get(entry.conversationId);
+    if (!summary || summary.archived !== undefined) {
+      stale.push(entry.name);
+    }
+  }
+  return stale;
+};
+
+/**
+ * Remove stale names from `AgentsDoc` inside one serialized commit, and return how many were removed.
+ * Checks `staleNames` against the live doc so two concurrent readers cannot race.
+ */
+export const pruneStaleAgents = async (
+  tx: Tx,
+  staleNames: readonly string[]
+): Promise<number> => {
+  if (staleNames.length === 0) return 0;
+  const doc = await tx.doc(AgentsDoc);
+  let removed = 0;
+  for (const name of staleNames) {
+    if (Object.hasOwn(doc.entries, name)) {
+      delete doc.entries[name];
+      removed += 1;
+    }
+  }
+  return removed;
+};
+
+/**
+ * Merge the registry with conversation summaries. An entry whose conversation is gone or archived
+ * is dropped here (and lazily pruned from `AgentsDoc` + `agents.json` by the caller).
  * Pinned first, then newest activity; bounded so the directory can never bloat a prompt.
  */
 export const mergeDirectory = (
@@ -199,11 +273,11 @@ export const mergeDirectory = (
   const merged: DirectoryEntry[] = [];
   for (const entry of entries) {
     const summary = summaries.get(entry.conversationId);
-    if (!summary) continue;
+    if (!summary || summary.archived !== undefined) continue;
     merged.push({
       ...entry,
       ...(summary.title ? { title: summary.title } : {}),
-      ...(summary.kind ? { kind: summary.kind } : {}),
+      ...(summary.kind ? { title: summary.title, kind: summary.kind } : {}),
       ...(summary.lead ? { lead: summary.lead } : {}),
       busy: summary.busy ?? false,
       needsInput: summary.needsInput ?? false,
@@ -241,8 +315,40 @@ export const formatDirectory = (agents: readonly DirectoryEntry[]): string => {
 // ---- mirror file for the passive prompt section ------------------------------------------
 
 const MIRROR_FILE = "agents.json";
+const PEERS_FILE = "peers.json";
+export const MAX_MIRROR_AGENTS = 200;
 
 export const agentsMirrorPath = (home: string): string => join(home, MIRROR_FILE);
+export const peersMirrorPath = (home: string): string => join(home, PEERS_FILE);
+
+export const writePeersMirror = (home: string, peers: readonly PeerEndpoint[] | undefined): void => {
+  try {
+    mkdirSync(home, { recursive: true });
+    const path = peersMirrorPath(home);
+    const temporary = `${path}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify({ peers: peers ?? [] }, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporary, path);
+  } catch (error) {
+    console.error("[hearth] writing peers mirror failed:", error instanceof Error ? error.message : error);
+  }
+};
+
+export const readPeersMirror = (home: string): PeerEndpoint[] => {
+  try {
+    const parsed = JSON.parse(readFileSync(peersMirrorPath(home), "utf8")) as { peers?: unknown };
+    if (!Array.isArray(parsed?.peers)) return [];
+    return parsed.peers.filter(
+      (item): item is PeerEndpoint =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        typeof (item as PeerEndpoint).label === "string" &&
+        typeof (item as PeerEndpoint).url === "string" &&
+        typeof (item as PeerEndpoint).token === "string"
+    );
+  } catch {
+    return [];
+  }
+};
 
 /**
  * Mirror the registry to `<home>/agents.json`. The durable doc stays the source of truth; the
@@ -255,7 +361,14 @@ export const writeAgentsMirror = (home: string, snapshot: Readonly<AgentsState> 
     mkdirSync(home, { recursive: true });
     const path = agentsMirrorPath(home);
     const temporary = `${path}.tmp`;
-    const mirror = { entries: snapshot?.entries ?? {} };
+    // Bound the mirror by recency (pinned first, then newest updatedAt) so `<home>/agents.json`
+    // stays a readable, bounded file even if many conversations were spawned.
+    const sorted = listAgents(snapshot).slice(0, MAX_MIRROR_AGENTS);
+    const boundedEntries: Record<string, AgentEntry> = {};
+    for (const { name, ...entry } of sorted) {
+      boundedEntries[name] = entry;
+    }
+    const mirror = { entries: boundedEntries };
     writeFileSync(temporary, `${JSON.stringify(mirror, null, 2)}\n`, { mode: 0o600 });
     renameSync(temporary, path);
   } catch (error) {
@@ -346,6 +459,7 @@ const summaryFor = async (
   const pendingQuestion = Object.values(questions?.items ?? {}).some((item) => item.status === "pending");
   return {
     ...(meta?.title ? { title: meta.title } : {}),
+    ...(meta?.archived !== undefined ? { archived: meta.archived } : {}),
     ...(meta?.kind ? { kind: meta.kind } : {}),
     ...(meta?.lead ? { lead: meta.lead } : {}),
     busy: Boolean(live?.run),
@@ -390,6 +504,81 @@ const foreignCrewEntry = async (
 };
 
 /**
+ * A non-worker conversation on this host whose `meta.title` matches `name` (case-insensitive).
+ * Used when `name` is an auto-derived session title rather than an explicit registry key.
+ */
+const titleMatchedConversations = async (
+  api: ToolExecutionApi,
+  name: string,
+  context: Context
+): Promise<Array<{ id: ConversationId; title: string }>> => {
+  const wanted = name.trim().toLowerCase();
+  if (!wanted) return [];
+  const candidates = await api.commit(async (tx) => {
+    const ids: ConversationId[] = [];
+    let cursor: Cursor | undefined;
+    while (ids.length < FOREIGN_CREW_SCAN_LIMIT) {
+      const page = await tx.scanConversations({}, 200, cursor);
+      for (const record of page.items) {
+        if (record.id === api.conversationId) continue;
+        ids.push(record.id);
+      }
+      if (!page.next) break;
+      cursor = page.next;
+    }
+    return ids;
+  }, context);
+  const matches: Array<{ id: ConversationId; title: string }> = [];
+  for (const id of candidates) {
+    const meta = await api.snapshot(MetaDoc, id, context);
+    if (!meta || meta.archived || meta.kind === "worker") continue;
+    const title = meta.title?.trim();
+    if (title && title.toLowerCase() === wanted) {
+      matches.push({ id, title });
+    }
+  }
+  return matches;
+};
+
+/**
+ * Query configured peer hosts (`state.peers` or `<home>/peers.json`) for their `/directory`.
+ */
+const queryPeerDirectories = async (
+  peers: readonly PeerEndpoint[]
+): Promise<{
+  entries: DirectoryEntry[];
+  silentPeers: string[];
+}> => {
+  const entries: DirectoryEntry[] = [];
+  const silentPeers: string[] = [];
+  await Promise.all(
+    peers.map(async (peer) => {
+      try {
+        const response = await fetch(`${peer.url.replace(/\/+$/, "")}/directory`, {
+          headers: { authorization: `Bearer ${peer.token}` },
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!response.ok) {
+          silentPeers.push(peer.label);
+          return;
+        }
+        const body = (await response.json().catch(() => null)) as { agents?: DirectoryEntry[] } | null;
+        for (const agent of Array.isArray(body?.agents) ? body.agents : []) {
+          entries.push({ ...agent, host: peer.label });
+        }
+      } catch {
+        silentPeers.push(peer.label);
+      }
+    })
+  );
+  return { entries, silentPeers };
+};
+
+/** Format a message arriving from another host so the recipient knows it is foreign. */
+export const formatForeignAgentMessage = (senderHost: string, senderName: string, message: string): string =>
+  `[Message from agent ${senderHost}/${senderName}]:\n${message}`;
+
+/**
  * `agents` — the directory and direct messaging for named peers:
  * - `directory`: registered agents merged with live conversation status.
  * - `send` (name, message, followUp?): submit to that conversation, idempotently per tool task.
@@ -399,8 +588,9 @@ const foreignCrewEntry = async (
  * There is deliberately **no `register` action**: only a human promotes a worker into a peer.
  *
  * `send` resolves the caller's **own crew first** (a worker by the crew name it spawned, or by
- * its title such as `Researcher #1`), then the registered directory. A worker of another leader
- * is refused: a conversation only drives the crew it started.
+ * its title such as `Researcher #1`), then the registered directory, then a unique local session
+ * title, and finally configured peer hosts (`state.peers` / `peers.json`). A worker of another
+ * leader is refused: a conversation only drives the crew it started.
  */
 export const createAgentsTool = (home: string) =>
   defineTool({
@@ -449,6 +639,7 @@ export const createAgentsTool = (home: string) =>
       });
 
       const state = await api.snapshot(AgentsDoc, context);
+      const peers = state?.peers ?? readPeersMirror(home);
 
       if (action === "directory") {
         const entries = listAgents(state);
@@ -457,31 +648,74 @@ export const createAgentsTool = (home: string) =>
           const summary = await summaryFor(api, entry.conversationId as ConversationId, context);
           if (summary) summaries.set(entry.conversationId, summary);
         }
-        return reply(formatDirectory(mergeDirectory(entries, summaries)));
+        const stale = staleAgentNames(entries, summaries);
+        if (stale.length > 0) {
+          const removed = await api.commit((tx) => pruneStaleAgents(tx, stale), context);
+          if (removed > 0) {
+            writeAgentsMirror(home, await api.snapshot(AgentsDoc, context));
+          }
+        }
+        const localMerged = mergeDirectory(entries, summaries);
+        if (peers.length === 0) {
+          return reply(formatDirectory(localMerged));
+        }
+        const remote = await queryPeerDirectories(peers);
+        const combined = [...localMerged, ...remote.entries];
+        const note =
+          remote.silentPeers.length > 0
+            ? `\n(${remote.silentPeers.join(", ")} didn't answer — its agents are unknown right now, not absent.)`
+            : "";
+        return reply(formatDirectory(combined) + note);
       }
 
       if (name === undefined || !name.trim()) return reply(`agents ${action} needs a name.`);
-      const found = state && Object.hasOwn(state.entries, name) ? state.entries[name] : undefined;
+      const trimmedName = name.trim();
+      const found =
+        state && Object.hasOwn(state.entries, trimmedName)
+          ? state.entries[trimmedName]
+          : state
+            ? Object.entries(state.entries).find(([k]) => k.toLowerCase() === trimmedName.toLowerCase())?.[1]
+            : undefined;
 
       if (action === "pin" || action === "unpin") {
         if (!found) return reply(`No agent named ${name}. Ask a human to register one.`);
+        const targetKey =
+          state && Object.hasOwn(state.entries, trimmedName)
+            ? trimmedName
+            : Object.keys(state?.entries ?? {}).find((k) => k.toLowerCase() === trimmedName.toLowerCase()) ?? trimmedName;
         const updated = await api.commit(
-          async (tx) => (action === "pin" ? pinAgent(tx, name) : unpinAgent(tx, name)),
+          async (tx) => (action === "pin" ? pinAgent(tx, targetKey) : unpinAgent(tx, targetKey)),
           context
         );
         if (!updated) return reply(`No agent named ${name}.`);
         // Refresh the passive hint cache in the same operation as the durable mutation.
         writeAgentsMirror(home, await api.snapshot(AgentsDoc, context));
-        return reply(`${action === "pin" ? "Pinned" : "Unpinned"} ${name}.`);
+        return reply(`${action === "pin" ? "Pinned" : "Unpinned"} ${targetKey}.`);
       }
 
       // send
       if (message === undefined || !message.trim()) return reply("agents send needs a message.");
 
-      // Resolution order: the caller's own crew first, then the registered directory. A leader
-      // reaches its own workers by the crew name it spawned or by the title Hearth gave them.
+      const now = Date.now();
+      const senderMeta = await api.snapshot(MetaDoc, api.conversationId, context);
+      if (agentMessageRateLimited(senderMeta?.agentMessagesSentAt, now)) {
+        return reply(
+          `Refused: this conversation has sent ${AGENT_MESSAGE_BUDGET} agent messages in the last hour. ` +
+            `Wait before sending more so two agents cannot loop.`
+        );
+      }
+
+      const chargeBudget = async () => {
+        await api.commit(async (tx) => {
+          const meta = await tx.doc(MetaDoc, api.conversationId);
+          meta.agentMessagesSentAt = [...pruneAgentMessages(meta.agentMessagesSentAt, now), now];
+        }, context);
+      };
+
+      // Resolution order: the caller's own crew first, then the registered directory, then a
+      // unique local session title, then configured peer hosts.
       const crew = await api.snapshot(SessionsDoc, api.conversationId, context);
-      const crewTarget = crew ? findCrewTarget(crew.items, name) : undefined;
+      const crewTarget = crew ? findCrewTarget(crew.items, trimmedName) : undefined;
       if (crewTarget) {
         const label = crewTarget.entry.title || crewTarget.key;
         const queued = followUp === true;
@@ -502,48 +736,156 @@ export const createAgentsTool = (home: string) =>
           },
           context
         );
-        // A settled worker owes a new answer now; without this its crew entry stays `reported` and
-        // the supervisor never reads the answer (see `rearmWorker`).
         await api.commit(
-          (tx) => rearmWorker(tx, api.conversationId, crewTarget.key, crewTarget.entry.conversationId, Date.now()),
+          (tx) => rearmWorker(tx, api.conversationId, crewTarget.key, crewTarget.entry.conversationId, now),
           context
         );
+        await chargeBudget();
         return reply(`${queued ? "Queued for" : "Sent to"} ${label}.`, crewTarget.entry.conversationId);
       }
 
-      if (!found) {
-        // A name that is a crew member elsewhere is refused rather than reported as unknown: a
-        // worker belongs to the conversation that spawned it, not to whoever asks first.
-        const foreign = await foreignCrewEntry(api, name, context);
-        if (foreign) {
-          const label = foreign.entry.title || foreign.key;
+      if (found) {
+        const handle = await api.conversation(found.conversationId as ConversationId, context);
+        if (!handle) {
           return reply(
-            `Refused: ${label} is in another leader's crew (conversation ${foreign.lead}), so only ` +
-              "that leader can message it. Spawn your own worker, or message a registered agent."
+            `Agent ${name} is gone (conversation ${found.conversationId}); ask a human to register a replacement.`
           );
         }
-        const known = listAgents(state).map((entry) => entry.name);
+        await handle.submit(
+          {
+            type: "input",
+            content: message,
+            whenBusy: followUp === true ? "followUp" : "steer",
+            requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
+          },
+          context
+        );
+        await chargeBudget();
+        return reply(`Sent to ${name}.`, found.conversationId);
+      }
+
+      // Check if the name is in another leader's crew before falling back to session titles.
+      const foreign = await foreignCrewEntry(api, trimmedName, context);
+      if (foreign) {
+        const label = foreign.entry.title || foreign.key;
         return reply(
-          `No agent named ${name}.${known.length > 0 ? ` Known agents: ${known.join(", ")}.` : ""} ` +
-            "Only a human can register an agent."
+          `Refused: ${label} is in another leader's crew (conversation ${foreign.lead}), so only ` +
+            "that leader can message it. Spawn your own worker, or message a registered agent."
         );
       }
-      const handle = await api.conversation(found.conversationId as ConversationId, context);
-      if (!handle) {
+
+      // Try non-worker local conversations by title (including auto-derived titles).
+      const byTitle = await titleMatchedConversations(api, trimmedName, context);
+      if (byTitle.length > 1) {
         return reply(
-          `Agent ${name} is gone (conversation ${found.conversationId}); ask a human to register a replacement.`
+          `Refused: more than one conversation is titled "${trimmedName}" (${byTitle.map((c) => `conversation ${c.id}`).join(", ")}).`
         );
       }
-      await handle.submit(
-        {
-          type: "input",
-          content: message,
-          whenBusy: followUp === true ? "followUp" : "steer",
-          requestId: agentMessageRequestId(api.conversationId, name, api.taskId),
-        },
-        context
+      if (byTitle.length === 1) {
+        const match = byTitle[0];
+        const handle = await api.conversation(match.id, context);
+        if (handle) {
+          await handle.submit(
+            {
+              type: "input",
+              content: message,
+              whenBusy: followUp === true ? "followUp" : "steer",
+              requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
+            },
+            context
+          );
+          await chargeBudget();
+          return reply(`Sent to ${match.title}.`, match.id as number);
+        }
+      }
+
+      // Federated peer lookup: `host/name` or bare `name` across configured peer hosts.
+      if (peers.length > 0) {
+        const slash = trimmedName.indexOf("/");
+        const wantedHost = slash > 0 ? trimmedName.slice(0, slash).trim().toLowerCase() : null;
+        const wantedAgent = slash > 0 ? trimmedName.slice(slash + 1).trim() : trimmedName;
+        const candidatePeers = wantedHost
+          ? peers.filter(
+              (p) => p.label.toLowerCase() === wantedHost || p.id.toLowerCase() === wantedHost
+            )
+          : peers;
+        const remoteMatches: Array<{ peer: PeerEndpoint; agent: DirectoryEntry }> = [];
+        const silentPeers: string[] = [];
+        await Promise.all(
+          candidatePeers.map(async (peer) => {
+            try {
+              const response = await fetch(`${peer.url.replace(/\/+$/, "")}/directory`, {
+                headers: { authorization: `Bearer ${peer.token}` },
+                signal: AbortSignal.timeout(4_000),
+              });
+              if (!response.ok) {
+                silentPeers.push(peer.label);
+                return;
+              }
+              const body = (await response.json().catch(() => null)) as { agents?: DirectoryEntry[] } | null;
+              for (const entry of Array.isArray(body?.agents) ? body.agents : []) {
+                if (
+                  entry.name.toLowerCase() === wantedAgent.toLowerCase() ||
+                  (entry.title && entry.title.toLowerCase() === wantedAgent.toLowerCase())
+                ) {
+                  remoteMatches.push({ peer, agent: entry });
+                }
+              }
+            } catch {
+              silentPeers.push(peer.label);
+            }
+          })
+        );
+        if (remoteMatches.length > 1) {
+          const candidates = remoteMatches.map((m) => `${m.peer.label}/${m.agent.name}`).join(", ");
+          return reply(
+            `Refused: "${wantedAgent}" exists on multiple hosts (${candidates}). Specify the host as host/name.`
+          );
+        }
+        if (remoteMatches.length === 1) {
+          const { peer, agent } = remoteMatches[0];
+          const senderTitle = senderMeta?.title?.trim() || `conversation-${api.conversationId}`;
+          try {
+            const response = await fetch(`${peer.url.replace(/\/+$/, "")}/directory/send`, {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${peer.token}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                name: agent.name,
+                message,
+                followUp: followUp === true,
+                senderHost: "remote",
+                senderName: senderTitle,
+                requestId: agentMessageRequestId(api.conversationId, `${peer.id}/${agent.name}`, api.taskId),
+              }),
+              signal: AbortSignal.timeout(6_000),
+            });
+            if (!response.ok) {
+              const errBody = (await response.json().catch(() => null)) as { error?: string } | null;
+              return reply(
+                errBody?.error ?? `${peer.label} refused the message to ${agent.name} (${response.status}).`
+              );
+            }
+            await chargeBudget();
+            return reply(`Sent to ${peer.label}/${agent.name}.`, agent.conversationId);
+          } catch {
+            return reply(`${peer.label} didn't answer while sending to ${agent.name} — try again once it is back.`);
+          }
+        }
+        if (silentPeers.length > 0) {
+          return reply(
+            `${silentPeers.join(", ")} didn't answer, so its agents are unknown right now — not absent. Try again once it is back.`
+          );
+        }
+      }
+
+      const known = listAgents(state).map((entry) => entry.name);
+      return reply(
+        `No agent named ${name}.${known.length > 0 ? ` Known agents: ${known.join(", ")}.` : ""} ` +
+          "Only a human can register an agent."
       );
-      return reply(`Sent to ${name}.`, found.conversationId);
     },
   });
 

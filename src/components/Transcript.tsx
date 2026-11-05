@@ -32,7 +32,13 @@ import TranscriptTimeline from './TranscriptTimeline';
 import { shouldShowTimeline, timelineTicks } from '../lib/transcriptTimeline';
 import { useImageViewer } from './imageViewerContext';
 import { cn } from '@/lib/utils';
-import { countToolCalls, foldedToolsLabel, foldsIntoRollup, type ToolDisplay } from '../lib/toolDisplay';
+import {
+  bundleConsecutiveToolMessages,
+  countToolCalls,
+  foldedToolsLabel,
+  foldsIntoRollup,
+  type ToolDisplay,
+} from '../lib/toolDisplay';
 import { isMessageRead } from '../lib/readState';
 import { entryOrdinal } from '../lib/piMapping';
 import UnreadDot from './UnreadDot';
@@ -1279,15 +1285,29 @@ const AskRecord = ({ call }: { call: ToolCall }) => {
 };
 
 /**
- * A server-generated crew wake (`[crew] …`) rendered as a system line, not a user bubble. It is
- * the leader's digest of a crew generation; the durable record is the passive crew-report entry.
- * The body links through `Linkify` like other plain text so conversation links are clickable.
+ * A server-generated crew wake (`[crew] …`) or side-question answer (`[crew] Side question: …`)
+ * rendered as a system card, not a user bubble.
  */
-const CrewReportCard = ({ summary }: { summary: string }) => (
+const CrewReportCard = ({
+  summary,
+  kind = 'crew',
+}: {
+  summary: string;
+  kind?: 'crew' | 'side-question';
+}) => (
   <div className="flex max-w-[85%] flex-col gap-1 self-center rounded-lg border border-highlight/30 bg-highlight/[0.04] px-3.5 py-2.5 text-[12.5px]">
     <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-      <Megaphone className="size-3.5 flex-none text-highlight" />
-      <span>Crew report</span>
+      {kind === 'side-question' ? (
+        <>
+          <MessageCircleQuestion className="size-3.5 flex-none text-highlight" />
+          <span>Side question</span>
+        </>
+      ) : (
+        <>
+          <Megaphone className="size-3.5 flex-none text-highlight" />
+          <span>Crew report</span>
+        </>
+      )}
     </div>
     <p className="whitespace-pre-wrap break-words">
       <Linkify text={summary} />
@@ -1321,7 +1341,7 @@ const renderBlock = (
           transition={spring}
           className="relative self-center"
         >
-          <CrewReportCard summary={crewReport.summary} />
+          <CrewReportCard summary={crewReport.summary} kind={crewReport.kind} />
           {overlay}
         </motion.div>
       );
@@ -1895,13 +1915,29 @@ function Transcript({
     const frame = requestAnimationFrame(() => { findInput.current?.focus(); findInput.current?.select(); });
     return () => cancelAnimationFrame(frame);
   }, [findRequest]);
-  const items = React.useMemo(() => messages.map((message, index) => ({ message, index })).filter(({ message }) =>
-    message.error || message.parts.some((part) => part.type === 'text' || part.type === 'file' ||
-      (part.type === 'tool' && (part.call.tool === 'ask'
-        ? showQuestions
-        : !hideToolCalls || Boolean(part.call.images?.length))) ||
-      (part.type === 'reasoning' && reasoningDisplay !== 'hidden'))
-  ), [messages, hideToolCalls, reasoningDisplay, showQuestions]);
+  const items = React.useMemo(() => {
+    const visible = messages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) =>
+        message.error ||
+        message.parts.some(
+          (part) =>
+            part.type === 'text' ||
+            part.type === 'file' ||
+            (part.type === 'tool' &&
+              (part.call.tool === 'ask'
+                ? showQuestions
+                : !hideToolCalls || Boolean(part.call.images?.length))) ||
+            (part.type === 'reasoning' && reasoningDisplay !== 'hidden')
+        )
+      );
+    return bundleConsecutiveToolMessages(visible, {
+      toolDisplay,
+      hideToolCalls,
+      reasoningHidden: reasoningDisplay === 'hidden',
+      showQuestions,
+    });
+  }, [messages, hideToolCalls, reasoningDisplay, showQuestions, toolDisplay]);
   const [readAll, setReadAll] = React.useState(false);
   /**
    * The column opens on a tail read (the last ~10 messages and their tool calls) rather than the
@@ -2287,10 +2323,14 @@ function Transcript({
               <>
                 <span>
                   {repairHalt.reason === 'too-large'
-                    ? "Earlier messages can't be loaded: this conversation is larger than Ember will read in one response."
-                    : "Earlier messages can't be loaded: the read kept failing."}{' '}
-                  Compacting it is the way back.
+                    ? "Earlier messages can't be loaded: the full history is larger than Ember reads at once."
+                    : "Earlier messages can't be loaded: the read kept failing."}
                 </span>
+                {onLoadEarlier ? (
+                  <Button size="xs" variant="ghost" className="h-5 px-1.5 text-[11px]" onClick={onLoadEarlier}>
+                    Load them
+                  </Button>
+                ) : null}
                 {onCompact ? (
                   <Button
                     size="xs"
@@ -2298,7 +2338,7 @@ function Transcript({
                     className="h-5 px-1.5 text-[11px]"
                     onClick={onCompact}
                     disabled={compacting}
-                    aria-label="Compact this conversation so its history can be loaded"
+                    aria-label="Compact context for the model"
                   >
                     {compacting ? 'Compacting…' : 'Compact'}
                   </Button>

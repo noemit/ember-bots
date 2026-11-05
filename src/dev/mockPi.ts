@@ -1486,6 +1486,53 @@ const piRequest = async (
     conversations.push(fork);
     return ok(summaryOf(fork), 201);
   }
+  if (action === 'btw' && method === 'POST') {
+    const question = typeof body.question === 'string' ? body.question.trim() : '';
+    if (!question) return fail(400, 'question is required');
+    const existingAsides = conversations.filter(
+      (c) => c.lead?.conversationId === conversation.id && c.title?.startsWith('Aside #')
+    ).length;
+    const worker = makeConversation({
+      cwd: conversation.cwd,
+      title: `Aside #${existingAsides + 1}`,
+      model: conversation.model,
+      thinkingLevel: conversation.thinkingLevel,
+      kind: 'worker',
+      lead: { conversationId: conversation.id, host: 'local' },
+      delegates: false,
+      entries: conversation.entries.map((entry) => ({ ...entry })),
+    });
+    conversations.push(worker);
+    worker.entries.push({
+      id: nextEntryId(),
+      kind: 'pi.user',
+      model: [userMessage(question)],
+    });
+    worker.busy = true;
+    emit(worker.id, 'run_start');
+    schedule(worker, 400, () => {
+      const answer = `Answered side question: ${question}`;
+      worker.entries.push({
+        id: nextEntryId(),
+        kind: 'pi.assistant',
+        model: [assistantMessage(text(answer), 'stop')],
+      });
+      worker.busy = false;
+      emit(worker.id, 'run_end');
+      // Wake the leader with the side-question report card.
+      conversation.entries.push({
+        id: nextEntryId(),
+        kind: 'pi.user',
+        model: [
+          userMessage(
+            `[crew] Side question:\nYou asked: "${question.slice(0, 300)}"\n${worker.title} (reported): ${answer} (conversation ${worker.id})`
+          ),
+        ],
+      });
+      emit(conversation.id, 'run_end');
+    });
+    return ok(summaryOf(worker), 201);
+  }
   if (action === 'promote' && method === 'POST') {
     // Human promotion (§4): fork the idle worker into a named, ownerless peer, keep `lead` as
     // history, register the name locally, and link the worker to the fork.
@@ -1665,6 +1712,23 @@ export const bridge: EmberBridge = {
     return settings;
   },
   appVersion: async () => '0.25.0-dev',
+  checkForUpdate: async () => {
+    const mockLatest = new URLSearchParams(window.location.search).get('updateAvailable');
+    if (mockLatest) {
+      return {
+        updateAvailable: true,
+        currentVersion: '0.94.2',
+        latestVersion: mockLatest,
+        releaseUrl: `https://github.com/noemit/ember-bots/releases/tag/v${mockLatest}`,
+      };
+    }
+    return {
+      updateAvailable: false,
+      currentVersion: '0.94.2',
+      latestVersion: null,
+      releaseUrl: 'https://github.com/noemit/ember-bots/releases',
+    };
+  },
   openExternal: async (target) => {
     if (/^https?:\/\//i.test(target)) window.open(target, '_blank', 'noopener');
     return true;

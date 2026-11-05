@@ -244,6 +244,8 @@ export type CrewEntry = {
     at: number;
     requestId: string;
   };
+  /** When this worker was forked for a human side question (`POST /conversations/:id/btw`). */
+  sideQuestion?: string;
   /** Set when a human promoted this worker; the fork is the peer. */
   promotedTo?: number;
 };

@@ -1,6 +1,6 @@
 {
   "name": "ember",
-  "version": "0.94.2",
+  "version": "1.0.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -12,6 +12,9 @@
     "node": ">=22.12.0"
   },
   "description": "A calm desktop control room for Ember Harness (Kiln / Hearth) and OpenChamber agents",
+  "author": "Noemi Titarenco <noemi@ember.dev>",
+  "homepage": "https://github.com/noemit/ember-bots",
+  "desktopName": "ember.desktop",
   "main": "dist-electron/main.js",
   "bin": {
     "ember": "./cli/ember.ts",
@@ -22,10 +25,11 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
     "dev": "bun run build && electron .",
     "dev:web": "vite --port 5179",
-    "dist": "bun run build && electron-builder",
-    "dist:mac": "bun run build && electron-builder --mac",
-    "dist:win": "bun run build && electron-builder --win",
-    "dist:linux": "bun run build && electron-builder --linux",
+    "dist": "bun run build && bunx electron-builder",
+    "dist:mac": "bun run build && bunx electron-builder --mac",
+    "dist:win": "bun run build && bunx electron-builder --win",
+    "dist:linux": "bun run build && bunx electron-builder --linux",
+    "dist:cli": "mkdir -p release && bun build --compile cli/ember.ts --outfile release/tinder-cli",
     "buddy-arena": "bun run buddy-arena/server.ts",
     "test": "bun test",
     "test:e2e": "playwright test",
@@ -73,7 +77,7 @@
       "icon": "build/icon.png",
       "target": [
         "AppImage",
-        "deb"
+        "tar.gz"
       ]
     }
   },

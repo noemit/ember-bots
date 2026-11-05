@@ -151,6 +151,12 @@ export type Session = {
   delegates?: boolean;
   /** True while a context compaction task is in flight (Hearth's `pi.live.compactions`). */
   compacting?: boolean;
+  /** The newest compaction failure reported by the host (`pi.live.compactionFailure`). */
+  compactionFailure?: {
+    taskId?: number;
+    trigger?: string;
+    error: string;
+  };
   /**
    * The newest Hearth entry id in the conversation, from its summary. Message ids are `e<entryId>`,
    * so this is what tells Home whether a session can hold anything unread *without* reading it.
@@ -762,6 +768,13 @@ export type EmberBridge = {
   openExternal(target: string): Promise<boolean>;
   /** The packaged Ember version, shown in Settings so an upgrade can be checked at a glance. */
   appVersion?(): Promise<string>;
+  /** Check GitHub for a newer release of Ember. */
+  checkForUpdate?(): Promise<{
+    updateAvailable: boolean;
+    currentVersion: string;
+    latestVersion: string | null;
+    releaseUrl: string;
+  }>;
   /** Replace the Dock icon with a PNG data URL (macOS only; a no-op elsewhere). */
   setAppIcon(dataUrl: string): Promise<{ ok: boolean; reason?: string }>;
   /** Carry a failure that happened before the IPC into the same log; absent on older bridges. */

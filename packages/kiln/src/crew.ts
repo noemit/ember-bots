@@ -84,11 +84,21 @@ export const digestOf = (state: SessionsState, generation = state.generation): s
         : entry.state === "stopped"
           ? "STOPPED — ended early; no report."
           : "(no report yet)");
-    return `${name} (${entry.state}): ${body.slice(0, 300)} (conversation ${entry.conversationId})`;
+    const prefix = entry.sideQuestion ? `You asked: "${entry.sideQuestion}"\n` : "";
+    return `${prefix}${name} (${entry.state}): ${body.slice(0, 300)} (conversation ${entry.conversationId})`;
   });
   const outcome = crewOutcome(Object.fromEntries(entries));
   const heading = outcome === "failed" ? "FINISHED WITH FAILURES\n" : "";
   return heading + lines.join("\n");
+};
+
+const wakeTextOf = (state: SessionsState, generation = state.generation): string => {
+  const entries = Object.entries(state.items).filter(([, entry]) => entry.generation === generation);
+  const allSideQuestions = entries.length > 0 && entries.every(([, entry]) => Boolean(entry.sideQuestion));
+  if (allSideQuestions) {
+    return `[crew] Side question:\n${digestOf(state, generation)}`;
+  }
+  return `[crew] Crew report (generation ${generation}):\n${digestOf(state, generation)}`;
 };
 
 /**
@@ -470,7 +480,7 @@ export const tick = async (
       await leader.submit(
         {
           type: "input",
-          content: `[crew] Crew report (generation ${generation}):\n${digestOf(fresh, generation)}`,
+          content: wakeTextOf(fresh, generation),
           whenBusy: "followUp",
           // Derived from the wake key, not from the generation: pi-durable reacquires a known
           // requestId without writing, so a per-generation id would swallow every later wake of the

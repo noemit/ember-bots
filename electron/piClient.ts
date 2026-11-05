@@ -30,8 +30,64 @@ import {
 const REQUEST_TIMEOUT_MS = 120_000;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
-const MAX_WATCHED_CONVERSATIONS = 200;
+/**
+ * How many recent idle conversations are watched alongside the open/on-screen and busy ones.
+ *
+ * Each open WebSocket stream pins a mount on the host; watching all 200 conversations held ~275 MB
+ * of active entries on a 168-conversation host while the 12 most recent held ~20 MB. Watching
+ * `on-screen ∪ busy ∪ the N most recent` keeps live streaming for everything active or recent while
+ * older idle conversations refresh by poll.
+ */
+export const RECENT_WATCHED_CONVERSATIONS = 16;
+export const MAX_WATCHED_CONVERSATIONS = 64;
 const CONNECT_TIMEOUT_MS = 20_000;
+
+export type WatchableConversation = {
+  id: number;
+  busy?: boolean;
+  compacting?: boolean;
+  needsInput?: boolean;
+  archived?: number;
+};
+
+/**
+ * Select the conversation IDs to watch over WebSocket for one endpoint:
+ *   `open/on-screen ∪ busy/compacting/needsInput ∪ the N most recent non-archived`
+ * Preserves the host's newest-first ordering and caps at `maxTotal`. Pure and unit-tested.
+ */
+export const selectWatchedConversationIds = (
+  conversations: readonly WatchableConversation[],
+  options: {
+    openIds?: ReadonlySet<number>;
+    recentLimit?: number;
+    maxTotal?: number;
+  } = {}
+): number[] => {
+  const openIds = options.openIds ?? new Set<number>();
+  const recentLimit = Math.max(1, options.recentLimit ?? RECENT_WATCHED_CONVERSATIONS);
+  const maxTotal = Math.max(recentLimit, options.maxTotal ?? MAX_WATCHED_CONVERSATIONS);
+
+  const selected = new Set<number>();
+  let recentCount = 0;
+
+  for (const conv of conversations) {
+    if (!Number.isInteger(conv.id)) continue;
+    const isOpen = openIds.has(conv.id);
+    const isBusy = conv.busy === true || conv.compacting === true || conv.needsInput === true;
+    const isActiveRecent = !conv.archived && recentCount < recentLimit;
+
+    if (!conv.archived) {
+      recentCount += 1;
+    }
+
+    if (isOpen || isBusy || isActiveRecent) {
+      selected.add(conv.id);
+      if (selected.size >= maxTotal) break;
+    }
+  }
+
+  return [...selected];
+};
 
 
 /**
@@ -199,6 +255,7 @@ export class PiClient {
   private readonly tasks = new Map<string, Subscription>();
   private readonly broadcast: Broadcaster;
   private readonly resolveEndpoint?: (endpointId: string) => PiEndpoint | undefined;
+  private readonly resolveOpenIds?: (endpointId: string) => ReadonlySet<number>;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   /** Open sockets per endpoint, so liveness is "any socket up" rather than one special socket. */
   private readonly openSockets = new Map<string, number>();
@@ -207,10 +264,12 @@ export class PiClient {
 
   constructor(
     broadcast: Broadcaster,
-    resolveEndpoint?: (endpointId: string) => PiEndpoint | undefined
+    resolveEndpoint?: (endpointId: string) => PiEndpoint | undefined,
+    resolveOpenIds?: (endpointId: string) => ReadonlySet<number>
   ) {
     this.broadcast = broadcast;
     this.resolveEndpoint = resolveEndpoint;
+    this.resolveOpenIds = resolveOpenIds;
   }
 
   /** Reconcile the endpoint set (settings may have changed) and refresh watches. */
@@ -230,6 +289,9 @@ export class PiClient {
       }
     }
     await Promise.all([...wanted.keys()].map((id) => this.refreshConversationWatches(id)));
+    if (wanted.size > 1) {
+      void this.pushPeerLists([...wanted.values()]);
+    }
     // A conversation created after this sync would otherwise have no event stream until the
     // next instance probe (60s). Refresh the watch set on a short timer so new conversations
     // start streaming promptly.
@@ -239,6 +301,29 @@ export class PiClient {
       }, 15_000);
       this.watchTimer.unref?.();
     }
+  }
+
+  /**
+   * Push the peer list into each configured endpoint (`PUT /directory/peers`) so `agents directory`
+   * and `agents send` federate host-to-host even when Ember is closed afterwards.
+   */
+  private async pushPeerLists(endpoints: readonly PiEndpoint[]): Promise<void> {
+    await Promise.all(
+      endpoints.map(async (target) => {
+        const peers = endpoints
+          .filter((other) => other.id !== target.id && other.url !== target.url)
+          .map((other) => ({
+            id: other.id,
+            label: other.label || other.id,
+            url: other.url,
+            token: other.token,
+          }));
+        await this.request(target.id, '/directory/peers', {
+          method: 'PUT',
+          body: { peers },
+        }).catch(() => null);
+      })
+    );
   }
 
   private dropEndpoint(id: string): void {
@@ -413,10 +498,9 @@ export class PiClient {
     const prefix = `events:${endpointId}:`;
     const page = await this.request(endpointId, '/conversations');
     if (!page.ok || !Array.isArray((page.data as { conversations?: unknown })?.conversations)) return;
-    const ids = ((page.data as { conversations: Array<{ id: number }> }).conversations ?? [])
-      .map((conversation) => conversation.id)
-      .filter((id) => Number.isInteger(id))
-      .slice(0, MAX_WATCHED_CONVERSATIONS);
+    const conversations = (page.data as { conversations: WatchableConversation[] }).conversations ?? [];
+    const openIds = this.resolveOpenIds?.(endpointId);
+    const ids = selectWatchedConversationIds(conversations, { openIds });
     const wanted = new Set(ids.map((id) => `${prefix}${id}`));
     for (const key of [...this.conversations.keys()]) {
       if (key.startsWith(prefix) && !wanted.has(key)) {

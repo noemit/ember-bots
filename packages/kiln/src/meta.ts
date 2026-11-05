@@ -32,6 +32,8 @@ export type HearthMeta = {
   delegates?: boolean;
   /** Set on a worker when a human promoted it; the ownerless peer fork that now carries its name. */
   promotedTo?: number;
+  /** Epoch ms timestamps of recent `agents send` messages, backing the 60/hour loop budget. */
+  agentMessagesSentAt?: number[];
 };
 
 export const MetaDoc = defineDoc<HearthMeta>({

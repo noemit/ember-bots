@@ -334,10 +334,11 @@ Desktop control room for **Kiln** (`packages/kiln`, Ember's durable agent harnes
   for ~2s and, if it never appears, says **Nothing to compact — the recent turns already fit**
   (`src/lib/compaction.ts`, pure and tested). Every attempt also writes one line to
   `<userData>/ember-compact.log` (`electron/compactLog.ts`, mode 0600, bounded) with the outcome,
-  whether the flag was ever seen, and the transcript's size either side. A fork button beside it forks
-  the session, waits for the handoff summary to land,
-  then compacts the fork so the new session carries just the summary and the source is left
-  untouched (`POST /api/session/:id/fork` + `/api/session/:id/compact`). As a workspace column it shows minimize and archive controls in the
+  whether the flag was ever seen, and the transcript's size either side. Beside it sits a `?` button
+  (`Ask a side question`) that opens a one-line input to ask a side question (`POST /conversations/:id/btw`):
+  Kiln forks the conversation into a hidden `Aside #N` worker carrying the leader's full context,
+  runs the question there without interrupting the leader's turn, and reports the answer back as a
+  "Side question" card in the leader's transcript. As a workspace column it shows minimize and archive controls in the
   header (`onMinimize`/`onArchive`; × archives through App's `requestArchive`, which routes busy,
   queued or input-blocked sessions through `ArchiveSessionDialog.tsx` first and always offers
   Undo — it never sends an abort), and calls `onActivate` on pointer-down so the active session

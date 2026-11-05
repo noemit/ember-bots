@@ -154,8 +154,18 @@ describe('parseCrewReport', () => {
   test('recognizes the [crew] wake prefix and returns its body', () => {
     expect(parseCrewReport('[crew] Crew report (generation 2): Parse config finished.')).toEqual({
       summary: 'Crew report (generation 2): Parse config finished.',
+      kind: 'crew',
     });
-    expect(parseCrewReport('  [crew]   spaced body  ')).toEqual({ summary: 'spaced body' });
+    expect(parseCrewReport('  [crew]   spaced body  ')).toEqual({ summary: 'spaced body', kind: 'crew' });
+  });
+
+  test('recognizes a side-question report and distinguishes it from a crew report', () => {
+    expect(
+      parseCrewReport('[crew] Side question:\nYou asked: "what port?"\nAside #1 (reported): 3002')
+    ).toEqual({
+      summary: 'You asked: "what port?"\nAside #1 (reported): 3002',
+      kind: 'side-question',
+    });
   });
 
   test('leaves normal user messages alone', () => {

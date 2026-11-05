@@ -21,6 +21,12 @@ const ember = {
     ipcRenderer.invoke('ember:settings:set', patch),
   openExternal: (target: string): Promise<boolean> => ipcRenderer.invoke('ember:open', { target }),
   appVersion: (): Promise<string> => ipcRenderer.invoke('ember:app-version'),
+  checkForUpdate: (): Promise<{
+    updateAvailable: boolean;
+    currentVersion: string;
+    latestVersion: string | null;
+    releaseUrl: string;
+  }> => ipcRenderer.invoke('ember:check-update'),
   setAppIcon: (dataUrl: string): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke('ember:app-icon', { dataUrl }),
   /** Carry a pre-IPC icon failure into the same log the handler writes. */

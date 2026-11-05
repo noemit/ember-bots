@@ -73,6 +73,22 @@ export const markRead = (
     ...(kept.length ? { ids: kept } : {}),
     readAt: Math.max(base.readAt ?? 0, at),
     ...(base.comments ? { comments: base.comments } : {}),
+    ...(base.quiet ? { quiet: true } : {}),
+  };
+};
+
+/**
+ * Mark a message read on an ordinal-free wire (OpenChamber), advancing `readAt` to `at`.
+ */
+export const markTimestampRead = (
+  mark: SessionReadMark | undefined,
+  at: number
+): SessionReadMark => {
+  const base = mark ?? EMPTY_READ_MARK;
+  if (at <= (base.readAt ?? 0)) return base;
+  return {
+    ...base,
+    readAt: at,
   };
 };
 
@@ -90,6 +106,7 @@ export const markAllRead = (
     through: Math.max(base.through, through),
     readAt: Math.max(base.readAt ?? 0, at),
     ...(base.comments ? { comments: base.comments } : {}),
+    ...(base.quiet ? { quiet: true } : {}),
   };
 };
 

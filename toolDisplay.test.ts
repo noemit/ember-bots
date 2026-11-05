@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
+  bundleConsecutiveToolMessages,
   countToolCalls,
   foldedToolsLabel,
   foldsIntoRollup,
@@ -119,5 +120,73 @@ describe('the tool options in the view menu', () => {
     // The two are independent: folding the list while still expanding details is a real choice.
     const mixed = toolMenuOptions(view({ expandToolCalls: true, toolDisplay: 'collapsed' }));
     expect(mixed.map((option) => option.checked)).toEqual([true, false]);
+  });
+});
+
+describe('bundling consecutive tool-only assistant steps', () => {
+  type TestPart = { type: string; id: string; text?: string; call?: { tool: string; images?: unknown[] } };
+  type TestMsg = { id: string; role: 'user' | 'assistant'; error?: string; parts: TestPart[] };
+
+  const toolMsg = (id: string, tool = 'read'): TestMsg => ({
+    id,
+    role: 'assistant',
+    parts: [{ type: 'tool', id: `${id}-t`, call: { tool } }],
+  });
+
+  const proseMsg = (id: string, text: string, withTool?: string): TestMsg => ({
+    id,
+    role: 'assistant',
+    parts: [
+      ...(withTool ? [{ type: 'tool', id: `${id}-t`, call: { tool: withTool } }] : []),
+      { type: 'text', id: `${id}-txt`, text },
+    ],
+  });
+
+  test('bundles three consecutive 1-tool assistant steps into a single 3-tool rollup on the following assistant step', () => {
+    const items = [
+      { index: 0, message: { id: 'u1', role: 'user' as const, parts: [{ type: 'text', id: 'u1-0', text: 'check files' }] } },
+      { index: 1, message: toolMsg('a1', 'read') },
+      { index: 2, message: toolMsg('a2', 'read') },
+      { index: 3, message: proseMsg('a3', 'All done.', 'bash') },
+    ];
+
+    const bundled = bundleConsecutiveToolMessages(items, {
+      toolDisplay: 'collapsed',
+      hideToolCalls: false,
+    });
+
+    expect(bundled).toHaveLength(2);
+    expect(bundled[1].message.id).toBe('a3');
+    expect(bundled[1].message.parts.filter((p) => p.type === 'tool')).toHaveLength(3);
+  });
+
+  test('bundles a trailing run of pure-tool steps into one row when no prose step follows yet', () => {
+    const items = [
+      { index: 0, message: toolMsg('a1', 'read') },
+      { index: 1, message: toolMsg('a2', 'edit') },
+      { index: 2, message: toolMsg('a3', 'bash') },
+    ];
+
+    const bundled = bundleConsecutiveToolMessages(items, {
+      toolDisplay: 'collapsed',
+      hideToolCalls: false,
+    });
+
+    expect(bundled).toHaveLength(1);
+    expect(bundled[0].message.parts).toHaveLength(3);
+  });
+
+  test('leaves items untouched when toolDisplay is list', () => {
+    const items = [
+      { index: 0, message: toolMsg('a1', 'read') },
+      { index: 1, message: toolMsg('a2', 'read') },
+    ];
+
+    const unbundled = bundleConsecutiveToolMessages(items, {
+      toolDisplay: 'list',
+      hideToolCalls: false,
+    });
+
+    expect(unbundled).toHaveLength(2);
   });
 });

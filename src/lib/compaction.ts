@@ -20,32 +20,39 @@ export type CompactionTrace = {
   entriesBefore: number;
   /** …and after the read that follows it. */
   entriesAfter: number;
+  /** When the compaction task itself failed (`pi.live.compactionFailure.error`). */
+  error?: string;
 };
 
 /**
- * `failed`: the host refused. `landed`: it is running (or already ran). `nothing`: it accepted and
- * did nothing at all.
+ * `failed`: the host refused, or the compaction task itself recorded a failure. `landed`: it is
+ * running (or already ran). `nothing`: it accepted and did nothing at all.
  */
 export type CompactionOutcome = 'failed' | 'landed' | 'nothing';
 
 export const compactionOutcome = (trace: CompactionTrace): CompactionOutcome => {
-  if (!trace.accepted) return 'failed';
-  // A flag means the host really started: the transcript re-reads when it ends, so saying nothing
-  // here is the honest answer even if the entries have not shrunk yet.
-  return trace.sawCompacting ? 'landed' : 'nothing';
+  if (!trace.accepted || (trace.error && trace.error.trim())) return 'failed';
+  // A flag (or a transcript that already shrunk before the first poll) means the host really
+  // compacted: the transcript re-reads when it ends, so saying nothing here is the honest answer.
+  if (trace.sawCompacting || trace.entriesAfter < trace.entriesBefore) return 'landed';
+  return 'nothing';
 };
 
 /**
- * The one line a person needs when a compaction did nothing.
- *
- * It names what happened and why, and it is not an alarm: nothing is wrong with the conversation,
- * there was simply nothing to fold up. There is no next step to point at, which is exactly what the
- * sentence says.
+ * The one line a person needs when a compaction did nothing, or when the task failed after 202.
  */
 export const compactionNotice = (outcome: CompactionOutcome): string | null =>
   outcome === 'nothing'
     ? 'Nothing to compact — the recent turns already fit.'
     : null;
+
+/** Format a post-202 compaction task failure so the error banner names what failed and what to do. */
+export const compactionFailureMessage = (error: string | undefined): string => {
+  const detail = error?.trim();
+  if (!detail) return 'Could not compact this session — try again.';
+  const cleaned = detail.replace(/\.$/, '');
+  return `Compaction didn't finish (${cleaned}). Try again.`;
+};
 
 /** The line written to `ember-compact.log`, one per attempt. */
 export const compactionLogLine = (
@@ -61,4 +68,5 @@ export const compactionLogLine = (
     `accepted=${trace.accepted}`,
     `compacting=${trace.sawCompacting}`,
     `entries=${trace.entriesBefore}->${trace.entriesAfter}`,
+    ...(trace.error ? [`error=${JSON.stringify(trace.error)}`] : []),
   ].join(' ');

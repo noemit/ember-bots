@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { compactionLogLine, compactionNotice, compactionOutcome } from './src/lib/compaction';
+import {
+  compactionFailureMessage,
+  compactionLogLine,
+  compactionNotice,
+  compactionOutcome,
+} from './src/lib/compaction';
 
 /**
  * A compaction the host accepts and then does not perform used to be silent: a 202, and nothing
@@ -23,6 +28,18 @@ describe('what a compaction did', () => {
   test('the flag means it really started', () => {
     expect(compactionOutcome(trace({ sawCompacting: true, entriesAfter: 8 }))).toBe('landed');
     expect(compactionNotice('landed')).toBeNull();
+  });
+
+  test('a task failure after 202 is a failure and names the reason', () => {
+    expect(compactionOutcome(trace({ sawCompacting: true, error: 'No model is configured' }))).toBe('failed');
+    expect(compactionOutcome(trace({ sawCompacting: false, error: 'Summarization produced no text' }))).toBe('failed');
+    const message = compactionFailureMessage('Model xai/grok-4 is not available');
+    expect(message).toContain('Model xai/grok-4 is not available');
+    expect(message).toMatch(/try again/i);
+  });
+
+  test('a fast compaction that already shrunk the transcript before the first poll still counts as landed', () => {
+    expect(compactionOutcome(trace({ sawCompacting: false, entriesBefore: 20, entriesAfter: 8 }))).toBe('landed');
   });
 
   test('accepted, never flagged: the silent path', () => {

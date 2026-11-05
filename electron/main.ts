@@ -552,7 +552,21 @@ const piClient = new PiClient(
     // hint and carries none.
     if ('summary' in outbound && outbound.summary) activityLog.append(outbound as unknown as EmberEvent);
   },
-  (id) => piEndpoints().find((endpoint) => endpoint.id === id)
+  (id) => piEndpoints().find((endpoint) => endpoint.id === id),
+  (endpointId) => {
+    const settings = readEmberSettings();
+    const ids = new Set<number>();
+    const keys = [
+      ...(settings.openSessions ?? []),
+      ...(settings.activeSession ? [settings.activeSession] : []),
+    ];
+    for (const key of keys) {
+      if (!key.startsWith(`${endpointId}::`)) continue;
+      const num = Number(key.slice(endpointId.length + 2));
+      if (Number.isInteger(num) && num > 0) ids.add(num);
+    }
+    return ids;
+  }
 );
 const piEndpoints = (): PiEndpoint[] => readEmberSettings().piEndpoints;
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>
@@ -870,6 +884,107 @@ const openTarget = async (target: string): Promise<boolean> => {
 ipcMain.handle('ember:open', async (event, args: { target?: unknown }): Promise<boolean> => {
   assertTrustedSender(event);
   return openTarget(String(args?.target || '').trim());
+});
+
+const GITHUB_REPO_SLUG = 'noemit/ember-bots';
+const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO_SLUG}/releases`;
+
+const parseMainSemver = (
+  raw: string | undefined | null
+): { major: number; minor: number; patch: number; prerelease?: string } | null => {
+  if (typeof raw !== 'string') return null;
+  const cleaned = raw.trim().replace(/^v/i, '');
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(cleaned);
+  if (!match) return null;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
+    return null;
+  }
+  return { major, minor, patch, ...(match[4] ? { prerelease: match[4] } : {}) };
+};
+
+const isMainNewerVersion = (current: string, candidate: string): boolean => {
+  const cur = parseMainSemver(current);
+  const next = parseMainSemver(candidate);
+  if (!cur || !next || next.prerelease) return false;
+  if (next.major !== cur.major) return next.major > cur.major;
+  if (next.minor !== cur.minor) return next.minor > cur.minor;
+  if (next.patch !== cur.patch) return next.patch > cur.patch;
+  return Boolean(cur.prerelease && !next.prerelease);
+};
+
+ipcMain.handle('ember:check-update', async (event) => {
+  assertTrustedSender(event);
+  const currentVersion = app.getVersion();
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': `Ember/${currentVersion || '0.0.0'}`,
+  };
+  try {
+    const releaseRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO_SLUG}/releases/latest`, {
+      headers,
+      signal: AbortSignal.timeout(6_000),
+    });
+    if (releaseRes.ok) {
+      const rec = (await releaseRes.json().catch(() => null)) as Record<string, unknown> | null;
+      if (rec && rec.draft !== true && rec.prerelease !== true) {
+        const tag = typeof rec.tag_name === 'string' ? rec.tag_name : typeof rec.name === 'string' ? rec.name : null;
+        const parsed = parseMainSemver(tag);
+        if (parsed) {
+          const latestVersion = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+          const releaseUrl =
+            typeof rec.html_url === 'string' && /^https:\/\/github\.com\//i.test(rec.html_url)
+              ? rec.html_url
+              : `${GITHUB_RELEASES_URL}/tag/v${latestVersion}`;
+          return {
+            updateAvailable: isMainNewerVersion(currentVersion, latestVersion),
+            currentVersion,
+            latestVersion,
+            releaseUrl,
+          };
+        }
+      }
+    }
+    const tagsRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO_SLUG}/tags?per_page=10`, {
+      headers,
+      signal: AbortSignal.timeout(6_000),
+    });
+    if (tagsRes.ok) {
+      const tags = (await tagsRes.json().catch(() => null)) as Array<{ name?: unknown }> | null;
+      if (Array.isArray(tags)) {
+        let bestVersion: string | null = null;
+        let bestTag = '';
+        for (const item of tags) {
+          if (typeof item?.name !== 'string') continue;
+          const parsed = parseMainSemver(item.name);
+          if (!parsed || parsed.prerelease) continue;
+          const ver = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+          if (!bestVersion || isMainNewerVersion(bestVersion, ver)) {
+            bestVersion = ver;
+            bestTag = item.name.trim();
+          }
+        }
+        if (bestVersion) {
+          return {
+            updateAvailable: isMainNewerVersion(currentVersion, bestVersion),
+            currentVersion,
+            latestVersion: bestVersion,
+            releaseUrl: `${GITHUB_RELEASES_URL}/tag/${encodeURIComponent(bestTag)}`,
+          };
+        }
+      }
+    }
+  } catch {
+    // Offline or blocked; fail silently.
+  }
+  return {
+    updateAvailable: false,
+    currentVersion,
+    latestVersion: null,
+    releaseUrl: GITHUB_RELEASES_URL,
+  };
 });
 
 /**

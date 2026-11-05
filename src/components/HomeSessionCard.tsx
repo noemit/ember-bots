@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowRight, CheckCheck, Loader2 } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, CheckCheck, Loader2 } from 'lucide-react';
 import Blob from '../blob/Blob';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -33,6 +33,10 @@ type Props = {
   onReadItem: (item: UnreadItem) => void;
   /** Right-click: read everything up to the newest entry on the host. */
   onMarkAllRead: () => void;
+  /** True when the session is set to "New Messages: Don't Notify" (`readMark.quiet`). */
+  quiet?: boolean;
+  /** Toggle "New Messages: Don't Notify" vs "Notify" for this session. */
+  onQuietChange?: (quiet: boolean) => void;
 };
 
 /** Rows shown before the row summarises the rest; three keeps one session about a screen tall. */
@@ -68,6 +72,8 @@ const HomeSessionCard = React.memo(function HomeSessionCard({
   onOpen,
   onReadItem,
   onMarkAllRead,
+  quiet,
+  onQuietChange,
 }: Props) {
   const title = session.title?.trim() || projectName || session.id;
   const unread = items.filter((item) => !item.sticky).length;
@@ -240,6 +246,12 @@ const HomeSessionCard = React.memo(function HomeSessionCard({
           <CheckCheck />
           Mark all as read
         </ContextMenuItem>
+        {onQuietChange ? (
+          <ContextMenuItem onSelect={() => onQuietChange(!quiet)}>
+            {quiet ? <Bell /> : <BellOff />}
+            {quiet ? 'New Messages: Notify' : "New Messages: Don't Notify"}
+          </ContextMenuItem>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );

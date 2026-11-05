@@ -6,10 +6,10 @@ import { SessionCreateError } from './lib/sessionCreateError';
 import {
   isPiInstance,
   piAbortSession,
+  piAskSideQuestion,
   piCompactSession,
   piCreateSession,
   piEnqueueMessage,
-  piForkSession,
   piLoadAutoAcceptPolicy,
   piLoadDirectories,
   piLoadMessageQueue,
@@ -309,16 +309,21 @@ export const renameSession = async (session: Session, title: string): Promise<bo
   return response.ok;
 };
 
+export type CompactionReceipt = {
+  accepted: boolean;
+  taskId?: number;
+};
+
 /**
  * Compact a session's context (`POST /api/session/:id/compact`): older turns are summarized and
  * a recent tail kept, per the instance's `compaction` config. OpenCode 2 runs it as an inbox
  * item with the session's own model, so no provider/model is passed. Returns whether the
- * instance accepted it; the transcript updates when the next poll sees the compaction.
+ * instance accepted it and, on Kiln/Hearth, the created compaction `taskId`.
  */
 export const compactSession = async (
   session: Session,
   _model?: ModelRef
-): Promise<boolean> => {
+): Promise<CompactionReceipt> => {
   if (isPiInstance(session.instanceId)) {
     return piCompactSession(session.instanceId, session.id);
   }
@@ -328,41 +333,20 @@ export const compactSession = async (
     `/api/session/${encodeURIComponent(session.id)}/compact`,
     {}
   );
-  return response.ok;
+  return { accepted: response.ok };
 };
 
-/** Seeded into a forked session so the agent opens the new one with a written handoff brief. */
-export const HANDOFF_PROMPT =
-  'You are continuing in a new session forked from a previous one. Before we carry on, write a concise handoff summary: what we were working on, the tools and skills you used, and the current state plus the next step. Then stop and wait for my instruction.';
-
 /**
- * Fork a session into a new one (`POST /api/session/:id/fork`) and seed it with a handoff
- * prompt — OpenCode 2's fork only copies history, so the prompt is a separate call. The source
- * session is left untouched while the new session carries the summarized context. Returns the
- * new session id.
+ * Ask a side question ("btw …") on a Kiln/Hearth session (`POST /conversations/:id/btw`).
+ * Forks the session into a hidden `Aside #N` worker that carries the conversation's full context
+ * and answers back via a side-question report card without interrupting the leader's running turn.
  */
-export const forkSession = async (session: Session, prompt: string): Promise<string | null> => {
-  if (isPiInstance(session.instanceId)) {
-    // pi's fork copies the conversation natively; no handoff shim needed.
-    return piForkSession(session.instanceId, session.id);
-  }
-  const response = await window.ember.request(
-    session.instanceId,
-    'POST',
-    `/api/session/${encodeURIComponent(session.id)}/fork`,
-    {}
-  );
-  if (!response.ok) return null;
-  const forked = asRecord(asRecord(response.data).data);
-  const forkedId = optionalString(forked.id);
-  if (!forkedId) return null;
-  const seeded = await window.ember.request(
-    session.instanceId,
-    'POST',
-    `/api/session/${encodeURIComponent(forkedId)}/prompt`,
-    { text: prompt }
-  );
-  return seeded.ok ? forkedId : null;
+export const askSideQuestion = async (
+  session: Session,
+  question: string
+): Promise<Session | null> => {
+  if (!isPiInstance(session.instanceId)) return null;
+  return piAskSideQuestion(session.instanceId, session.id, question);
 };
 
 /**

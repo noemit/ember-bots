@@ -1,3 +1,21 @@
+## 1.0.0
+
+### Added
+- **Unified public MIT release (`ember-bots`)**: **Ember** (desktop & web control room), **Kiln** (`packages/kiln`, durable agent harness), and **Tinder** (`cli/ember.ts`, setup & remote launcher CLI) under a single monorepo with pure MIT licensing and local zero-config token discovery (`~/.ember/ember.token`).
+- **OS-customized default `AGENTS.md` on `ember setup`**: generates `<home>/AGENTS.md` tailored for macOS, Windows (including Git Bash vs. Windows path rules), or Linux with computer navigation, Playwright MCP browser setup, provider configuration, and remote host pairing; Kiln's `agents_md` section falls back to `<home>/AGENTS.md` when a project directory has no `AGENTS.md` of its own.
+- **Scheduled view tab (`Home · Sessions · Usage · Scheduled`)**: fourth top-bar tab with a notification counter for unseen finished runs, listing runs newest-first alongside the recurring plans that trigger them (`src/components/ScheduledView.tsx`, `src/lib/scheduledView.ts`).
+- **Side questions (`?` / "btw …")**: replaced the composer's fork/handoff button with a `?` button (`POST /conversations/:id/btw`) that forks a hidden `Aside #N` worker carrying the conversation's full context and reports the answer back as a **Side question** card without interrupting the running turn.
+- **Cross-host Agent Directory federation & 60/hour loop budget**: `PiClient` syncs peer lists across configured endpoints (`PUT /directory/peers`), `agents send` federates across hosts (`POST /directory/send`, labeling foreign messages with `[Message from agent <host>/<sender>]`), and `resolveAddressableAgent` resolves registry names and session titles within the active window with an all-time follow-up prompt.
+- **Per-session `New Messages: Notify` / `New Messages: Don't Notify` toggle** in the column header and right-click context menus across the rail, project cards, and Home, alongside per-message unread dots inside the conversation column.
+- **GitHub release update checker**: checks `noemit/ember-bots` on launch and every 6 hours, showing a dismissible `Update available` pill in the top bar when a newer release is published (`src/lib/updateCheck.ts`).
+
+### Fixed
+- **Bundled consecutive tool-only steps**: consecutive pure-tool assistant steps in a turn now fold into a single `"Used N tools"` rollup (`bundleConsecutiveToolMessages` in `src/lib/toolDisplay.ts`) instead of repeating `"Used 1 tool"` on separate lines.
+- **Crew strip bricks no longer collapse to 12px slivers**: moved `@container` off `BRICK_CLASS` and onto the `group/strip` wrapper in `src/components/CrewStrip.tsx`.
+- **Compaction failures and `repairHalt` recovery**: exposed `pi.live.compactionFailure` on conversation summaries, surfaced post-202 compaction task failures in `handleCompact`, and cleared `repairHalt` before re-reading the compacted transcript.
+- **Composer focus glow & send button accent**: kept the composer border colour and width untouched on focus, using a soft outer `box-shadow` glow on `has-focus-visible` and turning the send button `bg-highlight` while focused.
+- **Bounded watched conversation streams & lazy registry pruning**: `PiClient` now watches `on-screen ∪ busy ∪ 16 most recent` conversations (with `STREAM_LIMITS.burst` raised to `256`), and Kiln lazily prunes gone/archived conversations from `AgentsDoc` and bounds `agents.json` to 200 entries.
+
 ## 0.94.2
 
 ### Fixed

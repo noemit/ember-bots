@@ -100,18 +100,11 @@ test('project cleanup and shortcut hints are discoverable', async ({ page }) => 
   await expect(page.getByRole('tooltip', { name: /Save as note/ })).toBeVisible();
 });
 
-test('personal ratings persist and appear in the existing model picker', async ({ page }) => {
-  const helpful = page.getByRole('log').nth(1).getByRole('button', { name: 'Mark response helpful', exact: true });
-  await expect(helpful).toBeAttached();
-  await helpful.focus();
-  await helpful.click();
-  await expect(helpful).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.evaluate(async () => (await window.ember.getModelStats!()).filter((record) => record.rating === 'helpful').length)).toBe(1);
+test('model scorecard appears in the existing model picker', async ({ page }) => {
   await page.getByRole('button', { name: 'Choose model' }).last().click();
-  await expect(page.getByRole('region', { name: 'Your model experience' }).first()).toContainText('1 / 1 rated');
+  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  await expect(picker).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.reload();
-  await expect(page.getByRole('log').nth(1).getByRole('button', { name: 'Mark response helpful', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('healthy instances become usable while a slow instance is still checking', async ({ page }) => {

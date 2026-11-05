@@ -134,9 +134,9 @@ test('an unavailable reasoning level requires an explicit replacement', async ({
   await expect.poll(() => capturedModelCalls(page)).toMatchObject([{ body: { model: { providerID: 'openai', id: 'gpt-5', variant: 'low' } } }]);
 });
 
-test('minimizing and restoring a column preserves its model choice', async ({ page }) => {
-  await page.getByRole('button', { name: 'Minimize session', exact: true }).first().click();
-  await page.keyboard.press('ControlOrMeta+1');
+test('closing and reopening a column preserves its model choice', async ({ page }) => {
+  await page.getByRole('button', { name: 'Close this column', exact: true }).first().click();
+  await page.locator('aside').getByRole('button', { name: 'Performance session 0', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
   await captureSends(page);
   await page.locator('textarea').first().fill('Still my model after restoring');

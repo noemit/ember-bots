@@ -501,7 +501,7 @@ if (performanceFixture) {
   if (new URLSearchParams(window.location.search).has('waiting')) permissions.local = [{
     id: 'archive-permission', sessionID: 'perf-0', action: 'bash', resources: ['echo pending'], metadata: {},
   }];
-  settings = { ...settings, openSessions: ['local::perf-0', 'local::perf-1'], activeSession: 'local::perf-0', minimizedSessions: [] };
+  settings = { ...settings, splitView: true, openSessions: ['local::perf-0', 'local::perf-1'], activeSession: 'local::perf-0', minimizedSessions: [] };
   const saved = sessionStorage.getItem('ember-performance-settings');
   if (saved) settings = { ...settings, ...JSON.parse(saved) };
 }
@@ -1035,11 +1035,13 @@ export const bridge: EmberBridge = {
           content: toParts(m, id),
           error: m.error ? { name: 'APIError', data: { message: m.error, statusCode: 400 } } : undefined,
           // First assistant turn writes the prefix; later ones read it back, like a real provider.
+          // Cap synthetic token growth on the 10,000-message performance fixture so opening it does
+          // not immediately trigger the 85% auto-compaction threshold and delete the fixture history.
           tokens: m.open || m.error
             ? undefined
             : i <= 1
               ? { input: 1800, output: 240, reasoning: 0, cache: { read: 0, write: 9200 } }
-              : { input: 400 + i * 60, output: 180, reasoning: 0, cache: { read: 9200 + i * 300, write: 0 } },
+              : { input: 400 + (i % 40) * 60, output: 180, reasoning: 0, cache: { read: 9200 + (i % 40) * 300, write: 0 } },
           // A plausible per-turn USD cost so the footer's cost/tok-s fields are exercised.
           cost: m.open || m.error ? undefined : 0.0123,
         };

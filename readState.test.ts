@@ -7,6 +7,7 @@ import {
   isQuietSession,
   markAllRead,
   markRead,
+  markTimestampRead,
   pruneReadMarks,
   withQuiet,
 } from './src/lib/readState';
@@ -148,5 +149,14 @@ describe('quiet sessions', () => {
     // messages read on OpenChamber simply by enabling the policy.
     const mark = withQuiet({ through: 2, readAt: 100 }, true);
     expect(mark.readAt).toBe(100);
+  });
+
+  test('markRead, markAllRead, and markTimestampRead preserve the quiet policy', () => {
+    const base = withQuiet({ through: 5, readAt: 100 }, true);
+    expect(isQuietSession(markRead(base, 8, [6, 7, 8], 200))).toBe(true);
+    expect(isQuietSession(markAllRead(base, 12, 300))).toBe(true);
+    const stamped = markTimestampRead(base, 500);
+    expect(isQuietSession(stamped)).toBe(true);
+    expect(stamped.readAt).toBe(500);
   });
 });

@@ -50,6 +50,10 @@ type Props = {
   onMarkAllRead?: (session: Session) => void;
   /** Session keys Home says have unread messages; enables that menu item. */
   unreadKeys?: Set<string>;
+  /** Session keys set to "New Messages: Don't Notify". */
+  quietKeys?: Set<string>;
+  /** Toggle "New Messages: Don't Notify" vs "Notify" for a session. */
+  onQuietChange?: (session: Session, quiet: boolean) => void;
   /** Width the blob strip may use: wider when the rail is expanded, so the blobs spread out. */
   stripWidth?: number;
 };
@@ -84,6 +88,8 @@ export default function ProjectCard({
   onCustomizeAppearance,
   onMarkAllRead,
   unreadKeys,
+  quietKeys,
+  onQuietChange,
   stripWidth = STRIP_WIDTH,
 }: Props) {
   const layout = blobStripLayout(sessions.length, stripWidth, 48, 30, 4, LABEL_WIDTH);
@@ -171,6 +177,8 @@ export default function ProjectCard({
                 onCustomizeAppearance={onCustomizeAppearance}
                 onMarkAllRead={onMarkAllRead}
                 hasUnread={unreadKeys?.has(key)}
+                quiet={quietKeys?.has(key)}
+                onQuietChange={onQuietChange}
               />
             </ContextMenu>
           );

@@ -58,15 +58,20 @@ import {
   setAutoAccept,
   setSessionArchived,
   updateScheduledTaskModel,
+  askSideQuestion,
   compactSession,
-  forkSession,
   promoteSession,
-  HANDOFF_PROMPT,
   type AutoAcceptPolicy,
   type ModelList,
   type PromptInput,
   type ScheduledTask,
 } from './api';
+import { buildScheduledRuns, countUnseenScheduledRuns } from './lib/scheduledView';
+import {
+  checkGithubForUpdate,
+  formatUpdateNotice,
+  type UpdateCheckResult,
+} from './lib/updateCheck';
 import { isPiInstance } from './piApi';
 import { useStableCallback } from '@/lib/useStableCallback';
 import {
@@ -83,7 +88,12 @@ import type { LiveToolOutput, ToolResultSettlement } from '@/lib/piMapping';
 import { copyText } from '@/lib/clipboard';
 import { mergeDraftChanges, type DraftChanges } from '@/lib/composerDrafts';
 import { selectedModelError } from '@/lib/modelSelection';
-import { compactionLogLine, compactionNotice, compactionOutcome } from '@/lib/compaction';
+import {
+  compactionFailureMessage,
+  compactionLogLine,
+  compactionNotice,
+  compactionOutcome,
+} from '@/lib/compaction';
 import { crewCostOf, crewCostState } from '@/lib/crewCost';
 import { reconcileOutageDismissals, silentInstances, type SilentInstance } from '@/lib/instanceHealth';
 import { ReadCoordinator } from '@/lib/readCoordinator';
@@ -104,7 +114,17 @@ import {
   submitOutcomeOf,
   type AbortReceipt,
 } from '@/lib/sendDelivery';
-import { addComments, advanceQuietMark, isQuietSession, markAllRead, markRead, pruneReadMarks, withQuiet } from './lib/readState';
+import {
+  addComments,
+  advanceQuietMark,
+  isMessageRead,
+  isQuietSession,
+  markAllRead,
+  markRead,
+  markTimestampRead,
+  pruneReadMarks,
+  withQuiet,
+} from './lib/readState';
 import { composeCommentMessage, type TranscriptComment } from './lib/comments';
 import { deriveSessionName } from './lib/sessionNames';
 import { mayHaveUnread, useUnreadDigests } from './hooks/useUnreadDigests';
@@ -173,6 +193,7 @@ const SettingsPanel = React.lazy(() => import('./components/SettingsPanel'));
 const HomeView = React.lazy(() => import('./components/HomeView'));
 const ReadingSheet = React.lazy(() => import('./components/ReadingSheet'));
 const ModelUsagePanel = React.lazy(() => import('./components/ModelUsagePanel'));
+const ScheduledView = React.lazy(() => import('./components/ScheduledView'));
 const AvatarPicker = React.lazy(() => import('./components/AvatarPicker'));
 const CommandPalette = React.lazy(() => import('./components/CommandPalette'));
 const ArchiveDialog = React.lazy(() => import('./components/ArchiveDialog'));
@@ -335,7 +356,7 @@ export default function App() {
   const [stoppingKeys, setStoppingKeys] = React.useState<Set<string>>(() => new Set());
   const [archivingKeys, setArchivingKeys] = React.useState<Set<string>>(() => new Set());
   const [compactingKeys, setCompactingKeys] = React.useState<Set<string>>(() => new Set());
-  const [handoffKeys, setHandoffKeys] = React.useState<Set<string>>(() => new Set());
+  const [askingSideQuestionKeys, setAskingSideQuestionKeys] = React.useState<Set<string>>(() => new Set());
   // Local fallback for instances whose OpenChamber predates server-side auto-accept.
   const [bypassOverrides, setBypassOverrides] = React.useState<Record<string, boolean>>({});
   const [autoAcceptByInstance, setAutoAcceptByInstance] = React.useState<Record<string, AutoAcceptPolicy>>({});
@@ -345,6 +366,13 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   /** The Usage view, a sibling of Home rather than a dialog over it. */
   const [usageOpen, setUsageOpen] = React.useState(false);
+  /** The Scheduled view: runs newest-first and recurring plans, a fourth top-bar tab. */
+  const [scheduledOpen, setScheduledOpen] = React.useState(false);
+  /** Epoch ms when the Scheduled view was last looked at; seeds to `settings.readSince` on first render. */
+  const [scheduledSeenAt, setScheduledSeenAt] = React.useState<number>(() => Date.now());
+  /** GitHub release update check: shown as an "Update available" pill in the top bar until dismissed. */
+  const [availableUpdate, setAvailableUpdate] = React.useState<UpdateCheckResult | null>(null);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = React.useState<string | null>(null);
 
   // The activity home: explicit toggle over open columns, or the default view when the
   // workspace is empty (openSession exits it; a new-agent draft replaces it).
@@ -1288,6 +1316,14 @@ export default function App() {
     return keys;
   }, [sessionsByInstance, unreadDigests.digests, readMarks]);
 
+  const quietKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    for (const [key, mark] of Object.entries(readMarks)) {
+      if (isQuietSession(mark)) keys.add(key);
+    }
+    return keys;
+  }, [readMarks]);
+
   // The top bar's one counter: unread messages, not sessions, and not pending prompts (those are
   // actions to take, not things to read).
   const unreadMessages = React.useMemo(() => {
@@ -1297,6 +1333,44 @@ export default function App() {
     });
     return total;
   }, [unreadDigests.digests, unreadKeys, readMarks]);
+
+  const failedSessionKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    Object.entries(summaries).forEach(([key, summary]) => {
+      if (summary.failed) keys.add(key);
+    });
+    return keys;
+  }, [summaries]);
+
+  const scheduledRuns = React.useMemo(
+    () =>
+      buildScheduledRuns({
+        tasks: scheduledTaskList,
+        sessions: everySession,
+        bindings: settings.scheduledSessionBindings,
+        states,
+        failedKeys: failedSessionKeys,
+        readMarks,
+        seenBaselineAt: Math.max(readSince ?? 0, scheduledSeenAt),
+        instances,
+      }),
+    [
+      scheduledTaskList,
+      everySession,
+      settings.scheduledSessionBindings,
+      states,
+      failedSessionKeys,
+      readMarks,
+      readSince,
+      scheduledSeenAt,
+      instances,
+    ]
+  );
+
+  const unseenScheduledRunsCount = React.useMemo(
+    () => countUnseenScheduledRuns(scheduledRuns),
+    [scheduledRuns]
+  );
 
   // The reading view's inputs. Its queue is the same construction Home draws, so a row and the
   // sheet can never disagree about what is unread.
@@ -1485,6 +1559,36 @@ export default function App() {
     applyTheme(settings.theme);
   }, [settings.theme]);
 
+  // Check GitHub for a newer release on startup and every 6 hours.
+  React.useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        if (window.ember.checkForUpdate) {
+          const result = await window.ember.checkForUpdate();
+          if (!cancelled && result?.updateAvailable && result.latestVersion) {
+            setAvailableUpdate(result);
+          }
+          return;
+        }
+        const current = await window.ember.appVersion?.().catch(() => null);
+        if (!current || cancelled) return;
+        const result = await checkGithubForUpdate(current);
+        if (!cancelled && result.updateAvailable && result.latestVersion) {
+          setAvailableUpdate(result);
+        }
+      } catch {
+        // Ignore update check failures.
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 6 * 60 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   // The app icon mirrors the selected session's blob (and its mood) so a glance at the Dock -- or,
   // on Windows, the taskbar -- says which agent this window is on. Theme is a dependency because the
   // tile and the contrast-adjusted palettes come from the current CSS variables.
@@ -1493,7 +1597,9 @@ export default function App() {
   React.useEffect(() => {
     // No `selectedKey` guard: the icon should be the blob from launch, not only once a session is
     // chosen. With nothing selected it simply mirrors the idle mood.
-    if (!window.ember.setAppIcon) return;
+    // Gate on `capabilities.dockIcon` when the bridge reports capabilities so clients without dock
+    // support (`?noDock` or web remote) never load the dock renderer.
+    if (!window.ember.setAppIcon || window.ember.capabilities?.dockIcon === false) return;
     let cancelled = false;
     // The attempt goes in the log too: without it, "no line" cannot be told apart from "the effect
     // never ran", and that is the difference between a broken render and a stale build.
@@ -1643,8 +1749,10 @@ export default function App() {
     setNewSessionDirectory(null);
     // The draft is gone; a create still in flight keeps going in the background.
     setDraftPendingId(null);
-    // Opening a session exits the activity home.
+    // Opening a session exits the activity home, Usage, and Scheduled views.
     setActivityOpen(false);
+    setUsageOpen(false);
+    setScheduledOpen(false);
   }, [saveCurrentLayout, setDraftPendingId]);
 
   /**
@@ -1666,6 +1774,8 @@ export default function App() {
     setActiveSession(keys[0]);
     setMinimizedSessions(new Set());
     setActivityOpen(false);
+    setUsageOpen(false);
+    setScheduledOpen(false);
   };
 
   const ungroupGroup = (groupId: string) => {
@@ -1688,6 +1798,8 @@ export default function App() {
     const projectKey = projectIdentityKey(instanceId, project.id);
     saveCurrentLayout();
     setActivityOpen(false);
+    setUsageOpen(false);
+    setScheduledOpen(false);
     if (owned.length === 0) {
       projectLayoutsRef.current.delete(projectKey);
       setActiveSession(null);
@@ -1746,6 +1858,8 @@ export default function App() {
     setNewSessionDirectory(null);
     // Working on a session leaves the activity home.
     setActivityOpen(false);
+    setUsageOpen(false);
+    setScheduledOpen(false);
     setMinimizedSessions((prev) => {
       if (!prev.has(key)) return prev;
       const next = new Set(prev);
@@ -2884,6 +2998,8 @@ export default function App() {
     // attempt keeps going and reports itself when it lands.
     setDraftPendingId(null);
     setActivityOpen(false);
+    setUsageOpen(false);
+    setScheduledOpen(false);
   };
 
   const cancelNewAgent = () => {
@@ -2978,6 +3094,7 @@ export default function App() {
     setNewSessionInstanceId(pending.options.instanceId);
     setNewSessionDirectory(pending.options.directory);
     setUsageOpen(false);
+    setScheduledOpen(false);
     setActivityOpen(false);
     setDraftPendingId(id);
   };
@@ -4218,38 +4335,70 @@ export default function App() {
   const handleCompact = async (session: Session) => {
     const key = sessionKey(session);
     if (compactingKeys.has(key)) return;
+    const ref = { instanceId: session.instanceId, sessionId: session.id };
     showActionError(null);
     setCompactingKeys((current) => new Set(current).add(key));
     const entriesBefore =
       (messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages ?? []).length;
+    const previousFailureTaskId = session.compactionFailure?.taskId;
     let sawCompacting = false;
+    let compactionError: string | undefined;
     try {
-      const accepted = await compactSession(session);
-      if (!accepted) {
+      const receipt = await compactSession(session);
+      if (!receipt.accepted) {
         showActionError('Could not compact this session.', () => void handleCompact(session));
         return;
       }
-      // Watch the summary for the flag the host sets while a compaction runs. The host answers 202
-      // for *every* request, and when the transcript already fits the kept window it then posts no
-      // summary, no event and no flag — a click that looks like it never left. The absence is the
-      // answer, so it has to be looked for rather than waited on for ever.
-      for (let attempt = 0; attempt < COMPACTION_WATCH_POLLS && !sawCompacting; attempt += 1) {
+      // Watch the summary for the flag the host sets while a compaction runs, or for a failure the
+      // task recorded on `pi.live.compactionFailure`. The host answers 202 for *every* request:
+      // when the transcript already fits the kept window it posts no summary, no event and no flag,
+      // and when the task fails immediately (`no_model`, `model_error`) it clears `compactions` and
+      // sets `compactionFailure` in the same commit.
+      for (let attempt = 0; attempt < COMPACTION_WATCH_POLLS && !sawCompacting && !compactionError; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, COMPACTION_WATCH_MS));
         await refreshSessions([session.instanceId]);
         const fresh = (sessionsByInstanceRef.current[session.instanceId] ?? []).find(
           (entry) => entry.id === session.id
         );
         sawCompacting = fresh?.compacting === true;
+        const failure = fresh?.compactionFailure;
+        if (
+          failure?.error &&
+          (receipt.taskId !== undefined
+            ? failure.taskId === receipt.taskId
+            : failure.taskId !== previousFailureTaskId)
+        ) {
+          compactionError = failure.error;
+        }
       }
-      // The summary now carries the flag until the summary entry lands, so the meter keeps spinning
-      // for the whole pending window. Refresh now so it appears without waiting for the next poll
-      // (the compaction_start event will also flip it).
-      await loadAndCommitMessages({ instanceId: session.instanceId, sessionId: session.id }, 'full', session.directory, true);
+      // Clear any repair-breaker halt before re-reading so the full read is allowed and the banner
+      // updates if the conversation now fits (or re-evaluates honestly if it still does not).
+      if (repairBudget.current.halt(ref)) {
+        repairBudget.current.succeeded(ref);
+        setRepairHalts((prev) => {
+          if (!prev[key]) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
+      await refreshMessages(ref, true);
       const entriesAfter =
         (messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages ?? []).length;
-      const trace = { accepted, sawCompacting, entriesBefore, entriesAfter };
-      const notice = compactionNotice(compactionOutcome(trace));
-      if (notice) setActionNotice({ message: notice });
+      const trace = {
+        accepted: receipt.accepted,
+        sawCompacting,
+        entriesBefore,
+        entriesAfter,
+        ...(compactionError ? { error: compactionError } : {}),
+      };
+      const outcome = compactionOutcome(trace);
+      if (compactionError) {
+        showActionError(compactionFailureMessage(compactionError), () => void handleCompact(session));
+      } else {
+        const notice = compactionNotice(outcome);
+        if (notice) setActionNotice({ message: notice });
+      }
       // Written down either way: the next "nothing happened" should be answerable from a file.
       void window.ember
         .reportCompaction?.(
@@ -4271,62 +4420,47 @@ export default function App() {
     }
   };
 
-  // Fork the session into a fresh one seeded with a handoff prompt, leaving the source untouched.
-  /** Poll until the session's turn finishes, so a fresh fork can be compacted after it lands. */
-  const waitForSessionIdle = async (
-    instanceId: string,
-    sessionId: string,
-    timeoutMs = 60_000
-  ): Promise<void> => {
-    const key = sessionKey({ instanceId, sessionId });
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const states = await loadSessionStates(instanceId).catch(() => null);
-      if (
-        states &&
-        (states[key] === 'idle' ||
-          states[key] === undefined ||
-          states[key] === 'error' ||
-          states[key] === 'needs-input')
-      ) {
-        return;
-      }
-    }
-  };
-
-  const handleHandoff = async (session: Session) => {
+  /**
+   * Ask a side question ("btw …") on a Kiln/Hearth session: forks the conversation into a hidden
+   * `Aside #N` worker that carries the leader's full context and reports back as a side-question
+   * card without interrupting the leader's running turn.
+   */
+  const handleAskSideQuestion = async (session: Session, question: string): Promise<boolean> => {
     const key = sessionKey(session);
-    if (handoffKeys.has(key)) return;
+    if (askingSideQuestionKeys.has(key)) return false;
     showActionError(null);
-    setHandoffKeys((current) => new Set(current).add(key));
+    setAskingSideQuestionKeys((current) => new Set(current).add(key));
     try {
-      const forkedId = await forkSession(session, HANDOFF_PROMPT);
-      if (!forkedId) {
-        showActionError('Could not start a new session from this one.', () => void handleHandoff(session));
-        return;
+      const worker = await askSideQuestion(session, question);
+      if (!worker) {
+        showActionError(
+          'Could not ask a side question on this session. Try again.',
+          () => void handleAskSideQuestion(session, question)
+        );
+        return false;
       }
-      const forked: Session = { id: forkedId, instanceId: session.instanceId, directory: session.directory };
-      // The fork copies the full context; wait for the handoff summary to land, then compact it so
-      // the new session carries the summary rather than the whole prior conversation. The source
-      // session is left untouched either way.
-      await waitForSessionIdle(session.instanceId, forkedId);
-      const compacted = await compactSession(forked, session.model);
-      await refreshSessions([session.instanceId]);
-      openSession({ instanceId: session.instanceId, sessionId: forkedId }, forked);
-      setActionNotice({
-        message: compacted
-          ? 'Started a new session from a compacted summary.'
-          : 'Started a new session; the handoff summary could not be compacted.',
+      setSessionsByInstance((prev) => {
+        const list = prev[session.instanceId] ?? [];
+        if (list.some((entry) => entry.id === worker.id)) return prev;
+        return { ...prev, [session.instanceId]: [worker, ...list] };
       });
+      setStatesByInstance((prev) => ({
+        ...prev,
+        [session.instanceId]: { ...(prev[session.instanceId] ?? {}), [sessionKey(worker)]: 'active' },
+      }));
+      setActionNotice({
+        message: `Asked in ${worker.title ?? 'a side worker'} — the answer will arrive here as a side-question card.`,
+      });
+      return true;
     } catch (err) {
-      console.error('Handoff failed', err);
+      console.error('Side question failed', err);
       showActionError(
-        err instanceof Error ? err.message : 'Could not start the new session.',
-        () => void handleHandoff(session)
+        err instanceof Error ? err.message : 'Could not ask a side question.',
+        () => void handleAskSideQuestion(session, question)
       );
+      return false;
     } finally {
-      setHandoffKeys((current) => {
+      setAskingSideQuestionKeys((current) => {
         const next = new Set(current);
         next.delete(key);
         return next;
@@ -4478,6 +4612,7 @@ export default function App() {
   const showSessions = () => {
     setActivityOpen(false);
     setUsageOpen(false);
+    setScheduledOpen(false);
     const open = openSessionsRef.current;
     if (open.length === 0) {
       const top = Object.values(sessionsByInstanceRef.current)
@@ -4577,11 +4712,38 @@ export default function App() {
    * The column's own read controls.
    *
    * `handleMarkMessageRead` was written for Home's dot and is keyed on a session plus an ordinal;
-   * a message in the transcript carries its ordinal in its id, so the transcript reuses it rather
-   * than growing a second implementation that could disagree.
+   * a message in the transcript carries its ordinal in its id, and falls back to the loaded
+   * transcript's unread ordinals (or timestamp for OpenChamber) when `unreadDigests` hasn't fetched
+   * a digest for this session yet.
    */
   const handleMarkMessageReadInColumn = (session: Session, message: ChatMessage) => {
-    handleMarkMessageRead(session, { ordinal: entryOrdinal(message.id) });
+    const key = sessionKey(session);
+    const current = settingsRef.current.readMarks[key];
+    const ordinal = entryOrdinal(message.id);
+    if (ordinal !== null) {
+      const digestUnread = visibleUnreadItems(unreadDigests.digests[key], current)
+        .map((entry) => entry.ordinal)
+        .filter((o): o is number => o !== null);
+      const heldMessages =
+        messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages ?? [];
+      const transcriptUnread = heldMessages
+        .filter(
+          (m) =>
+            m.role === 'assistant' &&
+            !isMessageRead(current, entryOrdinal(m.id), m.completedAt ?? m.createdAt ?? 0)
+        )
+        .map((m) => entryOrdinal(m.id))
+        .filter((o): o is number => o !== null);
+      const unread = [...new Set([...digestUnread, ...transcriptUnread])];
+      const next = markRead(current, ordinal, unread, Date.now());
+      if (next === current) return;
+      handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
+      return;
+    }
+    const at = message.completedAt ?? message.createdAt ?? Date.now();
+    const next = markTimestampRead(current, at);
+    if (next === current) return;
+    handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
   };
 
   /**
@@ -4867,8 +5029,12 @@ export default function App() {
           onQuestion={handleQuestion}
           compacting={compactingKeys.has(key) || session.compacting === true}
           onCompact={() => void handleCompact(session)}
-          handoffing={handoffKeys.has(key)}
-          onHandoff={() => void handleHandoff(session)}
+          askingSideQuestion={askingSideQuestionKeys.has(key)}
+          onAskSideQuestion={
+            isPiInstance(session.instanceId)
+              ? (question) => handleAskSideQuestion(session, question)
+              : undefined
+          }
           onMinimize={() => minimizeSession(key)}
           onActivate={() => activateSession(key)}
           onArchive={session.kind === 'worker' ? undefined : () => requestArchive(session)}
@@ -4907,11 +5073,44 @@ export default function App() {
     );
   };
 
-  // Error + notice toasts. They render inline at the very top of the window, next to the search
-  // button, and both self-dismiss (errors after three minutes).
+  const updateVisible =
+    availableUpdate?.updateAvailable &&
+    availableUpdate.latestVersion &&
+    availableUpdate.latestVersion !== dismissedUpdateVersion
+      ? availableUpdate
+      : null;
+
+  // Error + notice + update toasts. They render inline at the very top of the window, next to the
+  // search button, and action notices/errors self-dismiss.
   const feedbackBanner =
-    actionError || actionNotice ? (
+    actionError || actionNotice || updateVisible ? (
       <>
+        {updateVisible && updateVisible.latestVersion ? (
+          <div
+            role="status"
+            data-testid="update-available-notice"
+            className="animate-in fade-in flex h-7 min-w-0 items-center gap-2 rounded-full border border-highlight/40 bg-popover px-2.5 text-[11.5px] shadow-sm"
+          >
+            <span className="min-w-0 truncate" title={formatUpdateNotice(updateVisible.latestVersion)}>
+              {formatUpdateNotice(updateVisible.latestVersion)}
+            </span>
+            <button
+              type="button"
+              className="shrink-0 rounded font-medium text-highlight hover:underline focus-visible:outline-2"
+              onClick={() => void window.ember.openExternal(updateVisible.releaseUrl)}
+            >
+              View release
+            </button>
+            <button
+              type="button"
+              className="shrink-0 rounded text-muted-foreground hover:text-foreground focus-visible:outline-2"
+              onClick={() => setDismissedUpdateVersion(updateVisible.latestVersion)}
+              aria-label="Dismiss update notice"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
         {actionError ? (
           <div
             role="alert"
@@ -5017,17 +5216,27 @@ export default function App() {
             onRefresh={() => void refreshInstances()}
             onToggleActivity={() => {
               setUsageOpen(false);
+              setScheduledOpen(false);
               setActivityOpen((open) => !open);
             }}
-            activityActive={activityVisible}
+            activityActive={activityVisible && !usageOpen && !scheduledOpen}
             onShowSessions={showSessions}
             onShowUsage={() => {
               setActivityOpen(false);
+              setScheduledOpen(false);
               setUsageOpen(true);
             }}
             usageActive={usageOpen}
+            onShowScheduled={() => {
+              setActivityOpen(false);
+              setUsageOpen(false);
+              setScheduledOpen(true);
+              setScheduledSeenAt(Date.now());
+            }}
+            scheduledActive={scheduledOpen}
+            unseenScheduledRuns={unseenScheduledRunsCount}
             unreadMessages={unreadMessages}
-            hideNavigation={activityVisible || usageOpen}
+            hideNavigation={activityVisible || usageOpen || scheduledOpen}
             onOpenSettings={() => {
               setSettingsView('instances');
               setSettingsActivated(true);
@@ -5045,7 +5254,7 @@ export default function App() {
                 aria-label="Close sessions sidebar"
               />
             ) : null}
-            {!activityVisible && !usageOpen ? (
+            {!activityVisible && !usageOpen && !scheduledOpen ? (
             <LeftRail
               mode={settings.railMode}
               onCycleMode={cycleRailMode}
@@ -5104,6 +5313,8 @@ export default function App() {
               onCustomizeAppearance={setAvatarPickerSession}
               onMarkAllRead={handleMarkAllRead}
               unreadKeys={unreadKeys}
+              quietKeys={quietKeys}
+              onQuietChange={handleQuietChange}
               onNewAgent={(instanceId, directory) => {
                 beginNewAgent(instanceId, directory);
                 setMobileRailOpen(false);
@@ -5119,7 +5330,24 @@ export default function App() {
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-              {usageOpen ? (
+              {scheduledOpen ? (
+                <React.Suspense fallback={null}>
+                  <ScheduledView
+                    tasks={scheduledTaskList}
+                    runs={scheduledRuns}
+                    instances={instances}
+                    silentInstances={silentInstancesList}
+                    runningTaskKeys={runningScheduledKeys}
+                    onOpenSession={(session) =>
+                      openSession({ instanceId: session.instanceId, sessionId: session.id }, session)
+                    }
+                    onRunTask={(task) => void handleRunScheduledTask(task)}
+                    onChangeTaskModel={handleChangeScheduledTaskModel}
+                    onRetryInstances={() => void refreshInstances()}
+                    retryingInstances={refreshing}
+                  />
+                </React.Suspense>
+              ) : usageOpen ? (
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background px-4 py-3">
                   <React.Suspense fallback={null}>
                     <ModelUsagePanel instances={instances} modelsByInstance={modelsByInstance} />
@@ -5150,6 +5378,7 @@ export default function App() {
                     onOpenSessionAt={openSessionAtMessage}
                     onReadItem={(session) => setReadingKey(sessionKey(session))}
                     onMarkAllRead={handleMarkAllRead}
+                    onQuietChange={handleQuietChange}
                     onOpenArchive={() => setArchiveOpen(true)}
                     onNewAgent={(instanceId) => {
                       const target =
@@ -5235,8 +5464,6 @@ export default function App() {
                   onQuestion={handleQuestion}
                   compacting={false}
                   onCompact={() => {}}
-                  handoffing={false}
-                  onHandoff={() => {}}
                 />
               ) : (
                 columns.map(renderColumn)
