@@ -287,6 +287,48 @@ export const listWindowsProcesses = (options: { run?: (script: string) => string
   return rows;
 };
 
+/**
+ * Every process on a macOS host, via `ps` — one call, cached by the caller.
+ */
+export const listPosixProcesses = (options: { run?: () => string } = {}): ProcessRow[] => {
+  const run =
+    options.run ??
+    (() =>
+      execFileSync("ps", ["-axo", "pid=,ppid=,rss=,command="], {
+        encoding: "utf8",
+        timeout: 5_000,
+        maxBuffer: 16 * 1024 * 1024,
+      }));
+  let raw: string;
+  try {
+    raw = run();
+  } catch {
+    return [];
+  }
+  const rows: ProcessRow[] = [];
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(trimmed);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const ppid = Number(match[2]);
+    const rssKb = Number(match[3]);
+    const command = briefCommand(match[4] ?? "");
+    if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+    rows.push({
+      pid,
+      ppid: Number.isSafeInteger(ppid) ? ppid : 0,
+      command,
+      rssBytes: Number.isFinite(rssKb) && rssKb > 0 ? rssKb * 1024 : 0,
+      startedAt: 0,
+    });
+  }
+  return rows;
+};
+
+export const listNonLinuxProcesses = (): ProcessRow[] =>
+  process.platform === "win32" ? listWindowsProcesses() : listPosixProcesses();
 /** `/Date(1712345678901)/` (WMI) or `2026-11-04T15:44:43Z` (CIM JSON) to epoch ms. */
 export const windowsTimeToMs = (raw: string): number => {
   const wmi = /\/Date\((\d+)\)\//.exec(raw);
@@ -369,7 +411,7 @@ export class CommandWatch {
         pid: row.pid,
         command: current.command || row.command,
         rssBytes: current.rssBytes,
-        startedAt: row.startedAt || current.startedAt,
+        startedAt: row.startedAt || current.startedAt || now,
       });
       recorded += 1;
     }
@@ -417,7 +459,7 @@ export const scanLeftovers = (options: ScanOptions = {}): ProcessScan => {
   if ((options.platform ?? process.platform) === "linux") {
     byConversation = leftoversFrom(snapshotLinux({ procRoot: options.procRoot, now }), options.selfPid ?? process.pid);
   } else {
-    const rows = (options.list ?? listWindowsProcesses)();
+    const rows = (options.list ?? listNonLinuxProcesses)();
     const alive = new Set(rows.map((row) => row.pid));
     pruneLedger(alive, now);
     byConversation = new Map();

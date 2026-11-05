@@ -119,13 +119,15 @@ export const ensureHarnessToken = (
     try {
       const existing = fs.readFileSync(candidate, 'utf8').trim();
       if (existing.length > 0) {
-        if (candidate !== tokenPath) {
-          fs.writeFileSync(tokenPath, `${existing}\n`, { encoding: 'utf8', mode: 0o600 });
-        }
-        try {
-          fs.chmodSync(tokenPath, 0o600);
-        } catch {
-          // Windows does not support POSIX mode bits.
+        for (const target of [tokenPath, legacyPath]) {
+          try {
+            if (!fs.existsSync(target) || fs.readFileSync(target, 'utf8').trim() !== existing) {
+              fs.writeFileSync(target, `${existing}\n`, { encoding: 'utf8', mode: 0o600 });
+            }
+            fs.chmodSync(target, 0o600);
+          } catch {
+            // Windows does not support POSIX mode bits.
+          }
         }
         return { token: existing, tokenPath, created: false };
       }
@@ -135,11 +137,13 @@ export const ensureHarnessToken = (
   }
 
   const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
-  fs.writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600 });
-  try {
-    fs.chmodSync(tokenPath, 0o600);
-  } catch {
-    // Ignore on platforms without POSIX chmod.
+  for (const target of [tokenPath, legacyPath]) {
+    fs.writeFileSync(target, `${token}\n`, { encoding: 'utf8', mode: 0o600 });
+    try {
+      fs.chmodSync(target, 0o600);
+    } catch {
+      // Ignore on platforms without POSIX chmod.
+    }
   }
   return { token, tokenPath, created: true };
 };
@@ -770,7 +774,7 @@ export const isMain = (
   }
 };
 
-if (isMain()) {
+if ((import.meta as { main?: boolean }).main || isMain()) {
   runCli().then(({ exitCode, output }) => {
     if (exitCode === 0) console.log(output);
     else console.error(output);

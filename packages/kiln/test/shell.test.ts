@@ -84,21 +84,21 @@ describe("the wrapper script", () => {
 
   test("a failing probe is no wrapper, and no error", () => {
     const dir = home();
-    expect(prepareScopeShell({ home: dir, probe: () => false })).toBeUndefined();
+    expect(prepareScopeShell({ home: dir, platform: "linux", probe: () => false })).toBeUndefined();
     expect(existsSync(join(dir, "hearth-shell"))).toBe(false);
   });
 
   test("an unwritable home is no wrapper, not a broken host", () => {
     // `/proc/self` exists and cannot be written to.
-    expect(prepareScopeShell({ home: "/proc/self", probe: () => true })).toBeUndefined();
+    expect(prepareScopeShell({ home: "/proc/self", platform: "linux", probe: () => true })).toBeUndefined();
   });
 
   test("a written wrapper is executable, wherever the umask was", () => {
     const dir = home();
-    const path = prepareScopeShell({ home: dir, probe: () => true });
+    const path = prepareScopeShell({ home: dir, platform: "linux", probe: () => true });
     expect(path).toBe(join(dir, "hearth-shell"));
     chmodSync(path!, 0o600); // simulate a permissive-then-restrictive path: prepare must set 0755
-    const again = prepareScopeShell({ home: dir, probe: () => true });
+    const again = prepareScopeShell({ home: dir, platform: "linux", probe: () => true });
     expect(statSync(again!).mode & 0o111).not.toBe(0);
   });
 });

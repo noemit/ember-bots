@@ -10,7 +10,7 @@ import { createBashTool } from "@earendil-works/pi-durable/tools";
 import {
   CommandWatch,
   leftoverNote,
-  listWindowsProcesses,
+  listNonLinuxProcesses,
   scanLeftovers,
   type LeftProcess,
   type ProcessRow,
@@ -43,7 +43,7 @@ export type WatchOptions = {
 export const watchBash = (tool: ToolRegistration, options: WatchOptions = {}): ToolRegistration => {
   const scan = options.scan ?? scanLeftovers;
   const platform = options.platform ?? process.platform;
-  const list = options.list ?? listWindowsProcesses;
+  const list = options.list ?? listNonLinuxProcesses;
   return {
     ...tool,
     execute: async (args, api: ToolExecutionApi, context: Context): Promise<ToolExecutionResult> => {

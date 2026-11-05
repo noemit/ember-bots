@@ -60,17 +60,26 @@ export const hearthConfig = (overrides: { home?: string; port?: number; workspac
 
 /** Read the auth token, generating and persisting one (mode 0600) on first start. */
 export const ensureToken = (config: HearthConfig): string => {
-  try {
-    const existing = readFileSync(config.tokenPath, "utf8").trim();
-    if (existing.length >= 32) return existing;
-  } catch {
-    // not there yet — generate below
+  const emberTokenPath = join(config.home, "ember.token");
+  for (const candidate of [config.tokenPath, emberTokenPath]) {
+    try {
+      const existing = readFileSync(candidate, "utf8").trim();
+      if (existing.length >= 32) {
+        if (candidate !== config.tokenPath) {
+          writeFileSync(config.tokenPath, `${existing}\n`, { mode: 0o600 });
+        }
+        return existing;
+      }
+    } catch {
+      // not there yet — try next or generate below
+    }
   }
   mkdirSync(config.home, { recursive: true });
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   writeFileSync(config.tokenPath, `${token}\n`, { mode: 0o600 });
+  writeFileSync(emberTokenPath, `${token}\n`, { mode: 0o600 });
   return token;
 };
 
