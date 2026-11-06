@@ -6,6 +6,9 @@ import type { ChildProcess } from 'node:child_process';
 import {
   binaryNameFor,
   bundledBinaryPath,
+  canManageLocalToken,
+  generateHarnessToken,
+  writeHarnessToken,
   defaultHarnessHome,
   HARNESS_START_TIMEOUT_MS,
   isProcessAlive,
@@ -410,5 +413,70 @@ describe('ready means answering *and* authenticating', () => {
     });
     // Not "attached" with an empty token: that was the 401.
     expect(state.kind).not.toBe('attached');
+  });
+});
+
+/**
+ * The token, as the app shows and rotates it.
+ *
+ * A token is read by the harness **once, at startup** — so a "rotation" that only writes the file
+ * produces the worst state there is: the screen shows a fresh token, the running process still only
+ * accepts the old one, and nothing is on its way to fix that. These pin the two halves that prevent
+ * it: the new value is on disk *before* the child starts, and both filenames carry it.
+ */
+describe('installing a new token', () => {
+  test('a token handed to the starter is written before the child boots, under both names', async () => {
+    const binaryDir = tempDir();
+    fs.writeFileSync(path.join(binaryDir, 'kiln'), '#!/bin/sh\n', { mode: 0o755 });
+    const home = tempDir();
+    let sawBeforeSpawn: { hearth?: string; ember?: string } = {};
+    const { state } = await startLocalHarness({
+      resourcesDir: binaryDir,
+      home,
+      token: 'apple-venison-rainbow-copper',
+      probe: okProbe,
+      spawn: (() => {
+        // The moment that matters: what the child would find if it read the file right now.
+        sawBeforeSpawn = {
+          hearth: fs.existsSync(path.join(home, 'hearth.token'))
+            ? fs.readFileSync(path.join(home, 'hearth.token'), 'utf8').trim()
+            : undefined,
+          ember: fs.existsSync(path.join(home, 'ember.token'))
+            ? fs.readFileSync(path.join(home, 'ember.token'), 'utf8').trim()
+            : undefined,
+        };
+        return fakeChild();
+      }) as never,
+    });
+    expect(state.kind).toBe('started');
+    if (state.kind === 'started') expect(state.token).toBe('apple-venison-rainbow-copper');
+    expect(sawBeforeSpawn.hearth).toBe('apple-venison-rainbow-copper');
+    expect(sawBeforeSpawn.ember).toBe('apple-venison-rainbow-copper');
+  });
+
+  test('the written token is readable by the reader the harness uses, and mode 0600', () => {
+    const home = tempDir();
+    writeHarnessToken(home, 'apple-venison-rainbow-copper');
+    expect(readHarnessToken(home)).toBe('apple-venison-rainbow-copper');
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(path.join(home, 'hearth.token')).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.join(home, 'ember.token')).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  test('only a harness we started may be re-tokened', () => {
+    expect(canManageLocalToken({ kind: 'started', url: 'http://127.0.0.1:3002', token: 'x' })).toBe(true);
+    // An adopted host is Tinder's service or someone else's process: its token is not ours to change.
+    expect(canManageLocalToken({ kind: 'attached', url: 'http://127.0.0.1:3002', token: 'x' })).toBe(false);
+    expect(canManageLocalToken({ kind: 'disabled' })).toBe(false);
+    expect(canManageLocalToken({ kind: 'failed', reason: 'nope' })).toBe(false);
+  });
+
+  test('the tokens it makes are four words from the shared list', () => {
+    for (let draw = 0; draw < 20; draw += 1) {
+      const token = generateHarnessToken();
+      expect(token).toMatch(/^[a-z]+(-[a-z]+){3}$/);
+    }
+    expect(generateHarnessToken()).not.toBe(generateHarnessToken());
   });
 });

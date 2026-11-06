@@ -40,9 +40,16 @@ import { ActivityLog, parseActivityQuery } from './activity';
 import { PiClient } from './piClient';
 import * as dataDir from './dataDir';
 import {
+  canManageLocalToken,
+  defaultHarnessHome,
+  generateHarnessToken,
+  harnessTokenOnDisk,
+  LOCAL_HARNESS_PORT,
   localHarnessNotice,
   mergeLocalHarnessEndpoint,
   startLocalHarness,
+  writeHarnessToken,
+  type LocalHarnessOptions,
   type LocalHarnessState,
 } from './localHarness';
 import type { PiEndpoint } from './transport';
@@ -150,6 +157,47 @@ let settingsQuarantineFailed = false;
 let remoteListenerState: RemoteAccessState = { status: 'off', attempts: 0, changedAt: Date.now() };
 /** Stops the bundled harness on quit; a no-op when the harness was already running before launch. */
 let localHarnessStop: () => void = () => {};
+/**
+ * How the bundled harness was started, kept so a token rotation can stop it and bring it back with
+ * the same home, port and binary — the token is the only thing that changes. Assigned at launch;
+ * the default keeps the IPC handlers total before then (and in tests).
+ */
+type LocalHarnessLaunch = { home: string; options: LocalHarnessOptions };
+let localHarness: LocalHarnessLaunch = {
+  home: defaultHarnessHome(),
+  options: { resourcesDir: process.resourcesPath, home: defaultHarnessHome() },
+};
+
+/**
+ * Stop the harness we own and wait for its process to actually be gone.
+ *
+ * Writing the token under a live harness would be a lie — it reads the credential once at start — and
+ * a replacement started too early cannot bind the port. So the wait is real: the lock the start path
+ * writes is removed when the child exits, and `harnessIsReady` on the same port confirms nothing
+ * still answers. Bounded, because a wedged process must not hang the Settings screen forever.
+ */
+const stopLocalHarnessAndWait = async (handle: LocalHarnessLaunch): Promise<void> => {
+  const stop = localHarnessStop;
+  localHarnessStop = () => {};
+  stop();
+  const deadline = Date.now() + 10_000;
+  const lock = path.join(handle.home, 'ember-harness.lock');
+  while (Date.now() < deadline) {
+    if (!fs.existsSync(lock) && !(await portAnswers(handle))) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+};
+
+/** Does anything answer on the harness's address? A stopped harness's port refuses in milliseconds. */
+const portAnswers = async (handle: LocalHarnessLaunch): Promise<boolean> => {
+  const port = handle.options.port ?? LOCAL_HARNESS_PORT;
+  try {
+    await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(400) });
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Move an unreadable settings file aside and start from defaults.
@@ -261,6 +309,72 @@ ipcMain.handle('ember:local-harness', (event) => {
   return localHarnessReport();
 });
 
+/**
+ * The token this app's own harness answers to — and, with `rotate`, a fresh one.
+ *
+ * `assertTrustedSender` is the whole security boundary here: it accepts only the app's own window
+ * loaded from `file:`. The remotely served page is a *different* origin over plain HTTP, so it is
+ * refused, which means a browser session someone paired to this machine can never read the token
+ * from the page it is controlling. That matters because the token is the credential for this whole
+ * host, and remote access is exactly when one person's browser is on another person's machine.
+ *
+ * Rotation is only offered for a harness this app started (`started`, not `attached`): an attached
+ * one is the service Tinder installed or something older, whose lifecycle and restart Ember does not
+ * own — writing its token would lock out every other client and change nothing until that process
+ * restarts, which may be never.
+ */
+ipcMain.handle('ember:local-harness-token', async (event, options: { rotate?: boolean } = {}) => {
+  assertTrustedSender(event);
+  const manage = canManageLocalToken(localHarnessState);
+  if (options?.rotate === true) {
+    if (!manage) {
+      return {
+        ok: false as const,
+        canManage: false,
+        reason: "The harness on this computer is not one Ember started, so Ember can't give it a new token. Restart it yourself and it will keep the token it already has.",
+      };
+    }
+    try {
+      // Stop what we own before touching the file: a token written under a running harness is a lie,
+      // because it reads the credential once at start. See `locals` in the restart note.
+      await stopLocalHarnessAndWait(localHarness);
+      const token = generateHarnessToken();
+      writeHarnessToken(localHarness.home, token);
+      // Start it again with the token already on disk, and replace the state with whatever it reports.
+      const restarted = await startLocalHarness({ ...localHarness.options, token });
+      localHarnessState = restarted.state;
+      localHarnessStop = restarted.stop;
+      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      // A partial failure here is a real answer: the token is installed whether or not the host came
+      // back, and the notice says so.
+      if (restarted.state.kind !== 'started') {
+        return {
+          ok: false as const,
+          canManage: true,
+          reason: localHarnessNotice(restarted.state) ?? 'The harness did not come back after the token changed.',
+          token,
+        };
+      }
+      return { ok: true as const, canManage: true, token, url: restarted.state.url, restarting: false };
+    } catch (error) {
+      return {
+        ok: false as const,
+        canManage: true,
+        reason: `The harness could not be restarted with a new token (${error instanceof Error ? error.message : String(error)}).`,
+      };
+    }
+  }
+  const token = harnessTokenOnDisk(localHarness.home);
+  return {
+    ok: token !== undefined,
+    canManage: manage,
+    ...(token ? { token } : {}),
+    ...(localHarnessState.kind === 'disabled'
+      ? { reason: 'The harness on this computer is turned off in Settings, so there is no token to show.' }
+      : {}),
+  };
+});
+
 const readEmberSettings = (): EmberSettings => {
   const root = readEmberSettingsFile();
   // Older builds stored one theme per instance; fall back to the first of those.
@@ -331,6 +445,7 @@ const readEmberSettings = (): EmberSettings => {
     remotePasswordConfigured: typeof root.remotePasswordHash === 'string' && root.remotePasswordHash.length > 0,
     remoteAccessState: remoteListenerState,
     localHarnessEnabled: root.localHarnessEnabled !== false,
+    localHarnessCanRotate: canManageLocalToken(localHarnessState),
     localHarnessState: localHarnessReport(),
     settingsRecovered: settingsRecoveredFrom !== null,
   };
@@ -1268,7 +1383,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   activityLog.start();
   // Start (or adopt) the harness this app ships before the window paints, so the first launch has a
   // host to show instead of an empty rail and instructions to go and find one.
-  const localHarness = await startLocalHarness({
+  const launchOptions: LocalHarnessOptions = {
     resourcesDir: process.resourcesPath,
     // One directory for the app and its harness: `~/.ember` (or the canary's own tree).
     home: emberHome,
@@ -1276,12 +1391,14 @@ if (primaryInstance) app.whenReady().then(async () => {
     // The same switch the settings screen shows. Persisted so a person who turned it off is not
     // asked again on the next launch.
     disabled: readJson(emberSettingsPath()).localHarnessEnabled === false,
-  });
-  localHarnessState = localHarness.state;
-  if (localHarnessNotice(localHarness.state)) {
-    console.warn('[ember] local harness:', localHarnessNotice(localHarness.state));
+  };
+  localHarness = { home: emberHome, options: launchOptions };
+  const startedHarness = await startLocalHarness(launchOptions);
+  localHarnessState = startedHarness.state;
+  if (localHarnessNotice(startedHarness.state)) {
+    console.warn('[ember] local harness:', localHarnessNotice(startedHarness.state));
   }
-  localHarnessStop = localHarness.stop;
+  localHarnessStop = startedHarness.stop;
   refreshRemoteServer();
   createWindow();
   // Keep instance health fresh: a remote that was unreachable when probed (sleep, dropped

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { EmberSettings } from './transport';
+import type { EmberSettings, LocalHarnessToken } from './transport';
 
 type ApiResponse = { ok: boolean; status: number; data: unknown };
 
@@ -17,6 +17,13 @@ const ember = {
   capabilities: { dockIcon: process.platform === 'darwin', appIcon: true },
   listInstances: (refresh = true): Promise<unknown> => ipcRenderer.invoke('ember:instances', refresh),
   getSettings: (): Promise<EmberSettings> => ipcRenderer.invoke('ember:settings:get'),
+  /**
+   * The token this app's own harness answers to. `rotate: true` installs a fresh one and restarts the
+   * harness; main refuses both on a harness Ember did not start, and refuses everything when the
+   * sender is the remotely served page rather than the app's own window.
+   */
+  localHarnessToken: (options?: { rotate?: boolean }): Promise<LocalHarnessToken> =>
+    ipcRenderer.invoke('ember:local-harness-token', options ?? {}),
   setSettings: (patch: Partial<EmberSettings>): Promise<EmberSettings> =>
     ipcRenderer.invoke('ember:settings:set', patch),
   openExternal: (target: string): Promise<boolean> => ipcRenderer.invoke('ember:open', { target }),

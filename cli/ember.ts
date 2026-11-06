@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { generateToken } from '../packages/kiln/src/token';
 
 /**
  * Tinder (`ember` / `tinder`) — launcher and setup CLI for Ember & Kiln.
@@ -15,7 +15,6 @@ import { pathToFileURL } from 'node:url';
  */
 
 export const DEFAULT_KILN_PORT = 3002;
-const TOKEN_BYTES = 32; // 64 hex characters
 
 export type ServicePlatform = 'linux' | 'darwin' | 'win32';
 
@@ -96,7 +95,9 @@ export const defaultEmberHome = (
 };
 
 /**
- * Ensure `<homeDir>/ember.token` exists with a 64-character hex secret and mode `0o600`.
+ * Ensure `<homeDir>/ember.token` exists with a four-word secret (`apple-venison-rainbow-copper`) and
+ * mode `0o600`. The words come from `packages/kiln/src/token.ts`, the same generator the harness
+ * uses, so a token made here and one made by an app-launched Kiln are the same kind of secret.
  * Idempotent: if a valid non-empty token is already on disk in `<homeDir>` or in a legacy
  * `~/.hearth/hearth.token` (or `/root/.pi/hearth.token`), it is adopted and preserved with `0o600`.
  */
@@ -136,7 +137,7 @@ export const ensureHarnessToken = (
     }
   }
 
-  const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
+  const token = generateToken();
   for (const target of [tokenPath, legacyPath]) {
     fs.writeFileSync(target, `${token}\n`, { encoding: 'utf8', mode: 0o600 });
     try {

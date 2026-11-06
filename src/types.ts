@@ -632,6 +632,20 @@ export type EmberSettings = {
   remoteAccessState?: RemoteAccessState;
   /** True when `settings.json` was unreadable and was moved aside; the user should be told. */
   settingsRecovered?: boolean;
+  /** Whether this app started the local harness, and can therefore give it a new token. */
+  localHarnessCanRotate?: boolean;
+};
+
+/**
+ * The local harness's credential, as Settings shows it. Mirrors `LocalHarnessToken` in
+ * `electron/transport.ts`, for the same reason the rest of this file is written twice.
+ */
+export type LocalHarnessToken = {
+  ok: boolean;
+  canManage: boolean;
+  token?: string;
+  url?: string;
+  reason?: string;
 };
 
 export type RemoteStatus = 'off' | 'starting' | 'listening' | 'no-tailscale' | 'error';
@@ -764,6 +778,11 @@ export type EmberBridge = {
   listInstances(refresh?: boolean): Promise<unknown>;
   getSettings(): Promise<EmberSettings>;
   setSettings(patch: EmberSettingsPatch): Promise<EmberSettings>;
+  /**
+   * The token this app's own harness answers to; `rotate` installs a fresh one and restarts it.
+   * Absent on older bridges and on the mock, so callers must treat it as optional.
+   */
+  localHarnessToken?(options?: { rotate?: boolean }): Promise<LocalHarnessToken>;
   /** Open an http(s) URL in the default browser or reveal a local path in Finder. */
   openExternal(target: string): Promise<boolean>;
   /** The packaged Ember version, shown in Settings so an upgrade can be checked at a glance. */

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { generateToken, isUsableToken } from "./token";
 
 /**
  * Hearth configuration. The data home defaults to /root/.pi on the container's own
@@ -58,13 +59,19 @@ export const hearthConfig = (overrides: { home?: string; port?: number; workspac
   };
 };
 
-/** Read the auth token, generating and persisting one (mode 0600) on first start. */
+/**
+ * Read the auth token, generating and persisting one (mode 0600) on first start.
+ *
+ * A stored token is taken as it is, whatever its shape: tokens written by older builds are 64 hex
+ * characters, and an upgrade must not lock a person out of the machine they are sitting at. Only a
+ * *truncated* value (a half-written file) is discarded — see `isUsableToken`.
+ */
 export const ensureToken = (config: HearthConfig): string => {
   const emberTokenPath = join(config.home, "ember.token");
   for (const candidate of [config.tokenPath, emberTokenPath]) {
     try {
       const existing = readFileSync(candidate, "utf8").trim();
-      if (existing.length >= 32) {
+      if (isUsableToken(existing)) {
         if (candidate !== config.tokenPath) {
           writeFileSync(config.tokenPath, `${existing}\n`, { mode: 0o600 });
         }
@@ -75,9 +82,8 @@ export const ensureToken = (config: HearthConfig): string => {
     }
   }
   mkdirSync(config.home, { recursive: true });
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  // Four words, not 64 hex characters: this value is copied between machines by hand.
+  const token = generateToken();
   writeFileSync(config.tokenPath, `${token}\n`, { mode: 0o600 });
   writeFileSync(emberTokenPath, `${token}\n`, { mode: 0o600 });
   return token;

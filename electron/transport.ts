@@ -14,6 +14,25 @@ export type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
  */
 export type LocalHarnessKind = 'attached' | 'started' | 'disabled' | 'missing' | 'failed';
 
+/**
+ * The local harness's credential, as the Settings screen shows it.
+ *
+ * `canManage` is the honest half of the answer: only a harness this app started can be given a new
+ * token. An attached one (Tinder's service, or a host older than this launch) keeps the token it has,
+ * so the screen offers Copy and no Regenerate rather than a button that would break other clients.
+ *
+ * `token` is absent when there is nothing to show — the harness is off, or the binary never wrote a
+ * file. `reason` says which, in a sentence, because "no token" with no explanation is the dead end
+ * the copy rules forbid.
+ */
+export type LocalHarnessToken = {
+  ok: boolean;
+  canManage: boolean;
+  token?: string;
+  url?: string;
+  reason?: string;
+};
+
 const parseHttpUrl = (value: string): URL | null => {
   try {
     const url = new URL(value);
@@ -584,6 +603,8 @@ export type EmberSettings = {
     version?: string;
     notice: string | null;
   };
+  /** Whether the local harness's token can be rotated by this app (see `LocalHarnessToken`). */
+  localHarnessCanRotate?: boolean;
   /** True when the settings file could not be read and was moved aside. */
   settingsRecovered: boolean;
 };

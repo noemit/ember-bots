@@ -6,6 +6,7 @@
  *
  * The legacy OpenCode mock stays reachable at `?legacy` (see `src/dev/mockBridge.ts`).
  */
+import { generateToken } from '../../electron/tokenWords';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
 
 const ENDPOINT_ID = 'pi:hearth';
@@ -1686,15 +1687,27 @@ let settings: EmberSettings = {
   activeSession: null,
   minimizedSessions: [],
   piEndpoints: [{ id: ENDPOINT_ID, label: 'ember-harness (mock)', url: ENDPOINT.url ?? '', token: 'mock-token' }],
+  // The mock stands in for an app that started its own harness, so Settings → Instances → This
+  // computer has something to show and rotate in a plain browser.
+  localHarnessCanRotate: true,
   remoteAccessEnabled: false,
   remotePasswordConfigured: false,
 };
+
+/** Stands in for `~/.ember/hearth.token`, so the rotate button does something visible in the mock. */
+let mockHarnessToken = 'amber-anchor-brisk-copper';
 
 export const bridge: EmberBridge = {
   appName: 'Ember',
   capabilities: { dockIcon: false },
   listInstances: async () => (outageFixture ? [ENDPOINT, OUTAGE_ENDPOINT] : [ENDPOINT]),
   getSettings: async () => settings,
+  localHarnessToken: async (options?: { rotate?: boolean }) => {
+    if (options?.rotate) {
+      mockHarnessToken = generateToken();
+    }
+    return { ok: true, canManage: true, token: mockHarnessToken, url: ENDPOINT.url ?? 'http://127.0.0.1:3002' };
+  },
   setSettings: async (patch: EmberSettingsPatch) => {
     const { remotePassword: _remotePassword, composerDraftChanges, ...safe } = patch;
     const drafts = { ...settings.composerDrafts };

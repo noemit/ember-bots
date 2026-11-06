@@ -4,6 +4,7 @@ import { Check, ChevronRight, KeyRound, ShieldCheck, SlidersHorizontal } from 'l
 import Blob from '../blob/Blob';
 import ModelPicker from './ModelPicker';
 import EndpointsSettings from './EndpointsSettings';
+import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
 import { ModelExperienceSettings } from './ModelScorecard';
 import { INSTANCE_MARKER_COLORS } from '../blob/contrast';
@@ -756,6 +757,28 @@ export default function SettingsPanel({
             </TabsContent>
 
             <TabsContent value="instances" className="mt-0 flex flex-col gap-4">
+              {/* The harness this app runs on this computer, first: its token is what the other
+                  machines need, and it was previously only reachable from a terminal. */}
+              <Card>
+                <CardHeader className="p-3 pb-0">
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    This computer
+                  </CardTitle>
+                  <CardDescription>
+                    Ember runs ember-harness for you here. Its token is what another machine — or a
+                    browser you pair over remote access — uses to connect.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-2">
+                  <LocalTokenSettings
+                    canRotate={settings.localHarnessCanRotate === true}
+                    {...(window.ember.localHarnessToken
+                      ? { loadToken: window.ember.localHarnessToken.bind(window.ember) }
+                      : {})}
+                    onRefreshInstances={onRefreshInstances}
+                  />
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

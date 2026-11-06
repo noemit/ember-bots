@@ -1,3 +1,38 @@
+## 1.5.0
+
+### Added
+- **See and copy the harness token in Settings → Instances → This computer.** Until now the token was
+  only reachable by opening `~/.ember/hearth.token` in an editor or running `tinder token` — for a
+  value whose entire purpose is being copied to another machine. It is masked until you ask (this is
+  the most screenshot-prone panel in the app), Copy works without revealing, and the line under it
+  says what the token is for.
+- **Regenerate it from there.** One button, one confirmation that names what breaks: every other
+  machine and browser pointed at this host stops connecting until the new token is copied across.
+  The agents themselves are untouched.
+  A token is read by the harness at startup, so this is one operation, not two: Ember stops the
+  harness it started, waits for the process to exit, writes the new token to both filenames, and
+  starts it again with the token already on disk. Writing the file under a running harness would have
+  shown a fresh token while the process still accepted the old one.
+  Only offered when Ember started the harness itself. A host Ember merely attached to — Tinder's
+  service, or something older — keeps its token, because Ember does not own its restart.
+- **Tokens are four words now: `apple-venison-rainbow-copper`.** Sixty-four hex characters were
+  unreadable, untypable and unfixable by looking at them, so they ended up pasted into notes and chat
+  messages. Four words from a 1,933-word roster carry about 43.7 bits — still far beyond guessing over
+  the network (about 700 years at 200 requests a second), and now easy to retype from one screen into
+  another, which is the thing people actually do with it.
+
+### Notes
+- **Existing tokens keep working.** Nothing validates the token's shape: the harness compares the
+  string it read with the string in the request, so a 64-character hex token from an earlier install
+  is still valid and is never rewritten. Rotating is how you get a word-form token.
+- The word list ships twice — `electron/tokenWords.ts` for the app and `packages/kiln/src/token.ts`
+  for the harness and CLI, which cannot share a module because electron main is compiled with
+  `rootDir: electron`. `tokenWords.test.ts` fails if the copies ever drift, because the failure it
+  prevents (the app showing a token the harness has never heard of) looks like a bug in neither half.
+- The token is refused to the remotely served page: `ember:local-harness-token` only accepts the app's
+  own `file:` window, so a paired browser session can never read the credential for the host it is
+  controlling.
+
 ## 1.4.1
 
 ### Fixed

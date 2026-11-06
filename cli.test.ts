@@ -29,11 +29,13 @@ afterEach(() => {
 });
 
 describe('Tinder / Ember CLI', () => {
-  test('ensureHarnessToken creates a 64-char hex token with mode 0600 and is idempotent on second run', () => {
+  test('ensureHarnessToken writes four words with mode 0600 and is idempotent on second run', () => {
     const home = path.join(makeTempDir(), '.ember');
     const first = ensureHarnessToken(home);
     expect(first.created).toBe(true);
-    expect(first.token).toMatch(/^[0-9a-f]{64}$/);
+    // A token meant to be copied from one machine to another by hand: readable, not 64 hex digits.
+    expect(first.token).toMatch(/^[a-z]+(-[a-z]+){3}$/);
+    expect(first.token.length).toBeLessThan(48);
     expect(fs.existsSync(first.tokenPath)).toBe(true);
 
     if (process.platform !== 'win32') {
@@ -134,7 +136,7 @@ describe('Tinder / Ember CLI', () => {
 
     expect(parsed.localUrl).toBe('http://127.0.0.1:3005');
     expect(parsed.tailscaleUrl).toBe('http://100.64.0.2:3005');
-    expect(parsed.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(parsed.token).toMatch(/^[a-z]+(-[a-z]+){3}$/);
     expect(parsed.tokenPath).toBe(path.join(home, 'ember.token'));
   });
 
