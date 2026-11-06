@@ -1,6 +1,6 @@
 {
   "name": "ember",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -26,10 +26,10 @@
     "build": "bun run build:harness && tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
     "dev": "bun run build && electron .",
     "dev:web": "vite --port 5179",
-    "dist": "bun run build && bunx electron-builder",
-    "dist:mac": "bun run build && bunx electron-builder --mac",
-    "dist:win": "bun run build && bunx electron-builder --win",
-    "dist:linux": "bun run build && bunx electron-builder --linux",
+    "dist": "bun run build && electron-builder",
+    "dist:mac": "bun run build && EMBER_RELEASE=1 electron-builder --mac",
+    "dist:win": "bun run build && electron-builder --win",
+    "dist:linux": "bun run build && electron-builder --linux",
     "dist:cli": "mkdir -p release && bun build --compile cli/ember.ts --outfile release/tinder-cli",
     "buddy-arena": "bun run buddy-arena/server.ts",
     "test": "bun test",
@@ -40,7 +40,8 @@
     "check": "bun run typecheck && bun run lint && bun test",
     "check:kiln": "bun run --cwd packages/kiln check",
     "kiln:start": "bun run --cwd packages/kiln start",
-    "kiln:dev": "bun run --cwd packages/kiln dev"
+    "kiln:dev": "bun run --cwd packages/kiln dev",
+    "dist:mac:local": "bun run build && electron-builder --mac"
   },
   "build": {
     "appId": "dev.ember.app",
@@ -98,7 +99,8 @@
           "to": "kiln"
         }
       ]
-    }
+    },
+    "afterSign": "build/notarize.js"
   },
   "dependencies": {
     "@tanstack/react-virtual": "3.14.11",
@@ -124,6 +126,7 @@
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.0",
     "electron": "42.10.1",
+    "electron-builder": "26.18.0",
     "eslint": "10.8.1",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.10.0",

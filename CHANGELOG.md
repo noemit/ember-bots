@@ -1,3 +1,23 @@
+## 1.5.3
+
+### Fixed
+- **`dist:mac` notarizes itself now.** Notarization used to be a list of `notarytool` commands a
+  person pasted from a release checklist. The first time it was actually attempted the build above it
+  had failed, nothing stopped the release, and the commands ran against files that did not exist.
+  `electron-builder`'s `afterSign` hook (`build/notarize.js`) now submits the signed `.app` and
+  **staples** the ticket to the bundle — which is what makes it validate offline, on a machine that
+  has never seen it — using the same `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` variables the
+  rest of the toolchain reads. A rejection fails the build instead of publishing.
+- **A release can no longer ship un-notarized.** `dist:mac` sets `EMBER_RELEASE=1`, and without
+  credentials the hook refuses rather than warning. `dist:mac:local` keeps the old, warning-only
+  behaviour for a developer who just wants a build.
+- **The bundled harness is recompiled, never reused.** `build:harness` now clears its output first.
+  `build/harness/kiln` was a Linux ELF binary sitting in a gitignored directory, so a Mac build that
+  ever skipped or reordered that step would have shipped a `.app` whose embedded Kiln cannot execute —
+  and it would still have passed signing, because signing does not inspect architecture.
+- **`electron-builder` is pinned** (`26.18.0`) instead of resolved by `bunx` on every build. A new
+  major landing mid-release could break signing with no change on our side.
+
 ## 1.5.2
 
 ### Changed

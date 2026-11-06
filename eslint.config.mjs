@@ -8,7 +8,9 @@ const unusedVars = ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' 
 export default tseslint.config(
   // glyphs.ts is generated; glyph-arena/ is a one-off review playground, not app code.
   // Root-level *.mjs are throwaway capture scripts, not app code; .audit/ is the audit harness.
-  { ignores: ['dist/', 'dist-electron/', 'node_modules/', 'release/', 'packages/', '.audit/', '*.mjs'] },
+  // `build/notarize.js` is electron-builder's CommonJS hook: it is loaded by that tool, not bundled,
+  // so `require` is the correct form there and the ESM/TS rules do not apply.
+  { ignores: ['dist/', 'dist-electron/', 'node_modules/', 'release/', 'packages/', '.audit/', '*.mjs', 'build/notarize.js'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
