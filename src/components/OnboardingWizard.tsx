@@ -301,13 +301,16 @@ function Welcome() {
           <h3 className="text-[15px] font-semibold">Where the work happens</h3>
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             Ember takes its name from the embers that glow in a fire. Think of <strong className="text-foreground">Kiln</strong>{' '}
-            as the hot, concentrated space where agents take action: editing files, running commands and carrying out your instructions.
+            as the hot, concentrated space where agents take action: editing files, running commands and carrying out your instructions.{' '}
+            Think of <em>Ember</em> as your connection to the powerful energy inside the kiln.
           </p>
         </div>
       </div>
       <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-        <strong className="text-foreground">Ember is where you direct that work.</strong> It connects to Kiln using a
-        connection password and gives you a view of your conversations, each agent’s progress, and anything that needs your attention.
+        <strong className="text-foreground">Ember is where you direct agents to do work, and observe the work they do.</strong>{' '}
+        It connects to Kiln using a connection password and gives you a view of your conversations, each agent’s progress,
+        their specific actions, what images they are looking at, errors they run into, what they are thinking
+        (with models that support this), and more.
       </p>
       <KilnDiagram />
       <p className="text-[12px] leading-relaxed text-muted-foreground">

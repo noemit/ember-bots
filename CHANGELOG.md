@@ -1,3 +1,9 @@
+## 1.6.6
+
+### Changed
+- Refined the Ember/Kiln introduction with the fire metaphor and the details Ember shows about
+  agents’ work, including actions, images, errors and supported model thinking.
+
 ## 1.6.5
 
 ### Changed
