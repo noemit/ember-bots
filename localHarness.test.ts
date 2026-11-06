@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import {
+  availableHarnessPort,
+  resolveHarnessBinary,
   binaryNameFor,
   bundledBinaryPath,
   canManageLocalToken,
@@ -50,6 +52,8 @@ const fakeChild = (pid = 4242): FakeChild => {
     killed: [] as string[],
     kill(signal: string) {
       child.killed.push(signal);
+      child.exitCode = 0;
+      for (const listener of listeners) listener();
       return true;
     },
     on(event: string, listener: () => void) {
@@ -590,4 +594,80 @@ describe('a local harness is listed whenever it is answering', () => {
     expect(merged.map((entry) => entry.id)).toEqual(['pi:local', 'pi:heliograph']);
     expect(merged[0]?.label).toBe('This computer');
   });
+});
+
+
+describe('development and isolated profile startup', () => {
+  test('development uses the freshly built binary, while an explicit override wins', () => {
+    expect(resolveHarnessBinary({ resourcesDir: '/electron', developmentDir: '/checkout' }))
+      .toBe(path.join('/checkout', 'build', 'harness', binaryNameFor()));
+    expect(resolveHarnessBinary({ resourcesDir: '/electron', developmentDir: '/checkout', binaryName: '/custom/kiln' }))
+      .toBe(path.resolve('/custom/kiln'));
+  });
+
+  test('an isolated address replaces a saved local endpoint instead of duplicating its id', () => {
+    const merged = mergeLocalHarnessEndpoint([
+      { id: 'pi:local', label: 'This computer', url: 'http://127.0.0.1:3002', token: 'old' },
+    ], { url: 'http://127.0.0.1:43210', token: 'new' });
+    expect(merged).toHaveLength(1);
+    expect(merged[0].url).toBe('http://127.0.0.1:43210');
+    expect(localHarnessEndpoint({ state: { kind: 'failed', reason: 'offline' }, enabled: true,
+      home: tempDir(), port: 43210, readToken: () => 'new' })?.url).toBe('http://127.0.0.1:43210');
+  });
+
+  test('an isolated port is chosen by the OS', async () => {
+    const port = await availableHarnessPort();
+    expect(port).toBeGreaterThan(0);
+    expect(port).toBeLessThanOrEqual(65535);
+  });
+
+  test('an asynchronous spawn error becomes a recoverable failure', async () => {
+    const binaryDir = tempDir();
+    const binary = path.join(binaryDir, binaryNameFor());
+    fs.writeFileSync(binary, '#!/missing/ember-audit-interpreter\n', { mode: 0o755 });
+    const result = await startLocalHarness({ resourcesDir: binaryDir, home: tempDir(), probe: downProbe });
+    expect(result.state.kind).toBe('failed');
+    const notice = localHarnessNotice(result.state);
+    expect(notice).toContain('Kiln');
+    expect(notice).toMatch(/Retry|Settings/);
+  });
+});
+
+
+test('an occupied port with the wrong credentials is explained without spawning a rival', async () => {
+  let spawned = false;
+  const result = await startLocalHarness({ resourcesDir: tempDir(), home: tempDir(),
+    probe: async () => ({ ok: false, occupied: true }),
+    spawn: (() => { spawned = true; return fakeChild(); }) as never,
+  });
+  expect(spawned).toBe(false);
+  expect(result.state.kind).toBe('failed');
+  const notice = localHarnessNotice(result.state);
+  expect(notice).toContain('Kiln');
+  expect(notice).toContain('3002');
+  expect(notice).toMatch(/Settings.*Instances/);
+  expect(notice).toContain('Retry');
+});
+
+
+test('stopping retains the data-home lock until the owned child has exited', async () => {
+  const resourcesDir = tempDir();
+  fs.writeFileSync(path.join(resourcesDir, binaryNameFor()), '#!/bin/sh\n', { mode: 0o755 });
+  const home = tempDir();
+  const child = fakeChild();
+  child.kill = ((signal: string) => { child.killed.push(signal); return true; }) as never;
+  let probes = 0;
+  const result = await startLocalHarness({ resourcesDir, home, readToken: staticToken(),
+    probe: async () => ({ ok: ++probes > 1 }), spawn: (() => child) as never,
+  });
+  const stopped = result.stop();
+  expect(child.killed).toEqual(['SIGTERM']);
+  expect(fs.existsSync(path.join(home, 'ember-harness.lock'))).toBe(true);
+  let finished = false;
+  void stopped.then(() => { finished = true; });
+  await Promise.resolve();
+  expect(finished).toBe(false);
+  (child as unknown as { exit(code: number): void }).exit(0);
+  await stopped;
+  expect(fs.existsSync(path.join(home, 'ember-harness.lock'))).toBe(false);
 });

@@ -108,7 +108,7 @@ describe('Tinder / Ember CLI', () => {
     expect(linuxUnit).toContain('[Unit]');
     expect(linuxUnit).toContain('[Service]');
     expect(linuxUnit).toContain('Environment="EMBER_HOME=/home/alex/.ember"');
-    expect(linuxUnit).toContain('Environment="PORT=3002"');
+    expect(linuxUnit).toContain('Environment="HEARTH_PORT=3002"');
     expect(linuxUnit).toContain('WantedBy=default.target');
 
     const darwinPlist = generateServiceConfig({ ...base, platform: 'darwin' });
@@ -197,4 +197,17 @@ describe('Tinder / Ember CLI', () => {
     expect(second.created).toBe(false);
     expect(fs.readFileSync(second.agentsMdPath, 'utf8')).toBe('# Custom user rules\n');
   });
+});
+
+
+test('standalone services launch Tinder itself with the selected port, without a checkout', () => {
+  for (const platform of ['linux', 'darwin', 'win32'] as const) {
+    const config = generateServiceConfig({ platform, homeDir: '/tmp/Ember & friends',
+      workspaceDir: '/tmp/projects', port: 43210, launchCommand: ['/opt/Ember Tools/tinder', 'serve'] });
+    expect(config).toContain('serve');
+    expect(config).toContain('43210');
+    expect(config).toContain('HEARTH_PORT');
+    expect(config).not.toContain('/hearth/src/index.ts');
+    expect(config).not.toContain('/usr/bin/env bun');
+  }
 });

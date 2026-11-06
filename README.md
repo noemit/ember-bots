@@ -22,23 +22,33 @@ Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on 
 | **macOS (Apple Silicon)** | [`Ember-1.5.3-arm64.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/Ember-1.5.3-arm64.dmg) · [`Ember-1.5.3-arm64-mac.zip`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/Ember-1.5.3-arm64-mac.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/tinder-macos-arm64) |
 | **Linux (x64)** | [`Ember-1.5.3.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/Ember-1.5.3.AppImage) · [`ember-1.5.3.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/ember-1.5.3.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/tinder-linux-x64) |
 
-The desktop app **ships its own agent server**. On first launch Ember starts the bundled **Kiln** on `127.0.0.1:3002`, keeps its data in `~/.ember`, and lists it as **This computer** — no terminal, no clone, no token to paste. It stops that harness when it quits, and it *adopts* one that was already running (a `tinder setup --service` host, or a container) instead of starting a second. Turn it off in Settings → Instances if you only want remote hosts.
+Ember is the GUI and can connect to multiple Kilns. It **ships with a default local Kiln**, so launching the desktop app starts a backend for you — no terminal, no clone, no token to paste. Its data lives in `~/.ember`, and it appears as **This computer**.
+
+The bundled Kiln shares Ember's lifetime: **quitting Ember stops its Kiln**, including any active agent work. Conversation history stays on disk. On macOS, closing the window leaves Ember running; use Quit to stop both.
+
+For a Kiln that runs independently of the GUI, use **Tinder** to start a standalone backend. Ember connects to a Tinder-managed Kiln without taking ownership of it: quitting Ember leaves that backend running. You can connect additional local or remote Kilns in Settings → Instances.
 
 ### Setting up Kiln (`ember-harness`) with Tinder CLI
 
-For a **headless machine** — a server you reach over SSH or Tailscale — the CLI installs and supervises Kiln without the desktop app:
+For a **headless machine** — a server you reach over SSH or Tailscale — the compiled Tinder download includes Kiln. It needs neither the desktop app nor Bun. Keep the executable in a permanent location before configuring a service: the service records its absolute path.
 
 ```sh
-# Local desktop setup (initializes ~/.ember/ember.token + OS-tailored ~/.ember/AGENTS.md)
-./tinder setup
+# Run a standalone Kiln in this terminal; Ctrl+C stops it
+./tinder serve
 
-# Headless remote server setup (also writes systemd / launchd background service)
+# Or write a systemd / launchd service configuration
 ./tinder setup --headless
+# Then run the enable/load command Tinder prints to start the service
 
 # Check Kiln status or print connection URL + bearer token for Ember Desktop
 ./tinder status
 ./tinder token
 ```
+
+A standalone service keeps running when Ember quits. Stop it with its service manager; a foreground
+`tinder serve` stops with Ctrl+C. To run a second Kiln on the same computer, give it a separate data
+home and port, for example `./tinder serve --home ~/.ember-server --port 3003`, then add its URL and
+token in Ember. Use the same `--home` and `--port` with `tinder token` and `tinder status`.
 
 ## What it does
 
@@ -63,8 +73,7 @@ version offers. Private Relay instances are not currently supported.
 
 - **Node.js 22.12 or newer.**
 - **Bun**, using the version declared in [package.json](package.json) (`bun@1.4.2`).
-- A **running ember-harness** and/or a **running openchamber installation**, with the instances you
-  want to follow configured for desktop use.
+- Additional Kiln or OpenChamber instances are optional; the build includes a local Kiln.
 - A graphical desktop environment for Electron.
 
 Desktop behavior, packaging, and native integration tests are verified on **macOS** (Developer ID signed, hardened runtime, Apple notarized & stapled) and **Linux** (`AppImage` and `.tar.gz`).
@@ -76,7 +85,9 @@ bun install
 bun run dev
 ```
 
-`dev` builds the renderer and Electron code, then launches the app. It is not a desktop hot-reload/watch command.
+`dev` builds Kiln, the renderer and Electron code, then launches the app with its local Kiln. Use `EMBER_DATA_DIR=/tmp/ember-onboarding bun run dev` for an isolated onboarding profile. It gets its own Kiln port, data and Chromium profile, so it can run beside the daily app. Quitting it stops only its own Kiln.
+
+It is not a desktop hot-reload/watch command.
 
 ### Connecting to Ember Harness / Hearth
 

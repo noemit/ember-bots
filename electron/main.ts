@@ -40,6 +40,7 @@ import { ActivityLog, parseActivityQuery } from './activity';
 import { PiClient } from './piClient';
 import * as dataDir from './dataDir';
 import {
+  availableHarnessPort,
   canManageLocalToken,
   defaultHarnessHome,
   localHarnessEndpoint,
@@ -130,6 +131,11 @@ const emberHome = ((): string => {
 const canaryBuild = Boolean(process.env.EMBER_DATA_DIR && process.env.EMBER_DATA_DIR.trim());
 const displayName = canaryBuild ? 'Ember Canary' : 'Ember';
 app.setName(displayName);
+if (canaryBuild) {
+  // Chromium storage and the single-instance lock must follow the selected profile too.
+  app.setPath('userData', path.join(emberHome, 'chromium'));
+  app.setPath('sessionData', app.getPath('userData'));
+}
 
 const emberSettingsPath = (): string => path.join(emberHome, 'settings.json');
 const modelStats = new ModelStatsStore(path.join(emberHome, 'model-stats.json'));
@@ -157,7 +163,7 @@ let settingsQuarantineFailed = false;
 /** What the remote listener is actually doing; reported through the settings the renderer reads. */
 let remoteListenerState: RemoteAccessState = { status: 'off', attempts: 0, changedAt: Date.now() };
 /** Stops the bundled harness on quit; a no-op when the harness was already running before launch. */
-let localHarnessStop: () => void = () => {};
+let localHarnessStop: () => Promise<void> = async () => {};
 /**
  * How the bundled harness was started, kept so a token rotation can stop it and bring it back with
  * the same home, port and binary — the token is the only thing that changes. Assigned at launch;
@@ -179,8 +185,8 @@ let localHarness: LocalHarnessLaunch = {
  */
 const stopLocalHarnessAndWait = async (handle: LocalHarnessLaunch): Promise<void> => {
   const stop = localHarnessStop;
-  localHarnessStop = () => {};
-  stop();
+  localHarnessStop = async () => {};
+  await stop();
   const deadline = Date.now() + 10_000;
   const lock = path.join(handle.home, 'ember-harness.lock');
   while (Date.now() < deadline) {
@@ -324,66 +330,90 @@ ipcMain.handle('ember:local-harness', (event) => {
  * own — writing its token would lock out every other client and change nothing until that process
  * restarts, which may be never.
  */
-ipcMain.handle('ember:local-harness-token', async (event, options: { rotate?: boolean } = {}) => {
+let harnessOperation: Promise<unknown> = Promise.resolve();
+const runHarnessOperation = <T>(operation: () => Promise<T>): Promise<T> => {
+  const next = harnessOperation.catch(() => {}).then(operation);
+  harnessOperation = next;
+  return next;
+};
+ipcMain.handle('ember:local-harness-retry', (event) => {
   assertTrustedSender(event);
-  const manage = canManageLocalToken(localHarnessState);
-  if (options?.rotate === true) {
-    if (!manage) {
-      return {
-        ok: false as const,
-        canManage: false,
-        reason: "The harness on this computer is not one Ember started, so Ember can't give it a new token. Restart it yourself and it will keep the token it already has.",
-      };
-    }
-    try {
-      // Stop what we own before touching the file: a token written under a running harness is a lie,
-      // because it reads the credential once at start. See `stopLocalHarnessAndWait`.
-      await stopLocalHarnessAndWait(localHarness);
-      const token = generateHarnessToken();
-      writeHarnessToken(localHarness.home, token);
-      // Start it again with the token already on disk, and replace the state with whatever it reports.
-      const restarted = await startLocalHarness({ ...localHarness.options, token });
-      // A successful rotation is `restarted`, not `started`: the harness is ours and is running with
-      // the token now on disk, which is what keeps it in the endpoint list.
-      localHarnessState =
-        restarted.state.kind === 'started'
-          ? { kind: 'restarted', url: restarted.state.url, token: restarted.state.token, ...(restarted.state.version ? { version: restarted.state.version } : {}) }
-          : restarted.state;
-      localHarnessStop = restarted.stop;
-      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
-      // A partial failure here is a real answer: the token is installed whether or not the host came
-      // back, and the notice says so.
-      if (localHarnessState.kind !== 'restarted') {
+  return runHarnessOperation(async () => {
+    if (canManageLocalToken(localHarnessState)) return localHarnessReport();
+    if (canaryBuild) localHarness.options.port = await availableHarnessPort();
+    const result = await startLocalHarness({
+      ...localHarness.options,
+      disabled: readJson(emberSettingsPath()).localHarnessEnabled === false,
+    });
+    localHarnessState = result.state;
+    localHarnessStop = result.stop;
+    await loadInstances(true);
+    broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+    return localHarnessReport();
+  });
+});
+ipcMain.handle('ember:local-harness-token', (event, options: { rotate?: boolean } = {}) => {
+  assertTrustedSender(event);
+  return runHarnessOperation(async () => {
+    const manage = canManageLocalToken(localHarnessState);
+    if (options?.rotate === true) {
+      if (!manage) {
+        return {
+          ok: false as const,
+          canManage: false,
+          reason: "The harness on this computer is not one Ember started, so Ember can't give it a new token. Restart it yourself and it will keep the token it already has.",
+        };
+      }
+      try {
+        // Stop what we own before touching the file: a token written under a running harness is a lie,
+        // because it reads the credential once at start. See `stopLocalHarnessAndWait`.
+        await stopLocalHarnessAndWait(localHarness);
+        const token = generateHarnessToken();
+        writeHarnessToken(localHarness.home, token);
+        // Start it again with the token already on disk, and replace the state with whatever it reports.
+        const restarted = await startLocalHarness({ ...localHarness.options, token });
+        // A successful rotation is `restarted`, not `started`: the harness is ours and is running with
+        // the token now on disk, which is what keeps it in the endpoint list.
+        localHarnessState =
+          restarted.state.kind === 'started'
+            ? { kind: 'restarted', url: restarted.state.url, token: restarted.state.token, ...(restarted.state.version ? { version: restarted.state.version } : {}) }
+            : restarted.state;
+        localHarnessStop = restarted.stop;
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+        // A partial failure here is a real answer: the token is installed whether or not the host came
+        // back, and the notice says so.
+        if (localHarnessState.kind !== 'restarted') {
+          return {
+            ok: false as const,
+            canManage: true,
+            reason: localHarnessNotice(restarted.state) ?? 'The harness did not come back after the token changed.',
+            token,
+          };
+        }
+        return {
+          ok: true as const,
+          canManage: true,
+          token,
+          ...(localHarnessState.kind === 'restarted' ? { url: localHarnessState.url } : {}),
+        };
+      } catch (error) {
         return {
           ok: false as const,
           canManage: true,
-          reason: localHarnessNotice(restarted.state) ?? 'The harness did not come back after the token changed.',
-          token,
+          reason: `The harness could not be restarted with a new token (${error instanceof Error ? error.message : String(error)}).`,
         };
       }
-      return {
-        ok: true as const,
-        canManage: true,
-        token,
-        ...(localHarnessState.kind === 'restarted' ? { url: localHarnessState.url } : {}),
-      };
-    } catch (error) {
-      return {
-        ok: false as const,
-        canManage: true,
-        reason: `The harness could not be restarted with a new token (${error instanceof Error ? error.message : String(error)}).`,
-      };
     }
-  }
-  const token = harnessTokenOnDisk(localHarness.home);
-  return {
-    ok: token !== undefined,
-    canManage: manage,
-    ...(token ? { token } : {}),
-    ...(localHarnessState.kind === 'disabled'
-      ? { reason: 'The harness on this computer is turned off in Settings, so there is no token to show.' }
-      : {}),
-  };
+    const token = harnessTokenOnDisk(localHarness.home);
+    return {
+      ok: token !== undefined,
+      canManage: manage,
+      ...(token ? { token } : {}),
+      ...(localHarnessState.kind === 'disabled'
+        ? { reason: 'The harness on this computer is turned off in Settings, so there is no token to show.' }
+        : {}),
+    };
+  });
 });
 
 /** A stored timestamp, or undefined. Kept strict so a `0` or a string never counts as "dismissed". */
@@ -440,7 +470,7 @@ const readEmberSettings = (): EmberSettings => {
     piEndpoints: (() => {
       const configured = parsePiEndpoints(root.piEndpoints);
       const discovered: PiEndpoint[] =
-        configured.length > 0 || Array.isArray(root.piEndpoints)
+        configured.length > 0 || Array.isArray(root.piEndpoints) || canaryBuild
           ? configured
           : (() => {
               // Settings that never held a `piEndpoints` array at all: seed from whatever the CLI or
@@ -806,6 +836,7 @@ const localHarnessEndpointInfo = (root?: Record<string, unknown>): { url: string
     state: localHarnessState,
     enabled: (root ?? readJson(emberSettingsPath())).localHarnessEnabled !== false,
     home: harnessHome(),
+    port: localHarness.options.port,
   });
 
 /**
@@ -1481,6 +1512,12 @@ if (primaryInstance) app.whenReady().then(async () => {
   // host to show instead of an empty rail and instructions to go and find one.
   const launchOptions: LocalHarnessOptions = {
     resourcesDir: process.resourcesPath,
+    ...(!app.isPackaged ? { developmentDir: app.getAppPath() } : {}),
+    ...(process.env.EMBER_DATA_DIR?.trim() ? { port: await availableHarnessPort() } : {}),
+    onExit: (reason) => {
+      localHarnessState = { kind: 'failed', reason };
+      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+    },
     // One directory for the app and its harness: `~/.ember` (or the canary's own tree).
     home: emberHome,
     ...(process.env.EMBER_BUNDLED_HARNESS ? { binaryName: process.env.EMBER_BUNDLED_HARNESS } : {}),
@@ -1489,7 +1526,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     disabled: readJson(emberSettingsPath()).localHarnessEnabled === false,
   };
   localHarness = { home: emberHome, options: launchOptions };
-  const startedHarness = await startLocalHarness(launchOptions);
+  const startedHarness = await runHarnessOperation(() => startLocalHarness(launchOptions));
   localHarnessState = startedHarness.state;
   if (localHarnessNotice(startedHarness.state)) {
     console.warn('[ember] local harness:', localHarnessNotice(startedHarness.state));
@@ -1524,12 +1561,21 @@ app.on('will-quit', () => {
   remoteListener.dispose();
 });
 
-app.on('before-quit', () => {
+let harnessQuitComplete = false;
+let harnessQuitPending = false;
+app.on('before-quit', (event) => {
+  if (harnessQuitComplete) return;
+  event.preventDefault();
+  if (harnessQuitPending) return;
+  harnessQuitPending = true;
   try {
     activityLog.flushSync();
   } catch (error) {
     console.error('Failed to flush activity log', error);
   }
   // Only stops a harness this process started; an adopted one is left running.
-  localHarnessStop();
+  void harnessOperation.catch(() => {}).then(() => canManageLocalToken(localHarnessState) ? stopLocalHarnessAndWait(localHarness) : undefined).finally(() => {
+    harnessQuitComplete = true;
+    app.quit();
+  });
 });

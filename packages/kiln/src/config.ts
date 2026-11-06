@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import packageInfo from "../package.json";
 import { generateToken, isUsableToken } from "./token";
 
 /**
@@ -53,7 +54,7 @@ export const hearthConfig = (overrides: { home?: string; port?: number; workspac
     databasePath: join(home, "hearth.sqlite"),
     tokenPath: join(home, "hearth.token"),
     port,
-    bind: "0.0.0.0",
+    bind: envString("HEARTH_BIND") ?? envString("EMBER_BIND") ?? "0.0.0.0",
     backupsDir,
     workspace,
   };
@@ -128,3 +129,6 @@ export const hearthVersion = (dir: string): string | undefined => {
     return undefined;
   }
 };
+
+/** Embedded by Bun, independent of the launch directory or installed runtime. */
+export const kilnVersion: string = packageInfo.version;

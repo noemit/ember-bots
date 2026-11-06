@@ -26,6 +26,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createServer } from 'node:net';
 import { generateToken } from './tokenWords';
 
 /** Fixed so the app and the CLI agree where a local harness listens and keeps its data. */
@@ -60,6 +61,9 @@ export type LocalHarnessOptions = {
   resourcesDir: string;
   /** Where the binary is, relative to `resourcesDir`. Overridable so a dev run can point anywhere. */
   binaryName?: string;
+  /** Checkout root for development builds; installed apps always use resourcesDir. */
+  developmentDir?: string;
+  onExit?: (reason: string) => void;
   /** `<home>` for the harness; `~/.ember` unless overridden. */
   home?: string;
   port?: number;
@@ -69,7 +73,7 @@ export type LocalHarnessOptions = {
   /** Test seam: how to spawn. Defaults to `spawn` with the bundled binary. */
   spawn?: (command: string, args: string[], options: Record<string, unknown>) => ChildProcess;
   /** Test seam: the loopback probe. */
-  probe?: (url: string) => Promise<{ ok: boolean; version?: string }>;
+  probe?: (url: string) => Promise<{ ok: boolean; version?: string; occupied?: boolean }>;
   /** Test seam: where the harness's credential is read from. Defaults to `readHarnessToken(home)`. */
   readToken?: () => string | undefined;
   /**
@@ -162,12 +166,12 @@ export const readHarnessToken = (home: string): string | undefined => {
  * token is the same 401 wearing a different label.
  */
 export const harnessIsReady = async (
-  probe: (url: string) => Promise<{ ok: boolean; version?: string }>,
+  probe: (url: string) => Promise<{ ok: boolean; version?: string; occupied?: boolean }>,
   readToken: () => string | undefined,
   url: string
-): Promise<{ ready: boolean; version?: string; token?: string }> => {
+): Promise<{ ready: boolean; version?: string; token?: string; occupied?: boolean }> => {
   const answer = await probe(url);
-  if (!answer.ok) return { ready: false };
+  if (!answer.ok) return { ready: false, ...(answer.occupied ? { occupied: true } : {}) };
   const token = readToken()?.trim();
   if (!token) return { ready: false };
   return { ready: true, token, ...(answer.version ? { version: answer.version } : {}) };
@@ -176,14 +180,15 @@ export const harnessIsReady = async (
 const defaultProbe = async (
   url: string,
   token: string | undefined
-): Promise<{ ok: boolean; version?: string }> => {
+): Promise<{ ok: boolean; version?: string; occupied?: boolean }> => {
   try {
     const response = await fetch(`${url}/health`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
       signal: AbortSignal.timeout(1_500),
     });
-    if (!response.ok) return { ok: false };
-    const body = (await response.json().catch(() => ({}))) as { version?: unknown };
+    if (!response.ok) return { ok: false, occupied: true };
+    const body = (await response.json().catch(() => ({}))) as { version?: unknown; service?: unknown };
+    if (body.service !== 'hearth') return { ok: false, occupied: true };
     return { ok: true, ...(typeof body.version === 'string' ? { version: body.version } : {}) };
   } catch {
     return { ok: false };
@@ -203,6 +208,24 @@ export const bundledBinaryPath = (
   platform: NodeJS.Platform = process.platform,
   binaryName: string = binaryNameFor(platform)
 ): string => path.join(resourcesDir, binaryName);
+
+/** Ask the OS for an isolated profile's loopback port without touching the daily host. */
+export const availableHarnessPort = (): Promise<number> => new Promise((resolve, reject) => {
+  const server = createServer();
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', () => {
+    const address = server.address();
+    if (!address || typeof address === 'string') { server.close(); reject(new Error('Kiln could not choose a local port.')); return; }
+    server.close((error) => error ? reject(error) : resolve(address.port));
+  });
+});
+
+export const resolveHarnessBinary = (options: LocalHarnessOptions): string =>
+  options.binaryName
+    ? path.resolve(options.resourcesDir, options.binaryName)
+    : options.developmentDir
+      ? path.join(options.developmentDir, 'build', 'harness', binaryNameFor())
+      : bundledBinaryPath(options.resourcesDir);
 
 /**
  * Start (or adopt) the local harness.
@@ -261,6 +284,7 @@ export const localHarnessEndpoint = (options: {
   enabled: boolean;
   home: string;
   readToken?: () => string | undefined;
+  port?: number;
 }): { url: string; token: string } | null => {
   if (!options.enabled) return null;
   if (isActiveHarness(options.state)) {
@@ -269,7 +293,7 @@ export const localHarnessEndpoint = (options: {
   const read = options.readToken ?? (() => readHarnessToken(options.home));
   const token = read()?.trim();
   if (!token) return null;
-  return { url: `http://127.0.0.1:${LOCAL_HARNESS_PORT}`, token };
+  return { url: `http://127.0.0.1:${options.port ?? LOCAL_HARNESS_PORT}`, token };
 };
 
 /** How long a stop-and-restart is allowed to take before it is reported as a failure. */
@@ -289,7 +313,7 @@ export const generateHarnessToken = (): string => generateToken();
 
 export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
   state: LocalHarnessState;
-  stop: () => void;
+  stop: () => Promise<void>;
 }> => {
   const port = options.port ?? LOCAL_HARNESS_PORT;
   const url = `http://127.0.0.1:${port}`;
@@ -298,28 +322,25 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
   const now = options.now ?? Date.now;
   let child: ChildProcess | undefined;
   let stopping = false;
+  let startupComplete = false;
+  let spawnError: Error | undefined;
+  let childExit: Promise<void> = Promise.resolve();
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const stop = (): void => {
+  const stop = (): Promise<void> => {
     stopping = true;
-    if (!child) return;
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      // Already gone.
-    }
+    if (!child) return childExit;
     const owned = child;
     child = undefined;
-    // The harness honours SIGTERM and closes its database; a grace period rather than SIGKILL,
-    // because a killed harness can leave a hot journal behind.
-    const timer = setTimeout(() => {
-      try {
-        owned.kill('SIGKILL');
-      } catch {
-        // Already gone.
-      }
+    if (owned.exitCode !== null || owned.signalCode) return childExit;
+    // Keep ownership until exit, including on startup timeout. A retry must never reopen the
+    // same database while its predecessor is still shutting down.
+    killTimer = setTimeout(() => {
+      try { owned.kill('SIGKILL'); } catch { /* Already gone. */ }
     }, 5_000);
-    timer.unref?.();
-    clearLock(home);
+    killTimer.unref?.();
+    try { owned.kill('SIGTERM'); } catch { /* Already gone. */ }
+    return childExit;
   };
 
   const readToken = options.readToken ?? (() => readHarnessToken(home));
@@ -331,20 +352,24 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
   if (existing.ready) {
     return {
       state: { kind: 'attached', url, token: existing.token ?? '', ...(existing.version ? { version: existing.version } : {}) },
-      stop: () => {},
+      stop: async () => {},
     };
   }
 
-  if (options.disabled === true) return { state: { kind: 'disabled' }, stop: () => {} };
+  if (options.disabled === true) return { state: { kind: 'disabled' }, stop: async () => {} };
+  if (existing.occupied) return {
+    state: { kind: 'failed', reason: `another server is using port ${port}, and Ember could not authenticate it as Kiln. Add that Kiln's URL and token in Settings → Instances, or stop the server and select Retry` },
+    stop: async () => {},
+  };
 
-  const binaryPath = bundledBinaryPath(options.resourcesDir, process.platform, options.binaryName);
+  const binaryPath = resolveHarnessBinary(options);
   let present = true;
   try {
     fs.accessSync(binaryPath, fs.constants.X_OK);
   } catch {
     present = false;
   }
-  if (!present) return { state: { kind: 'missing', binaryPath }, stop: () => {} };
+  if (!present) return { state: { kind: 'missing', binaryPath }, stop: async () => {} };
 
   // 2. One harness per data home. A live lock means an Ember instance already owns it (and the
   //    probe above says it is not answering yet — starting a second one would open the same SQLite
@@ -358,14 +383,14 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
       if (answer.ready) {
         return {
           state: { kind: 'attached', url, token: answer.token ?? '', ...(answer.version ? { version: answer.version } : {}) },
-          stop: () => {},
+          stop: async () => {},
         };
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
     return {
       state: { kind: 'failed', reason: `another Ember is starting the harness (pid ${lock.pid}) and it has not answered after ${HARNESS_START_TIMEOUT_MS / 1000}s` },
-      stop: () => {},
+      stop: async () => {},
     };
   }
   if (lock) clearLock(home);
@@ -382,47 +407,64 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
   const logPath = options.logFile ?? path.join(home, 'kiln.log');
   try {
     fs.mkdirSync(home, { recursive: true });
-    const log = fs.openSync(logPath, 'a');
-    fs.writeSync(log, `\n${new Date(now()).toISOString()} Ember starting the bundled harness\n`);
-    const spawnFn = options.spawn ?? spawn;
-    const spawned = spawnFn(binaryPath, [], {
-      env: {
-        ...process.env,
-        HEARTH_HOME: home,
-        EMBER_HOME: home,
-        HEARTH_PORT: String(port),
-        HEARTH_BIND: '127.0.0.1',
-        // The app is not a git checkout, so the build watcher has nothing to watch.
-        HEARTH_AUTORELOAD: '0',
-      },
-      stdio: ['ignore', log, log],
-      windowsHide: true,
-    });
-    spawned.on('exit', () => {
-      if (stopping) return;
+    const log = fs.openSync(logPath, 'a', 0o600);
+    let spawned: ChildProcess;
+    try {
+      fs.writeSync(log, `\n${new Date(now()).toISOString()} Ember starting the bundled harness\n`);
+      const spawnFn = options.spawn ?? spawn;
+      spawned = spawnFn(binaryPath, [], {
+        env: {
+          ...process.env,
+          HEARTH_HOME: home,
+          EMBER_HOME: home,
+          HEARTH_PORT: String(port),
+          HEARTH_BIND: '127.0.0.1',
+          // The app is not a git checkout, so the build watcher has nothing to watch.
+          HEARTH_AUTORELOAD: '0',
+        },
+        stdio: ['ignore', log, log],
+        windowsHide: true,
+      });
+    } finally { fs.closeSync(log); }
+    let markExited: () => void = () => {};
+    childExit = new Promise<void>((resolve) => { markExited = resolve; });
+    spawned.on('error', (error) => {
+      spawnError = error;
       clearLock(home);
+      markExited();
+    });
+    spawned.on('exit', (code, signal) => {
+      if (killTimer) clearTimeout(killTimer);
+      clearLock(home);
+      markExited();
+      if (!stopping && startupComplete) options.onExit?.(`Kiln stopped unexpectedly (${signal ?? `exit ${code}`}). Select Retry in the setup guide to start it again. Log: ${logPath}`);
     });
     child = spawned;
     if (spawned.pid) writeLock(home, spawned.pid, now());
   } catch (error) {
     return {
       state: { kind: 'failed', reason: `the bundled harness could not be started (${error instanceof Error ? error.message : String(error)})` },
-      stop: () => {},
+      stop: async () => {},
     };
   }
 
   const deadline = now() + HARNESS_START_TIMEOUT_MS;
   while (now() < deadline) {
-    if (child?.exitCode !== null && child?.exitCode !== undefined) {
+    if (spawnError) {
+      clearLock(home);
+      return { state: { kind: 'failed', reason: `Kiln could not start (${spawnError.message}). Select Retry after checking the installation` }, stop };
+    }
+    if (child && (child.exitCode !== null || child.signalCode)) {
       clearLock(home);
       return {
-        state: { kind: 'failed', reason: `the bundled harness exited with code ${child.exitCode} — see ${logPath}` },
+        state: { kind: 'failed', reason: `the bundled harness exited with code ${child.exitCode ?? child.signalCode} — see ${logPath}` },
         stop,
       };
     }
     // Both facts, not just the port: see `harnessIsReady`.
     const answer = await harnessIsReady(probe, readToken, url);
     if (answer.ready) {
+      startupComplete = true;
       return {
         state: { kind: 'started', url, token: answer.token ?? '', ...(answer.version ? { version: answer.version } : {}) },
         stop,
@@ -430,10 +472,10 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
-  stop();
+  await stop();
   return {
     state: { kind: 'failed', reason: `the bundled harness did not answer on ${url} within ${HARNESS_START_TIMEOUT_MS / 1000}s — see ${logPath}` },
-    stop: () => {},
+    stop: async () => {},
   };
 };
 
@@ -496,9 +538,9 @@ export const mergeLocalHarnessEndpoint = <T extends HarnessEndpoint>(
   started: { url: string; token: string } | null
 ): T[] | HarnessEndpoint[] => {
   if (!started) return configured as T[];
-  const match = configured.find((endpoint) => sameAddress(endpoint.url, started.url));
+  const match = configured.find((endpoint) => endpoint.id === 'pi:local' || sameAddress(endpoint.url, started.url));
   if (match) {
-    return configured.map((endpoint) => (endpoint === match ? { ...endpoint, token: started.token } : endpoint));
+    return configured.map((endpoint) => (endpoint === match ? { ...endpoint, url: started.url, token: started.token } : endpoint));
   }
   return [{ id: 'pi:local', label: 'This computer', url: started.url, token: started.token }, ...configured];
 };

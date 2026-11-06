@@ -1,6 +1,6 @@
 {
   "name": "ember",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -30,11 +30,11 @@
     "dist:mac": "bun run build && EMBER_RELEASE=1 electron-builder --mac",
     "dist:win": "bun run build && electron-builder --win",
     "dist:linux": "bun run build && electron-builder --linux",
-    "dist:cli": "mkdir -p release && bun build --compile cli/ember.ts --outfile release/tinder-cli",
+    "dist:cli": "mkdir -p release && bun build --compile packages/kiln/src/tinder.ts --outfile release/tinder-cli",
     "buddy-arena": "bun run buddy-arena/server.ts",
     "test": "bun test",
     "test:e2e": "playwright test",
-    "test:native": "bun run build && playwright test --config playwright.native.config.ts",
+    "test:native": "bun run build && bun run dist:cli && playwright test --config playwright.native.config.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && bun run --cwd packages/kiln typecheck",
     "check": "bun run typecheck && bun run lint && bun test",

@@ -71,6 +71,16 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
     setSettingsLoaded(true);
   }, []);
 
+  const refreshHarnessSettings = React.useCallback(async () => {
+    const stored = await window.ember.getSettings();
+    setSettings((current) => ({
+      ...current,
+      localHarnessState: stored.localHarnessState,
+      localHarnessCanRotate: stored.localHarnessCanRotate,
+    }));
+    return stored;
+  }, []);
+
   const markSettingsLoaded = React.useCallback(() => setSettingsLoaded(true), []);
 
   const updateSettings = React.useCallback(
@@ -126,5 +136,5 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
     [onError, onBeforeSave]
   );
 
-  return { settings, settingsLoaded, settingsRef, hydrateSettings, markSettingsLoaded, updateSettings };
+  return { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings };
 };

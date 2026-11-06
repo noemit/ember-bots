@@ -503,7 +503,7 @@ export default function App() {
   } = useFeedback();
 
   const clearActionError = React.useCallback(() => showActionError(null), [showActionError]);
-  const { settings, settingsLoaded, settingsRef, hydrateSettings, markSettingsLoaded, updateSettings } =
+  const { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings } =
     useEmberSettings({ onError: showActionError, onBeforeSave: clearActionError });
 
   // The remote web client's session can end under it (the desktop restarted, the password changed,
@@ -5692,7 +5692,16 @@ export default function App() {
                 endpoints={settings.piEndpoints}
                 workspaceRoot={workspaceRoot}
                 onDismiss={dismissOnboarding}
-                onRetryLocal={() => void refreshInstances()}
+                onRetryLocal={async () => {
+                  try {
+                    await window.ember.retryLocalHarness?.();
+                    await refreshInstances();
+                    const stored = await refreshHarnessSettings();
+                    if (stored.localHarnessState?.notice) showActionError(stored.localHarnessState.notice);
+                  } catch {
+                    showActionError('Ember could not retry Kiln. Reopen the setup guide and select Retry again.');
+                  }
+                }}
                 onRefreshInstances={() => void refreshInstances()}
                 onChange={handleSettings}
                 onStartAgent={({ instanceId, directory }) => {

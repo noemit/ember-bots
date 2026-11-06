@@ -27,7 +27,7 @@ type Props = {
   /** The folder root Kiln resolved (or the wizard asked for); shown, and used for the first agent. */
   workspaceRoot: string | null;
   onDismiss: () => void;
-  onRetryLocal: () => void;
+  onRetryLocal: () => Promise<void>;
   onRefreshInstances: () => void;
   onChange: (patch: EmberSettingsPatch) => void;
   onStartAgent: (input: { instanceId: string; directory: string | null }) => void;
@@ -111,10 +111,9 @@ export default function OnboardingWizard({
     else onDismiss();
   };
 
-  const retry = () => {
+  const retry = async () => {
     setRetrying(true);
-    onRetryLocal();
-    window.setTimeout(() => setRetrying(false), 900);
+    try { await onRetryLocal(); } finally { setRetrying(false); }
   };
 
   return (
@@ -317,7 +316,7 @@ function Connection({
           <div className="flex flex-col gap-0.5">
             <span className="text-[12.5px] font-medium">Connected to this computer</span>
             <span className="text-[11.5px] text-muted-foreground">
-              Kiln is running at 127.0.0.1:3002 and Ember holds its token.
+              Kiln is running on this computer and Ember holds its token.
               {workspaceRoot ? ` Work lives in ${workspaceRoot}.` : ''}
             </span>
           </div>

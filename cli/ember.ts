@@ -2,7 +2,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { generateToken } from '../packages/kiln/src/token';
 
 /**
@@ -156,6 +157,8 @@ export type ServiceConfigOptions = {
   workspaceDir: string;
   harnessDir?: string;
   userHome?: string;
+  /** Executable and argv that start the backend; injectable for service generation tests. */
+  launchCommand?: readonly string[];
 };
 
 /**
@@ -177,8 +180,15 @@ export const serviceFilePath = (opts: ServiceConfigOptions): string => {
  * macOS (launchd), or Windows (PowerShell Scheduled Task installer).
  */
 export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
-  const harnessDir = opts.harnessDir ?? path.resolve(opts.workspaceDir, 'hearth');
-  const entryScript = path.join(harnessDir, 'src', 'index.ts');
+  const compiled = import.meta.url.includes('$bunfs');
+  if (compiled && opts.harnessDir && !opts.launchCommand) {
+    throw new Error('Tinder includes Kiln. Omit --harness-dir to configure its service, or use the source CLI for a custom checkout.');
+  }
+  const command = opts.launchCommand ?? (opts.harnessDir
+    ? [process.execPath, 'run', path.join(opts.harnessDir, 'src', 'index.ts')]
+    : [process.execPath, ...(compiled ? [] : [fileURLToPath(import.meta.url)]), 'serve']);
+  const systemdQuote = (value: string) => '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%') + '"';
+  const xml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
   if (opts.platform === 'linux') {
     return [
@@ -189,12 +199,12 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       '',
       '[Service]',
       'Type=simple',
-      `WorkingDirectory=${opts.workspaceDir}`,
-      `Environment="EMBER_HOME=${opts.homeDir}"`,
-      `Environment="HEARTH_HOME=${opts.homeDir}"`,
-      `Environment="PORT=${opts.port}"`,
-      `Environment="HEARTH_WORKSPACE=${opts.workspaceDir}"`,
-      `ExecStart=/usr/bin/env bun run ${entryScript}`,
+      `WorkingDirectory=${systemdQuote(opts.workspaceDir)}`,
+      `Environment=${systemdQuote(`EMBER_HOME=${opts.homeDir}`)}`,
+      `Environment=${systemdQuote(`HEARTH_HOME=${opts.homeDir}`)}`,
+      `Environment="HEARTH_PORT=${opts.port}"`,
+      `Environment=${systemdQuote(`HEARTH_WORKSPACE=${opts.workspaceDir}`)}`,
+      `ExecStart=${command.map((arg) => systemdQuote(arg).replace(/\$/g, '$$$$')).join(' ')}`,
       'Restart=on-failure',
       'RestartSec=3',
       '',
@@ -214,20 +224,19 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       '    <string>dev.ember.kiln</string>',
       '    <key>ProgramArguments</key>',
       '    <array>',
-      '      <string>/usr/bin/env</string>',
-      '      <string>bun</string>',
-      '      <string>run</string>',
-      `      <string>${entryScript}</string>`,
+      ...command.map((arg) => `      <string>${xml(arg)}</string>`),
       '    </array>',
       '    <key>WorkingDirectory</key>',
-      `    <string>${opts.workspaceDir}</string>`,
+      `    <string>${xml(opts.workspaceDir)}</string>`,
       '    <key>EnvironmentVariables</key>',
       '    <dict>',
       '      <key>EMBER_HOME</key>',
-      `      <string>${opts.homeDir}</string>`,
+      `      <string>${xml(opts.homeDir)}</string>`,
       '      <key>HEARTH_HOME</key>',
-      `      <string>${opts.homeDir}</string>`,
-      '      <key>PORT</key>',
+      `      <string>${xml(opts.homeDir)}</string>`,
+      '      <key>HEARTH_WORKSPACE</key>',
+      `      <string>${xml(opts.workspaceDir)}</string>`,
+      '      <key>HEARTH_PORT</key>',
       `      <string>${opts.port}</string>`,
       '    </dict>',
       '    <key>RunAtLoad</key>',
@@ -235,34 +244,36 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       '    <key>KeepAlive</key>',
       '    <true/>',
       '    <key>StandardOutPath</key>',
-      `    <string>${path.join(opts.homeDir, 'kiln.log')}</string>`,
+      `    <string>${xml(path.join(opts.homeDir, 'kiln.log'))}</string>`,
       '    <key>StandardErrorPath</key>',
-      `    <string>${path.join(opts.homeDir, 'kiln.err.log')}</string>`,
+      `    <string>${xml(path.join(opts.homeDir, 'kiln.err.log'))}</string>`,
       '  </dict>',
       '</plist>',
       '',
     ].join('\n');
   }
 
+  const ps = (value: string) => "'" + value.replace(/'/g, "''") + "'";
+  const runner = [
+    `$env:EMBER_HOME = ${ps(opts.homeDir)}`,
+    `$env:HEARTH_HOME = ${ps(opts.homeDir)}`,
+    `$env:HEARTH_PORT = ${ps(String(opts.port))}`,
+    `$env:HEARTH_WORKSPACE = ${ps(opts.workspaceDir)}`,
+    `& ${command.map(ps).join(' ')}`,
+    'exit $LASTEXITCODE',
+  ].join('\n');
   return [
-    '# Install Kiln (ember-harness) as a background Windows Scheduled Task',
+    '# Install Kiln as a background Windows Scheduled Task',
     '$ErrorActionPreference = "Stop"',
-    `$TaskName = "EmberKiln"`,
-    `$HomeDir = "${opts.homeDir}"`,
-    `$WorkspaceDir = "${opts.workspaceDir}"`,
-    `$EntryScript = "${entryScript}"`,
-    `$Port = "${opts.port}"`,
-    '',
-    '$env:EMBER_HOME = $HomeDir',
-    '$env:HEARTH_HOME = $HomeDir',
-    '$env:PORT = $Port',
-    '',
-    '$Action = New-ScheduledTaskAction -Execute "bun.exe" -Argument "run `"$EntryScript`"" -WorkingDirectory $WorkspaceDir',
+    '$TaskName = "EmberKiln"',
+    `$RunnerPath = Join-Path ${ps(opts.homeDir)} 'run-kiln.ps1'`,
+    `Set-Content -LiteralPath $RunnerPath -Value ${ps(runner)} -Encoding UTF8`,
+    '$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$RunnerPath`"" -WorkingDirectory ' + ps(opts.workspaceDir),
     '$Trigger = New-ScheduledTaskTrigger -AtLogOn',
     '$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)',
     'Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null',
     'Start-ScheduledTask -TaskName $TaskName',
-    'Write-Host "Registered and started Scheduled Task: $TaskName (http://127.0.0.1:$Port)"',
+    'Write-Host "Registered and started Scheduled Task: $TaskName"',
     '',
   ].join('\n');
 };
@@ -421,7 +432,8 @@ export const parseArgs = (
     service: false,
     json: false,
     help: false,
-    port: Number(env.PORT) > 0 ? Number(env.PORT) : DEFAULT_KILN_PORT,
+    port: Number(env.HEARTH_PORT ?? env.EMBER_PORT ?? env.PORT) > 0
+      ? Number(env.HEARTH_PORT ?? env.EMBER_PORT ?? env.PORT) : DEFAULT_KILN_PORT,
     home: defaultEmberHome(homedir, env),
     workspace: process.cwd(),
     platform: detectedPlatform,
@@ -472,6 +484,7 @@ export const formatHelp = (): string =>
     '',
     'Commands:',
     '  setup, install    Initialize ~/.ember, generate ember.token (0600), and optionally write service files',
+    '  serve             Run standalone Kiln in the foreground; stop with Ctrl+C',
     '  token             Print endpoint URLs (local + Tailscale) and the bearer token',
     '  status            Probe Kiln (/health) and report its version, build, and conversation count',
     '  service-config    Print the background service config for systemd, launchd, or Windows Task Scheduler',
@@ -496,6 +509,7 @@ export const formatHelp = (): string =>
     '  ember setup --headless             # Headless server: sets up Kiln token + background service',
     '  ember token                        # Copy endpoint URL and token into Ember → Settings → Instances',
     '  ember status                       # Check if Kiln is running and answering',
+    '  tinder serve                       # Run standalone Kiln until you stop it',
     '  ember service-config --platform linux',
   ].join('\n');
 
@@ -728,6 +742,29 @@ export const runCli = async (argv: readonly string[] = process.argv.slice(2)): P
     return { exitCode: 0, output: formatHelp() };
   }
 
+  if (command === 'serve') {
+    const entry = flags.harnessDir
+      ? path.join(flags.harnessDir, 'src', 'index.ts')
+      : fileURLToPath(new URL('../packages/kiln/src/index.ts', import.meta.url));
+    const child = spawn(process.execPath, ['run', entry], {
+      stdio: 'inherit', env: { ...process.env, HEARTH_HOME: flags.home, EMBER_HOME: flags.home,
+        HEARTH_PORT: String(flags.port), HEARTH_WORKSPACE: flags.workspace },
+    });
+    const forward = () => child.kill('SIGTERM');
+    process.once('SIGTERM', forward);
+    process.once('SIGINT', forward);
+    try {
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        child.once('error', reject);
+        child.once('exit', (code) => resolve(code ?? 1));
+      });
+      return { exitCode, output: '' };
+    } finally {
+      process.removeListener('SIGTERM', forward);
+      process.removeListener('SIGINT', forward);
+    }
+  }
+
   if (command === 'setup' || command === 'install') {
     const res = runSetup(flags);
     return { exitCode: 0, output: res.output };
@@ -776,7 +813,7 @@ export const isMain = (
   }
 };
 
-if ((import.meta as { main?: boolean }).main || isMain()) {
+if ((import.meta as { main?: boolean }).main ?? isMain()) {
   runCli().then(({ exitCode, output }) => {
     if (exitCode === 0) console.log(output);
     else console.error(output);

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hearthBuild, hearthConfig, hearthVersion } from '../src/config';
+import { hearthBuild, hearthConfig, hearthVersion, kilnVersion } from '../src/config';
 
 test('backups default next to the data home, and HEARTH_BACKUPS_DIR overrides', () => {
   const base = hearthConfig({ home: '/tmp/hearth-config-test' });
@@ -100,4 +100,26 @@ test('hearthVersion reads package.json', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+test('desktop bind overrides the standalone network default', () => {
+  const previous = process.env.HEARTH_BIND;
+  const previousEmber = process.env.EMBER_BIND;
+  try {
+    delete process.env.HEARTH_BIND;
+    delete process.env.EMBER_BIND;
+    expect(hearthConfig().bind).toBe('0.0.0.0');
+    process.env.HEARTH_BIND = '127.0.0.1';
+    expect(hearthConfig().bind).toBe('127.0.0.1');
+  } finally {
+    if (previous === undefined) delete process.env.HEARTH_BIND; else process.env.HEARTH_BIND = previous;
+    if (previousEmber === undefined) delete process.env.EMBER_BIND; else process.env.EMBER_BIND = previousEmber;
+  }
+});
+
+test('the embedded version matches the Kiln package regardless of launch directory', async () => {
+  const pkg = await import('../package.json');
+  expect(kilnVersion).toBe(pkg.default.version);
+  expect(kilnVersion).not.toBe('0.0.0');
 });

@@ -25,7 +25,7 @@ const close = async (server: Server) => {
 test('built Electron and authenticated remote access preserve local work', async ({ browser }) => {
   const home = await mkdtemp(join(tmpdir(), 'ember-native-'));
   const chamber = join(home, 'openchamber');
-  const ember = join(home, '.config', 'ember');
+  const ember = join(home, '.ember');
   const mutations: string[] = [];
   const now = Date.now();
   const upstream = createServer((request, response) => {
@@ -64,10 +64,11 @@ test('built Electron and authenticated remote access preserve local work', async
     await mkdir(join(home, 'profile'), { recursive: true });
     await writeFile(join(chamber, 'settings.json'), JSON.stringify({ desktopHosts: [{ id: 'fixture', label: 'Isolated fixture', url: upstreamUrl }] }));
     await writeFile(join(ember, 'settings.json'), JSON.stringify({
-      openSessions: ['fixture::a', 'fixture::b'], activeSession: 'fixture::a', remoteAccessEnabled: false,
+      openSessions: ['fixture::a', 'fixture::b'], activeSession: 'fixture::a', splitView: true, localHarnessEnabled: false, remoteAccessEnabled: false,
     }));
     const bootstrap = join(home, 'bootstrap.cjs');
     await writeFile(bootstrap, `const { app } = require('electron');
+app.on('browser-window-created', (_event, win) => win.setFocusable(false));
 if (require('node:os').homedir() !== process.env.EMBER_TEST_HOME) throw new Error('Test home is not isolated');
 app.setPath('userData', process.env.EMBER_TEST_PROFILE);
 app.setPath('sessionData', process.env.EMBER_TEST_PROFILE);
@@ -89,27 +90,28 @@ require(process.env.EMBER_TEST_ENTRY);
     await expect(nativeWindow.getByText('Native fixture response b', { exact: true })).toBeVisible();
     expect(await nativeWindow.evaluate(() => Boolean(window.ember.capabilities))).toBe(true);
 
-    await test.step('native IPC saves separate drafts and ratings to the isolated home', async () => {
+    await test.step('native IPC saves separate drafts and usage to the isolated home', async () => {
       await nativeWindow.locator('textarea').nth(0).fill('Native draft A');
       await nativeWindow.locator('textarea').nth(1).fill('Native draft B');
       await expect.poll(async () => {
         const stored = JSON.parse(await readFile(join(ember, 'settings.json'), 'utf8'));
         return Object.values(stored.composerDrafts ?? {}).map((draft) => (draft as { text: string }).text).sort();
       }).toEqual(['Native draft A', 'Native draft B']);
-      const helpful = nativeWindow.getByRole('log').nth(1).getByRole('button', { name: 'Mark response helpful', exact: true });
-      await expect(helpful).toBeAttached();
-      await helpful.focus();
-      await helpful.click();
-      await expect(helpful).toHaveAttribute('aria-pressed', 'true');
+      // Usage observations are batched for one second; wait for persistence before reload.
+      await expect.poll(async () => {
+        try { return JSON.parse(await readFile(join(ember, 'model-stats.json'), 'utf8')).observations.length; }
+        catch { return 0; }
+      }).toBe(2);
       await nativeWindow.reload();
       await expect(nativeWindow.locator('textarea').nth(0)).toHaveValue('Native draft A');
       await expect(nativeWindow.locator('textarea').nth(1)).toHaveValue('Native draft B');
-      await expect(nativeWindow.getByRole('log').nth(1).getByRole('button', { name: 'Mark response helpful', exact: true })).toHaveAttribute('aria-pressed', 'true');
       const stored = JSON.parse(await readFile(join(ember, 'model-stats.json'), 'utf8'));
       expect(stored.observations).toHaveLength(2);
       expect(JSON.stringify(stored)).not.toContain('Native fixture response');
     });
 
+    // Remote interactions no longer need a visible native window.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
     const password = randomBytes(24).toString('hex');
     const passwordHash = await hashRemotePassword(password);
     let settings = await nativeWindow.evaluate(() => window.ember.getSettings());
@@ -118,7 +120,6 @@ require(process.env.EMBER_TEST_ENTRY);
       modelStats: {
         list: () => nativeWindow.evaluate(() => window.ember.getModelStats!()),
         observe: (values: unknown) => nativeWindow.evaluate((values) => window.ember.observeModels!(values as ModelObservation[]), values),
-        rate: (id: unknown, rating: unknown) => nativeWindow.evaluate(({ id, rating }) => window.ember.rateModel!(id as string, rating as 'helpful' | 'unhelpful' | null), { id, rating }),
         clear: () => nativeWindow.evaluate(() => window.ember.clearModelStats!()),
       },
       listInstances: (refresh) => nativeWindow.evaluate((refresh) => window.ember.listInstances(refresh), refresh),
@@ -154,7 +155,6 @@ require(process.env.EMBER_TEST_ENTRY);
       await page.locator('textarea').nth(0).fill('Remote draft A');
       await expect.poll(() => nativeWindow.evaluate(async () => (await window.ember.getSettings()).composerDrafts['fixture::a']?.text)).toBe('Remote draft A');
       expect(await nativeWindow.evaluate(async () => (await window.ember.getSettings()).composerDrafts['fixture::b']?.text)).toBe('Native draft B');
-      await expect(page.getByRole('log').nth(1).getByRole('button', { name: 'Mark response helpful', exact: true })).toHaveAttribute('aria-pressed', 'true');
       const stream = await page.evaluate(async () => {
         const abort = new AbortController();
         const response = await fetch('/remote/events', { signal: abort.signal });

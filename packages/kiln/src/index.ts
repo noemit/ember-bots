@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Harness } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { hearthConfig, ensureHome, ensureToken, hearthBuild, hearthVersion } from "./config";
+import { hearthConfig, ensureHome, ensureToken, hearthBuild, kilnVersion } from "./config";
 import { hearthDefault, hearthModels } from "./models";
 import { hearthRegistry } from "./registry";
 import { anyConversationBusy, startHearthServer, type HearthServer } from "./server";
@@ -107,7 +107,7 @@ const startBuildWatcher = (opts: { cwd: string; initialBuild: string; restart: (
  * the wire Ember talks to. Comes up with the container; `resume()` continues whatever the
  * last process left unfinished.
  */
-const main = async (): Promise<void> => {
+export const runKiln = async (): Promise<void> => {
   const config = hearthConfig();
   const fresh = ensureHome(config);
   const token = ensureToken(config);
@@ -214,7 +214,7 @@ const main = async (): Promise<void> => {
     models,
     defaultAgent: hearthDefault(),
     store,
-    version: hearthVersion(process.cwd()),
+    version: kilnVersion,
     build: hearthBuild(process.cwd()),
     restart,
     // Reported by `GET /providers` so a client can explain a missing local runtime instead of
@@ -278,7 +278,7 @@ const main = async (): Promise<void> => {
   }
 };
 
-void main().catch((error: unknown) => {
+if (import.meta.main) void runKiln().catch((error: unknown) => {
   console.error("[hearth] fatal:", error instanceof Error ? (error.stack ?? error.message) : error);
   process.exit(1);
 });

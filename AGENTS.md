@@ -38,6 +38,12 @@ in `transcriptStatus.test.ts`.
 
 Desktop control room for **Kiln** (`packages/kiln`, Ember's durable agent harness) and **OpenChamber**. One window shows the most recent sessions across every connected instance (`~/.ember` / `settings.piEndpoints` and `~/.config/openchamber/settings.json`).
 
+**Kiln lifecycle:** Ember is the GUI and connects to multiple Kilns. It ships with a default local
+Kiln that starts with Ember and stops when Ember quits; do not detach that bundled process or add
+a keep-running-on-quit mode. On macOS, closing the window is not quitting the app. Tinder is the
+entry point for a standalone backend with an independent lifetime. Connecting to a Tinder-managed
+Kiln does not give Ember ownership of it, and quitting Ember must leave it running.
+
 ## Commands
 
 - `bun run dev` — build renderer + electron, then launch Electron.

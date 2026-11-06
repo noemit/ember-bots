@@ -1,3 +1,11 @@
+## 1.6.1
+
+### Fixed
+- Honor `HEARTH_BIND` / `EMBER_BIND`, including Ember's loopback-only bundled launch.
+- Embed the package version so installed binaries report their version outside a checkout.
+- Include Kiln in the compiled Tinder launcher for standalone operation without an installed Bun.
+  A Tinder-managed backend has an independent lifetime; Ember's bundled backend stops with the GUI.
+
 ## 0.42.0
 
 ### Added

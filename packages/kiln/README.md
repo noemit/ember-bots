@@ -17,7 +17,18 @@ OpenChamber/OpenCode as Ember's backend in the transition plan
   (generated on first start, mode 0600). Also accepted as `?token=` for WebSocket clients.
 - `HEARTH_HOME` (default `/root/.pi` or `~/.hearth`) relocates storage + token for tests and canary runs.
 
-## Run
+## Bundled and standalone lifetimes
+
+Ember ships a default local Kiln. Launching Ember starts it; quitting Ember stops it. Closing a
+window on macOS leaves the app and its Kiln running. Conversation history stays on disk.
+
+For a backend that lives independently, use the compiled Tinder download: `tinder serve` runs
+Kiln in the foreground, with no Bun installation or checkout required. `tinder setup --headless`
+writes a service definition; run the activation command it prints to start the background service.
+Ember can connect to multiple Kilns, and quitting the GUI leaves Tinder-managed backends running.
+Use separate homes and ports when running multiple backends on one computer.
+
+## Run from source
 
 ```sh
 bun run start                 # foreground

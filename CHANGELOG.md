@@ -1,3 +1,17 @@
+## 1.6.1
+
+### Fixed
+- Bundled Kiln starts from the development build as well as an installed app. Isolated Ember
+  profiles use their own local port and Chromium storage instead of colliding with the daily app.
+- Onboarding Retry starts Kiln again, waits for its result, and refreshes the connection state.
+  Spawn failures are handled, and an unexpected Kiln exit updates its reported state.
+- Quitting Ember waits for its bundled Kiln to stop. Independently managed Kilns remain running.
+- The bundled backend honors the loopback bind address and reports its embedded package version.
+- The compiled Tinder download includes the standalone backend (`tinder serve`). Generated services
+  launch Tinder itself without requiring Bun, preserve custom ports, and quote installation paths.
+- Updated native integration coverage for drafts and usage; added real-binary startup, retry,
+  profile isolation and lifecycle checks.
+
 ## 1.6.0
 
 ### Added — a first-run guide

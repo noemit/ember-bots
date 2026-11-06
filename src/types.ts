@@ -799,6 +799,7 @@ export type EmberBridge = {
    * The token this app's own harness answers to; `rotate` installs a fresh one and restarts it.
    * Absent on older bridges and on the mock, so callers must treat it as optional.
    */
+  retryLocalHarness?(): Promise<unknown>;
   localHarnessToken?(options?: { rotate?: boolean }): Promise<LocalHarnessToken>;
   /** Open an http(s) URL in the default browser or reveal a local path in Finder. */
   openExternal(target: string): Promise<boolean>;

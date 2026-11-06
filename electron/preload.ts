@@ -22,6 +22,7 @@ const ember = {
    * harness; main refuses both on a harness Ember did not start, and refuses everything when the
    * sender is the remotely served page rather than the app's own window.
    */
+  retryLocalHarness: (): Promise<unknown> => ipcRenderer.invoke('ember:local-harness-retry'),
   localHarnessToken: (options?: { rotate?: boolean }): Promise<LocalHarnessToken> =>
     ipcRenderer.invoke('ember:local-harness-token', options ?? {}),
   setSettings: (patch: Partial<EmberSettings>): Promise<EmberSettings> =>

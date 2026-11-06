@@ -1,7 +1,7 @@
 # Versioning
 
 Hearth ships **semantic versions**, not commit hashes. The running version is what `/health`
-reports (`version`, read from `package.json` at startup) and what Ember's Instances menu shows.
+reports (`version`, embedded from `package.json` at build time) and what Ember's Instances menu shows.
 
 ## Scheme (semver; the wire is pre-1.0)
 
@@ -16,7 +16,7 @@ Rules:
 
 - Bump exactly one level per shipped change; when unsure, take the higher level.
 - The version lives in `package.json` (`version`). Never hard-code it in source — `/health`
-  reads it via `hearthVersion`.
+  uses the embedded `kilnVersion`, so launch directories cannot change it.
 - Every release gets a `CHANGELOG.md` entry (`Added` / `Changed` / `Fixed` / `BREAKING`).
 
 ## Workflow (per change)
