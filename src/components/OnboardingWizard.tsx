@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowRight, Check, CircleAlert, FolderOpen, KeyRound, Loader2, PlugZap, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Cpu, Laptop, Monitor, ArrowRight, Check, CircleAlert, FolderOpen, KeyRound, Loader2, PlugZap, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Blob from '../blob/Blob';
 import LocalTokenSettings from './LocalTokenSettings';
@@ -249,44 +249,78 @@ export default function OnboardingWizard({
   );
 }
 
+function KilnDiagram() {
+  const hosts = [
+    { name: 'Container', detail: 'On a server or NAS', Icon: Boxes },
+    { name: 'Mac Studio', detail: 'On another Mac', Icon: Cpu },
+    { name: 'Old PC', detail: 'Running Linux or Windows', Icon: Monitor },
+  ];
+  return (
+    <figure className="@container" aria-label="Ember connects to a bundled Kiln on your computer and standalone Kilns on other hosts">
+      <div className="rounded-xl border bg-muted/20 p-3">
+        <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          <Laptop className="size-3.5" aria-hidden="true" /> Your computer
+        </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="rounded-lg bg-highlight/10 px-3 py-2.5 text-center">
+            <div className="text-[14px] font-semibold">Ember</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">Your workspace</div>
+          </div>
+          <ArrowLeftRight className="size-4 text-muted-foreground" aria-hidden="true" />
+          <div className="rounded-lg bg-background px-3 py-2.5 text-center">
+            <div className="text-[14px] font-semibold">Kiln</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">Included with Ember</div>
+          </div>
+        </div>
+      </div>
+      <svg className="hidden h-9 w-full text-border @min-[420px]:block" viewBox="0 0 600 36" preserveAspectRatio="none" fill="none" aria-hidden="true">
+        <path d="M150 0V14H100V36 M150 14H500V36 M300 14V36" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <p className="my-2 text-center text-[11px] text-muted-foreground @min-[420px]:hidden">Ember can also connect to:</p>
+      <div className="grid gap-2 @min-[420px]:grid-cols-3">
+        {hosts.map(({ name, detail, Icon }) => (
+          <div key={name} className="min-w-0 rounded-xl border border-dashed bg-muted/10 p-3 text-center">
+            <div className="flex items-center justify-center gap-1.5 text-[12px] font-medium">
+              <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />{name}
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">{detail}</p>
+            <div className="mt-2 rounded-lg bg-background py-2 text-[12px] font-semibold">Kiln</div>
+          </div>
+        ))}
+      </div>
+      <figcaption className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
+        One Ember, as many Kilns as you need. The extra hosts are optional.
+      </figcaption>
+    </figure>
+  );
+}
+
 function Welcome() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-4">
-        {/* The real blob, not an illustration: what you see here is what the rail looks like after. */}
         <div className="flex-none rounded-2xl bg-muted/40 p-2">
-          <Blob style="buddy" seed="onboarding" size={72} mood="thinking" interactive={false} />
+          <Blob style="buddy" seed="onboarding" size={56} mood="thinking" interactive={false} />
         </div>
         <div className="flex flex-col gap-1">
-          <h3 className="text-[15px] font-semibold">Ember is your workspace (with blobs!)</h3>
+          <h3 className="text-[15px] font-semibold">One workspace, wherever your agents run</h3>
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-            Agents do the work. Ember is the window you watch them through, arranged the way you left it.
+            <strong className="text-foreground">Ember is the window you work in.</strong>{' '}
+            <strong className="text-foreground">Kiln runs your agents.</strong>{' '}
+            Your app includes a Kiln on this computer, so you can start here.
           </p>
         </div>
       </div>
-
-      <p className="text-[12.5px] leading-relaxed">
-        Every Kiln you connect is an <strong>instance</strong>: one on your laptop, maybe one in a container on a
-        server. Ember lists them together and you work in whichever you like.{' '}
-        <strong>Agents from different instances can even talk to each other if you ask them to.</strong>
+      <KilnDiagram />
+      <p className="text-[12px] leading-relaxed text-muted-foreground">
+        A Kiln can also live in a container, on a Mac Studio, or on an old PC. Connect those hosts to
+        Ember to work with their agents in the same window. Each Kiln is an <strong className="text-foreground">instance</strong>:
+        it keeps its own conversations, files and approvals on the computer running it.
       </p>
-
-      <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
-        <p className="text-[12.5px] font-medium">Kiln has pi-durable built in, which gives us some unique benefits:</p>
-        <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-5 text-[12px] leading-relaxed text-muted-foreground">
-          <li>
-            a turn keeps running on its instance after you close Ember or your laptop sleeps —{' '}
-            <strong className="text-foreground">except on your local instance</strong>, which we named{' '}
-            <code className="rounded bg-background px-1 text-[11px]">local</code> so it's easy to spot. It has the
-            same rules: it lives and dies with this computer.
-          </li>
-          <li>
-            the conversation, its tool runs and its approvals are on the instance's disk, so it's easy to pick up work
-            even if the computer hosting it suddenly shut down.
-          </li>
-          <li>an approval waits for you instead of failing the run.</li>
-        </ul>
-      </div>
+      <p className="text-[12px] leading-relaxed text-muted-foreground">
+        The included Kiln stops when you quit Ember. A standalone Kiln started with <strong className="text-foreground">Tinder</strong>{' '}
+        keeps running when you close the GUI. You can connect another Ember to the same standalone Kilns, too.
+      </p>
     </div>
   );
 }

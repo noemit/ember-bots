@@ -1,3 +1,10 @@
+## 1.6.3
+
+### Changed
+- Step 1 of setup illustrates Ember connected to its included Kiln and optional Kilns in a container,
+  on a Mac Studio or on an old PC. The explanation distinguishes GUI and backend responsibilities,
+  independent storage, shared connections and bundled versus standalone lifetimes.
+
 ## 1.6.2
 
 ### Fixed

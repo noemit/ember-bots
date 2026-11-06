@@ -77,6 +77,11 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     expect(await otherWindow.evaluate(async () => Boolean((await window.ember.getSettings()).onboardedAt))).toBe(false);
     await otherWindow.reload();
     await expect(otherWindow.getByTestId('onboarding')).toBeVisible();
+    await otherWindow.getByRole('button', { name: /What Ember is/ }).click();
+    const diagram = otherWindow.getByRole('figure', { name: /Ember.*bundled Kiln.*standalone Kilns/ });
+    await expect(diagram).toBeVisible();
+    for (const host of ['Container', 'Mac Studio', 'Old PC']) await expect(diagram.getByText(host, { exact: true })).toBeVisible();
+    await otherWindow.screenshot({ path: test.info().outputPath('onboarding-diagram.png') });
     otherPid = JSON.parse(await readFile(join(otherHome, 'profile', 'ember-harness.lock'), 'utf8')).pid;
     expect(otherEndpoint.url).not.toBe(endpoint.url);
     expect(otherEndpoint.token).not.toBe(endpoint.token);
