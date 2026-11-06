@@ -13,14 +13,14 @@ It is not an agent harness: the instance owns execution, queues, permissions, an
 Ember makes that work easier to see and interact with. Both host kinds are named the same way
 everywhere in the app: **ember-harness** and **openchamber**.
 
-## Downloads & Quick Install (v1.0.0)
+## Downloads & Quick Install (v1.2.0)
 
-Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on [**GitHub Releases (`v1.0.0`)**](https://github.com/noemit/ember-bots/releases/tag/v1.0.0):
+Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on [**GitHub Releases (`v1.2.0`)**](https://github.com/noemit/ember-bots/releases/tag/v1.2.0):
 
 | Platform | Desktop App | Standalone CLI (`tinder` / `ember` / `kiln`) |
 | --- | --- | --- |
-| **macOS (Apple Silicon)** | [`Ember.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/Ember.dmg) · [`Ember.zip`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/Ember.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/tinder-macos-arm64) |
-| **Linux (x64)** | [`Ember-1.0.0.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/Ember-1.0.0.AppImage) · [`ember-1.0.0.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/ember-1.0.0.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.0.0/tinder-linux-x64) |
+| **macOS (Apple Silicon)** | [`Ember.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember.dmg) · [`Ember.zip`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/tinder-macos-arm64) |
+| **Linux (x64)** | [`Ember-1.2.0.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember-1.2.0.AppImage) · [`ember-1.2.0.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/ember-1.2.0.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/tinder-linux-x64) |
 
 ### Setting up Kiln (`ember-harness`) with Tinder CLI
 
