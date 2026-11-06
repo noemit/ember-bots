@@ -2921,6 +2921,17 @@ export default function App() {
   };
 
   /**
+   * One-way hide: the instance leaves the list and stays gone across launches, including the ones
+   * that never connect. Restoring is the same menu row's tick box once the host answers again, or
+   * Settings → Endpoints for a Hearth host.
+   */
+  const forgetInstance = (instanceId: string) => {
+    const current = settingsRef.current.hiddenInstances;
+    if (current.includes(instanceId)) return;
+    handleSettings({ hiddenInstances: [...current, instanceId] });
+  };
+
+  /**
    * Silence one host's outage row. The notice is the whole explanation — what went away and the two
    * ways back (Undo here, Reprobe in the Instances menu afterwards) — because a dismissed row has no
    * control left to click.
@@ -5211,6 +5222,11 @@ export default function App() {
             refreshing={refreshing}
             banner={feedbackBanner}
             onToggle={toggleInstance}
+            // Forget = hide, permanently. It is not a delete: an OpenChamber host lives in
+            // OpenChamber's own settings file, which Ember must not rewrite, and a Hearth endpoint
+            // has its own Remove in Settings → Endpoints. What this fixes is that a host which can
+            // never answer again had no way out of this menu at all.
+            onForget={forgetInstance}
             onToggleNavigation={() => setMobileRailOpen((open) => !open)}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onRefresh={() => void refreshInstances()}

@@ -1,3 +1,21 @@
+## 1.1.0
+
+### Added
+- **Forget an instance that will never answer again.** The Instances menu had one control per row,
+  and it was disabled for any host that was not ready — because hiding needs sessions to hide. That
+  left the rows that most needed a way out with none: a container you have deleted still appears in
+  `~/.config/openchamber/settings.json` (OpenChamber's own `desktopHosts` / `desktopSshInstances`),
+  Ember keeps listing it, and the tick box was greyed out. Every row now carries a **Forget**
+  button, enabled whether or not the host answers, which records it in `hiddenInstances` so it stays
+  gone across launches. Restoring it is ticking the row again once the host is back, or
+  Settings → Endpoints for a Hearth host.
+
+### Notes
+- Forget hides; it does not edit OpenChamber's settings. That file belongs to another app, and a
+  Hearth endpoint already has a real Remove in Settings → Endpoints. `src/lib/instanceMenu.ts` holds
+  the per-row rule (toggle vs forget) and `instanceMenu.test.ts` pins it, including that a forgotten
+  row is not offered a second forget.
+
 ## 1.0.1
 
 ### Fixed

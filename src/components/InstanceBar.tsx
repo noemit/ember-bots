@@ -2,7 +2,8 @@ import * as React from 'react';
 import { ChevronDown, House, Menu, RefreshCw, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { shortcutLabel } from '@/lib/shortcuts';
-import { instanceReady, readyInstanceCount } from '@/lib/instanceHealth';
+import { readyInstanceCount } from '@/lib/instanceHealth';
+import { instanceMenuState } from '@/lib/instanceMenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
@@ -24,6 +25,8 @@ type Props = {
   /** Transient error/notice toasts, rendered inline next to the search button. */
   banner?: React.ReactNode;
   onToggle: (instanceId: string) => void;
+  /** Forget an instance for good — the way out for a host that will never answer again. */
+  onForget: (instanceId: string) => void;
   onToggleNavigation: () => void;
   onOpenCommandPalette: () => void;
   onRefresh: () => void;
@@ -129,6 +132,7 @@ export default function InstanceBar({
   refreshing,
   banner,
   onToggle,
+  onForget,
   onToggleNavigation,
   onOpenCommandPalette,
   onRefresh,
@@ -272,39 +276,55 @@ export default function InstanceBar({
           ) : (
             <>
               <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-                Connected instances show their sessions; untick one to hide it.
+                Connected instances show their sessions; untick one to hide it. Forget removes one
+                you no longer have, whether or not it still answers.
               </DropdownMenuLabel>
-              {instances.map((instance) => (
-                <DropdownMenuCheckboxItem
-                  key={instance.id}
-                  checked={instanceReady(instance) && !hidden.has(instance.id)}
-                  // A host that is not ready cannot be toggled: it has no sessions to show or hide,
-                  // and the row already says why ("not connected, check the instance").
-                  disabled={!instanceReady(instance)}
-                  // Keep the menu open so several can be toggled in a row.
-                  onSelect={(event) => event.preventDefault()}
-                  onCheckedChange={() => onToggle(instance.id)}
-                  className="items-start py-1.5"
-                >
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="flex items-center gap-1.5">
-                      <span className={cn('size-1.5 flex-none rounded-full', statusDot[instance.status])} />
-                      <span className="truncate">{instance.label}</span>
-                    </span>
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      {kindLabel[instance.kind]}
-                      {instance.url ? ` · ${instance.url}` : ''}
-                      {instance.version ? ` · ${instance.version}` : ''}
-                      {' · '}
-                      {instance.status === 'ready'
-                        ? live[instance.id]
-                          ? 'live'
-                          : 'polling'
-                        : statusLabel[instance.status]}
-                    </span>
-                  </span>
-                </DropdownMenuCheckboxItem>
-              ))}
+              {instances.map((instance) => {
+                const row = instanceMenuState(instance, hidden);
+                return (
+                  <div key={instance.id} className="flex items-start gap-1">
+                    <DropdownMenuCheckboxItem
+                      checked={row.checked}
+                      // A host that is not ready cannot be toggled: it has no sessions to show or
+                      // hide. Forgetting it is the way out of exactly that state — see the button.
+                      disabled={!row.canToggle}
+                      // Keep the menu open so several can be toggled in a row.
+                      onSelect={(event) => event.preventDefault()}
+                      onCheckedChange={() => onToggle(instance.id)}
+                      className="min-w-0 flex-1 items-start py-1.5"
+                    >
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5">
+                          <span className={cn('size-1.5 flex-none rounded-full', statusDot[instance.status])} />
+                          <span className="truncate">{instance.label}</span>
+                        </span>
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          {kindLabel[instance.kind]}
+                          {instance.url ? ` · ${instance.url}` : ''}
+                          {instance.version ? ` · ${instance.version}` : ''}
+                          {' · '}
+                          {instance.status === 'ready'
+                            ? live[instance.id]
+                              ? 'live'
+                              : 'polling'
+                            : statusLabel[instance.status]}
+                        </span>
+                      </span>
+                    </DropdownMenuCheckboxItem>
+                    {row.canForget ? (
+                      <button
+                        type="button"
+                        aria-label={`Forget ${instance.label}`}
+                        title={`Forget ${instance.label} — stop listing it here, even though it is not connected`}
+                        onClick={() => onForget(instance.id)}
+                        className="mt-1 flex-none rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        Forget
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </>
           )}
 
