@@ -1,3 +1,10 @@
+## 1.6.5
+
+### Changed
+- Fresh setup starts with the Ember/Kiln explanation and diagram, followed by a page for choosing
+  where Kiln runs. Optional installation, Tinder and Tailscale instructions stay behind disclosures,
+  with a copyable agent setup prompt. The local Kiln status and Retry remain on the second page.
+
 ## 1.6.4
 
 ### Changed

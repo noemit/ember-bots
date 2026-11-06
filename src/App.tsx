@@ -5686,6 +5686,7 @@ export default function App() {
             <React.Suspense fallback={null}>
               <OnboardingWizard
                 open={onboardingOpen}
+                startAtWelcome={Boolean(settings.onboardingStartedAt)}
                 state={onboardingState}
                 localProblem={onboardingProblem}
                 instances={instances}

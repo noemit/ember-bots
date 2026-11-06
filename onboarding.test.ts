@@ -60,9 +60,9 @@ describe('which steps to draw', () => {
     expect(steps.map((step) => step.id)).toEqual(['welcome', 'connection', 'token', 'providers', 'first-agent']);
   });
 
-  test('a failed local keeps them, because that is the way forward', () => {
+  test('a failed local keeps the computer choice page, with optional setup inside it', () => {
     const steps = stepsFor(world());
-    expect(steps.map((step) => step.id)).toContain('instance');
+    expect(steps.map((step) => step.id)).toContain('connection');
   });
 
   test('only the connection step blocks', () => {
@@ -93,7 +93,6 @@ describe('the step list ticks', () => {
     const states = stepStates(world({ localReady: true }));
     expect(states.connection).toEqual({ kind: 'done' });
     expect(states.token).toEqual({ kind: 'done' });
-    expect(states.instance).toEqual({ kind: 'skipped' });
   });
 });
 

@@ -10,7 +10,7 @@
  */
 
 /** The steps, in the order they are drawn when every one applies. */
-export type OnboardingStepId = 'welcome' | 'connection' | 'token' | 'instance' | 'providers' | 'first-agent';
+export type OnboardingStepId = 'welcome' | 'connection' | 'token' | 'providers' | 'first-agent';
 
 export type OnboardingStep = {
   id: OnboardingStepId;
@@ -25,10 +25,9 @@ export type OnboardingStep = {
 };
 
 export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
-  { id: 'welcome', title: 'What Ember is', summary: 'How Ember and Kiln help you work' },
-  { id: 'connection', title: 'This computer', summary: 'Check that Kiln is ready', blocking: true },
+  { id: 'welcome', title: 'Ember and Kiln', summary: 'Where the work happens' },
+  { id: 'connection', title: 'Where to run Kiln', summary: 'Start here, or connect another computer', blocking: true },
   { id: 'token', title: 'Your token', summary: 'The password for connecting to Kiln' },
-  { id: 'instance', title: 'Another computer', summary: 'Optional: work on another computer too' },
   { id: 'providers', title: 'Choose an AI', summary: 'Sign in or add an access code' },
   { id: 'first-agent', title: 'First agent', summary: 'Pick a folder and say hello' },
 ];
@@ -64,20 +63,8 @@ export const needsOnboarding = (state: OnboardingState, dismissedAt: number | nu
   return !state.localReady && !state.remoteReady;
 };
 
-/**
- * The steps this run actually shows.
- *
- * Three adaptations, each removing work rather than adding it:
- *
- * - **Connected here** → the token step collapses to one line (it is still in the list, because it
- *   is where "Show it" lives, but `compact` tells the component to draw a single row).
- * - **Nothing else to connect, and the local host works** → the "another machine" step is dropped
- *   entirely. Its copy is the longest in the wizard, and someone on one laptop will never use it.
- * - **Local host failed** → the container step is the way forward, so it stays and the local step
- *   stays blocking.
- */
-export const stepsFor = (state: OnboardingState): OnboardingStep[] =>
-  ONBOARDING_STEPS.filter((step) => step.id !== 'instance' || !state.localReady);
+/** Optional computer and networking instructions stay collapsed on the connection page. */
+export const stepsFor = (_state: OnboardingState): OnboardingStep[] => [...ONBOARDING_STEPS];
 
 /**
  * Whether a step's `compact` form should be drawn instead of the full one.
@@ -106,7 +93,6 @@ export const stepStates = (state: OnboardingState, problem?: string | null): Rec
   welcome: { kind: 'done' },
   connection: state.localReady ? { kind: 'done' } : problem ? { kind: 'failed', problem } : { kind: 'pending' },
   token: state.localReady ? { kind: 'done' } : { kind: 'pending' },
-  instance: state.remoteReady ? { kind: 'done' } : { kind: 'skipped' },
   providers: { kind: 'pending' },
   'first-agent': { kind: 'pending' },
 });

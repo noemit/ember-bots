@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import Blob from '../blob/Blob';
 import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
+import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import {
   canFinish,
@@ -19,6 +20,7 @@ import type { EmberSettingsPatch, Instance, LocalHarnessToken, PiEndpoint } from
 
 type Props = {
   open: boolean;
+  startAtWelcome?: boolean;
   state: OnboardingState;
   /** The sentence from `localHarnessNotice` when the local host did not start. */
   localProblem: string | null;
@@ -42,8 +44,6 @@ const stepIcon = (id: OnboardingStepId) => {
       return PlugZap;
     case 'token':
       return KeyRound;
-    case 'instance':
-      return PlugZap;
     case 'providers':
       return KeyRound;
     case 'first-agent':
@@ -63,6 +63,7 @@ const stepIcon = (id: OnboardingStepId) => {
  */
 export default function OnboardingWizard({
   open,
+  startAtWelcome = false,
   state,
   localProblem,
   instances,
@@ -80,12 +81,13 @@ export default function OnboardingWizard({
   const [retrying, setRetrying] = React.useState(false);
   const marks = stepStates(state, localProblem);
 
-  // Land on the step that needs attention: a failed connection is where the work is, a working
-  // install belongs on the provider screen.
+  const hasOpened = React.useRef(false);
   React.useEffect(() => {
-    if (!open) return;
-    setActive(state.localReady ? 'providers' : 'connection');
-  }, [open, state.localReady]);
+    if (!open) { hasOpened.current = false; return; }
+    if (hasOpened.current) return;
+    hasOpened.current = true;
+    setActive(startAtWelcome ? 'welcome' : state.localReady ? 'providers' : 'connection');
+  }, [open, startAtWelcome, state.localReady]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -104,7 +106,6 @@ export default function OnboardingWizard({
   const index = Math.max(0, steps.findIndex((step) => step.id === active));
   const step = steps[index] ?? steps[0];
   const last = index === steps.length - 1;
-  const go = (next: OnboardingStepId) => setActive(next);
   const next = () => {
     const following = steps[index + 1];
     if (following) setActive(following.id);
@@ -151,7 +152,7 @@ export default function OnboardingWizard({
                 <li key={entry.id}>
                   <button
                     type="button"
-                    onClick={() => go(entry.id)}
+                    onClick={() => setActive(entry.id)}
                     aria-current={current ? 'step' : undefined}
                     className={cn(
                       'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
@@ -189,22 +190,16 @@ export default function OnboardingWizard({
                   problem={localProblem}
                   retrying={retrying}
                   onRetry={retry}
-                  onGoToInstance={() => go('instance')}
+                  endpoints={endpoints}
+                  instances={instances}
+                  onChange={onChange}
+                  onAdded={onRefreshInstances}
                   workspaceRoot={workspaceRoot}
                 />
               ) : null}
 
               {step.id === 'token' ? (
                 <Token state={state} compact={isCompactStep('token', state)} loadToken={loadToken} />
-              ) : null}
-
-              {step.id === 'instance' ? (
-                <InstanceStep
-                  endpoints={endpoints}
-                  instances={instances}
-                  onChange={onChange}
-                  onAdded={onRefreshInstances}
-                />
               ) : null}
 
               {step.id === 'providers' ? (
@@ -303,24 +298,22 @@ function Welcome() {
           <Blob style="buddy" seed="onboarding" size={56} mood="thinking" interactive={false} />
         </div>
         <div className="flex flex-col gap-1">
-          <h3 className="text-[15px] font-semibold">Your AI helpers, all in one place</h3>
+          <h3 className="text-[15px] font-semibold">Where the work happens</h3>
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-            Your agents are AI helpers you can give tasks to. <strong className="text-foreground">Ember is where you
-            talk to them and see their progress.</strong>{' '}<strong className="text-foreground">Kiln does the work.</strong>{' '}
-            Ember includes a Kiln, so you can start on this computer.
+            Ember takes its name from the embers that glow in a fire. Think of <strong className="text-foreground">Kiln</strong>{' '}
+            as the hot, concentrated space where agents take action: editing files, running commands and carrying out your instructions.
           </p>
         </div>
       </div>
+      <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+        <strong className="text-foreground">Ember is where you direct that work.</strong> It connects to Kiln using a
+        connection password and gives you a view of your conversations, each agent’s progress, and anything that needs your attention.
+      </p>
       <KilnDiagram />
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        You can put Kiln on another computer, too — a Mac Studio, an old PC, or in a container
-        (a separate space on a computer). Connect it to Ember and its agents appear alongside the others.
-        Each Kiln keeps its own conversations and files on the computer doing the work.
-      </p>
-      <p className="text-[12px] leading-relaxed text-muted-foreground">
-        The Kiln included with Ember stops when you quit the app. A Kiln running separately can keep working
-        after you quit Ember, as long as its computer stays on. You can also use Ember on another computer
-        to connect to those same Kilns.
+        One Ember can connect to several Kilns — on this computer, in a container, on a Mac Studio or on an old PC.
+        Each Kiln keeps its conversations and files on the computer doing the work. You can also use Ember on
+        different computers to direct the same Kilns.
       </p>
     </div>
   );
@@ -331,19 +324,29 @@ function Connection({
   problem,
   retrying,
   onRetry,
-  onGoToInstance,
+  endpoints,
+  instances,
+  onChange,
+  onAdded,
   workspaceRoot,
 }: {
   state: OnboardingState;
   problem: string | null;
   retrying: boolean;
   onRetry: () => void;
-  onGoToInstance: () => void;
+  endpoints: PiEndpoint[];
+  instances: Instance[];
+  onChange: (patch: EmberSettingsPatch) => void;
+  onAdded: () => void;
   workspaceRoot: string | null;
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <h3 className="text-[15px] font-semibold">Is Kiln ready on this computer?</h3>
+      <h3 className="text-[15px] font-semibold">Choose where the work happens</h3>
+      <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+        Ember includes a Kiln on this computer, so you can start here. Agents using it edit files and run
+        commands here. This Kiln stops when you quit Ember; its conversations stay on disk.
+      </p>
 
       {state.localReady ? (
         <div className="flex items-start gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2">
@@ -372,17 +375,16 @@ function Connection({
               {retrying ? <Loader2 className="animate-spin" /> : null}
               Retry
             </Button>
-            <Button size="xs" variant="ghost" onClick={onGoToInstance}>
-              Install Kiln on another machine
-            </Button>
           </div>
         </div>
       )}
 
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        Ember ships with Kiln and starts it for you here. If you already run one in a container or on a server, you can
-        connect to that instead — both work side by side.
+        You can also give agents a separate place to work. A container provides a separate working environment;
+        another computer also moves the workload off your personal computer. Kilns running separately can
+        keep working after you quit Ember, as long as their computer stays on.
       </p>
+      <RemoteSetup endpoints={endpoints} instances={instances} onChange={onChange} onAdded={onAdded} />
     </div>
   );
 }
@@ -424,37 +426,75 @@ function Token({
   );
 }
 
-function InstanceStep({
-  endpoints,
-  instances,
-  onChange,
-  onAdded,
-}: {
+const TAILSCALE_PROMPT = `Help me connect Ember on my personal computer to a standalone Kiln on [other computer] using Tailscale. Check how Kiln is installed and whether Tailscale is available on both computers. Configure the connection, keep Kiln's password out of source files, and verify that Ember can connect. Finish by telling me which address to enter in Ember and where to find the connection password.`;
+
+function SetupPrompt() {
+  const [result, setResult] = React.useState('');
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <p className="font-medium text-foreground">Ask an agent to help</p>
+      <p className="text-[11.5px] leading-relaxed">Replace [other computer] with its name or description before using this prompt.</p>
+      <p className="select-text rounded-md bg-background p-3 text-[11.5px] leading-relaxed">{TAILSCALE_PROMPT}</p>
+      <Button className="self-start" size="xs" variant="secondary" onClick={async () => {
+        const ok = await copyText(TAILSCALE_PROMPT);
+        setResult(ok ? 'Copied' : 'Ember could not copy the prompt. Select the text above and copy it manually.');
+      }}>Copy setup prompt</Button>
+      <span role="status" className="text-[11px]">{result}</span>
+    </div>
+  );
+}
+
+function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
   endpoints: PiEndpoint[];
   instances: Instance[];
   onChange: (patch: EmberSettingsPatch) => void;
   onAdded: () => void;
 }) {
+  const disclosure = 'rounded-lg border bg-muted/10 p-3 text-[12px] leading-relaxed text-muted-foreground';
+  const summary = 'cursor-pointer text-[12px] font-medium text-foreground';
   return (
-    <div className="flex flex-col gap-4">
-      <h3 className="text-[15px] font-semibold">Connect another machine</h3>
-      <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-        If you only want to work on this computer, you can skip this step.
-        To connect another computer later, open Settings → Instances.
-      </p>
-      <div className="rounded-lg border bg-muted/20 px-3 py-2.5 text-[11.5px] leading-relaxed">
-        <p className="mb-1.5 font-medium text-foreground">In a container or on a server</p>
-        <pre className="overflow-x-auto rounded bg-background px-2 py-1.5 font-mono text-[11px] leading-relaxed">
-{`curl -fsSL https://raw.githubusercontent.com/noemit/ember-bots/main/cli/ember.ts -o tinder
-bun tinder setup --headless
-bun tinder token`}
-        </pre>
-        <p className="mt-1.5 text-muted-foreground">
-          Running the <code className="rounded bg-background px-1">token</code> command prints the token — the password
-          you need to connect to it. Paste it below.
+    <div className="flex flex-col gap-2">
+      <details className={disclosure}>
+        <summary className={summary}>Use Ember on another computer</summary>
+        <p className="mt-3">
+          Install Ember there to get its own included Kiln. That Kiln starts and stops with that copy of Ember.
+          For a Kiln you can connect to from this window over the network, use Tinder below.
         </p>
-      </div>
-      <EndpointsInline endpoints={endpoints} instances={instances} onChange={onChange} onAdded={onAdded} />
+      </details>
+      <details className={disclosure}>
+        <summary className={summary}>Run Kiln on its own with Tinder</summary>
+        <p className="mt-3">
+          Tinder is our launcher for Kiln without the Ember application. Download the matching Tinder executable
+          from Ember’s releases and keep it in a permanent folder on the computer that will do the work.
+        </p>
+        <Button size="xs" variant="link" className="h-auto px-0" onClick={() => void window.ember.openExternal('https://github.com/noemit/ember-bots/releases')}>Ember and Tinder downloads</Button>
+        <p className="mt-2">On macOS or Linux, name the downloaded executable tinder, open a terminal in its folder, and run:</p>
+        <pre className="mt-2 overflow-x-auto rounded bg-background p-2 text-[11px]">{`chmod +x ./tinder
+./tinder serve --home ~/.ember-kiln --port 3003`}</pre>
+        <p className="mt-2">Keep that terminal open. In a second terminal, print the connection password:</p>
+        <pre className="mt-2 overflow-x-auto rounded bg-background p-2 text-[11px]">./tinder token --home ~/.ember-kiln --port 3003</pre>
+        <p className="mt-2">To run Kiln as a background service instead, use:</p>
+        <pre className="mt-2 overflow-x-auto rounded bg-background p-2 text-[11px]">./tinder setup --headless --home ~/.ember-kiln --port 3003</pre>
+        <p className="mt-2">Tinder prints the command to enable and start that service. Follow it, then add the address and password below.</p>
+      </details>
+      <details className={disclosure}>
+        <summary className={summary}>Connect over Tailscale</summary>
+        <p className="mt-3">You don’t need this for the Kiln included on this computer. Use it to reach a separate Kiln on another computer.</p>
+        <ol className="mt-2 list-decimal space-y-2 pl-5">
+          <li>Install Tailscale on both computers and connect them to the same Tailscale network.</li>
+          <li>Start Kiln with Tinder on the computer doing the work. For a container, make its Kiln port reachable from that computer’s Tailscale connection.</li>
+          <li>Find that computer’s Tailscale address in the Tailscale app, or run <code>tailscale ip -4</code> there.</li>
+          <li>Add the Kiln below using an address such as <code>http://100.x.y.z:3003</code> and the password printed by <code>tinder token</code>. Use the port you chose for Kiln.</li>
+        </ol>
+        <p className="mt-2">Tailscale connects the computers; Kiln’s connection password determines who can direct its agents.</p>
+        <Button size="xs" variant="link" className="h-auto px-0" onClick={() => void window.ember.openExternal('https://tailscale.com/docs/how-to/quickstart')}>Tailscale setup guide</Button>
+        <SetupPrompt />
+      </details>
+      <details className={disclosure}>
+        <summary className={summary}>Connect a Kiln that is already running</summary>
+        <p className="my-3">Enter that Kiln’s address and connection password. You can also do this later in Settings → Instances.</p>
+        <EndpointsInline endpoints={endpoints} instances={instances} onChange={onChange} onAdded={onAdded} />
+      </details>
     </div>
   );
 }
