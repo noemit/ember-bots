@@ -38,6 +38,16 @@ export type LocalHarnessState =
   | { kind: 'attached'; url: string; token: string; version?: string }
   /** We started it, and it is answering. */
   | { kind: 'started'; url: string; token: string; version?: string }
+  /**
+   * We started it, and this run replaced its token (a rotation).
+   *
+   * A separate kind rather than reusing `started`, so the endpoint merge keeps a rotated harness in
+   * the list. The merge only adds the *started* harness because a token read from settings might be
+   * stale — but after a rotation the harness on this port is running with the token that is now on
+   * disk, and dropping it would make the host vanish from the rail the moment it was given a new
+   * password.
+   */
+  | { kind: 'restarted'; url: string; token: string; version?: string }
   /** The user turned it off in settings. */
   | { kind: 'disabled' }
   /** The binary is not where the installer put it (a dev checkout, a repack). */
@@ -223,14 +233,16 @@ export const writeHarnessToken = (home: string, token: string): void => {
 };
 
 /**
- * Whether a restart can even be attempted: is the harness one we started on this machine?
+ * Whether this app may replace the harness's token: it must be the harness we started.
  *
- * `attached` is the crucial distinction. That harness was already running when Ember launched, or it
+ * `attached` is the distinction that matters. That host was already running when Ember launched, or it
  * is the service Tinder installed; its token is not Ember's to change. Writing a new one would lock
  * out every other client of that host without stopping its process, and the change would only take
- * effect on a restart Ember does not control.
+ * effect on a restart Ember does not control. `started` and `restarted` are both ours: one process,
+ * one data home, one record of which token it holds.
  */
-export const canManageLocalToken = (state: LocalHarnessState): boolean => state.kind === 'started';
+export const canManageLocalToken = (state: LocalHarnessState): boolean =>
+  state.kind === 'started' || state.kind === 'restarted';
 
 /** How long a stop-and-restart is allowed to take before it is reported as a failure. */
 export const HARNESS_RESTART_TIMEOUT_MS = 45_000;
@@ -402,6 +414,7 @@ export const localHarnessNotice = (state: LocalHarnessState, home = defaultHarne
   switch (state.kind) {
     case 'attached':
     case 'started':
+    case 'restarted':
     case 'disabled':
       return null;
     case 'missing':
@@ -425,6 +438,10 @@ const sameAddress = (a: string, b: string): boolean => a.replace(/\/+$/, '') ===
  * entry for the same address is **relabelled, not duplicated**: the person's own name survives and
  * the running host's token wins, because it is the one that will answer.
  */
+/** Every state whose token this app knows and may show: the ones it started itself. */
+export const isManagedHarness = (state: LocalHarnessState): state is Extract<LocalHarnessState, { token: string }> =>
+  state.kind === 'started' || state.kind === 'restarted';
+
 export const mergeLocalHarnessEndpoint = <T extends HarnessEndpoint>(
   configured: readonly T[],
   started: { url: string; token: string } | null

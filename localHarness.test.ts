@@ -8,6 +8,7 @@ import {
   bundledBinaryPath,
   canManageLocalToken,
   generateHarnessToken,
+  isManagedHarness,
   writeHarnessToken,
   defaultHarnessHome,
   HARNESS_START_TIMEOUT_MS,
@@ -478,5 +479,37 @@ describe('installing a new token', () => {
       expect(token).toMatch(/^[a-z]+(-[a-z]+){3}$/);
     }
     expect(generateHarnessToken()).not.toBe(generateHarnessToken());
+  });
+});
+
+/**
+ * A rotated harness is still the harness on this port.
+ *
+ * The endpoint merge deliberately adds only the harness *this launch started* — a token read from
+ * settings might be stale, so anything attached is left to its own entry. A rotation produces a
+ * second state (`restarted`), and when it was not in that set the host vanished from the rail the
+ * moment it was given a new password: the token was fine, the row was gone.
+ */
+describe('a rotated harness stays addressable', () => {
+  test('`restarted` is a managed state, like `started`', () => {
+    expect(isManagedHarness({ kind: 'restarted', url: 'http://127.0.0.1:3002', token: 'new-token' })).toBe(true);
+    expect(isManagedHarness({ kind: 'started', url: 'http://127.0.0.1:3002', token: 'old-token' })).toBe(true);
+    // Attached hosts are not ours to merge: their entry is whatever settings says.
+    expect(isManagedHarness({ kind: 'attached', url: 'http://127.0.0.1:3002', token: 'x' })).toBe(false);
+    expect(isManagedHarness({ kind: 'failed', reason: 'nope' })).toBe(false);
+  });
+
+  test('a restarted harness can be re-tokened again, and its new token reaches the endpoint list', () => {
+    expect(canManageLocalToken({ kind: 'restarted', url: 'http://127.0.0.1:3002', token: 'again' })).toBe(true);
+    const merged = mergeLocalHarnessEndpoint(
+      [{ id: 'pi:local', label: 'This computer', url: 'http://127.0.0.1:3002', token: 'old-token' }],
+      { url: 'http://127.0.0.1:3002', token: 'new-token' }
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.token).toBe('new-token');
+  });
+
+  test('a restarted harness has nothing to warn about', () => {
+    expect(localHarnessNotice({ kind: 'restarted', url: 'http://127.0.0.1:3002', token: 't' })).toBeNull();
   });
 });

@@ -42,6 +42,7 @@ import * as dataDir from './dataDir';
 import {
   canManageLocalToken,
   defaultHarnessHome,
+  isManagedHarness,
   generateHarnessToken,
   harnessTokenOnDisk,
   LOCAL_HARNESS_PORT,
@@ -336,18 +337,23 @@ ipcMain.handle('ember:local-harness-token', async (event, options: { rotate?: bo
     }
     try {
       // Stop what we own before touching the file: a token written under a running harness is a lie,
-      // because it reads the credential once at start. See `locals` in the restart note.
+      // because it reads the credential once at start. See `stopLocalHarnessAndWait`.
       await stopLocalHarnessAndWait(localHarness);
       const token = generateHarnessToken();
       writeHarnessToken(localHarness.home, token);
       // Start it again with the token already on disk, and replace the state with whatever it reports.
       const restarted = await startLocalHarness({ ...localHarness.options, token });
-      localHarnessState = restarted.state;
+      // A successful rotation is `restarted`, not `started`: the harness is ours and is running with
+      // the token now on disk, which is what keeps it in the endpoint list.
+      localHarnessState =
+        restarted.state.kind === 'started'
+          ? { kind: 'restarted', url: restarted.state.url, token: restarted.state.token, ...(restarted.state.version ? { version: restarted.state.version } : {}) }
+          : restarted.state;
       localHarnessStop = restarted.stop;
       broadcast({ instanceId: '*', type: 'ember:instances-updated' });
       // A partial failure here is a real answer: the token is installed whether or not the host came
       // back, and the notice says so.
-      if (restarted.state.kind !== 'started') {
+      if (localHarnessState.kind !== 'restarted') {
         return {
           ok: false as const,
           canManage: true,
@@ -355,7 +361,12 @@ ipcMain.handle('ember:local-harness-token', async (event, options: { rotate?: bo
           token,
         };
       }
-      return { ok: true as const, canManage: true, token, url: restarted.state.url, restarting: false };
+      return {
+        ok: true as const,
+        canManage: true,
+        token,
+        ...(localHarnessState.kind === 'restarted' ? { url: localHarnessState.url } : {}),
+      };
     } catch (error) {
       return {
         ok: false as const,
@@ -729,7 +740,9 @@ const piClient = new PiClient(
 const piEndpoints = (): PiEndpoint[] =>
   mergeLocalHarnessEndpoint(
     readEmberSettings().piEndpoints,
-    localHarnessState.kind === 'started' ? { url: localHarnessState.url, token: localHarnessState.token } : null
+    // `restarted` counts: a rotated harness is still the one on this port, holding the token that is
+    // on disk. Leaving it out made the host disappear from the rail the moment it was re-tokened.
+    isManagedHarness(localHarnessState) ? { url: localHarnessState.url, token: localHarnessState.token } : null
   );
 
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>

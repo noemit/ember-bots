@@ -12,7 +12,7 @@ export type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
  * Duplicated rather than imported for the same reason the rest of this file is: `tsconfig.json` and
  * `tsconfig.electron.json` have separate roots, so this contract is written twice on purpose.
  */
-export type LocalHarnessKind = 'attached' | 'started' | 'disabled' | 'missing' | 'failed';
+export type LocalHarnessKind = 'attached' | 'started' | 'restarted' | 'disabled' | 'missing' | 'failed';
 
 /**
  * The local harness's credential, as the Settings screen shows it.

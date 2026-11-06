@@ -13,14 +13,14 @@ It is not an agent harness: the instance owns execution, queues, permissions, an
 Ember makes that work easier to see and interact with. Both host kinds are named the same way
 everywhere in the app: **ember-harness** and **openchamber**.
 
-## Downloads & Quick Install (v1.5.0)
+## Downloads & Quick Install (v1.5.1)
 
-Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on [**GitHub Releases (`v1.5.0`)**](https://github.com/noemit/ember-bots/releases/tag/v1.5.0):
+Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on [**GitHub Releases (`v1.5.1`)**](https://github.com/noemit/ember-bots/releases/tag/v1.5.1):
 
 | Platform | Desktop App | Standalone CLI (`tinder` / `ember` / `kiln`) |
 | --- | --- | --- |
-| **macOS (Apple Silicon)** | [`Ember-1.5.0-arm64.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.5.0/Ember-1.5.0-arm64.dmg) · [`Ember-1.5.0-arm64-mac.zip`](https://github.com/noemit/ember-bots/releases/download/v1.5.0/Ember-1.5.0-arm64-mac.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.5.0/tinder-macos-arm64) |
-| **Linux (x64)** | [`Ember-1.5.0.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.5.0/Ember-1.5.0.AppImage) · [`ember-1.5.0.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.5.0/ember-1.5.0.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.5.0/tinder-linux-x64) |
+| **macOS (Apple Silicon)** | [`Ember-1.5.1-arm64.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.5.1/Ember-1.5.1-arm64.dmg) · [`Ember-1.5.1-arm64-mac.zip`](https://github.com/noemit/ember-bots/releases/download/v1.5.1/Ember-1.5.1-arm64-mac.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.5.1/tinder-macos-arm64) |
+| **Linux (x64)** | [`Ember-1.5.1.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.5.1/Ember-1.5.1.AppImage) · [`ember-1.5.1.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.5.1/ember-1.5.1.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.5.1/tinder-linux-x64) |
 
 The desktop app **ships its own agent server**. On first launch Ember starts the bundled **Kiln** on `127.0.0.1:3002`, keeps its data in `~/.ember`, and lists it as **This computer** — no terminal, no clone, no token to paste. It stops that harness when it quits, and it *adopts* one that was already running (a `tinder setup --service` host, or a container) instead of starting a second. Turn it off in Settings → Instances if you only want remote hosts.
 

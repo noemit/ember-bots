@@ -41,7 +41,7 @@ import {
 } from '../lib/toolDisplay';
 import { isMessageRead } from '../lib/readState';
 import { entryOrdinal } from '../lib/piMapping';
-import UnreadDot from './UnreadDot';
+import MarkReadRow from './MarkReadRow';
 import { copyText } from '@/lib/clipboard';
 import { useStableCallback } from '@/lib/useStableCallback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -1737,19 +1737,21 @@ const MessageRow = React.memo(function MessageRow({
     ) : null;
 
   /**
-   * The unread dot, in the left margin beside the message it belongs to.
+   * "Mark as read", under the message.
    *
-   * Empty circle → filled check that fades out: the mark is written immediately, so the control
-   * shows what just happened rather than asking twice. It is hidden until the row is hovered or the
-   * button is focused, like every other per-message control, so a transcript of unread messages does
-   * not read as a column of dots — but it stays in the accessibility tree either way, because a
-   * keyboard needs to reach it without hovering.
+   * It used to be a dot in the left margin — which is *outside* the scroll area, so on a narrow
+   * window it was clipped and on a wide one it was a 14px speck far from the text. A control nobody
+   * can press is not a control. Under the message is where reading ends and the decision happens.
+   *
+   * `AnimatePresence` is what lets the row collapse instead of vanishing: the mark lands, `unread`
+   * goes false, the height animates to zero, and the turns below slide up gently. Nothing else on
+   * the page animates, so the movement is only ever the gap closing.
    */
-  const renderReadDot = () =>
-    showReadDot ? (
-      <div className="absolute top-2 -left-6 flex sm:-left-7">
-        <UnreadDot onMark={() => onMarkRead?.(message)} label="this message" />
-      </div>
+  const renderReadMark = () =>
+    showReadDot && onMarkRead ? (
+      <AnimatePresence initial={false}>
+        <MarkReadRow key="mark-read" message={message} onMark={(target) => onMarkRead(target)} />
+      </AnimatePresence>
     ) : null;
 
   return (
@@ -1763,7 +1765,6 @@ const MessageRow = React.memo(function MessageRow({
         highlighted && 'bg-highlight/10 ring-2 ring-highlight/30'
       )}
     >
-      {renderReadDot()}
       <div
         className={cn(
           'flex min-w-0 flex-1 flex-col gap-1.5',
@@ -1806,6 +1807,7 @@ const MessageRow = React.memo(function MessageRow({
           labels={pendingSendLabels}
         />
         <MessageFooter message={message} showMetadata={showMetadata && showMessageDetails} showCost={showCost} />
+        {renderReadMark()}
       </div>
       {showBuddy ? (
         // One anchor for the whole message, whichever block is last: the row's own bottom-right

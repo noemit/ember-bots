@@ -1,3 +1,24 @@
+## 1.5.1
+
+### Fixed
+- **"Mark as read" was off screen and impossible to press.** It was a 14px circle in the message's
+  left margin — which sits *outside* the transcript's scroll area. On a narrow window the row's
+  padding is the only thing between the text and the viewport edge, so it was clipped to a sliver;
+  on a wide one it was a speck far from the text it belonged to. A control nobody can press is not a
+  control.
+
+  It is now a **Mark as read** row under the message, where reading ends and the decision happens.
+  It turns into a tick when pressed, then collapses and the turns below slide up over ~180ms, so the
+  gap closes gently instead of jumping. It shows on hover and on keyboard focus (and always on a
+  touch screen, where there is no pointer to hover with), so twenty unread messages don't paint
+  twenty buttons over the conversation.
+
+- **A rotated harness disappeared from the rail.** The endpoint merge only adds the harness *this
+  launch started* — a token read from settings might be stale — and the restart that installs a new
+  token produced a state that wasn't in that set. The token was fine and the row was gone, until the
+  next launch. A rotated harness is now its own state (`restarted`), kept in the list and still
+  re-tokenable.
+
 ## 1.5.0
 
 ### Added
