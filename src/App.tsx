@@ -73,6 +73,7 @@ import {
   type UpdateCheckResult,
 } from './lib/updateCheck';
 import { isPiInstance } from './piApi';
+import { emptyHomeTarget, newSessionTarget } from './lib/emptyHome';
 import { useStableCallback } from '@/lib/useStableCallback';
 import {
   addPendingNote,
@@ -1079,10 +1080,6 @@ export default function App() {
     settings.localHarnessState && !onboardingState.localReady
       ? settings.localHarnessState.notice ?? null
       : null;
-
-  const dismissOnboarding = React.useCallback(() => {
-    handleSettings({ onboardingDismissedAt: Date.now() }, { preserveActionError: true });
-  }, [handleSettings]);
 
   const readyIds = React.useMemo(
     () => instances.filter((instance) => instance.attachable).map((instance) => instance.id),
@@ -3071,7 +3068,7 @@ export default function App() {
     }
   };
 
-  const beginNewAgent = (instanceId: string, directory?: string) => {
+  const beginNewAgent = React.useCallback((instanceId: string, directory?: string) => {
     showActionError(null);
     // Keep the open columns; the draft simply takes the active pane (no session key yet). A
     // project's `+` passes its directory so the draft starts there instead of the instance default.
@@ -3084,7 +3081,21 @@ export default function App() {
     setActivityOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
-  };
+  }, [showActionError, setDraftPendingId]);
+
+  const dismissOnboarding = React.useCallback(() => {
+    handleSettings({ onboardingDismissedAt: Date.now() }, { preserveActionError: true });
+    const target = newSessionTarget(instances, hidden);
+    if (target) beginNewAgent(target);
+  }, [handleSettings, instances, hidden, beginNewAgent]);
+
+  const defaultEmptyHomeTarget = settingsLoaded && instancesLoaded
+    ? emptyHomeTarget(instances, sessionsByInstance, sessions.length, hidden)
+    : null;
+  React.useEffect(() => {
+    if (onboardingOpen || !activityVisible || newSessionInstanceId || usageOpen || scheduledOpen || archiveOpen) return;
+    if (defaultEmptyHomeTarget) beginNewAgent(defaultEmptyHomeTarget);
+  }, [onboardingOpen, activityVisible, newSessionInstanceId, usageOpen, scheduledOpen, archiveOpen, defaultEmptyHomeTarget, beginNewAgent]);
 
   const cancelNewAgent = () => {
     // A failed attempt has nothing on the host, so closing the pane is also letting it go. One that
@@ -5706,7 +5717,7 @@ export default function App() {
                 onRefreshInstances={() => void refreshInstances()}
                 onChange={handleSettings}
                 onStartAgent={({ instanceId, directory }) => {
-                  dismissOnboarding();
+                  handleSettings({ onboardingDismissedAt: Date.now() }, { preserveActionError: true });
                   beginNewAgent(instanceId, directory ?? undefined);
                 }}
                 {...(window.ember.localHarnessToken

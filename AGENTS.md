@@ -134,7 +134,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   is not open is not hidden somewhere, it is simply in the rail. Closing a column (`minimizeSession`)
   removes it from `openSessions`, so the view falls back to whatever else is open, or to Home.
   `Cmd/Ctrl+1–9` activates that slot in `openSessions`.
-  Home is also the surface when nothing is open. The transcript poll and `isLoaded` predicate cover the visible columns. Open keys are
+  Home shows existing sessions when nothing is open. If Home has no sessions in the current window,
+  it opens a new-session draft on an available Kiln after the session lists finish loading; finishing
+  or dismissing onboarding opens a draft too. No conversation is created until send. Selection
+  prefers the included Kiln and excludes hidden or unavailable hosts (`src/lib/emptyHome.ts`).
+  The transcript poll and `isLoaded` predicate cover the visible columns. Open keys are
   persisted in Ember settings and pruned when their instance or session is archived/gone
   (`pruneWorkspace`). Archiving the column being read hands over instead of exiting: with nothing else
   open, the workspace opens the next session in the rail's own order (`nextSessionAfterArchive` in

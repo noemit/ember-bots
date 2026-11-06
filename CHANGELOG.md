@@ -1,3 +1,10 @@
+## 1.6.9
+
+### Fixed
+- Finishing or dismissing setup opens a new-session draft on an available Kiln. Empty Home also
+  defaults to a draft once session lists have loaded, without creating a conversation until send.
+  Existing sessions, other views and drafts are preserved, and hidden/offline hosts are not chosen.
+
 ## 1.6.8
 
 ### Changed
