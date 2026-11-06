@@ -1,11 +1,18 @@
-const API_METHODS = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']);
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const API_METHODS = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']);const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 const DEFAULT_LOCAL_PORT = 57123;
 
 /** Mirrors AVATAR_COLOR_COUNT in src/blob/contrast.ts (the two tsconfig roots can't share it). */
 const AVATAR_COLOR_COUNT = 22;
 
 export type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+
+/**
+ * The states the bundled harness can be in, mirrored from `localHarness.ts`.
+ *
+ * Duplicated rather than imported for the same reason the rest of this file is: `tsconfig.json` and
+ * `tsconfig.electron.json` have separate roots, so this contract is written twice on purpose.
+ */
+export type LocalHarnessKind = 'attached' | 'started' | 'disabled' | 'missing' | 'failed';
 
 const parseHttpUrl = (value: string): URL | null => {
   try {
@@ -554,10 +561,25 @@ export type EmberSettings = {
   minimizedSessions: string[];
   /** Hearth endpoints: the pi transition target. */
   piEndpoints: Array<{ id: string; label: string; url: string; token: string }>;
+  /**
+   * Whether this app should run the harness it ships with on first launch. Absent means yes: an
+   * install that has never touched the switch gets a working local host.
+   */
+  localHarnessEnabled: boolean;
   remoteAccessEnabled: boolean;
   remotePasswordConfigured: boolean;
   /** Whether the listener is actually bound, and where. Never assume "enabled" means "listening". */
   remoteAccessState: RemoteAccessState;
+  /**
+   * What the harness this app ships with is doing. Read-only and process-local, like
+   * `remoteAccessState`: it describes this run, not the file.
+   */
+  localHarnessState?: {
+    kind: LocalHarnessKind;
+    url?: string;
+    version?: string;
+    notice: string | null;
+  };
   /** True when the settings file could not be read and was moved aside. */
   settingsRecovered: boolean;
 };

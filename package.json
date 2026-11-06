@@ -1,6 +1,6 @@
 {
   "name": "ember",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -22,7 +22,8 @@
     "kiln": "./cli/ember.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
+    "build:harness": "mkdir -p build/harness && bun build --compile packages/kiln/src/index.ts --outfile build/harness/kiln",
+    "build": "bun run build:harness && tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
     "dev": "bun run build && electron .",
     "dev:web": "vite --port 5179",
     "dist": "bun run build && bunx electron-builder",
@@ -63,13 +64,25 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extraResources": [
+        {
+          "from": "build/harness/kiln",
+          "to": "kiln"
+        }
+      ]
     },
     "win": {
       "icon": "build/icon.ico",
       "target": [
         "nsis",
         "zip"
+      ],
+      "extraResources": [
+        {
+          "from": "build/harness/kiln",
+          "to": "kiln"
+        }
       ]
     },
     "linux": {
@@ -78,6 +91,12 @@
       "target": [
         "AppImage",
         "tar.gz"
+      ],
+      "extraResources": [
+        {
+          "from": "build/harness/kiln",
+          "to": "kiln"
+        }
       ]
     }
   },

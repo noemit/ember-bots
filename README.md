@@ -19,12 +19,14 @@ Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on 
 
 | Platform | Desktop App | Standalone CLI (`tinder` / `ember` / `kiln`) |
 | --- | --- | --- |
-| **macOS (Apple Silicon)** | [`Ember.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember.dmg) · [`Ember.zip`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/tinder-macos-arm64) |
+| **macOS (Apple Silicon)** | [`Ember-1.2.0-arm64.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember-1.2.0-arm64.dmg) · [`Ember-1.2.0-arm64-mac.zip`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember-1.2.0-arm64-mac.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/tinder-macos-arm64) |
 | **Linux (x64)** | [`Ember-1.2.0.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/Ember-1.2.0.AppImage) · [`ember-1.2.0.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/ember-1.2.0.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.2.0/tinder-linux-x64) |
+
+The desktop app **ships its own agent server**. On first launch Ember starts the bundled **Kiln** on `127.0.0.1:3002`, keeps its data in `~/.ember`, and lists it as **This computer** — no terminal, no clone, no token to paste. It stops that harness when it quits, and it *adopts* one that was already running (a `tinder setup --service` host, or a container) instead of starting a second. Turn it off in Settings → Instances if you only want remote hosts.
 
 ### Setting up Kiln (`ember-harness`) with Tinder CLI
 
-Whether on your local desktop or a headless remote server:
+For a **headless machine** — a server you reach over SSH or Tailscale — the CLI installs and supervises Kiln without the desktop app:
 
 ```sh
 # Local desktop setup (initializes ~/.ember/ember.token + OS-tailored ~/.ember/AGENTS.md)

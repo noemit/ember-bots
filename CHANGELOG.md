@@ -1,3 +1,34 @@
+## 1.3.0
+
+### Added
+- **The desktop app now ships its agent server.** Downloading `Ember` and opening it left you with a
+  control room and nothing on the machine to control: the only ways to a working host were to clone
+  this repository or to run the CLI first. A desktop app that needs a terminal before it can show a
+  single conversation has not been installed, it has been unpacked.
+  - `bun run build` compiles Kiln (`packages/kiln`) to a single binary in `build/harness/kiln`, and
+    every target copies it into the app's resources (`electron-builder` `extraResources`). The app
+    starts it on first launch, on loopback, with its data home at `~/.ember`, and lists it as
+    **This computer** — so instances, streams, polling and the crew strip all work unchanged.
+  - **It adopts a host it did not start.** If something already answers on `127.0.0.1:3002` — a
+    `tinder setup --service` host, a container, another Ember window — the app attaches to it and
+    never stops it on quit. Starting a second harness would open the same SQLite file twice, so a
+    lock file (`~/.ember/ember-harness.lock`) decides ownership and a stale lock from a crashed
+    parent is reclaimed.
+  - **Every failure is a sentence.** A missing binary, an immediate exit (with its code) and a boot
+    that never answers each say what happened, name the log at `~/.ember/kiln.log`, and point at
+    Settings → Instances, which still works. `electron/localHarness.ts` holds the rules and
+    `localHarness.test.ts` pins them, including that an adopted host is never stopped.
+  - The switch lives in Settings → Instances (`localHarnessEnabled`, persisted), so a person who only
+    wants remote hosts is not asked again on the next launch.
+- **The README links the versioned macOS artifacts.** It pointed at `Ember.dmg`/`Ember.zip`, which
+  `v1.2.0` never published; the links now use the names the release actually has.
+
+### Notes
+- The bundled binary is not signed by `electron-builder` on its own; the harness inside
+  `Contents/Resources` is what the app spawns, so a macOS build must sign it with the same Developer
+  ID as the app (it is picked up by the app bundle's signature) or Gatekeeper will object at spawn
+  time rather than at launch.
+
 ## 1.2.0
 
 ### Changed

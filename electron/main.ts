@@ -38,6 +38,11 @@ import { hashRemotePassword, MAX_REMOTE_PASSWORD_LENGTH, MIN_REMOTE_PASSWORD_LEN
 import { ModelStatsStore } from './modelStats';
 import { ActivityLog, parseActivityQuery } from './activity';
 import { PiClient } from './piClient';
+import {
+  localHarnessNotice,
+  startLocalHarness,
+  type LocalHarnessState,
+} from './localHarness';
 import type { PiEndpoint } from './transport';
 
 type StoredHost = {
@@ -144,6 +149,8 @@ let settingsRecoveredFrom: string | null = null;
 let settingsQuarantineFailed = false;
 /** What the remote listener is actually doing; reported through the settings the renderer reads. */
 let remoteListenerState: RemoteAccessState = { status: 'off', attempts: 0, changedAt: Date.now() };
+/** Stops the bundled harness on quit; a no-op when the harness was already running before launch. */
+let localHarnessStop: () => void = () => {};
 
 /**
  * Move an unreadable settings file aside and start from defaults.
@@ -303,16 +310,24 @@ const readEmberSettings = (): EmberSettings => {
     remoteAccessEnabled: root.remoteAccessEnabled === true,
     remotePasswordConfigured: typeof root.remotePasswordHash === 'string' && root.remotePasswordHash.length > 0,
     remoteAccessState: remoteListenerState,
+    localHarnessEnabled: root.localHarnessEnabled !== false,
+    localHarnessState: localHarnessReport(),
     settingsRecovered: settingsRecoveredFrom !== null,
   };
 };
 
 /**
- * `EmberSettings` carries two fields that describe this process, not the file: where the listener
- * is and whether the settings file had to be quarantined. They must never be persisted.
+ * `EmberSettings` carries fields that describe this process, not the file: where the listener is,
+ * what the bundled harness is doing, and whether the settings file had to be quarantined. They must
+ * never be persisted.
  */
 const persistedSettings = (settings: EmberSettings): Record<string, unknown> => {
-  const { remoteAccessState: _state, settingsRecovered: _recovered, ...persisted } = settings;
+  const {
+    remoteAccessState: _state,
+    settingsRecovered: _recovered,
+    localHarnessState: _harness,
+    ...persisted
+  } = settings;
   return persisted;
 };
 
@@ -568,7 +583,21 @@ const piClient = new PiClient(
     return ids;
   }
 );
-const piEndpoints = (): PiEndpoint[] => readEmberSettings().piEndpoints;
+const piEndpoints = (): PiEndpoint[] => {
+  const configured = readEmberSettings().piEndpoints;
+  // The harness this app started answers on loopback with a token we can read, but it is only in
+  // `piEndpoints` once the settings file has been written — which happens when a setting changes,
+  // not on launch. Merging it here means the first launch lists it without racing a settings write
+  // (and without the renderer ever holding a token the file does not have). An explicit entry for
+  // the same address wins: this only fills a gap.
+  if (localHarnessState.kind !== 'started') return configured;
+  const started = localHarnessState;
+  if (configured.some((endpoint) => endpoint.url.replace(/\/+$/, '') === started.url)) return configured;
+  return [
+    { id: 'pi:local', label: 'This computer', url: started.url, token: started.token },
+    ...configured,
+  ];
+};
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>
   Promise.all(
     endpoints.map(async (endpoint) => {
@@ -715,6 +744,24 @@ ipcMain.handle('ember:instances', (event, refresh?: unknown) => {
 });
 
 ipcMain.handle('ember:app-version', () => app.getVersion());
+
+/**
+ * What the bundled harness is doing, and the one way to build it.
+ *
+ * Settings asks for this so a person can see "running on this computer" rather than a listed host
+ * they cannot explain. It carries no token: the renderer only needs the state and the address.
+ */
+let localHarnessState: LocalHarnessState = { kind: 'disabled' };
+const localHarnessReport = (): { kind: LocalHarnessState['kind']; url?: string; version?: string; notice: string | null } => ({
+  kind: localHarnessState.kind,
+  ...('url' in localHarnessState ? { url: localHarnessState.url } : {}),
+  ...('version' in localHarnessState && localHarnessState.version ? { version: localHarnessState.version } : {}),
+  notice: localHarnessNotice(localHarnessState),
+});
+ipcMain.handle('ember:local-harness', (event) => {
+  assertTrustedSender(event);
+  return localHarnessReport();
+});
 ipcMain.handle('ember:settings:get', (event) => {
   assertTrustedSender(event);
   return readEmberSettings();
@@ -798,6 +845,12 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   }
   if (value.minimizedSessions !== undefined) settings.minimizedSessions = parseStringArray(value.minimizedSessions);
   if (value.piEndpoints !== undefined) settings.piEndpoints = parsePiEndpoints(value.piEndpoints);
+  // Persisted (unlike the process-local state beside it): turning the bundled harness off has to
+  // survive a relaunch, or the next launch would start it again and ask the same question twice.
+  if (value.localHarnessEnabled !== undefined) {
+    if (typeof value.localHarnessEnabled !== 'boolean') throw new Error('Invalid local harness setting');
+    settings.localHarnessEnabled = value.localHarnessEnabled;
+  }
   if (value.remotePassword !== undefined) {
     if (value.remotePassword === null || value.remotePassword === '') {
       remotePasswordHash = undefined;
@@ -1209,8 +1262,22 @@ app.on('second-instance', () => {
   win.focus();
 });
 
-if (primaryInstance) app.whenReady().then(() => {
+if (primaryInstance) app.whenReady().then(async () => {
   activityLog.start();
+  // Start (or adopt) the harness this app ships before the window paints, so the first launch has a
+  // host to show instead of an empty rail and instructions to go and find one.
+  const localHarness = await startLocalHarness({
+    resourcesDir: process.resourcesPath,
+    ...(process.env.EMBER_BUNDLED_HARNESS ? { binaryName: process.env.EMBER_BUNDLED_HARNESS } : {}),
+    // The same switch the settings screen shows. Persisted so a person who turned it off is not
+    // asked again on the next launch.
+    disabled: readJson(emberSettingsPath()).localHarnessEnabled === false,
+  });
+  localHarnessState = localHarness.state;
+  if (localHarnessNotice(localHarness.state)) {
+    console.warn('[ember] local harness:', localHarnessNotice(localHarness.state));
+  }
+  localHarnessStop = localHarness.stop;
   refreshRemoteServer();
   createWindow();
   // Keep instance health fresh: a remote that was unreachable when probed (sleep, dropped
@@ -1246,4 +1313,6 @@ app.on('before-quit', () => {
   } catch (error) {
     console.error('Failed to flush activity log', error);
   }
+  // Only stops a harness this process started; an adopted one is left running.
+  localHarnessStop();
 });
