@@ -26,6 +26,23 @@ const ENDPOINT: Instance = {
  * answering, so App lists its sessions as last-known rather than asking it again.
  */
 const outageFixture = new URLSearchParams(window.location.search).has('outage');
+/**
+ * `?fixture=firstrun` serves an empty world: no instance answering, nothing configured.
+ *
+ * The first-run guide exists for the state that is hardest to reproduce — nothing works yet — and
+ * the mock normally supplies a healthy host for every other screen's sake. This is the one switch
+ * that lets the guide be exercised (and e2e-tested) without a real broken install.
+ */
+const fixtureParam = new URLSearchParams(window.location.search).get('fixture');
+const firstRunFixture = fixtureParam === 'firstrun';
+/**
+ * `?fixture=onboarding` is a healthy install whose guide has not been dismissed yet.
+ *
+ * The opposite of `firstrun`: here everything works, so the guide should show *five* steps (no
+ * container instructions) and open on the provider step. Both paths need to be reachable in a
+ * browser, or only one of them ever gets looked at.
+ */
+const onboardingFixture = fixtureParam === 'onboarding';
 const OUTAGE_ENDPOINT: Instance = {
   id: 'pi:studio',
   label: 'Studio Mac',
@@ -1689,10 +1706,32 @@ let settings: EmberSettings = {
   openSessions: [],
   activeSession: null,
   minimizedSessions: [],
-  piEndpoints: [{ id: ENDPOINT_ID, label: 'ember-harness (mock)', url: ENDPOINT.url ?? '', token: 'mock-token' }],
+  piEndpoints: firstRunFixture
+    ? []
+    : [
+        {
+          // The onboarding fixture reports this as the local harness, so `localReady` is true and the
+          // guide shows its five-step, connected-here path. Every other fixture keeps `pi:hearth`, so
+          // the ordinary mock is a *remote* host — which is what the rest of the suite expects.
+          id: onboardingFixture ? 'pi:local' : ENDPOINT_ID,
+          label: onboardingFixture ? 'This computer' : 'ember-harness (mock)',
+          url: ENDPOINT.url ?? '',
+          token: 'mock-token',
+        },
+      ],
   // The mock stands in for an app that started its own harness, so Settings → Instances → This
-  // computer has something to show and rotate in a plain browser.
-  localHarnessCanRotate: true,
+  // computer has something to show and rotate in a plain browser. The first-run fixture is the
+  // opposite: a harness that did not start, so the guide's failure copy is what a person sees.
+  localHarnessCanRotate: !firstRunFixture,
+  // `onboardedAt` is what suppresses the guide on an existing install; the fixture omits it.
+  ...(onboardingFixture ? { onboardingDismissedAt: undefined, onboardedAt: undefined } : {}),
+  localHarnessState: firstRunFixture
+    ? {
+        kind: 'failed',
+        notice:
+          'The local agent server did not start: it did not answer on 127.0.0.1:3002 within 20s. You can still add a host in Settings → Instances. Log: ~/.ember/kiln.log',
+      }
+    : { kind: 'started', url: 'http://127.0.0.1:3002', notice: null },
   remoteAccessEnabled: false,
   remotePasswordConfigured: false,
 };
@@ -1703,7 +1742,13 @@ let mockHarnessToken = 'amber-anchor-brisk-copper';
 export const bridge: EmberBridge = {
   appName: 'Ember',
   capabilities: { dockIcon: false },
-  listInstances: async () => (outageFixture ? [ENDPOINT, OUTAGE_ENDPOINT] : [ENDPOINT]),
+  listInstances: async () => {
+    if (firstRunFixture) return [];
+    if (outageFixture) return [ENDPOINT, OUTAGE_ENDPOINT];
+    // The onboarding fixture reports the mock as the *local* host, so the id has to match the
+    // endpoint it is listed from; a mismatch reads as one working remote and no local host.
+    return [onboardingFixture ? { ...ENDPOINT, id: 'pi:local', label: 'This computer' } : ENDPOINT];
+  },
   getSettings: async () => settings,
   localHarnessToken: async (options?: { rotate?: boolean }) => {
     if (options?.rotate) {

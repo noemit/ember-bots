@@ -1,3 +1,41 @@
+## 1.6.0
+
+### Added — a first-run guide
+Ember used to open onto an empty Home and leave you to work out that an instance existed, that it
+needs a token, and that a model provider is a separate thing again. There is now a guide that tells
+that story once, in order: what Ember and Kiln are (with a blob), whether a harness is running on
+this computer, the token in plain words, an optional step for a container or server, giving the
+instance a model, and starting a first agent.
+
+It is **adaptive**: a working install on one computer sees five steps and never the container
+instructions, and its token step is a single "Show it" button. It appears when **nothing works** —
+no local harness *and* no remote answering — which is not the same as "first launch". An install
+that has ever had a working host records `onboardedAt` and is never shown the guide, so upgrading
+does not lecture anyone who has been using Ember for months. Esc and "Skip for now" work from every
+step; it can be reopened from Settings.
+
+### Added — local runtimes, and NVIDIA
+- **Ollama** and **LM Studio** are providers now, with no account and no key. Both are probed on
+  boot: a stopped runtime is not offered, and `GET /providers` reports why — *"Ollama is not
+  answering at 127.0.0.1:11434 — is it running?"* is a different fix from *"it answered, but not
+  with an Ollama model list"*, which means upgrade it.
+- **NVIDIA** (`NVIDIA_API_KEY`) is registered alongside the other keyed providers.
+
+### Fixed
+- **A local harness is always listed.** It only appeared when *this launch* started it, and the
+  disk fallback was skipped whenever the settings file held any endpoint — so a machine with Kiln
+  installed and one remote endpoint showed no local instance at all. `attached` hosts now list too;
+  rotation stays limited to hosts Ember started.
+- **Settings → Instances no longer flickers.** The token row replaced itself with its spinner on
+  every parent render, because the loader was a fresh `.bind()` each time and sat in a dependency
+  array. It is pinned now, and the spinner only shows when there is nothing to display yet.
+- **Comments were never truncated — the box was too small.** The reply field was a 24px single-line
+  input that scrolled horizontally, so anything past the visible width looked lost. It is a growing
+  textarea.
+- **Unread messages show a dot on the bubble** they belong to, top-right, and it clears with the
+  floating "Mark as read".
+- `localHarnessCanRotate` is no longer written to `settings.json`.
+
 ## 1.5.3
 
 ### Fixed

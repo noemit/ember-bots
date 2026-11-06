@@ -605,6 +605,23 @@ export type EmberSettings = {
   };
   /** Whether the local harness's token can be rotated by this app (see `LocalHarnessToken`). */
   localHarnessCanRotate?: boolean;
+  /**
+   * When the first-run guide was dismissed, or `undefined` if it has not been.
+   *
+   * A timestamp rather than a boolean so "they dismissed it in March" is answerable, and so a
+   * migration can decide which installs predate the guide entirely (see `onboardedAt`).
+   */
+  onboardingDismissedAt?: number;
+  /**
+   * When this install first had a *working* host — written once, by `main.ts`, the first time an
+   * instance probes healthy.
+   *
+   * This is the flag that keeps the guide away from existing installs. Without it, upgrading to the
+   * build that introduced the guide would show it to every existing user on their next launch:
+   * their local harness is attached (or was never enabled), so `needsOnboarding` is true, and the
+   * guide appears over a workspace they have used for months.
+   */
+  onboardedAt?: number;
   /** True when the settings file could not be read and was moved aside. */
   settingsRecovered: boolean;
 };

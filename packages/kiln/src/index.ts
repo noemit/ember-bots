@@ -113,7 +113,7 @@ const main = async (): Promise<void> => {
   const token = ensureToken(config);
 
   const storage = await openNodeSqliteStorage(config.databasePath);
-  const { models, seeded, store } = await hearthModels(join(config.home, "auth.json"));
+  const { models, seeded, store, localRuntimes } = await hearthModels(join(config.home, "auth.json"));
   // Restore the last dynamic catalogs before recovered work resumes, but do no network I/O here:
   // a slow provider must not keep /health down. The network refresh starts after the server listens.
   const restored = await models.refresh({ allowNetwork: false }).catch((error: unknown) => {
@@ -217,6 +217,10 @@ const main = async (): Promise<void> => {
     version: hearthVersion(process.cwd()),
     build: hearthBuild(process.cwd()),
     restart,
+    // Reported by `GET /providers` so a client can explain a missing local runtime instead of
+    // showing an empty list: "Ollama is running but has no models" is not the same fix as
+    // "LM Studio is not answering", and neither is a missing credential.
+    localRuntimes,
   });
   server = started;
 

@@ -449,8 +449,16 @@ export default function ReadingSheet({
                   <span className="truncate text-[10.5px] text-muted-foreground">
                     “{shortenQuote(comment.quote, 90)}”
                   </span>
+                  {/* Scrolls rather than clamps: `line-clamp-2` reads as "the rest was cut off",
+                      and this tray has no editor to open, so the text had nowhere to be seen in
+                      full. The whole reply is also in the title, for a glance. */}
                   {comment.reply ? (
-                    <span className="line-clamp-2 text-foreground">{comment.reply}</span>
+                    <span
+                      className="max-h-16 overflow-y-auto whitespace-pre-wrap text-foreground"
+                      title={comment.reply}
+                    >
+                      {comment.reply}
+                    </span>
                   ) : null}
                 </span>
                 <button

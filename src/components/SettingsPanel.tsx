@@ -773,7 +773,7 @@ export default function SettingsPanel({
                   <LocalTokenSettings
                     canRotate={settings.localHarnessCanRotate === true}
                     {...(window.ember.localHarnessToken
-                      ? { loadToken: window.ember.localHarnessToken.bind(window.ember) }
+                      ? { loadToken: window.ember.localHarnessToken }
                       : {})}
                     onRefreshInstances={onRefreshInstances}
                   />

@@ -3,6 +3,7 @@ import { Check, Copy, Eye, EyeOff, Loader2, RefreshCw, ShieldAlert } from 'lucid
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { copyText } from '@/lib/clipboard';
+import { useStableCallback } from '@/lib/useStableCallback';
 import type { LocalHarnessToken } from '../types';
 
 type Props = {
@@ -44,11 +45,22 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
   const [confirming, setConfirming] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Pin `loadToken` so an unstable function identity from the parent (`.bind()`, an inline arrow)
+  // can never re-trigger the initial read on every parent render — that was the bug where the row
+  // flashed nonstop between `••••••••` and "Reading it from the harness…".
+  const hasLoadToken = Boolean(loadToken);
+  const runLoadToken = useStableCallback(
+    (options?: { rotate?: boolean }): Promise<LocalHarnessToken> => {
+      if (!loadToken) return Promise.reject(new Error('loadToken is unavailable'));
+      return loadToken(options);
+    }
+  );
+
   React.useEffect(() => {
-    if (!loadToken) return;
+    if (!hasLoadToken) return;
     let cancelled = false;
     setBusy('load');
-    void loadToken()
+    void runLoadToken()
       .then((answer) => {
         if (cancelled) return;
         setState(answer);
@@ -63,7 +75,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
     return () => {
       cancelled = true;
     };
-  }, [loadToken]);
+  }, [hasLoadToken, runLoadToken]);
 
   const copy = async () => {
     if (!state?.token) return;
@@ -81,12 +93,12 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
   };
 
   const rotate = async () => {
-    if (!loadToken) return;
+    if (!hasLoadToken) return;
     setConfirming(false);
     setBusy('rotate');
     setError(null);
     try {
-      const answer = await loadToken({ rotate: true });
+      const answer = await runLoadToken({ rotate: true });
       setState(answer);
       setRevealed(true);
       if (!answer.ok) setError(answer.reason ?? "The harness didn't accept a new token.");
@@ -109,7 +121,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
         {state?.url ? <span className="truncate text-[11px] text-muted-foreground">{state.url}</span> : null}
       </div>
 
-      {busy === 'load' ? (
+      {busy === 'load' && !state ? (
         <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
           <Loader2 className="size-3 animate-spin" /> Reading it from the harness…
         </span>

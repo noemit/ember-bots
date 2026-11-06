@@ -2,6 +2,7 @@ import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { springTransition } from '@/lib/animation';
 import { sendCommentsLabel, type TranscriptComment } from '@/lib/comments';
@@ -81,12 +82,19 @@ export default function CommentTray({
                     <X />
                   </Button>
                 </div>
-                <input
+                {/* A growing textarea, not a one-line input.
+                    The input was 24px high and scrolled horizontally, so a reply longer than the
+                    visible width looked like it had been cut off — every character was there, just
+                    out of sight, and coming back to the row showed a single line of it. There is no
+                    character limit on a comment; the box was the bug. */}
+                <AutoResizeTextarea
                   value={comment.reply}
                   onChange={(event) => onChangeReply(comment.id, event.target.value)}
                   placeholder="What should the agent do about this?"
                   aria-label={`Reply to the quoted segment: ${comment.quote.slice(0, 60)}`}
-                  className="h-6 w-full rounded border border-input bg-background px-1.5 text-[11.5px] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/30"
+                  rows={1}
+                  maxHeight={140}
+                  className="w-full rounded border border-input bg-background px-1.5 py-1 text-[11.5px] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/30"
                 />
               </motion.li>
             ))}

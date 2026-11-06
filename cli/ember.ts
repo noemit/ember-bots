@@ -193,6 +193,7 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       `Environment="EMBER_HOME=${opts.homeDir}"`,
       `Environment="HEARTH_HOME=${opts.homeDir}"`,
       `Environment="PORT=${opts.port}"`,
+      `Environment="HEARTH_WORKSPACE=${opts.workspaceDir}"`,
       `ExecStart=/usr/bin/env bun run ${entryScript}`,
       'Restart=on-failure',
       'RestartSec=3',

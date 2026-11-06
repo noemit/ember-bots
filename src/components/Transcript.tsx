@@ -1327,7 +1327,9 @@ const renderBlock = (
   streaming?: boolean,
   overlay?: React.ReactNode,
   onReasoningToggle?: (element: HTMLElement | null) => void,
-  onOpenImage?: (image: ViewerImage) => void
+  onOpenImage?: (image: ViewerImage) => void,
+  /** An unread badge pinned to this bubble's top-right corner (assistant messages only). */
+  unreadBadge?: React.ReactNode
 ) => {
   const mine = message.role === 'user';
   if (block.type === 'text') {
@@ -1369,6 +1371,7 @@ const renderBlock = (
             <Markdown text={block.text} />
           </React.Suspense>
         )}
+        {unreadBadge}
         {overlay}
       </motion.div>
     );
@@ -1434,6 +1437,13 @@ type MessageRowProps = {
   showCost: boolean;
   /** The floating "Mark as read" control is pointing at this message: it wears the accent tint. */
   markTint?: boolean;
+  /**
+   * This message is not read yet, so it wears a dot in its bubble's top-right corner.
+   *
+   * Per message, not per session: the sheet and Home already speak in unread *messages*, and a
+   * transcript that says "unread" with a floating button alone made you guess which turns those were.
+   */
+  unread?: boolean;
   /** The message just marked, which flashes as confirmation. */
   flashId?: string | null;
   showMessageDetails: boolean;
@@ -1658,6 +1668,7 @@ const MessageRow = React.memo(function MessageRow({
   toolDisplay,
   showCost,
   markTint,
+  unread = false,
   flashId,
   showMessageDetails,
   showBuddy,
@@ -1721,6 +1732,23 @@ const MessageRow = React.memo(function MessageRow({
    * control, nudged 2px right of where the pair sat so it reads as centred over the card's edge
    * rather than tight against it.
    */
+  /**
+   * The unread dot, pinned to the assistant's bubble corner.
+   *
+   * It sits on the message element rather than in the margin (where it was clipped by the scroll
+   * area and then moved into a floating button) — that is the thing it describes, so it belongs on
+   * it. `pointer-events-none` keeps it out of the way of selecting text and of the Copy control
+   * beside it; it is an indicator, never a control.
+   */
+  const unreadBadge = !unread ? undefined : (
+    <span
+      aria-hidden="true"
+      data-unread-dot=""
+      title="Unread"
+      className="pointer-events-none absolute -top-1 -right-1 size-2.5 rounded-full bg-highlight ring-2 ring-background"
+    />
+  );
+
   const renderGutter = (horizontalClass: string) =>
     copyable ? (
       <div className={cn('absolute top-1 flex translate-x-0.5 flex-col gap-1', horizontalClass)}>
@@ -1775,7 +1803,8 @@ const MessageRow = React.memo(function MessageRow({
             streaming,
             index === textBlockIndex ? renderGutter('-right-6') : undefined,
             onReasoningToggle,
-            viewer ? openImage : undefined
+            viewer ? openImage : undefined,
+            index === textBlockIndex ? unreadBadge : undefined
           );
         })}
         {/* Folded tool display: every foldable call in this message becomes one line, with the usual
@@ -2442,6 +2471,7 @@ function Transcript({
                 toolDisplay={toolDisplay}
                 showCost={showCost}
                 markTint={markHovered && markTarget?.id === message.id}
+                unread={isMessageRead(readMark, entryOrdinal(message.id), message.completedAt ?? message.createdAt ?? 0) === false && message.role === 'assistant'}
                 flashId={flashId}
                 showMessageDetails={showMessageDetails}
                 showBuddy={showAvatars && !turnPending && message.id === lastAssistantId}

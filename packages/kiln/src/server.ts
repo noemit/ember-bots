@@ -88,6 +88,7 @@ import {
 } from "./scheduler";
 import type { HearthConfig } from "./config";
 import type { HearthDefault } from "./models";
+import type { LocalRuntimeProbe } from "./local-models";
 import { sendFrame } from "./stream";
 import { attachFrames, framesOf } from "./frames";
 import { createStreamLimiter, STREAM_LIMITS } from "./streamLimit";
@@ -116,6 +117,11 @@ type Deps = {
   build?: string;
   /** Graceful self-restart for `POST /admin/restart`; the host's supervisor brings Hearth back. */
   restart?: (reason: string) => void;
+  /**
+   * The boot-time probe of the local runtimes (Ollama, LM Studio), reported by `GET /providers`.
+   * Optional so a test can build a server without touching loopback.
+   */
+  localRuntimes?: readonly LocalRuntimeProbe[];
   /**
    * The host's process table and memory. Production leaves this out; a test passes a fake so the
    * routes can be exercised without depending on what is running on the machine under test.
@@ -706,7 +712,7 @@ const scheduledTaskRefusal = (body: Record<string, unknown>): string => {
 
 /** Start the Hearth wire: authenticated HTTP for lists and actions, WebSockets for streams. */
 export const startHearthServer = (deps: Deps): HearthServer => {
-  const { config, token, storage, harness, models, defaultAgent, store, version, build, restart } = deps;
+  const { config, token, storage, harness, models, defaultAgent, store, version, build, restart, localRuntimes } = deps;
   // The host's process table and memory, injectable for tests (see `Deps.processes`).
   const scan = deps.processes?.scan ?? scanLeftovers;
   const memory = deps.processes?.memory ?? hostMemory;
@@ -1346,7 +1352,10 @@ const server = Bun.serve<{
                 : null,
           };
         });
-        return json({ providers, default: defaultAgent.model });
+        // Local runtimes are described even when absent: "Ollama is running but has no models" and
+        // "LM Studio is not answering" are the two things a picker cannot say by itself, and the
+        // difference between them is what tells someone whether to install a model or start an app.
+        return json({ providers, default: defaultAgent.model, ...(localRuntimes ? { localRuntimes } : {}) });
       }
       // Copy credentials out of OpenCode's store (once), so Hearth no longer depends on it.
       if (request.method === "POST" && path === "/providers/import") {

@@ -630,10 +630,27 @@ export type EmberSettings = {
    * this is the fact the UI must render, so a toggle can never claim "On" over an unbound socket.
    */
   remoteAccessState?: RemoteAccessState;
+  /** When the first-run guide was dismissed; absent means it was not. */
+  onboardingDismissedAt?: number;
+  /** When this install first had a working host. Existing installs carry it, so no upgrade is lectured. */
+  onboardedAt?: number;
   /** True when `settings.json` was unreadable and was moved aside; the user should be told. */
   settingsRecovered?: boolean;
   /** Whether this app started the local harness, and can therefore give it a new token. */
   localHarnessCanRotate?: boolean;
+  /**
+   * What the bundled harness is doing, as main reported it on the last settings read.
+   *
+   * Process-local and read-only, like `remoteAccessState`. The first-run guide uses it for the one
+   * thing the instance list cannot say: *why* the local host is missing. Mirrors
+   * `LocalHarnessState.kind` plus the notice sentence.
+   */
+  localHarnessState?: {
+    kind: 'attached' | 'started' | 'restarted' | 'disabled' | 'missing' | 'failed';
+    url?: string;
+    version?: string;
+    notice: string | null;
+  };
 };
 
 /**

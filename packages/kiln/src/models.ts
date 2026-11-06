@@ -8,6 +8,7 @@ import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { fireworksProvider } from "@earendil-works/pi-ai/providers/fireworks";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { nvidiaProvider } from "@earendil-works/pi-ai/providers/nvidia";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import { openCodeZenWithDiscovery } from "./model-discovery";
 import {
@@ -20,6 +21,7 @@ import {
   type MoonshotCatalogEntry,
 } from "./kimi";
 import { orcarouterModel, orcarouterOptions, routerLimits, type RouterCatalogEntry } from "./orcarouter";
+import { lmStudioProvider, ollamaProvider, probeLocalRuntimes, type LocalRuntimeProbe } from "./local-models";
 
 export type HearthDefault = { model: { provider: string; modelId: string } };
 
@@ -207,7 +209,17 @@ export const hearthDefault = (): HearthDefault => {
 export const hearthModels = async (
   authFile: string,
   openCodeSource?: string
-): Promise<{ models: Models; seeded: string[]; store: FileCredentialStore }> => {
+): Promise<{
+  models: Models;
+  seeded: string[];
+  store: FileCredentialStore;
+  /**
+   * What the local-runtime probe found at boot (Ollama, LM Studio). Not a model list: it is the
+   * reason a runtime is *absent* from the picker, so a status screen can say "Ollama is running but
+   * has no models" instead of leaving an empty list to interpret.
+   */
+  localRuntimes: LocalRuntimeProbe[];
+}> => {
   const store = new FileCredentialStore(authFile);
   // Retired the env bridge: instead of copying OpenCode's keys into the environment, adopt them
   // into Hearth's own store on first boot (idempotent, no-clobber) so a device that hasn't run
@@ -226,6 +238,10 @@ export const hearthModels = async (
   models.setProvider(openCodeZenWithDiscovery());
   models.setProvider(xaiProvider());
   models.setProvider(openaiProvider());
+  // NVIDIA's NIM catalogue is free at the point of signup and rotates models regularly (a free model
+  // appears and is retired without notice), so it is registered the same way every keyed provider is:
+  // listed always, offered only once a credential resolves.
+  models.setProvider(nvidiaProvider());
   models.setProvider(deepseekProvider());
   models.setProvider(googleProvider());
   models.setProvider(fireworksProvider());
@@ -236,5 +252,14 @@ export const hearthModels = async (
   }
   const router = orcarouterProvider();
   if (router) models.setProvider(router);
-  return { models, seeded, store };
+  // Local runtimes have no account, so "registered" cannot mean "has a credential" — it means
+  // something is listening right now. A probe is local and cheap (loopback, 1.5s), and doing it
+  // here is what keeps a stopped Ollama out of the picker instead of offering models that would
+  // fail on send. The results ride along so `/providers` can explain *why* one is missing.
+  const localRuntimes = await probeLocalRuntimes();
+  for (const runtime of localRuntimes) {
+    if (!runtime.running || !runtime.hasModels) continue;
+    models.setProvider(runtime.id === "ollama" ? ollamaProvider({ baseUrl: runtime.baseUrl }) : lmStudioProvider({ baseUrl: runtime.baseUrl }));
+  }
+  return { models, seeded, store, localRuntimes };
 };

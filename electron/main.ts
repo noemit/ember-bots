@@ -42,7 +42,7 @@ import * as dataDir from './dataDir';
 import {
   canManageLocalToken,
   defaultHarnessHome,
-  isManagedHarness,
+  localHarnessEndpoint,
   generateHarnessToken,
   harnessTokenOnDisk,
   LOCAL_HARNESS_PORT,
@@ -386,6 +386,10 @@ ipcMain.handle('ember:local-harness-token', async (event, options: { rotate?: bo
   };
 });
 
+/** A stored timestamp, or undefined. Kept strict so a `0` or a string never counts as "dismissed". */
+const positiveNumberOrUndefined = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+
 const readEmberSettings = (): EmberSettings => {
   const root = readEmberSettingsFile();
   // Older builds stored one theme per instance; fall back to the first of those.
@@ -434,29 +438,44 @@ const readEmberSettings = (): EmberSettings => {
         : null,
     minimizedSessions: parseStringArray(root.minimizedSessions),
     piEndpoints: (() => {
-      // The harness this app started is merged in by `piEndpoints()`, so an explicit entry for the
-      // same address wins and nothing is duplicated in the file. Here only the pre-existing case is
-      // handled: settings that have never held a `piEndpoints` array at all discover a local token.
       const configured = parsePiEndpoints(root.piEndpoints);
-      if (configured.length > 0 || Array.isArray(root.piEndpoints)) return configured;
-      const discovered = discoverLocalPiEndpoint(
-        (tokenPath) => {
-          try {
-            return fs.readFileSync(tokenPath, 'utf8');
-          } catch {
-            return undefined;
-          }
-        },
-        os.homedir(),
-        process.env
+      const discovered: PiEndpoint[] =
+        configured.length > 0 || Array.isArray(root.piEndpoints)
+          ? configured
+          : (() => {
+              // Settings that never held a `piEndpoints` array at all: seed from whatever the CLI or
+              // a previous install already wrote to disk, so an upgrade has a host on first paint.
+              const found = discoverLocalPiEndpoint(
+                (tokenPath) => {
+                  try {
+                    return fs.readFileSync(tokenPath, 'utf8');
+                  } catch {
+                    return undefined;
+                  }
+                },
+                os.homedir(),
+                process.env
+              );
+              return found ? [found] : [];
+            })();
+      // The local harness is merged the same way the instance list merges it: relabelled if an entry
+      // for its address exists, added in front otherwise. Returning only `configured` here is what
+      // left Settings → Instances and Settings → Providers without "This computer" whenever the file
+      // happened to hold a remote endpoint.
+      return mergeLocalHarnessEndpoint(discovered, localHarnessEndpointInfo(root)).map((endpoint) =>
+        // `mergeLocalHarnessEndpoint` only invents a label for a *new* entry; a discovered one keeps
+        // its own ("Local"). The UI calls this host "This computer" everywhere else, so say the same
+        // thing here rather than letting the two spellings leak into a selector.
+        endpoint.id === 'pi:local' && endpoint.label === 'Local' ? { ...endpoint, label: 'This computer' } : endpoint
       );
-      return discovered ? [discovered] : [];
     })(),
     remoteAccessEnabled: root.remoteAccessEnabled === true,
     remotePasswordConfigured: typeof root.remotePasswordHash === 'string' && root.remotePasswordHash.length > 0,
     remoteAccessState: remoteListenerState,
     localHarnessEnabled: root.localHarnessEnabled !== false,
     localHarnessCanRotate: canManageLocalToken(localHarnessState),
+    onboardingDismissedAt: positiveNumberOrUndefined(root.onboardingDismissedAt),
+    onboardedAt: positiveNumberOrUndefined(root.onboardedAt),
     localHarnessState: localHarnessReport(),
     settingsRecovered: settingsRecoveredFrom !== null,
   };
@@ -472,6 +491,11 @@ const persistedSettings = (settings: EmberSettings): Record<string, unknown> => 
     remoteAccessState: _state,
     settingsRecovered: _recovered,
     localHarnessState: _harness,
+    // Whether *this launch* can rotate the harness's token. Written by 1.5.0–1.5.3 because this
+    // function did not know about it, so files in the wild carry `localHarnessCanRotate: false` and
+    // read back as if the person had chosen it. Dropped here, and ignored on read (it is derived on
+    // every `getSettings`), so an existing file heals on the next save.
+    localHarnessCanRotate: _canRotate,
     ...persisted
   } = settings;
   return persisted;
@@ -533,6 +557,8 @@ const probeHealth = async (url: string, headers: Record<string, string>): Promis
   return 'down';
 };
 
+/** Set once this launch has checked (and possibly written) `onboardedAt`. */
+let onboardedStamped = false;
 let instanceSnapshot: Instance[] = [];
 let probeGeneration = 0;
 const loadInstances = async (refresh = true): Promise<Instance[]> => {
@@ -622,6 +648,41 @@ const loadInstances = async (refresh = true): Promise<Instance[]> => {
       broadcast({ instanceId: '*', type: 'ember:instances-updated' });
     }
   };
+
+  /**
+   * Stamp `onboardedAt` the first time anything answers.
+   *
+   * The guide asks "is this install set up?", and for someone upgrading from a build that had no
+   * guide the honest answer is *yes* — they have been using Ember for months. Their local harness
+   * may be attached, or turned off in favour of a container that is currently asleep, so the live
+   * state cannot tell the difference between them and a first launch.
+   *
+   * So it is recorded once, when a host actually answers, and read forever after. Writing from main
+   * (rather than letting a window claim it) is what stops a stale renderer from suppressing the
+   * guide on a genuinely fresh install.
+   */
+  const noteOnboarded = (): void => {
+    if (onboardedStamped) return;
+    const root = readJson(emberSettingsPath());
+    if (positiveNumberOrUndefined(root.onboardedAt)) {
+      onboardedStamped = true;
+      return;
+    }
+    if (!candidates.some((candidate) => candidate.instance.status === 'ready' || candidate.instance.attachable)) return;
+    onboardedStamped = true;
+    try {
+      root.onboardedAt = Date.now();
+      fs.writeFileSync(emberSettingsPath(), `${JSON.stringify(root, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      // The renderer reads settings on its own schedule; a hint costs one broadcast and saves it
+      // from showing the guide for a frame after the first healthy probe.
+      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+    } catch (error) {
+      // Not fatal: the guide reads `onboardedAt` on the next launch instead. A settings file we
+      // cannot write is already reported elsewhere.
+      console.warn('[ember] could not record onboardedAt:', error instanceof Error ? error.message : error);
+    }
+  };
+  noteOnboarded();
   instanceSnapshot = candidates.map(({ instance }) => {
     if (instance.status === 'checking') instance.attachable = previous.get(instance.id)?.attachable ?? false;
     return instance;
@@ -729,6 +790,24 @@ const piClient = new PiClient(
     return ids;
   }
 );
+/** Where the bundled harness keeps its data; the token on disk is read from here. */
+const harnessHome = (): string => emberHome;
+
+/**
+ * Whether a local harness should be listed, and under which token.
+ *
+ * Kept as one function because two callers must agree: `readEmberSettings()` (what Settings →
+ * Instances and any settings round-trip see) and `piEndpoints()` (what the instance list probes).
+ * They disagreed before, and the visible symptom was a settings file holding one remote endpoint
+ * and no local row — the local harness was attached rather than started, so neither path listed it.
+ */
+const localHarnessEndpointInfo = (root?: Record<string, unknown>): { url: string; token: string } | null =>
+  localHarnessEndpoint({
+    state: localHarnessState,
+    enabled: (root ?? readJson(emberSettingsPath())).localHarnessEnabled !== false,
+    home: harnessHome(),
+  });
+
 /**
  * The endpoints Ember talks to: the configured ones, plus the harness this app started.
  *
@@ -738,12 +817,7 @@ const piClient = new PiClient(
  * rule itself lives in `localHarness.ts` so it can be tested without a settings file.
  */
 const piEndpoints = (): PiEndpoint[] =>
-  mergeLocalHarnessEndpoint(
-    readEmberSettings().piEndpoints,
-    // `restarted` counts: a rotated harness is still the one on this port, holding the token that is
-    // on disk. Leaving it out made the host disappear from the rail the moment it was re-tokened.
-    isManagedHarness(localHarnessState) ? { url: localHarnessState.url, token: localHarnessState.token } : null
-  );
+  mergeLocalHarnessEndpoint(readEmberSettings().piEndpoints, localHarnessEndpointInfo());
 
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>
   Promise.all(
@@ -975,6 +1049,15 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   }
   if (value.minimizedSessions !== undefined) settings.minimizedSessions = parseStringArray(value.minimizedSessions);
   if (value.piEndpoints !== undefined) settings.piEndpoints = parsePiEndpoints(value.piEndpoints);
+  // The guide's dismissal is the person's decision, so a patch may set it. `onboardedAt` is not:
+  // that one records a fact main observed (a host answered), and a client claiming it would let a
+  // stale window suppress the guide on a genuinely fresh install.
+  if (value.onboardingDismissedAt !== undefined) {
+    settings.onboardingDismissedAt =
+      typeof value.onboardingDismissedAt === 'number' && Number.isFinite(value.onboardingDismissedAt) && value.onboardingDismissedAt > 0
+        ? value.onboardingDismissedAt
+        : undefined;
+  }
   // Persisted (unlike the process-local state beside it): turning the bundled harness off has to
   // survive a relaunch, or the next launch would start it again and ask the same question twice.
   if (value.localHarnessEnabled !== undefined) {

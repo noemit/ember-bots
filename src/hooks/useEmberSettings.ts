@@ -40,6 +40,8 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   remotePasswordConfigured: false,
   remoteAccessState: { status: 'off', attempts: 0, changedAt: 0 },
   settingsRecovered: false,
+  onboardingDismissedAt: undefined as number | undefined,
+  onboardedAt: undefined as number | undefined,
 };
 
 type Options = {

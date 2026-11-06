@@ -244,6 +244,34 @@ export const writeHarnessToken = (home: string, token: string): void => {
 export const canManageLocalToken = (state: LocalHarnessState): boolean =>
   state.kind === 'started' || state.kind === 'restarted';
 
+/**
+ * The local harness as an endpoint, or null when there is nothing to list.
+ *
+ * This is the function that decides whether "This computer" exists in the UI, so it answers for the
+ * two ways a local host becomes real: a state that is answering, or — when nothing has answered yet
+ * in this launch — a token already on disk. The second case matters more than it looks: the first
+ * `getSettings()` call lands before `startLocalHarness` has finished, and returning null there left
+ * Settings → Instances empty on exactly the launch where someone is looking at it.
+ *
+ * `localHarnessEnabled: false` means the person turned the bundled host off; this then returns null
+ * and settings-only endpoints stand alone.
+ */
+export const localHarnessEndpoint = (options: {
+  state: LocalHarnessState;
+  enabled: boolean;
+  home: string;
+  readToken?: () => string | undefined;
+}): { url: string; token: string } | null => {
+  if (!options.enabled) return null;
+  if (isActiveHarness(options.state)) {
+    return { url: options.state.url, token: options.state.token };
+  }
+  const read = options.readToken ?? (() => readHarnessToken(options.home));
+  const token = read()?.trim();
+  if (!token) return null;
+  return { url: `http://127.0.0.1:${LOCAL_HARNESS_PORT}`, token };
+};
+
 /** How long a stop-and-restart is allowed to take before it is reported as a failure. */
 export const HARNESS_RESTART_TIMEOUT_MS = 45_000;
 
@@ -438,7 +466,28 @@ const sameAddress = (a: string, b: string): boolean => a.replace(/\/+$/, '') ===
  * entry for the same address is **relabelled, not duplicated**: the person's own name survives and
  * the running host's token wins, because it is the one that will answer.
  */
-/** Every state whose token this app knows and may show: the ones it started itself. */
+/**
+ * Every state where a harness on this computer is answering and we hold its token.
+ *
+ * Three states, and the third is the one that used to fall through the list entirely:
+ *
+ * - `started` and `restarted` — we spawned it, so its token is ours to show and rotate.
+ * - `attached` — it was already running when Ember launched (a `tinder setup --service` install, a
+ *   container, a second window). Its lifecycle is not ours, so `canManageLocalToken` says no — but
+ *   it is still **a host on this computer with a readable token**, and leaving it out of the
+ *   endpoint list was the bug the owner hit: their settings held one remote endpoint, the local
+ *   harness was attached rather than started, and Ember showed no local instance at all.
+ */
+export const isActiveHarness = (state: LocalHarnessState): state is Extract<LocalHarnessState, { token: string }> =>
+  state.kind === 'started' || state.kind === 'restarted' || state.kind === 'attached';
+
+/**
+ * The narrower question: may this app give the host a *new* token?
+ *
+ * `attached` is the difference. That harness was already running when Ember launched — a service
+ * install, a container, another window — so stopping and restarting it is not ours to do. It is
+ * still `isActiveHarness` (listed, authenticated, usable), just not ours to re-key.
+ */
 export const isManagedHarness = (state: LocalHarnessState): state is Extract<LocalHarnessState, { token: string }> =>
   state.kind === 'started' || state.kind === 'restarted';
 

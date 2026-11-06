@@ -96,6 +96,7 @@ import {
 } from '@/lib/compaction';
 import { crewCostOf, crewCostState } from '@/lib/crewCost';
 import { reconcileOutageDismissals, silentInstances, type SilentInstance } from '@/lib/instanceHealth';
+import { needsOnboarding, type OnboardingState } from '@/lib/onboarding';
 import { ReadCoordinator } from '@/lib/readCoordinator';
 import { shareValue } from '@/lib/structuralSharing';
 import { TranscriptCache } from '@/lib/transcriptCache';
@@ -189,6 +190,7 @@ import type {
 } from './types';
 
 const SettingsPanel = React.lazy(() => import('./components/SettingsPanel'));
+const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard'));
 
 const HomeView = React.lazy(() => import('./components/HomeView'));
 const ReadingSheet = React.lazy(() => import('./components/ReadingSheet'));
@@ -1012,6 +1014,75 @@ export default function App() {
       setTranscriptFor(key, next, 'ready');
     }
   };
+
+  /**
+   * The first-run guide.
+   *
+   * Derived from what is actually true — a local harness that answers, or another host that does —
+   * rather than from "have sessions ever existed". `onboardedAt` is the migration: an install that
+   * has ever had a working host is set up, whatever this launch looks like, so upgrading to the
+   * build that introduced the guide does not lecture someone who has used Ember for months.
+   */
+  /**
+   * The folder root agents start in.
+   *
+   * Read from the local instance's own report where possible; the wizard shows it rather than
+   * *choosing* it, because Kiln already resolves `/workspace` on a container and `~/workspace`
+   * elsewhere, and a second opinion here would only disagree with the harness.
+   */
+  const workspaceRoot: string | null = React.useMemo(() => {
+    const local = settings.piEndpoints.find((endpoint) => endpoint.id === 'pi:local');
+    if (local?.url) return null; // a URL is not a folder; the hint falls back to the generic sentence
+    return null;
+  }, [settings.piEndpoints]);
+
+  const onboardingState: OnboardingState = React.useMemo(() => {
+    const localView = settings.localHarnessState;
+    const localEndpoint = instances.find((instance) => instance.id === 'pi:local');
+    const localReady = localEndpoint?.status === 'ready';
+    const remoteReady = instances.some((instance) => instance.id !== 'pi:local' && instance.status === 'ready');
+    const target =
+      localEndpoint?.status === 'ready'
+        ? localEndpoint.id
+        : instances.find((instance) => instance.status === 'ready')?.id ?? null;
+    return {
+      localReady,
+      canRotate: settings.localHarnessCanRotate === true,
+      remoteReady,
+      targetInstanceId: target,
+      // A harness that answered is also "ready" before the instance list catches up; the state
+      // written by the launcher is the earlier signal and avoids a flash of the failure copy.
+      ...(localView?.kind === 'started' || localView?.kind === 'restarted' || localView?.kind === 'attached'
+        ? {}
+        : {}),
+    };
+  }, [instances, settings.localHarnessCanRotate, settings.localHarnessState]);
+
+  /**
+   * The dev fixture that walks the *connected* path.
+   *
+   * `?fixture=onboarding` describes a working install whose guide has not been dismissed, which is a
+   * state `needsOnboarding` deliberately says "no" to (a working host means set up). The fixture
+   * exists so that path can be seen in a browser at all, so it overrides only the readiness part.
+   */
+  const onboardingFixture =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fixture') === 'onboarding';
+
+  const onboardingOpen =
+    settingsLoaded &&
+    !settings.onboardedAt &&
+    !settings.onboardingDismissedAt &&
+    (onboardingFixture || needsOnboarding(onboardingState, settings.onboardingDismissedAt));
+
+  /** What the wizard reports when the local harness did not start; null when it did. */
+  const onboardingProblem =
+    settings.localHarnessState && !onboardingState.localReady
+      ? settings.localHarnessState.notice ?? null
+      : null;
+
+  const dismissOnboarding = React.useCallback(() => {
+    handleSettings({ onboardingDismissedAt: Date.now() }, { preserveActionError: true });
+  }, [handleSettings]);
 
   const readyIds = React.useMemo(
     () => instances.filter((instance) => instance.attachable).map((instance) => instance.id),
@@ -5607,6 +5678,30 @@ export default function App() {
                 {...(providerEndpointId ? { providerEndpointId } : {})}
                 onRefreshInstances={() => void refreshInstances()}
                 onRefreshModels={(id) => void refreshModels(id)}
+              />
+            </React.Suspense>
+          ) : null}
+
+          {onboardingOpen ? (
+            <React.Suspense fallback={null}>
+              <OnboardingWizard
+                open={onboardingOpen}
+                state={onboardingState}
+                localProblem={onboardingProblem}
+                instances={instances}
+                endpoints={settings.piEndpoints}
+                workspaceRoot={workspaceRoot}
+                onDismiss={dismissOnboarding}
+                onRetryLocal={() => void refreshInstances()}
+                onRefreshInstances={() => void refreshInstances()}
+                onChange={handleSettings}
+                onStartAgent={({ instanceId, directory }) => {
+                  dismissOnboarding();
+                  beginNewAgent(instanceId, directory ?? undefined);
+                }}
+                {...(window.ember.localHarnessToken
+                  ? { loadToken: window.ember.localHarnessToken }
+                  : {})}
               />
             </React.Suspense>
           ) : null}

@@ -8,7 +8,9 @@ import {
   bundledBinaryPath,
   canManageLocalToken,
   generateHarnessToken,
+  isActiveHarness,
   isManagedHarness,
+  localHarnessEndpoint,
   writeHarnessToken,
   defaultHarnessHome,
   HARNESS_START_TIMEOUT_MS,
@@ -511,5 +513,81 @@ describe('a rotated harness stays addressable', () => {
 
   test('a restarted harness has nothing to warn about', () => {
     expect(localHarnessNotice({ kind: 'restarted', url: 'http://127.0.0.1:3002', token: 't' })).toBeNull();
+  });
+});
+
+/**
+ * Whether a local harness is *listed* is a different question from whether its token may be rotated.
+ *
+ * The owner's settings file made the difference visible: one remote endpoint, a local harness that
+ * was `attached` (already running before Ember launched), and no local row anywhere in the UI. The
+ * endpoint list only counted `started`/`restarted`, so "This computer" simply did not exist — on a
+ * machine where Kiln was running perfectly. These pin both halves.
+ */
+describe('a local harness is listed whenever it is answering', () => {
+  test('attached hosts are active (listed) but not managed (rotatable)', () => {
+    const attached = { kind: 'attached' as const, url: 'http://127.0.0.1:3002', token: 'from-disk' };
+    expect(isActiveHarness(attached)).toBe(true);
+    // Not ours to restart: `tinder setup --service` (or a container) owns its lifecycle.
+    expect(canManageLocalToken(attached)).toBe(false);
+    expect(isManagedHarness(attached)).toBe(false);
+  });
+
+  test('started and restarted hosts are both', () => {
+    for (const state of [
+      { kind: 'started' as const, url: 'http://127.0.0.1:3002', token: 'a' },
+      { kind: 'restarted' as const, url: 'http://127.0.0.1:3002', token: 'b' },
+    ]) {
+      expect(isActiveHarness(state)).toBe(true);
+      expect(canManageLocalToken(state)).toBe(true);
+    }
+  });
+
+  test('a state with no host in it is neither', () => {
+    expect(isActiveHarness({ kind: 'disabled' })).toBe(false);
+    expect(isActiveHarness({ kind: 'failed', reason: 'nope' })).toBe(false);
+    expect(isActiveHarness({ kind: 'missing', binaryPath: '/x/kiln' })).toBe(false);
+  });
+
+  test('the endpoint is the running host, whatever kind of running it is', () => {
+    const home = tempDir();
+    writeHarnessToken(home, 'on-disk');
+    // An attached host answers on its own token, which wins over what happens to be on disk.
+    expect(
+      localHarnessEndpoint({
+        state: { kind: 'attached', url: 'http://127.0.0.1:3002', token: 'answering' },
+        enabled: true,
+        home,
+      })
+    ).toEqual({ url: 'http://127.0.0.1:3002', token: 'answering' });
+  });
+
+  test('before anything answers, a token on disk is still a listable host', () => {
+    const home = tempDir();
+    writeHarnessToken(home, 'apple-venison-rainbow-copper');
+    // This is the first `getSettings()` of a launch: `startLocalHarness` has not settled yet, and
+    // returning null here is what left Settings → Instances empty on the launch someone looks at.
+    expect(localHarnessEndpoint({ state: { kind: 'disabled' }, enabled: true, home })).toEqual({
+      url: 'http://127.0.0.1:3002',
+      token: 'apple-venison-rainbow-copper',
+    });
+  });
+
+  test('nothing to list: turned off, or no token anywhere', () => {
+    const home = tempDir();
+    writeHarnessToken(home, 'present');
+    expect(localHarnessEndpoint({ state: { kind: 'started', url: 'http://127.0.0.1:3002', token: 't' }, enabled: false, home })).toBeNull();
+    const empty = tempDir();
+    expect(localHarnessEndpoint({ state: { kind: 'disabled' }, enabled: true, home: empty })).toBeNull();
+  });
+
+  test('a configured remote endpoint and the local harness both survive the merge', () => {
+    // The owner's file exactly: one remote, no local entry.
+    const merged = mergeLocalHarnessEndpoint(
+      [{ id: 'pi:heliograph', label: 'heliograph', url: 'http://100.66.91.124:3002/', token: 'remote' }],
+      { url: 'http://127.0.0.1:3002', token: 'local' }
+    );
+    expect(merged.map((entry) => entry.id)).toEqual(['pi:local', 'pi:heliograph']);
+    expect(merged[0]?.label).toBe('This computer');
   });
 });

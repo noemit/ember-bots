@@ -37,6 +37,7 @@ export const PROVIDER_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
   opencode: ["OPENCODE_API_KEY"],
   xai: ["XAI_API_KEY"],
   openai: ["OPENAI_API_KEY"],
+  nvidia: ["NVIDIA_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY"],
   google: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
   fireworks: ["FIREWORKS_API_KEY"],
