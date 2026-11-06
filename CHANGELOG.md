@@ -24,6 +24,19 @@ step; it can be reopened from Settings.
   to two thirds of the window.
 - **Sending resets the size.** The height was about the message that just left, not the next one.
 
+### Added — subscription sign-in, and the providers it needed
+- **Sign in with ChatGPT Plus/Pro**, **Meta**, and **OpenRouter** now have buttons on the providers
+  page. They were absent for a dull reason: the providers were never registered, so `/providers`
+  could not offer them, so no button could be drawn — "how do I log in to my ChatGPT account" had
+  the answer "you can't, that provider isn't listed".
+- **A flow that only asks *how* to sign in is now answerable.** ChatGPT and Radius ask "browser or
+  device code" before starting; Hearth answers **device code**, which is the branch that works with
+  no browser and no callback server. Any other question is still refused, because an invented answer
+  either rejects the flow or silently picks a default.
+- **Anthropic** and **GitHub Copilot** are listed with a sentence instead of a button: Claude needs a
+  code pasted back from the browser and Copilot needs a host choice, and neither can be collected
+  here. A dead button is worse than an explanation.
+
 ### Added — local runtimes, and NVIDIA
 - **Ollama** and **LM Studio** are providers now, with no account and no key. Both are probed on
   boot: a stopped runtime is not offered, and `GET /providers` reports why — *"Ollama is not

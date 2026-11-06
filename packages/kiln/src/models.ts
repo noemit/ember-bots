@@ -9,6 +9,11 @@ import { fireworksProvider } from "@earendil-works/pi-ai/providers/fireworks";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { nvidiaProvider } from "@earendil-works/pi-ai/providers/nvidia";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
+import { metaProvider } from "@earendil-works/pi-ai/providers/meta";
+import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import { openCodeZenWithDiscovery } from "./model-discovery";
 import {
@@ -242,6 +247,14 @@ export const hearthModels = async (
   // appears and is retired without notice), so it is registered the same way every keyed provider is:
   // listed always, offered only once a credential resolves.
   models.setProvider(nvidiaProvider());
+  // Subscription providers, registered so their **sign-in buttons exist at all**: `/providers` can
+  // only offer what is registered, so "why is there no ChatGPT button" was really "the provider was
+  // never listed". Which ones can *finish* is decided in `login.ts` (`CAN_COMPLETE`, `OBSTRUCTIONS`).
+  models.setProvider(anthropicProvider());
+  models.setProvider(openaiCodexProvider());
+  models.setProvider(githubCopilotProvider());
+  models.setProvider(metaProvider());
+  models.setProvider(openrouterProvider());
   models.setProvider(deepseekProvider());
   models.setProvider(googleProvider());
   models.setProvider(fireworksProvider());

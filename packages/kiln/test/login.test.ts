@@ -259,6 +259,61 @@ describe('which flows Hearth offers', () => {
     expect(loginSupport('kimi-coding')).toEqual({ supported: true });
   });
 
+  /**
+   * A subscription flow whose only question is "browser or device code" is answerable: on a host with
+   * no browser the human would choose the device branch anyway, so Hearth chooses it. Before this, the
+   * ChatGPT Plus/Pro row had no button at all and the answer to "how do I sign in" was "you can't".
+   */
+  test('a flow that only asks which method is offered, and takes the device branch', async () => {
+    expect(loginSupport('openai-codex')).toEqual({ supported: true });
+    let chosen: string | null = null as string | null;
+    const provider: LoginProvider = {
+      id: 'openai-codex',
+      oauth: {
+        loginLabel: 'Sign in with ChatGPT',
+        async login(interaction) {
+          const answer = await interaction.prompt({
+            type: 'select',
+            message: 'Select OpenAI Codex login method:',
+            options: [
+              { id: 'browser', label: 'Browser login (default)' },
+              { id: 'device', label: 'Device code login (headless)' },
+            ],
+          });
+          chosen = answer;
+          interaction.notify({ type: 'device_code', userCode: 'ABCD', verificationUri: 'https://example.test' } as never);
+          return { type: 'oauth', refresh: 'r', access: 'a', expires: Date.now() + 60_000 };
+        },
+      },
+    };
+    const persist = () => {};
+    const supervisor = createLoginSupervisor(() => provider, persist);
+    supervisor.start('openai-codex');
+    await Promise.resolve();
+    await Promise.resolve();
+    // The device branch, not the browser one — the browser path needs a callback server a container
+    // may not have.
+    expect(chosen).toBe('device');
+  });
+
+  test('a question that is not a method choice is still refused', async () => {
+    const provider: LoginProvider = {
+      id: 'anthropic',
+      oauth: {
+        loginLabel: 'Sign in',
+        async login(interaction) {
+          await interaction.prompt({ type: 'manual_code', message: 'Paste the code from the browser' });
+          return { type: 'oauth', refresh: 'r', access: 'a', expires: Date.now() + 60_000 };
+        },
+      },
+    };
+    // Not offered at all, so the refusal never even reaches the prompt.
+    const support = loginSupport('anthropic');
+    expect(support.supported).toBe(false);
+    expect(support.supported ? '' : support.reason).toMatch(/paste/i);
+    expect(provider.oauth).toBeDefined();
+  });
+
   test('a flow that needs an installation id and a pasted code is not offered, and says why', () => {
     const openai = loginSupport('openai');
     expect(openai.supported).toBe(false);

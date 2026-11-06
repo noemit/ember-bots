@@ -30,7 +30,19 @@ export type LoginEvent =
   | { type: "info"; message: string }
   | { type: "progress"; message: string };
 
-export type LoginPrompt = { type?: string; message: string; placeholder?: string };
+/**
+ * A question a flow asks mid-sign-in.
+ *
+ * `options` carries the choices of a `select` prompt; a flow that asks one can be answered by
+ * `chooseHeadlessMethod` (see below), while text/secret/manual-code prompts cannot be answered at all
+ * without a human typing.
+ */
+export type LoginPrompt = {
+  type?: string;
+  message: string;
+  placeholder?: string;
+  options?: ReadonlyArray<{ id: string; label: string }>;
+};
 
 /**
  * - `pending`: waiting on the human; `events` may already hold the device code.
@@ -84,13 +96,40 @@ export type LoginSupport = { supported: true } | { supported: false; reason: str
  * button on screen that can only fail, with a message nobody can act on. Verified rather than
  * inferred: a flow absent from this list is not offered until someone runs it to completion.
  */
-export const CAN_COMPLETE: ReadonlySet<string> = new Set(["xai", "kimi-coding"]);
+/**
+ * The subscription flows Hearth can finish.
+ *
+ * `xai` and `kimi-coding` are device-code flows that ask nothing. `openai-codex` (ChatGPT Plus/Pro)
+ * and `radius` ask a single question — browser or device code — which `chooseHeadlessMethod` answers
+ * with the device branch. `anthropic` and `github-copilot` are excluded by `OBSTRUCTIONS`: they need a
+ * pasted-back code and a host choice respectively, and an offer that fails halfway is worse than a
+ * sentence explaining why it is not offered.
+ */
+export const CAN_COMPLETE: ReadonlySet<string> = new Set([
+  "xai",
+  "kimi-coding",
+  "openai-codex",
+  "radius",
+  // Both ask nothing at all: a browser round-trip that reports its own result.
+  "meta",
+  "openrouter",
+]);
 export const VERIFIED_FLOWS = CAN_COMPLETE;
 
-/** Why a known flow is not offered, in words the person reading the refusal can use. */
+/**
+ * Why a known flow is not offered, in words the person reading the refusal can use.
+ *
+ * Only flows that genuinely cannot complete belong here. A flow whose *only* question is a choice of
+ * method is not obstructed — see `chooseHeadlessMethod` — because defaulting it is exactly what a
+ * person would answer on a server with no browser.
+ */
 const OBSTRUCTIONS: Record<string, string> = {
+  anthropic:
+    "Claude's sign-in opens a browser and then asks you to paste back the code it shows there. Hearth can show you a code but cannot ask for one, so this flow cannot finish here yet. Paste an Anthropic API key instead.",
   openai:
     "Sign in with ChatGPT needs an installation id and a code pasted back from the browser, and Hearth cannot ask you for the code yet. Paste a ChatGPT API key for openai instead.",
+  "github-copilot":
+    "GitHub Copilot's sign-in asks which host and organisation to authenticate against, and Hearth cannot ask you that. Paste a Copilot token instead.",
 };
 
 export const loginSupport = (providerId: string): LoginSupport =>
@@ -118,8 +157,25 @@ export const credentialTypeOf = (credential: unknown): string =>
  * than answer `""` — an empty answer is not "no answer", it is a wrong answer that rejects the flow
  * (ChatGPT's code exchange) or silently chooses a default (GitHub Copilot's domain).
  */
-const unanswerable = async (prompt: LoginPrompt): Promise<string> => {
-  throw new Error(`This provider's sign-in asks "${prompt.message}", and Hearth has no way to ask you for it.`);
+/**
+ * Answer the one kind of prompt a headless flow can answer on the human's behalf.
+ *
+ * Several subscription flows ask *how* to sign in before they start — browser or device code. Hearth
+ * runs on a machine whose user may have no browser (a container, a remote box), and the device-code
+ * branch is the one that works there without a callback server, so that is the branch taken. Any
+ * other question is still refused: an invented answer is worse than a refusal, because it either
+ * rejects the flow (ChatGPT's code exchange) or silently picks a default (Copilot's domain).
+ */
+const DEVICE_CODE_LABELS = /device\s*code|headless|another device/i;
+
+const chooseHeadlessMethod = async (prompt: LoginPrompt): Promise<string> => {
+  if (prompt.type === "select" && Array.isArray(prompt.options)) {
+    const match = prompt.options.find((option) => DEVICE_CODE_LABELS.test(option.label) || DEVICE_CODE_LABELS.test(option.id));
+    if (match) return match.id;
+  }
+  throw new Error(
+    `This provider's sign-in asks "${prompt.message}", and Hearth has no way to ask you for it.`
+  );
 };
 
 export const createLoginSupervisor = (
@@ -213,7 +269,7 @@ export const createLoginSupervisor = (
             notify: (event) => {
               if (owns()) state.events.push(event);
             },
-            prompt: unanswerable,
+            prompt: chooseHeadlessMethod,
           },
           { agentName: "Hearth" }
         );
