@@ -86,6 +86,12 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     expect(introduction).not.toMatch(/\b(instance|harness|GUI|credential|NAS|durable)\b/i);
     expect(introduction).toMatch(/Ember.*direct|direct.*Ember/s);
     expect(introduction).toMatch(/Kiln.*work/s);
+    const textSizes = await diagram.locator('div, p, figcaption').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
+    expect(textSizes.every(size => size >= 16)).toBe(true);
+    const introTextSizes = await otherWindow.getByTestId('onboarding').locator('p').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
+    expect(introTextSizes.every(size => size >= 16)).toBe(true);
+    const emberWeight = await otherWindow.locator('strong').filter({ hasText: /^Ember$/ }).evaluate(node => parseInt(getComputedStyle(node).fontWeight));
+    expect(emberWeight).toBeGreaterThanOrEqual(600);
     await otherWindow.screenshot({ path: test.info().outputPath('onboarding-diagram.png') });
     await otherWindow.getByRole('button', { name: /Where to run Kiln/ }).click();
     await expect(otherWindow.getByText('Connected to this computer', { exact: true })).toBeVisible();

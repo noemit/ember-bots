@@ -1,3 +1,9 @@
+## 1.6.7
+
+### Fixed
+- Setup uses 16px text instead of 10–15px copy, with larger introduction headings, a roomier dialog
+  and wrapping step descriptions. The Ember metaphor uses bold emphasis instead of italics.
+
 ## 1.6.6
 
 ### Changed
