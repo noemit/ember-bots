@@ -290,11 +290,16 @@ export const listWindowsProcesses = (options: { run?: (script: string) => string
 /**
  * Every process on a macOS host, via `ps` — one call, cached by the caller.
  */
-export const listPosixProcesses = (options: { run?: () => string } = {}): ProcessRow[] => {
+export const listPosixProcesses = (options: { run?: () => string; now?: () => number } = {}): ProcessRow[] => {
+  const now = options.now ?? Date.now;
   const run =
     options.run ??
     (() =>
-      execFileSync("ps", ["-axo", "pid=,ppid=,rss=,command="], {
+      // `etime` is elapsed time, formatted `[[dd-]hh:]mm:ss`. It is portable across BSD `ps` (macOS)
+      // and procps (Linux), which `lstart` is not, and it is what makes `startedAt` meaningful here:
+      // without it every row carried 0, so a leftover could not be aged, and the pid-reuse guard
+      // (`|current.startedAt - recorded| > 2s`) never engaged on this platform at all.
+      execFileSync("ps", ["-axo", "pid=,ppid=,rss=,etime=,command="], {
         encoding: "utf8",
         timeout: 5_000,
         maxBuffer: 16 * 1024 * 1024,
@@ -309,19 +314,21 @@ export const listPosixProcesses = (options: { run?: () => string } = {}): Proces
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(trimmed);
+    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+([0-9:-]+)\s+(.*)$/.exec(trimmed);
     if (!match) continue;
     const pid = Number(match[1]);
     const ppid = Number(match[2]);
     const rssKb = Number(match[3]);
-    const command = briefCommand(match[4] ?? "");
+    const elapsedMs = parseElapsed(match[4] ?? "");
+    const command = briefCommand(match[5] ?? "");
     if (!Number.isSafeInteger(pid) || pid <= 0) continue;
     rows.push({
       pid,
       ppid: Number.isSafeInteger(ppid) ? ppid : 0,
       command,
       rssBytes: Number.isFinite(rssKb) && rssKb > 0 ? rssKb * 1024 : 0,
-      startedAt: 0,
+      // Approximate by design: `etime` is whole seconds, which is why the reuse guard allows 2s.
+      startedAt: elapsedMs === null ? 0 : now() - elapsedMs,
     });
   }
   return rows;
@@ -329,7 +336,32 @@ export const listPosixProcesses = (options: { run?: () => string } = {}): Proces
 
 export const listNonLinuxProcesses = (): ProcessRow[] =>
   process.platform === "win32" ? listWindowsProcesses() : listPosixProcesses();
-/** `/Date(1712345678901)/` (WMI) or `2026-11-04T15:44:43Z` (CIM JSON) to epoch ms. */
+/**
+ * `ps` elapsed time (`[[dd-]hh:]mm:ss`) to milliseconds, or null when it does not parse.
+ *
+ * Null rather than 0 so a future `ps` that formats this differently degrades to "unknown age"
+ * instead of claiming every process started at the epoch.
+ */
+export const parseElapsed = (raw: string): number | null => {
+  const value = raw.trim();
+  if (!value) return null;
+  const days = /^(\d+)-(\d+):(\d+):(\d+)$/.exec(value);
+  const hours = /^(\d+):(\d+):(\d+)$/.exec(value);
+  const minutes = /^(\d+):(\d+)$/.exec(value);
+  const [d, h, m, s] =
+    days !== null
+      ? [Number(days[1]), Number(days[2]), Number(days[3]), Number(days[4])]
+      : hours !== null
+        ? [0, Number(hours[1]), Number(hours[2]), Number(hours[3])]
+        : minutes !== null
+          ? [0, 0, Number(minutes[1]), Number(minutes[2])]
+          : [null, null, null, null];
+  if (d === null || h === null || m === null || s === null) return null;
+  if ([d, h, m, s].some((part) => !Number.isFinite(part))) return null;
+  return ((d * 24 + h) * 60 * 60 + m * 60 + s) * 1000;
+};
+
+/** `/Date(1712345678901)/` (WMI) or `2025-11-04T15:44:43Z` (CIM JSON) to epoch ms. *//** `/Date(1712345678901)/` (WMI) or `2026-11-04T15:44:43Z` (CIM JSON) to epoch ms. */
 export const windowsTimeToMs = (raw: string): number => {
   const wmi = /\/Date\((\d+)\)\//.exec(raw);
   if (wmi?.[1] !== undefined) return Number(wmi[1]);
@@ -363,7 +395,13 @@ export class CommandWatch {
   }) {
     this.#conversationId = options.conversationId;
     this.#selfPid = options.selfPid ?? process.pid;
-    this.#intervalMs = options.intervalMs ?? 1_500;
+    // 250ms, not 1500ms. A command like `sleep 60 & echo started` returns in tens of milliseconds,
+    // so a poll on a 1.5s timer only ever ran *after* the command had finished — and by then the
+    // child had been reparented away from Hearth, so `attached()` was false and nothing was seen.
+    // Measured on macOS: the note never appeared, and the scan found no leftovers, for exactly this
+    // command. On Linux this class is not used at all (see `leftovers.ts`), which is why the bug
+    // only ever showed up there.
+    this.#intervalMs = options.intervalMs ?? 250;
     this.#list = options.list;
   }
 
@@ -391,6 +429,16 @@ export class CommandWatch {
     this.#timer = setInterval(() => this.#poll(), this.#intervalMs);
     this.#timer.unref?.();
     return () => this.#stop();
+  }
+
+  /**
+   * Whether this watch ever saw the process table with a child still attached.
+   *
+   * Used by `scanLeftovers` to decide whether the ledger is the *only* record: if the watch never
+   * observed anything, "no leftovers" means "we did not look in time", not "there were none".
+   */
+  get sawAny(): boolean {
+    return this.#seen.size > 0;
   }
 
   #stop(): void {
