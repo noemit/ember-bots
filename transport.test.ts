@@ -155,6 +155,19 @@ test('Hearth endpoints are namespaced with pi: and migrate older ids', () => {
   expect(endpoints.some((endpoint) => endpoint.id === 'local')).toBe(false);
 });
 
+test('the same Hearth saved twice is one endpoint, whatever it is called', () => {
+  // A duplicated address is not a cosmetic settings problem: every stream is a mount on the host,
+  // so a second entry opens a second full watch set and holds every open conversation twice. The
+  // entry that was there first keeps its label and token.
+  const endpoints = parsePiEndpoints([
+    { id: 'pi:heliograph', label: 'Heliograph', url: 'http://100.66.124.73:3002/', token: 'a'.repeat(64) },
+    { id: 'pi:heliograph-tailnet', label: 'Heliograph (tailnet)', url: 'http://100.66.124.73:3002', token: 'a'.repeat(64) },
+    { id: 'pi:localhost', label: 'Same host, local address', url: 'http://127.0.0.1:3002', token: 'b'.repeat(64) },
+  ]);
+  expect(endpoints.map((endpoint) => endpoint.id)).toEqual(['pi:heliograph', 'pi:localhost']);
+  expect(endpoints[0].label).toBe('Heliograph');
+});
+
 test('discovers local harness token from ~/.ember, ~/.hearth, or EMBER_HOME / HEARTH_HOME', () => {
   expect(localHarnessTokenPaths('/home/alex', {})).toEqual([
     '/home/alex/.ember/ember.token',

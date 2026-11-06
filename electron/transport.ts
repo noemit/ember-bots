@@ -136,6 +136,16 @@ export type PiEndpoint = {
 export const parsePiEndpoints = (value: unknown, limit = 20): PiEndpoint[] => {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
+  /**
+   * One Hearth, one endpoint. Two entries for the same address are the same host, whatever they are
+   * called: a settings file migrated from before ids were namespaced, or a machine saved once under
+   * its tailnet name and once under `127.0.0.1`. Keeping both doubles the mount set on the host
+   * (every stream is a mount, so every open conversation is held twice), and a third entry triples
+   * it — which is how one client came to hold ~4600 connections on a host it was meant to watch 64
+   * conversations of. The first entry wins, since it is the one whose label and token the reader
+   * has been looking at.
+   */
+  const seenHosts = new Set<string>();
   const out: PiEndpoint[] = [];
   for (const entry of value) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
@@ -148,7 +158,10 @@ export const parsePiEndpoints = (value: unknown, limit = 20): PiEndpoint[] => {
     const url = parseHttpUrl(typeof raw.url === 'string' ? raw.url : '')?.toString();
     const token = typeof raw.token === 'string' && raw.token.length > 0 && raw.token.length <= 4096 ? raw.token : undefined;
     if (!id || id === 'pi:' || seen.has(id) || !url || !token) continue;
+    const host = url.toString();
+    if (seenHosts.has(host)) continue;
     seen.add(id);
+    seenHosts.add(host);
     out.push({ id, label, url, token });
     if (out.length >= limit) break;
   }

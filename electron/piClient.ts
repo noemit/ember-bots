@@ -40,6 +40,16 @@ const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
  */
 export const RECENT_WATCHED_CONVERSATIONS = 16;
 export const MAX_WATCHED_CONVERSATIONS = 64;
+/**
+ * Ceiling on the sockets this client holds for one endpoint: the watch set plus the task stream.
+ *
+ * Subscriptions are one socket each, so this should never bind — which is the point. Every stream
+ * is a mount on the host, and a client that leaks sockets takes the host's descriptor table down
+ * with it: on 2026-11-05 a client against Hearth held ~4600 open connections, and the host's
+ * `/health` started timing out before `systemd-oomd` killed it. A bug here must cost a retry, not
+ * the host, so the cap turns it into exactly one.
+ */
+export const MAX_SOCKETS_PER_ENDPOINT = MAX_WATCHED_CONVERSATIONS + 2;
 const CONNECT_TIMEOUT_MS = 20_000;
 
 export type WatchableConversation = {
@@ -259,17 +269,28 @@ export class PiClient {
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   /** Open sockets per endpoint, so liveness is "any socket up" rather than one special socket. */
   private readonly openSockets = new Map<string, number>();
+  /**
+   * Sockets held per endpoint, counting the ones still connecting. This is the number
+   * `MAX_SOCKETS_PER_ENDPOINT` bounds, and it is deliberately separate from `openSockets`: a
+   * socket that never finishes its handshake costs the host a descriptor without ever counting as
+   * open, which is how a leak stays invisible to liveness.
+   */
+  private readonly sockets = new Map<string, number>();
   /** Last liveness told to the renderer, so a change is announced exactly once. */
   private readonly live = new Map<string, boolean>();
+  private readonly maxSockets: number;
 
   constructor(
     broadcast: Broadcaster,
     resolveEndpoint?: (endpointId: string) => PiEndpoint | undefined,
-    resolveOpenIds?: (endpointId: string) => ReadonlySet<number>
+    resolveOpenIds?: (endpointId: string) => ReadonlySet<number>,
+    options: { maxSocketsPerEndpoint?: number } = {}
   ) {
     this.broadcast = broadcast;
     this.resolveEndpoint = resolveEndpoint;
     this.resolveOpenIds = resolveOpenIds;
+    // Injectable so the ceiling itself can be tested; the shipped value is the watch set's size.
+    this.maxSockets = Math.max(1, options.maxSocketsPerEndpoint ?? MAX_SOCKETS_PER_ENDPOINT);
   }
 
   /** Reconcile the endpoint set (settings may have changed) and refresh watches. */
@@ -465,6 +486,14 @@ export class PiClient {
     return Object.fromEntries(this.live);
   }
 
+  /**
+   * Sockets currently held for an endpoint, for tests and for a future status line. Kept in step
+   * with the cap in `subscribe`, so "more than the watch set" is visible before it is a flood.
+   */
+  socketCount(endpointId: string): number {
+    return this.sockets.get(endpointId) ?? 0;
+  }
+
   /** Subscribe to one conversation's events (idempotent); reconnects with backoff. */
   private watchConversation(endpointId: string, conversationId: number): void {
     const endpoint = this.endpoints.get(endpointId);
@@ -522,6 +551,19 @@ export class PiClient {
     const subscription: Subscription = { url, backoff: freshBackoff(), stopped: false };
     const connect = () => {
       if (subscription.stopped) return;
+      const held = this.sockets.get(endpointId) ?? 0;
+      if (held >= this.maxSockets) {
+        // Retry later rather than pile on. The watch set is already smaller than the cap, so being
+        // here means sockets are not being released — one more will not help and may be the one
+        // that takes the host down.
+        console.error(
+          `[ember] ${endpointId}: holding ${held} streams, at the ${this.maxSockets} cap — waiting before opening another.`
+        );
+        subscription.backoff = noteClosed(subscription.backoff);
+        subscription.timer = setTimeout(connect, reconnectDelay(subscription.backoff));
+        return;
+      }
+      this.sockets.set(endpointId, held + 1);
       const socket = new WebSocket(url);
       subscription.socket = socket;
       // Per-socket, so a stop before the socket ever opened cannot unbalance the endpoint's count.
@@ -550,6 +592,8 @@ export class PiClient {
           clearTimeout(connectTimer);
           connectTimer = undefined;
         }
+        // Released here, once per socket, whether or not it ever opened.
+        this.sockets.set(endpointId, Math.max(0, (this.sockets.get(endpointId) ?? 1) - 1));
         if (opened) {
           opened = false;
           this.setSocketOpen(endpointId, -1);

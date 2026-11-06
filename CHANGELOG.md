@@ -1,3 +1,23 @@
+## 1.0.1
+
+### Fixed
+- **A Hearth saved under two names is now one endpoint, not two watch sets.** `parsePiEndpoints`
+  de-duplicated by id only, so a settings file holding the same host as `http://100.66.124.73:3002/`
+  and `http://100.66.124.73:3002` — a migrated entry, or a machine saved once by tailnet name and
+  once by address — kept both. Each entry opens its own full set of conversation streams, and
+  every stream is a **mount** on the host, so a duplicate is not a wasted socket: it is a second
+  copy of every open conversation held in the host's memory. Endpoints now collapse by normalized
+  URL and the first entry keeps its label and token.
+- **`PiClient` has a ceiling on the sockets it holds for one endpoint** (`MAX_SOCKETS_PER_ENDPOINT`,
+  the watch set plus the task stream). Subscriptions are one socket each, so the cap should never
+  bind — which is the point: a client that leaks sockets takes the host's descriptor table with it.
+  On 2026-11-05 a client held thousands of connections to one Hearth, the host's `/health` went from
+  milliseconds to timing out, and `systemd-oomd` killed it four times in an hour. Now a socket that
+  would exceed the cap waits a backoff round instead of opening, and the count is released on every
+  close — opened, failed or timed out — so the number cannot drift across restarts. `socketCount()`
+  exposes it for tests and diagnostics, and the cap is injectable so the test can prove it binds
+  without wedging the watch set.
+
 ## 1.0.0
 
 ### Added

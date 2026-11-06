@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   framesToHints,
+  MAX_SOCKETS_PER_ENDPOINT,
+  MAX_WATCHED_CONVERSATIONS,
   PiClient,
   RECENT_WATCHED_CONVERSATIONS,
   selectWatchedConversationIds,
@@ -126,5 +128,91 @@ describe('the transport', () => {
     expect(watched).toContain(1000 - 120);
     // Archived conversation (idx 2) is excluded unless open or busy.
     expect(watched).not.toContain(1000 - 2);
+  });
+});
+
+/**
+ * A client may never hold more sockets for one host than its watch set justifies.
+ *
+ * On 2026-11-05 a 1.0.0 client held thousands of connections to one Hearth: the host's `/health`
+ * went from milliseconds to timing out, and `systemd-oomd` killed it four times in an hour. Whether
+ * that was a duplicate endpoint or a socket that never closed, the client had no ceiling of its
+ * own, so nothing stopped it. These pin the ceiling, and pin that it binds without wedging.
+ */
+describe('every socket a client opens is one the watch set asked for', () => {
+  const serve = (conversations: { id: number }[], onOpen?: () => void, onClose?: () => void) => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(request, srv) {
+        const { pathname } = new URL(request.url);
+        if (pathname === '/conversations') return Response.json({ conversations });
+        if (pathname.endsWith('/events') || pathname.endsWith('/tasks/stream')) {
+          if (!srv.upgrade(request, { data: {} })) return new Response('no upgrade', { status: 426 });
+          return undefined as unknown as Response;
+        }
+        return new Response('not found', { status: 404 });
+      },
+      websocket: { open: () => onOpen?.(), close: () => onClose?.(), message() {} },
+    });
+    return server;
+  };
+
+  test('the count never exceeds the cap, even across repeated restarts', async () => {
+    const server = serve(Array.from({ length: 80 }, (_, index) => ({ id: index + 1 })));
+    const client = new PiClient(() => {});
+    try {
+      await client.syncEndpoints([
+        { id: 'pi:test', label: 'Test', url: `http://127.0.0.1:${server.port}/`, token: 't'.repeat(64) },
+      ]);
+      // `restartAll` closes and reopens every socket, which is exactly where a count that is never
+      // released would drift up until the host drowned.
+      for (let round = 0; round < 5; round += 1) {
+        await Bun.sleep(150);
+        expect(client.socketCount('pi:test')).toBeLessThanOrEqual(MAX_SOCKETS_PER_ENDPOINT);
+        client.restartAll();
+      }
+      await Bun.sleep(150);
+      expect(client.socketCount('pi:test')).toBeLessThanOrEqual(MAX_SOCKETS_PER_ENDPOINT);
+      expect(MAX_SOCKETS_PER_ENDPOINT).toBeLessThanOrEqual(MAX_WATCHED_CONVERSATIONS + 2);
+
+      client.closeAll();
+      await Bun.sleep(150);
+      // Every socket is released when the client stops, so a window closing leaves the host nothing
+      // to carry.
+      expect(client.socketCount('pi:test')).toBe(0);
+    } finally {
+      client.closeAll();
+      server.stop(true);
+    }
+  });
+
+  test('the cap binds without wedging: a budget of 3 holds the line and still connects everything', async () => {
+    let live = 0;
+    let peak = 0;
+    const server = serve(
+      Array.from({ length: 80 }, (_, index) => ({ id: index + 1 })),
+      () => {
+        live += 1;
+        peak = Math.max(peak, live);
+      },
+      () => {
+        live -= 1;
+      }
+    );
+    const client = new PiClient(() => {}, undefined, undefined, { maxSocketsPerEndpoint: 3 });
+    try {
+      await client.syncEndpoints([
+        { id: 'pi:test', label: 'Test', url: `http://127.0.0.1:${server.port}/`, token: 't'.repeat(64) },
+      ]);
+      for (let round = 0; round < 4; round += 1) {
+        await Bun.sleep(100);
+        expect(client.socketCount('pi:test')).toBeLessThanOrEqual(3);
+      }
+      // Held to three at the host too, not merely reported as three.
+      expect(peak).toBeLessThanOrEqual(3);
+    } finally {
+      client.closeAll();
+      server.stop(true);
+    }
   });
 });
