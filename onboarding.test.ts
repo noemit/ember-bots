@@ -129,3 +129,11 @@ describe('workspaceHint', () => {
     expect(workspaceHint(null)).toContain('project');
   });
 });
+
+
+test('a new installation keeps onboarding when bundled Kiln is healthy, until explicitly dismissed', () => {
+  const ready = world({ localReady: true, canRotate: true });
+  expect(needsOnboarding(ready, undefined, 123)).toBe(true);
+  expect(needsOnboarding(ready, 456, 123)).toBe(false);
+  expect(needsOnboarding(ready, undefined)).toBe(false);
+});

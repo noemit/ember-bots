@@ -31,7 +31,7 @@ import {
 } from './transport';
 import { startRemoteServer } from './remoteServer';
 import { appendCompactLog } from './compactLog';
-import { quarantineCorruptSettings } from './settingsFile';
+import { initializeFirstRunSettings, quarantineCorruptSettings } from './settingsFile';
 import { RemoteListener, type StartOutcome } from './remoteListener';
 import { EventStreamManager, type EmberEvent, type StreamStatus } from './eventStream';
 import { hashRemotePassword, MAX_REMOTE_PASSWORD_LENGTH, MIN_REMOTE_PASSWORD_LENGTH, verifyRemotePassword } from './remoteAuth';
@@ -504,6 +504,7 @@ const readEmberSettings = (): EmberSettings => {
     remoteAccessState: remoteListenerState,
     localHarnessEnabled: root.localHarnessEnabled !== false,
     localHarnessCanRotate: canManageLocalToken(localHarnessState),
+    onboardingStartedAt: positiveNumberOrUndefined(root.onboardingStartedAt),
     onboardingDismissedAt: positiveNumberOrUndefined(root.onboardingDismissedAt),
     onboardedAt: positiveNumberOrUndefined(root.onboardedAt),
     localHarnessState: localHarnessReport(),
@@ -694,6 +695,7 @@ const loadInstances = async (refresh = true): Promise<Instance[]> => {
   const noteOnboarded = (): void => {
     if (onboardedStamped) return;
     const root = readJson(emberSettingsPath());
+    if (positiveNumberOrUndefined(root.onboardingStartedAt)) return;
     if (positiveNumberOrUndefined(root.onboardedAt)) {
       onboardedStamped = true;
       return;
@@ -1507,6 +1509,7 @@ app.on('second-instance', () => {
 });
 
 if (primaryInstance) app.whenReady().then(async () => {
+  initializeFirstRunSettings(emberSettingsPath(), path.join(emberHome, 'hearth.sqlite'));
   activityLog.start();
   // Start (or adopt) the harness this app ships before the window paints, so the first launch has a
   // host to show instead of an empty rail and instructions to go and find one.

@@ -1072,7 +1072,7 @@ export default function App() {
     settingsLoaded &&
     !settings.onboardedAt &&
     !settings.onboardingDismissedAt &&
-    (onboardingFixture || needsOnboarding(onboardingState, settings.onboardingDismissedAt));
+    (onboardingFixture || needsOnboarding(onboardingState, settings.onboardingDismissedAt, settings.onboardingStartedAt));
 
   /** What the wizard reports when the local harness did not start; null when it did. */
   const onboardingProblem =

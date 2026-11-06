@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /**
  * Keeps an unreadable settings file instead of letting the next save overwrite it.
@@ -21,5 +22,17 @@ export const quarantineCorruptSettings = (file: string, suffix = Date.now()): Qu
     return { ok: true, movedTo: target };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+
+/** Record a genuinely new install before Kiln creates its database or any settings are saved. */
+export const initializeFirstRunSettings = (file: string, database: string): void => {
+  if (fs.existsSync(file) || fs.existsSync(database)) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  try {
+    fs.writeFileSync(file, JSON.stringify({ onboardingStartedAt: Date.now() }) + '\n', { mode: 0o600, flag: 'wx' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
   }
 };

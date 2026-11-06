@@ -631,6 +631,8 @@ export type EmberSettings = {
    */
   remoteAccessState?: RemoteAccessState;
   /** When the first-run guide was dismissed; absent means it was not. */
+  /** A new installation still needs provider setup, even when its bundled Kiln is healthy. */
+  onboardingStartedAt?: number;
   onboardingDismissedAt?: number;
   /** When this install first had a working host. Existing installs carry it, so no upgrade is lectured. */
   onboardedAt?: number;

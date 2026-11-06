@@ -1,3 +1,10 @@
+## 1.6.2
+
+### Fixed
+- A genuinely fresh install shows provider setup even when its bundled Kiln starts successfully.
+  The guide stays available across reloads and restarts until dismissed; existing installations
+  retain their migration behavior.
+
 ## 1.6.1
 
 ### Fixed

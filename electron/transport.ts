@@ -611,6 +611,8 @@ export type EmberSettings = {
    * A timestamp rather than a boolean so "they dismissed it in March" is answerable, and so a
    * migration can decide which installs predate the guide entirely (see `onboardedAt`).
    */
+  /** A new installation still needs provider setup, even when its bundled Kiln is healthy. */
+  onboardingStartedAt?: number;
   onboardingDismissedAt?: number;
   /**
    * When this install first had a *working* host — written once, by `main.ts`, the first time an

@@ -48,7 +48,8 @@ export type OnboardingState = {
 /**
  * Whether the wizard should appear at all.
  *
- * The rule is **no functioning local instance, and nothing else working either** — not "first
+ * A marked fresh install keeps the guide until dismissal: a healthy Kiln still needs a provider.
+ * For older installs the rule is **no functioning local instance, and nothing else working either** — not "first
  * launch", and not "no sessions". Two reasons:
  *
  * - A person with a working container and no local harness is set up. Interrupting them with a
@@ -57,8 +58,9 @@ export type OnboardingState = {
  *   settings file holds ten remote endpoints. That was the state that motivated this: a settings
  *   file with one remote endpoint, a Kiln installed on the machine, and no local row anywhere.
  */
-export const needsOnboarding = (state: OnboardingState, dismissedAt: number | null | undefined): boolean => {
+export const needsOnboarding = (state: OnboardingState, dismissedAt: number | null | undefined, startedAt?: number): boolean => {
   if (dismissedAt) return false;
+  if (startedAt) return true;
   return !state.localReady && !state.remoteReady;
 };
 

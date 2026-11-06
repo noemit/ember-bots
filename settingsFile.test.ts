@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { quarantineCorruptSettings } from './electron/settingsFile';
+import { initializeFirstRunSettings, quarantineCorruptSettings } from './electron/settingsFile';
 import { parseStringArray } from './electron/transport';
 import { DEFAULT_SETTINGS } from './src/hooks/useEmberSettings';
 
@@ -106,4 +106,25 @@ test('a missing file is not a quarantine case', async () => {
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+
+test('only a genuinely empty install is marked for first-run setup', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ember-first-run-'));
+  const file = join(directory, 'settings.json');
+  const database = join(directory, 'hearth.sqlite');
+  try {
+    initializeFirstRunSettings(file, database);
+    const initial = await readFile(file, 'utf8');
+    expect(JSON.parse(initial).onboardingStartedAt).toBeGreaterThan(0);
+    initializeFirstRunSettings(file, database);
+    expect(await readFile(file, 'utf8')).toBe(initial);
+    await writeFile(file, '{"theme":"clay"}');
+    initializeFirstRunSettings(file, database);
+    expect(await readFile(file, 'utf8')).toBe('{"theme":"clay"}');
+    await rm(file);
+    await writeFile(database, 'existing database');
+    initializeFirstRunSettings(file, database);
+    expect(await readFile(file, 'utf8').catch(() => null)).toBeNull();
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

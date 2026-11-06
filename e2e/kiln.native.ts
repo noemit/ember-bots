@@ -72,6 +72,11 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
 
     other = await launch(otherHome);
     const otherEndpoint = await local(other);
+    const otherWindow = await other.firstWindow();
+    await expect(otherWindow.getByTestId('onboarding')).toBeVisible();
+    expect(await otherWindow.evaluate(async () => Boolean((await window.ember.getSettings()).onboardedAt))).toBe(false);
+    await otherWindow.reload();
+    await expect(otherWindow.getByTestId('onboarding')).toBeVisible();
     otherPid = JSON.parse(await readFile(join(otherHome, 'profile', 'ember-harness.lock'), 'utf8')).pid;
     expect(otherEndpoint.url).not.toBe(endpoint.url);
     expect(otherEndpoint.token).not.toBe(endpoint.token);
