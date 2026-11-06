@@ -1,3 +1,9 @@
+## 1.6.8
+
+### Changed
+- Setup fills the window instead of sitting inside a framed modal. Soft ember glows and blurred
+  lava/crystal blobs add atmosphere behind translucent reading surfaces; the 16px typography stays.
+
 ## 1.6.7
 
 ### Fixed

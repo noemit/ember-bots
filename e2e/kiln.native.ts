@@ -92,6 +92,14 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     expect(introTextSizes.every(size => size >= 16)).toBe(true);
     const emberWeight = await otherWindow.locator('strong').filter({ hasText: /^Ember$/ }).evaluate(node => parseInt(getComputedStyle(node).fontWeight));
     expect(emberWeight).toBeGreaterThanOrEqual(600);
+    const surface = await otherWindow.getByTestId('onboarding-surface').evaluate(node => {
+      const bounds = node.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height, viewportWidth: innerWidth, viewportHeight: innerHeight,
+        radius: getComputedStyle(node).borderRadius };
+    });
+    expect(surface.width).toBe(surface.viewportWidth);
+    expect(surface.height).toBe(surface.viewportHeight);
+    expect(surface.radius).toBe('0px');
     await otherWindow.screenshot({ path: test.info().outputPath('onboarding-diagram.png') });
     await otherWindow.getByRole('button', { name: /Where to run Kiln/ }).click();
     await expect(otherWindow.getByText('Connected to this computer', { exact: true })).toBeVisible();

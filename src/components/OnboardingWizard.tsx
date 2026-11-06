@@ -123,10 +123,19 @@ export default function OnboardingWizard({
       aria-modal="true"
       aria-labelledby="onboarding-title"
       data-testid="onboarding"
-      className="fixed inset-0 z-50 text-base [&_button]:text-base flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 isolate overflow-hidden bg-background text-base [&_button]:text-base"
     >
-      <div className="flex h-[min(90vh,920px)] w-[min(96vw,1200px)] flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl">
-        <div className="flex items-center justify-between gap-4 border-b px-5 py-3">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+        style={{ backgroundImage: 'radial-gradient(ellipse at 100% 0%, rgba(249,115,22,0.24), transparent 55%), radial-gradient(ellipse at 0% 100%, rgba(245,158,11,0.18), transparent 50%), radial-gradient(ellipse at 65% 75%, rgba(167,139,250,0.12), transparent 55%)' }}>
+        <div className="absolute -right-24 -top-24 rotate-12 opacity-30 blur-[48px]">
+          <Blob style="lava" seed="onboarding-fireglow" size={400} mood="idle" interactive={false} />
+        </div>
+        <div className="absolute -bottom-24 -left-20 -rotate-12 opacity-20 blur-[40px]">
+          <Blob style="crystal" seed="onboarding-crystalglow" size={340} mood="idle" interactive={false} />
+        </div>
+      </div>
+      <div data-testid="onboarding-surface" className="flex h-full w-full flex-col">
+        <div className="flex items-center justify-between gap-4 border-b border-border/60 bg-background/65 px-6 py-4 backdrop-blur-xl">
           <h2 id="onboarding-title" className="text-base font-semibold">
             Setting up Ember
           </h2>
@@ -143,7 +152,7 @@ export default function OnboardingWizard({
         <div className="flex min-h-0 flex-1">
           {/* The plan, not tabs: a tick means done, a dot means not yet, and a warning is the one
               step whose failure changes what the rest of the list means. */}
-          <ol className="flex w-[260px] flex-none flex-col gap-0.5 border-r bg-muted/20 p-2" aria-label="Setup steps">
+          <ol className="flex w-[260px] flex-none flex-col gap-0.5 border-r border-border/60 bg-background/45 p-3 backdrop-blur-xl" aria-label="Setup steps">
             {steps.map((entry: OnboardingStep, position) => {
               const mark = marks[entry.id];
               const Icon = stepIcon(entry.id);
@@ -180,8 +189,8 @@ export default function OnboardingWizard({
             })}
           </ol>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background/50">
+            <div className="min-h-0 flex-1 overflow-y-auto px-8 py-7">
               {step.id === 'welcome' ? <Welcome /> : null}
 
               {step.id === 'connection' ? (
@@ -217,7 +226,7 @@ export default function OnboardingWizard({
               ) : null}
             </div>
 
-            <div className="flex items-center gap-2 border-t px-5 py-3">
+            <div className="flex items-center gap-2 border-t border-border/60 bg-background/65 px-6 py-4 backdrop-blur-xl">
               <Button
                 size="sm"
                 variant="ghost"
@@ -294,7 +303,7 @@ function Welcome() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-4">
-        <div className="flex-none rounded-2xl bg-muted/40 p-2">
+        <div className="flex-none p-2">
           <Blob style="buddy" seed="onboarding" size={56} mood="thinking" interactive={false} />
         </div>
         <div className="flex flex-col gap-1">
