@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Bell, BellOff, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, ShieldCheck, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
+import { ArrowUp, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, ShieldCheck, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
 import { normalizeDirectory } from '../blob/seed';
 import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
@@ -1628,6 +1628,14 @@ function ChatView({
                 costUnknown={costShown && costState.kind === 'unknown'}
                 instructions={session && canEditInstructions ? knownInstructions ?? '' : undefined}
                 onEditInstructions={session && canEditInstructions ? openInstructions : undefined}
+                // A worker is hidden from Home, so a read mark on it is invisible: offering the
+                // switch there would be a control with no observable effect.
+                quiet={readMark?.quiet === true}
+                onQuietChange={
+                  session && onQuietChange && session.kind !== 'worker'
+                    ? (quietNext) => onQuietChange(session, quietNext)
+                    : undefined
+                }
               />
               {onMinimize || onArchive || onMarkAllRead || onQuietChange ? (
                 <div className="flex items-center gap-0.5">
@@ -1645,37 +1653,6 @@ function ChatView({
                       </TooltipTrigger>
                       <TooltipContent>
                         Mark everything read. Reading a session never marks it on its own.
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                  {onQuietChange && session ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => onQuietChange(session, !readMark?.quiet)}
-                          aria-pressed={readMark?.quiet === true}
-                          aria-label={
-                            readMark?.quiet
-                              ? "New Messages: Don't Notify (click to switch to Notify)"
-                              : "New Messages: Notify (click to switch to Don't Notify)"
-                          }
-                          className={cn(
-                            'h-6 gap-1 px-1.5 text-[11px] font-normal text-muted-foreground hover:text-foreground',
-                            readMark?.quiet && 'text-highlight'
-                          )}
-                        >
-                          {readMark?.quiet ? <BellOff className="size-3.5" /> : <Bell className="size-3.5" />}
-                          <span className="hidden lg:inline">
-                            {readMark?.quiet ? "New Messages: Don't Notify" : 'New Messages: Notify'}
-                          </span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {readMark?.quiet
-                          ? "New Messages: Don't Notify — new messages are marked read as they arrive. Click to switch to Notify."
-                          : "New Messages: Notify — new messages appear on Home and increment the unread counter. Click to switch to Don't Notify."}
                       </TooltipContent>
                     </Tooltip>
                   ) : null}

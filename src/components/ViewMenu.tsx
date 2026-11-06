@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { MoreHorizontal } from 'lucide-react';
+import { Bell, BellOff, MoreHorizontal } from 'lucide-react';
 import { formatCost } from './Transcript';
 import { presetFor } from '../lib/instructionPresets';
 import { COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE } from '../lib/sessionCost';
@@ -30,6 +30,14 @@ type Props = {
   instructions?: string;
   /** Opens the editor for them; absent when the host has no per-session prompt. */
   onEditInstructions?: () => void;
+  /**
+   * Whether new messages in this session are marked read as they arrive ("Don't notify") or appear
+   * on Home as unread ("Notify"). Absent where the session cannot hold a read mark (a draft, a
+   * worker Home never lists).
+   */
+  quiet?: boolean;
+  /** Toggle it. */
+  onQuietChange?: (quiet: boolean) => void;
 };
 
 const DEFAULTS: ViewSettingsPatch = {
@@ -77,7 +85,16 @@ const ViewToggle = ({
  * where the old control was a single 3-way cycle. The eye is struck through when something is
  * hidden, so a collapsed view is never a mystery.
  */
-export default function ViewMenu({ view, onChange, cost, costUnknown, instructions, onEditInstructions }: Props) {
+export default function ViewMenu({
+  view,
+  onChange,
+  cost,
+  costUnknown,
+  instructions,
+  onEditInstructions,
+  quiet,
+  onQuietChange,
+}: Props) {
   const showThinking = view.reasoningDisplay !== 'hidden';
   const expandThinking = view.reasoningDisplay === 'expanded';
   const showToolCalls = !view.hideToolCalls;
@@ -104,7 +121,7 @@ export default function ViewMenu({ view, onChange, cost, costUnknown, instructio
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        {(cost !== undefined && cost > 0) || costUnknown || onEditInstructions ? (
+        {(cost !== undefined && cost > 0) || costUnknown || onEditInstructions || onQuietChange ? (
           <>
             <DropdownMenuLabel>This session</DropdownMenuLabel>
             {cost !== undefined && cost > 0 ? (
@@ -119,6 +136,28 @@ export default function ViewMenu({ view, onChange, cost, costUnknown, instructio
                   {COST_UNKNOWN_LABEL}
                 </span>
               </div>
+            ) : null}
+            {onQuietChange ? (
+              // A row rather than a checkbox: both states are sentences a person can read ("so this
+              // session never shows as unread") instead of a switch whose off position has to be
+              // guessed. It replaced a bell button whose label never fitted the header row.
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onQuietChange(!quiet);
+                }}
+                className="items-start gap-2 py-1.5"
+              >
+                {quiet ? <Bell /> : <BellOff />}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span>{quiet ? 'New messages: Notify' : "New messages: Don't notify"}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {quiet
+                      ? 'They appear on Home as unread and count in the top bar.'
+                      : 'They are marked read as they arrive, so this session never shows as unread.'}
+                  </span>
+                </span>
+              </DropdownMenuItem>
             ) : null}
             {onEditInstructions ? (
               <div className="flex items-baseline justify-between gap-2 px-2 pb-1.5 text-xs text-muted-foreground">
