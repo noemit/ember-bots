@@ -1,3 +1,15 @@
+## 1.5.2
+
+### Changed
+- **"Mark as read" floats beside "Jump to latest"** instead of sitting under the message. The moment
+  you want it is the moment the message is *not* on screen — you are scrolled up, reading the middle
+  of a long turn — so a control attached to the message only worked if you had already found it. It
+  now lives in the viewport's bottom corner next to Jump to latest, and acts on the **newest unread**
+  turn: the mark is a watermark, so marking the latest one is what "I'm caught up" means.
+- **Pointing at it tints the message it would mark**, so it is never a guess which turn moves. After
+  the press that message **flashes the accent twice** — and only that message; nothing else on the
+  page moves.
+
 ## 1.5.1
 
 ### Fixed

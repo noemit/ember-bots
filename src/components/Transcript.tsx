@@ -6,6 +6,7 @@ import {
   Ban,
   Brain,
   Check,
+  CheckCheck,
   ChevronRight,
   CircleAlert,
   FileText,
@@ -41,7 +42,6 @@ import {
 } from '../lib/toolDisplay';
 import { isMessageRead } from '../lib/readState';
 import { entryOrdinal } from '../lib/piMapping';
-import MarkReadRow from './MarkReadRow';
 import { copyText } from '@/lib/clipboard';
 import { useStableCallback } from '@/lib/useStableCallback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -136,10 +136,12 @@ type Props = {
   toolDisplay: ToolDisplay;
   /** Whether this host reports spend; false hides every cost in the footer. */
   showCost?: boolean;
-  /** This session's read mark; a row draws its unread dot from it. */
+  /** This session's read mark; the transcript decides which message "Mark as read" would move it to. */
   readMark?: SessionReadMark;
-  /** Mark one message read, from the dot on its row. Omitted where marking is not offered. */
+  /** Mark one message read: the floating control hands it the newest unread message. */
   onMarkRead?: (message: ChatMessage) => void;
+  /** The message that was just marked, for its confirmation flash. */
+  flashId?: string | null;
   /** The per-turn footer metadata (model, duration, tokens, cost, time). */
   showMessageDetails: boolean;
   /** The session blob beside the latest turn. */
@@ -1430,10 +1432,10 @@ type MessageRowProps = {
   toolDisplay: ToolDisplay;
   /** Whether this host reports spend at all; false hides the footer's cost. */
   showCost: boolean;
-  /** This session's read mark: a message at or below it is read, so no dot is drawn. */
-  readMark?: SessionReadMark;
-  /** Mark this message read. Omitted where marking is not offered (the reading view). */
-  onMarkRead?: (message: ChatMessage) => void;
+  /** The floating "Mark as read" control is pointing at this message: it wears the accent tint. */
+  markTint?: boolean;
+  /** The message just marked, which flashes as confirmation. */
+  flashId?: string | null;
   showMessageDetails: boolean;
   /** Render the session's blob tucked beside this message. */
   showBuddy: boolean;
@@ -1655,8 +1657,8 @@ const MessageRow = React.memo(function MessageRow({
   expandToolCalls,
   toolDisplay,
   showCost,
-  readMark,
-  onMarkRead,
+  markTint,
+  flashId,
   showMessageDetails,
   showBuddy,
   streaming,
@@ -1711,16 +1713,6 @@ const MessageRow = React.memo(function MessageRow({
     ? blocks.filter((block) => !(block.type === 'tools' && foldsIntoRollup(block)))
     : blocks;
   const copyable = hasMarkdownToCopy(message);
-  /**
-   * Whether this message still wants a read mark.
-   *
-   * The ordinal comes from the message id (`e<entryId>`), which is the same unit Home's marks use, so
-   * a dot marked here and a dot marked on Home are one fact. A wire without ordinals (OpenChamber)
-   * falls back to the message's time, and `isMessageRead` decides both cases.
-   */
-  const ordinal = entryOrdinal(message.id);
-  const read = isMessageRead(readMark, ordinal, message.completedAt ?? message.createdAt ?? 0);
-  const showReadDot = Boolean(onMarkRead) && !read && message.role === 'assistant';
 
   /**
    * The hover gutter: Copy, at the top of the message's text card.
@@ -1737,22 +1729,14 @@ const MessageRow = React.memo(function MessageRow({
     ) : null;
 
   /**
-   * "Mark as read", under the message.
+   * Whether this message is the one just marked, so it can flash.
    *
-   * It used to be a dot in the left margin — which is *outside* the scroll area, so on a narrow
-   * window it was clipped and on a wide one it was a 14px speck far from the text. A control nobody
-   * can press is not a control. Under the message is where reading ends and the decision happens.
-   *
-   * `AnimatePresence` is what lets the row collapse instead of vanishing: the mark lands, `unread`
-   * goes false, the height animates to zero, and the turns below slide up gently. Nothing else on
-   * the page animates, so the movement is only ever the gap closing.
+   * The control lives in the viewport's corner rather than beside a message — the moment you want it
+   * is the moment the message is off screen — so a row only learns two things from outside: that the
+   * pointer is over the control and this is the turn it would mark (`markTint`), and that it was just
+   * marked (`flashId`).
    */
-  const renderReadMark = () =>
-    showReadDot && onMarkRead ? (
-      <AnimatePresence initial={false}>
-        <MarkReadRow key="mark-read" message={message} onMark={(target) => onMarkRead(target)} />
-      </AnimatePresence>
-    ) : null;
+  const flashing = flashId === message.id;
 
   return (
     <motion.div
@@ -1760,9 +1744,16 @@ const MessageRow = React.memo(function MessageRow({
       layout={false}
       data-message-id={message.id}
       data-highlighted={highlighted ? 'true' : undefined}
+      // Pointed at by the floating "Mark as read" control, or just marked by it.
+      data-mark-target={markTint ? 'true' : undefined}
+      data-mark-flash={flashing ? 'true' : undefined}
       className={cn(
-        'group/message relative flex w-full flex-col gap-1.5 rounded-xl px-5 transition-[background-color,box-shadow] sm:px-7',
-        highlighted && 'bg-highlight/10 ring-2 ring-highlight/30'
+        'group/message relative flex w-full flex-col gap-1.5 rounded-xl px-5 transition-[background-color,box-shadow] duration-150 sm:px-7',
+        highlighted && 'bg-highlight/10 ring-2 ring-highlight/30',
+        // The pointer is over the floating control and this is the message it would mark: a tinted
+        // background under an accent ring, so it is unmistakable *which* turn is about to move.
+        markTint && 'bg-highlight/15',
+        flashing && 'mark-flash'
       )}
     >
       <div
@@ -1807,7 +1798,6 @@ const MessageRow = React.memo(function MessageRow({
           labels={pendingSendLabels}
         />
         <MessageFooter message={message} showMetadata={showMetadata && showMessageDetails} showCost={showCost} />
-        {renderReadMark()}
       </div>
       {showBuddy ? (
         // One anchor for the whole message, whichever block is last: the row's own bottom-right
@@ -1940,6 +1930,16 @@ function Transcript({
       showQuestions,
     });
   }, [messages, hideToolCalls, reasoningDisplay, showQuestions, toolDisplay]);
+  /**
+   * `items` is the stable one, and that matters more than it looks.
+   *
+   * `React.memo` on `MessageRow` compares `message`, so a fresh object per render — a fresh array per
+   * render is fine, a fresh *message* is not — re-renders every row. When the local `stop` handler
+   * produces a new array on every render, hovering the floating "Mark as read" control re-renders
+   * this component, which rebuilds `items`, which re-renders all rows, which slides the pill out from
+   * under the pointer and fires `pointerleave` — the highlight flashed on and vanished. Keeping the
+   * memo keyed on the transcript alone is what makes the hover state stable.
+   */
   const [readAll, setReadAll] = React.useState(false);
   /**
    * The column opens on a tail read (the last ~10 messages and their tool calls) rather than the
@@ -2194,6 +2194,40 @@ function Transcript({
     scrollToBottom(virtualized ? 'auto' : 'smooth');
   };
 
+  /**
+   * The floating "Mark as read" control, and what it would mark.
+   *
+   * It floats for the same reason "Jump to latest" does: the moment you want it is the moment the
+   * message is *not* on screen. It replaced a dot in the message's left margin — which sits outside
+   * the scroll area and was clipped on narrow windows — and then a row under the message, which only
+   * worked if you had already scrolled all the way to it.
+   *
+   * The target is the newest unread assistant turn in this transcript. "Newest, not oldest": the
+   * mark is a watermark, so marking the latest one read is what a person wants when they are caught
+   * up, and marking an old one would leave everything under it still unread. It deliberately does
+   * *not* move as you scroll — a target that changes under the pointer is worse than one that is
+   * briefly off screen — so this is derived from the transcript alone.
+   */
+  const markTarget = React.useMemo(() => {
+    if (!onMarkRead) return null;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const message = items[index]?.message;
+      if (!message || message.role !== 'assistant') continue;
+      const ordinal = entryOrdinal(message.id);
+      if (!isMessageRead(readMark, ordinal, message.completedAt ?? message.createdAt ?? 0)) return message;
+    }
+    return null;
+  }, [items, onMarkRead, readMark]);
+  const [flashId, setFlashId] = React.useState<string | null>(null);
+  /** The floating button is being pointed at, so its message wears the tint. */
+  const [markHovered, setMarkHovered] = React.useState(false);
+  // The flash is a confirmation, not a state: two pulses and it is over.
+  React.useEffect(() => {
+    if (!flashId) return;
+    const timer = window.setTimeout(() => setFlashId(null), 1_100);
+    return () => window.clearTimeout(timer);
+  }, [flashId]);
+
   const last = messages[messages.length - 1];
   const busy = isTurnLive({ sending, state, last });
 
@@ -2381,6 +2415,7 @@ function Transcript({
         className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4">
         <div
           ref={contentRef}
+          data-conversation=""
           role="log"
           aria-label="Conversation"
           aria-live={virtualized || readAll ? 'off' : 'polite'}
@@ -2406,8 +2441,8 @@ function Transcript({
                 expandToolCalls={expandToolCalls}
                 toolDisplay={toolDisplay}
                 showCost={showCost}
-                readMark={readMark}
-                onMarkRead={onMarkRead}
+                markTint={markHovered && markTarget?.id === message.id}
+                flashId={flashId}
                 showMessageDetails={showMessageDetails}
                 showBuddy={showAvatars && !turnPending && message.id === lastAssistantId}
                 streaming={turnPending && index === items.length - 1}
@@ -2502,25 +2537,57 @@ function Transcript({
         />
       ) : null}
 
+      {/* The floating row: "Mark as read" and "Jump to latest", side by side in the corner.
+          Both are wanted exactly when the thing they act on is off screen, which is why neither
+          lives beside a message. They share one layer so they never overlap or fight for the space;
+          the row is centred, so it reads as one control group rather than two floating buttons that
+          happen to land near each other. */}
       <AnimatePresence>
-        {!following ? (
+        {markTarget || !following ? (
           <motion.div
-            key="jump"
+            key="float-row"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.16 }}
-            className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center"
+            data-float-row=""
+            className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-wrap items-center justify-center gap-1.5 px-3"
           >
-            <Button
-              size="xs"
-              variant="secondary"
-              className="pointer-events-auto rounded-full shadow-md"
-              onClick={jumpToLatest}
-            >
-              <ArrowDown />
-              Jump to latest
-            </Button>
+            {markTarget ? (
+              <Button
+                size="xs"
+                variant="secondary"
+                className="pointer-events-auto rounded-full shadow-md"
+                // Pointing at the button tints the message it would mark, so it is obvious which
+                // turn moves. Hover is tracked on the button and cleared on leave or blur; no
+                // scrolling, no extra elements, no injected CSS.
+                onPointerEnter={() => setMarkHovered(true)}
+                onPointerLeave={() => setMarkHovered(false)}
+                onFocus={() => setMarkHovered(true)}
+                onBlur={() => setMarkHovered(false)}
+                onClick={() => {
+                  setMarkHovered(false);
+                  setFlashId(markTarget.id);
+                  onMarkRead?.(markTarget);
+                }}
+                aria-describedby={undefined}
+                title="Mark the newest unread message as read"
+              >
+                <CheckCheck />
+                Mark as read
+              </Button>
+            ) : null}
+            {!following ? (
+              <Button
+                size="xs"
+                variant="secondary"
+                className="pointer-events-auto rounded-full shadow-md"
+                onClick={jumpToLatest}
+              >
+                <ArrowDown />
+                Jump to latest
+              </Button>
+            ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>

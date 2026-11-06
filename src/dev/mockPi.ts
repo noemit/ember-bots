@@ -957,7 +957,10 @@ const summaryOf = (conversation: MockConversation): Record<string, unknown> => (
   needsInput:
     conversation.approvals.some((entry) => entry.status === 'pending') ||
     conversation.questions.some((entry) => entry.status === 'pending'),
-  lastEntryId: conversation.entries[conversation.entries.length - 1]?.id,
+  // Hearth reports the newest entry's ordinal, and Ember's read marks use that same number: a
+  // summary whose `lastEntryId` disagreed with the entries would make every transcript look read
+  // (or permanently unread). Entries are the source, in both places.
+  lastEntryId: Math.max(0, ...conversation.entries.map((entry) => entry.id)),
   updatedAt: Math.max(
     ...conversation.entries.map((entry) => Number((entry.model?.[0]?.timestamp as number) ?? 0)),
     0

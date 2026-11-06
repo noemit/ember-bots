@@ -160,6 +160,43 @@ html.motion-paused *::after {
   padding-bottom: max(0.625rem, env(safe-area-inset-bottom));
 }
 
+
+/**
+ * The confirmation flash for a message just marked read.
+ *
+ * The floating "Mark as read" control acts on a message that is usually *off* the pointer, and often
+ * off screen — so the press has to say which turn moved. Two pulses of the accent, then nothing: long
+ * enough to catch the eye in a column you were not looking at, short enough that it is clearly a
+ * receipt and not a new state.
+ *
+ * Reduced motion already collapses every animation to 0.01ms in the block below, which would make
+ * the flash invisible; that is the correct outcome (nothing moves for someone who asked for no
+ * motion) and no separate rule is needed.
+ */
+@keyframes mark-flash {
+  0%,
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  18%,
+  62% {
+    background-color: color-mix(in oklab, var(--highlight) 22%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--highlight) 45%, transparent);
+  }
+  40%,
+  84% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.mark-flash {
+  animation: mark-flash 1s ease-out;
+  border-radius: 0.75rem;
+}
+
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
