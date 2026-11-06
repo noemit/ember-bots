@@ -1,3 +1,25 @@
+## 1.2.0
+
+### Changed
+- **The composer's three-dot menu absorbed the "new messages" bell.** The bell was a header
+  button carrying a whole sentence ("New messages: Don't Notify") in a row of icon buttons, so it
+  never fitted and it made an uncommon choice compete with the ones used every turn. It is now a
+  row at the top of the view menu, under **This session**, beside *Spent* and *Instructions*, with
+  both states written as sentences rather than a switch whose off position has to be guessed:
+  **New messages: Don't notify** — *they are marked read as they arrive, so this session never
+  shows as unread* — and **New messages: Notify** — *they appear on Home as unread and count in the
+  top bar*. It is offered only where it can be observed: a worker's read mark is invisible because
+  Home never lists workers, so the row does not appear there.
+- **The dot on the three-dot button now says what it means.** It is the "something here is hidden"
+  signal inherited from the struck-through eye the button replaced, and nothing in the UI explained
+  it. The trigger's tooltip says *a dot means something here is hidden*, and a line beneath **Reset
+  to defaults** says *the dot means something in this menu is switched off* whenever the dot is
+  showing.
+
+### Notes
+- Kiln's `package.json` now carries the release version too. It had drifted to `0.42.0` while the
+  app it ships inside read `1.1.0`, so `/health` reported a version no release page had.
+
 ## 1.1.0
 
 ### Added
