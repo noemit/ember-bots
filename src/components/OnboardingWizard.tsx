@@ -251,12 +251,12 @@ export default function OnboardingWizard({
 
 function KilnDiagram() {
   const hosts = [
-    { name: 'Container', detail: 'On a server or NAS', Icon: Boxes },
-    { name: 'Mac Studio', detail: 'On another Mac', Icon: Cpu },
-    { name: 'Old PC', detail: 'Running Linux or Windows', Icon: Monitor },
+    { name: 'Container', detail: 'A separate space on a computer', Icon: Boxes },
+    { name: 'Mac Studio', detail: 'A Mac you leave running', Icon: Cpu },
+    { name: 'Old PC', detail: 'A spare computer', Icon: Monitor },
   ];
   return (
-    <figure className="@container" aria-label="Ember connects to a bundled Kiln on your computer and standalone Kilns on other hosts">
+    <figure className="@container" aria-label="Ember connects to the included Kiln on your computer and Kilns on other computers">
       <div className="rounded-xl border bg-muted/20 p-3">
         <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Laptop className="size-3.5" aria-hidden="true" /> Your computer
@@ -264,12 +264,12 @@ function KilnDiagram() {
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <div className="rounded-lg bg-highlight/10 px-3 py-2.5 text-center">
             <div className="text-[14px] font-semibold">Ember</div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">Your workspace</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">Talk to your agents</div>
           </div>
           <ArrowLeftRight className="size-4 text-muted-foreground" aria-hidden="true" />
           <div className="rounded-lg bg-background px-3 py-2.5 text-center">
             <div className="text-[14px] font-semibold">Kiln</div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">Included with Ember</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">Does the work here</div>
           </div>
         </div>
       </div>
@@ -289,7 +289,7 @@ function KilnDiagram() {
         ))}
       </div>
       <figcaption className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
-        One Ember, as many Kilns as you need. The extra hosts are optional.
+        Start with this computer. Connect others whenever you need them.
       </figcaption>
     </figure>
   );
@@ -303,23 +303,24 @@ function Welcome() {
           <Blob style="buddy" seed="onboarding" size={56} mood="thinking" interactive={false} />
         </div>
         <div className="flex flex-col gap-1">
-          <h3 className="text-[15px] font-semibold">One workspace, wherever your agents run</h3>
+          <h3 className="text-[15px] font-semibold">Your AI helpers, all in one place</h3>
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-            <strong className="text-foreground">Ember is the window you work in.</strong>{' '}
-            <strong className="text-foreground">Kiln runs your agents.</strong>{' '}
-            Your app includes a Kiln on this computer, so you can start here.
+            Your agents are AI helpers you can give tasks to. <strong className="text-foreground">Ember is where you
+            talk to them and see their progress.</strong>{' '}<strong className="text-foreground">Kiln does the work.</strong>{' '}
+            Ember includes a Kiln, so you can start on this computer.
           </p>
         </div>
       </div>
       <KilnDiagram />
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        A Kiln can also live in a container, on a Mac Studio, or on an old PC. Connect those hosts to
-        Ember to work with their agents in the same window. Each Kiln is an <strong className="text-foreground">instance</strong>:
-        it keeps its own conversations, files and approvals on the computer running it.
+        You can put Kiln on another computer, too — a Mac Studio, an old PC, or in a container
+        (a separate space on a computer). Connect it to Ember and its agents appear alongside the others.
+        Each Kiln keeps its own conversations and files on the computer doing the work.
       </p>
       <p className="text-[12px] leading-relaxed text-muted-foreground">
-        The included Kiln stops when you quit Ember. A standalone Kiln started with <strong className="text-foreground">Tinder</strong>{' '}
-        keeps running when you close the GUI. You can connect another Ember to the same standalone Kilns, too.
+        The Kiln included with Ember stops when you quit the app. A Kiln running separately can keep working
+        after you quit Ember, as long as its computer stays on. You can also use Ember on another computer
+        to connect to those same Kilns.
       </p>
     </div>
   );
@@ -342,7 +343,7 @@ function Connection({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <h3 className="text-[15px] font-semibold">Is a harness running on this computer?</h3>
+      <h3 className="text-[15px] font-semibold">Is Kiln ready on this computer?</h3>
 
       {state.localReady ? (
         <div className="flex items-start gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2">
@@ -360,7 +361,7 @@ function Connection({
           <div className="flex items-start gap-2">
             <CircleAlert className="mt-0.5 size-4 flex-none text-destructive" />
             <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-[12.5px] font-medium">No harness is answering here</span>
+              <span className="text-[12.5px] font-medium">Kiln is not ready on this computer</span>
               <span className="text-[11.5px] leading-relaxed text-muted-foreground">
                 {problem ?? "Kiln isn't running on this computer, so there's nothing to connect to yet."}
               </span>
@@ -438,8 +439,8 @@ function InstanceStep({
     <div className="flex flex-col gap-4">
       <h3 className="text-[15px] font-semibold">Connect another machine</h3>
       <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-        Working just on your current computer, with no containers or remotes? Skip this. You can add instances any time
-        in Settings → Instances.
+        If you only want to work on this computer, you can skip this step.
+        To connect another computer later, open Settings → Instances.
       </p>
       <div className="rounded-lg border bg-muted/20 px-3 py-2.5 text-[11.5px] leading-relaxed">
         <p className="mb-1.5 font-medium text-foreground">In a container or on a server</p>
@@ -492,11 +493,11 @@ function Providers({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <h3 className="text-[15px] font-semibold">Give it a model</h3>
+      <h3 className="text-[15px] font-semibold">Connect an AI service</h3>
       <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-        An instance can't run anything until one provider has a credential. Sign in where a sign-in exists; paste a key
-        everywhere else. Local runtimes (Ollama, LM Studio) need no account at all — Ember lists them when they're
-        running.
+        Your agents need an AI service, such as OpenAI or Anthropic. Use a sign-in option below, or paste
+        an API key — an access code you get from that service. If you use Ollama or LM Studio to run AI on
+        your own computer, start it first and Ember will show it here.
       </p>
       <ProvidersSettings
         endpoints={endpoints}

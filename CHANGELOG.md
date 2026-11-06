@@ -1,3 +1,10 @@
+## 1.6.4
+
+### Changed
+- Setup explains Ember, Kiln and agents in everyday language. The introduction replaces terms such
+  as instance, host and GUI with concrete descriptions; the AI setup step explains access keys and
+  the container example explains what a container means.
+
 ## 1.6.3
 
 ### Changed

@@ -60,7 +60,7 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     app = await launch(home, missing);
     const window = await app.firstWindow();
     await expect(window.getByTestId('onboarding')).toBeVisible();
-    await expect(window.getByText('No harness is answering here')).toBeVisible();
+    await expect(window.getByText(/Kiln is not ready/)).toBeVisible();
     expect(await window.evaluate(async () => (await window.ember.getSettings()).piEndpoints)).toEqual([]);
     await symlink(binary, missing);
     await window.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -78,9 +78,13 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     await otherWindow.reload();
     await expect(otherWindow.getByTestId('onboarding')).toBeVisible();
     await otherWindow.getByRole('button', { name: /What Ember is/ }).click();
-    const diagram = otherWindow.getByRole('figure', { name: /Ember.*bundled Kiln.*standalone Kilns/ });
+    const diagram = otherWindow.getByRole('figure', { name: /Ember.*included Kiln.*other computers/ });
     await expect(diagram).toBeVisible();
     for (const host of ['Container', 'Mac Studio', 'Old PC']) await expect(diagram.getByText(host, { exact: true })).toBeVisible();
+    const introduction = await otherWindow.getByTestId('onboarding').innerText();
+    expect(introduction).not.toMatch(/\b(instance|harness|GUI|credential|NAS|durable)\b/i);
+    expect(introduction).toMatch(/Ember.*talk|talk.*Ember/s);
+    expect(introduction).toMatch(/Kiln.*work/s);
     await otherWindow.screenshot({ path: test.info().outputPath('onboarding-diagram.png') });
     otherPid = JSON.parse(await readFile(join(otherHome, 'profile', 'ember-harness.lock'), 'utf8')).pid;
     expect(otherEndpoint.url).not.toBe(endpoint.url);

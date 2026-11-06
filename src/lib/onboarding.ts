@@ -25,11 +25,11 @@ export type OnboardingStep = {
 };
 
 export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
-  { id: 'welcome', title: 'What Ember is', summary: 'The window, the instances, and what durable means' },
-  { id: 'connection', title: 'This computer', summary: 'Is a harness running here?', blocking: true },
-  { id: 'token', title: 'Your token', summary: 'The password machines use to talk to each other' },
-  { id: 'instance', title: 'Another machine', summary: 'Optional: connect a container or a server' },
-  { id: 'providers', title: 'A model', summary: 'Give the instance something to think with' },
+  { id: 'welcome', title: 'What Ember is', summary: 'How Ember and Kiln help you work' },
+  { id: 'connection', title: 'This computer', summary: 'Check that Kiln is ready', blocking: true },
+  { id: 'token', title: 'Your token', summary: 'The password for connecting to Kiln' },
+  { id: 'instance', title: 'Another computer', summary: 'Optional: work on another computer too' },
+  { id: 'providers', title: 'Choose an AI', summary: 'Sign in or add an access code' },
   { id: 'first-agent', title: 'First agent', summary: 'Pick a folder and say hello' },
 ];
 
