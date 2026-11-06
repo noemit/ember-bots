@@ -14,6 +14,16 @@ that has ever had a working host records `onboardedAt` and is never shown the gu
 does not lecture anyone who has been using Ember for months. Esc and "Skip for now" work from every
 step; it can be reopened from Settings.
 
+### Fixed — the composer
+- **It grows much further, and scrolls when full.** The cap was 160px, about eight lines, and the
+  box had `overflow-hidden`, so pasting a stack trace silently clipped the rest with no bar and no
+  sign there was more. It now grows to 320px with a thin themed scrollbar, and no longer hides text.
+- **It can be dragged.** The handle was disabled (`resize-none`, inherited from the shared
+  `Textarea`), and even if it had been enabled the height was recomputed from the text on every
+  render, so a drag snapped back. A dragged height now wins until you drag it back to automatic, up
+  to two thirds of the window.
+- **Sending resets the size.** The height was about the message that just left, not the next one.
+
 ### Added — local runtimes, and NVIDIA
 - **Ollama** and **LM Studio** are providers now, with no account and no key. Both are probed on
   boot: a stopped runtime is not offered, and `GET /providers` reports why — *"Ollama is not

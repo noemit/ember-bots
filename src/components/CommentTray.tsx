@@ -94,6 +94,9 @@ export default function CommentTray({
                   aria-label={`Reply to the quoted segment: ${comment.quote.slice(0, 60)}`}
                   rows={1}
                   maxHeight={140}
+                  // Not draggable: the tray scrolls as a whole, and a handle inside it would fight
+                  // that scroll and reset on every re-render of the list.
+                  resizable={false}
                   className="w-full rounded border border-input bg-background px-1.5 py-1 text-[11.5px] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/30"
                 />
               </motion.li>

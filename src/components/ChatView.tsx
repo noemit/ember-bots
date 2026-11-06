@@ -517,6 +517,14 @@ function ChatView({
   onToggleWorkerYolo,
 }: Props) {
   const [text, setText] = React.useState('');
+  /**
+   * A composer height the reader dragged to, or null for "grow with the text".
+   *
+   * Deliberately *not* persisted: it is a momentary preference about how big the box is right now,
+   * and it resets on send (see `resetComposerSize`). Storing it would make a one-off drag permanent,
+   * which is the opposite of what dragging usually means.
+   */
+  const [composerHeight, setComposerHeight] = React.useState<number | null>(null);
   const [editingTitle, setEditingTitle] = React.useState(false);
   const [modelId, setModelId] = React.useState(DEFAULT_MODEL);
   const [variant, setVariant] = React.useState('');
@@ -1169,6 +1177,9 @@ function ChatView({
       touchedComposerChoicesRef.current.add(composerKey);
       updateComposerDraft(composerKey, { text: '', modelId, variant, attachments, replyContext });
       setText('');
+      // A message just left: the box goes back to its natural size, so the next thought starts
+      // somewhere calm rather than inheriting the height of a pasted document.
+      setComposerHeight(null);
     } finally {
       setCommentsSending(false);
     }
@@ -1323,6 +1334,8 @@ function ChatView({
       updateComposerDraft(composerKey, session ? clearComposerText(submitted) : null);
     }
     setText('');
+    // Sent: the height was about the message that just left, not about the next one.
+    setComposerHeight(null);
     setAttachments([]);
     setAttachmentError(null);
     setReplyContext(null);
@@ -2252,7 +2265,16 @@ function ChatView({
             <AutoResizeTextarea
               ref={textareaRef}
               value={text}
-              maxHeight={160}
+              // Raised from 160: a pasted stack trace or a spec hit the old cap at about eight
+              // lines and then clipped silently. 320 is roughly a dozen lines of prose — enough for
+              // a real draft without the box eating the conversation, and the reader can drag past
+              // it whenever they want the whole thing on screen.
+              maxHeight={320}
+              manualHeight={composerHeight}
+              // A drag can go taller than the automatic cap, but not off the bottom of the window:
+              // two thirds of the viewport is the most a composer may occupy, dragging included.
+              maxManualHeight={Math.round(window.innerHeight * 0.66)}
+              onHeightChange={setComposerHeight}
               maxLength={200_000}
               placeholder={
                 creatingSession
