@@ -48,7 +48,13 @@ beforeAll(async () => {
       // Exactly what `src/index.ts` does for a real command.
       env: ({ cwd, conversationId: id }) => new NodeExecutionEnv({
         cwd: cwd ?? home,
-        shellEnv: sessionEnv(home, Number(id)),
+        // Exactly what `src/index.ts` builds: the session's env plus the file this command's shell
+        // records its background children in. Without the second half the note can only ever appear
+        // on Linux, which reads /proc instead.
+        shellEnv: {
+          ...sessionEnv(home, Number(id)),
+          HEARTH_LEFTOVERS: join(home, "leftovers", "cmd-" + String(id) + "-" + String(Date.now()) + ".pids"),
+        },
       }),
     },
     context

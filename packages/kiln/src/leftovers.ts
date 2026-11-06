@@ -7,6 +7,8 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord";
 import { createBashTool } from "@earendil-works/pi-durable/tools";
+import { leftoverReportPath, removeFileBestEffort } from "./processes";
+import { leftoverRecorderSuffix } from "./shell";
 import {
   CommandWatch,
   leftoverNote,
@@ -20,6 +22,13 @@ import {
 export type WatchOptions = {
   /** The host's leftovers; tests inject a fake table. */
   scan?: (options?: { fresh?: boolean }) => ProcessScan;
+  /**
+   * The host's data home, where a command's report file is written.
+   *
+   * Required for the non-Linux path: without it there is nowhere to report to, and the note would
+   * silently stop working rather than say so.
+   */
+  home?: string;
   /** Test seam for the platform split (Linux reads `/proc`, elsewhere polls a ledger). */
   platform?: NodeJS.Platform;
   /** The Windows process table, for the ledger's liveness checks. */
@@ -53,12 +62,40 @@ export const watchBash = (tool: ToolRegistration, options: WatchOptions = {}): T
       // On Linux an orphan is recognised from the tree, so "before" is the whole diff baseline. Where
       // the platform needs the ledger, only this command's own recordings count as new.
       const before = new Set(platform === "linux" ? current().map((entry) => entry.pid) : []);
-      const finish = platform === "linux" ? undefined : new CommandWatch({ conversationId, list }).start();
+      // Wherever the environment is unreadable, the *shell* is asked to record what it started, and
+      // the report is read once the command is over. See `CommandWatch` for why polling this cannot
+      // work: a command that finishes in milliseconds has no window in which a poll could run.
+      // Both sides have to name the same file, and they are built from different things: the shell
+      // gets its environment from the execution env, while this code runs in Hearth's own process.
+      // So the path is *derived* here from values both have — the host's home (which the extension
+      // resolves) and the conversation — rather than read back from an environment this file cannot
+      // see. Passing it through `context` is not an option: the tool API carries no per-call env.
+      const reportPath = options.home ? leftoverReportPath(options.home, conversationId) : undefined;
+      const watch =
+        platform === "linux" || !reportPath
+          ? undefined
+          : new CommandWatch({ conversationId, list, reportPath });
+      const finish = watch?.start();
+      // Where the shell must report for itself, the recorder is appended to the command it runs —
+      // inside the same `bash -c`, so `$!` and `jobs -p` are the jobs that command actually started.
+      // Appended rather than prepended so the exit status and the output stay the command's own:
+      // the suffix ends in `true` and never touches `$?`.
+      const original = (args ?? {}) as Record<string, unknown>;
+      const wrapped =
+        watch && typeof original.command === "string"
+          ? `${original.command}\n${leftoverRecorderSuffix()}`
+          : null;
       let result: ToolExecutionResult;
       try {
-        result = await tool.execute(args, api, context);
+        result = await tool.execute(
+          wrapped === null ? args : ({ ...original, command: wrapped } as typeof args),
+          api,
+          context
+        );
       } finally {
         finish?.();
+        // The report is this command's only; leaving it behind would accumulate one file per command.
+        if (reportPath) removeFileBestEffort(reportPath);
       }
       const fresh = current().filter((entry) => !before.has(entry.pid));
       if (fresh.length === 0) return result;
@@ -76,5 +113,13 @@ export const watchBash = (tool: ToolRegistration, options: WatchOptions = {}): T
  */
 export const Leftovers = defineExtension({
   name: "leftovers",
-  wraps: [wrapTool(createBashTool(), (tool: ToolRegistration) => watchBash(tool))],
+  wraps: [
+    wrapTool(createBashTool(), (tool: ToolRegistration) =>
+      watchBash(tool, {
+        // Resolved per command, not at install: a host's home comes from its environment, and the
+        // registry is built once for a process that may outlive a test's temporary home.
+        home: process.env.HEARTH_HOME ?? process.env.EMBER_HOME,
+      })
+    ),
+  ],
 });

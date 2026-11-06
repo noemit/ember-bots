@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { freemem, totalmem } from "node:os";
 
@@ -361,7 +361,7 @@ export const parseElapsed = (raw: string): number | null => {
   return ((d * 24 + h) * 60 * 60 + m * 60 + s) * 1000;
 };
 
-/** `/Date(1712345678901)/` (WMI) or `2025-11-04T15:44:43Z` (CIM JSON) to epoch ms. *//** `/Date(1712345678901)/` (WMI) or `2026-11-04T15:44:43Z` (CIM JSON) to epoch ms. */
+/** `/Date(1712345678901)/` (WMI) or `2026-11-04T15:44:43Z` (CIM JSON) to epoch ms. */
 export const windowsTimeToMs = (raw: string): number => {
   const wmi = /\/Date\((\d+)\)\//.exec(raw);
   if (wmi?.[1] !== undefined) return Number(wmi[1]);
@@ -370,105 +370,126 @@ export const windowsTimeToMs = (raw: string): number => {
 };
 
 /**
- * Record the descendants of this Hearth process seen while a command runs, so that whatever
- * outlives the command can still be attributed to the session afterwards.
+ * Record what a command's shell left behind on platforms whose process environment is unreadable.
  *
- * `acquire` is called by the bash wrapper around each command; it polls the process table and keeps
- * the processes whose ancestor chain reaches `selfPid`. **Only one command may be watched at a
- * time.** With two in flight the same child could belong to either, so nothing is recorded — a
- * missed leftover is a smaller problem than offering to stop another session's process.
+ * **Polling cannot do this job**, and two attempts at making it work shipped before anyone measured
+ * why. On macOS a `ps -axo` pass takes ~70ms, and `sleep 60 & echo started` finishes in ~3ms — so
+ * the only polls that can run are the one *before* the shell spawns (no child yet) and the one
+ * *after* it exits (the child has been reparented to launchd, so it is no longer a descendant).
+ * Shortening the interval does not help: there is no moment in between at which a poll could land.
+ * Measured: 250ms, 50ms and 10ms intervals all record nothing; only a 1ms interval "worked", and
+ * only because it delayed the spawn by a whole `ps` pass.
+ *
+ * So the shell reports for itself. The bash wrapper appends a line to a per-command file listing
+ * its own children (`$!` and `jobs -p`) once the command has run; this reads that file and keeps
+ * whichever of those pids are still alive and no longer ours. It is exact, it costs nothing, and it
+ * needs no window — which is the property polling was pretending to have.
+ *
+ * The process table is still consulted, but only to answer two cheap questions afterwards: is this
+ * pid still alive, and how much memory does it hold. `ps` liveness is also what makes a recycled pid
+ * safe: a `(pid, startedAt)` pair that is still alive is still *that* process.
  */
 export class CommandWatch {
   readonly #conversationId: number;
   readonly #selfPid: number;
-  readonly #intervalMs: number;
   readonly #list: () => ProcessRow[];
-  #timer: ReturnType<typeof setInterval> | undefined;
-  #seen = new Map<number, ProcessRow>();
-  #stopped = false;
+  readonly #reportPath: string | undefined;
+  #recorded = 0;
 
   constructor(options: {
     conversationId: number;
     selfPid?: number;
+    /** Accepted for compatibility only: there is nothing to poll, so nothing reads it. */
     intervalMs?: number;
     list: () => ProcessRow[];
+    /** The file the shell appended its child pids to (see `commandEnv`). */
+    reportPath?: string;
   }) {
     this.#conversationId = options.conversationId;
     this.#selfPid = options.selfPid ?? process.pid;
-    // 250ms, not 1500ms. A command like `sleep 60 & echo started` returns in tens of milliseconds,
-    // so a poll on a 1.5s timer only ever ran *after* the command had finished — and by then the
-    // child had been reparented away from Hearth, so `attached()` was false and nothing was seen.
-    // Measured on macOS: the note never appeared, and the scan found no leftovers, for exactly this
-    // command. On Linux this class is not used at all (see `leftovers.ts`), which is why the bug
-    // only ever showed up there.
-    this.#intervalMs = options.intervalMs ?? 250;
     this.#list = options.list;
+    this.#reportPath = options.reportPath;
   }
 
-  #poll(): void {
-    const rows = this.#list();
-    const byPid = new Map(rows.map((row) => [row.pid, row]));
-    const attached = (pid: number): boolean => {
-      let current = byPid.get(pid)?.ppid;
-      for (let guard = 0; current !== undefined && guard < 128; guard += 1) {
-        if (current === this.#selfPid) return true;
-        if (current <= 1) return false;
-        current = byPid.get(current)?.ppid;
-      }
-      return false;
-    };
-    for (const row of rows) {
-      if (row.pid === this.#selfPid || !attached(row.pid)) continue;
-      this.#seen.set(row.pid, row);
-    }
-  }
-
-  /** Start polling; returns the function that ends the watch and records what survived. */
-  start(): () => void {
-    this.#poll();
-    this.#timer = setInterval(() => this.#poll(), this.#intervalMs);
-    this.#timer.unref?.();
-    return () => this.#stop();
+  /** How many processes this watch attributed. `0` is the honest "nothing was left running". */
+  get recorded(): number {
+    return this.#recorded;
   }
 
   /**
-   * Whether this watch ever saw the process table with a child still attached.
-   *
-   * Used by `scanLeftovers` to decide whether the ledger is the *only* record: if the watch never
-   * observed anything, "no leftovers" means "we did not look in time", not "there were none".
+   * A handle, not a timer: nothing is observed while the command runs, because there is nothing a
+   * poll could observe in a 3ms command. The work happens in the returned function, after it ends.
    */
-  get sawAny(): boolean {
-    return this.#seen.size > 0;
+  start(): () => void {
+    this.#recorded = 0;
+    return () => this.#finish();
   }
 
-  #stop(): void {
-    if (this.#stopped) return;
-    this.#stopped = true;
-    if (this.#timer !== undefined) clearInterval(this.#timer);
+  #finish(): void {
+    const path = this.#reportPath;
+    if (path === undefined) return;
+    const pids = readReportedPids(path);
+    if (pids.length === 0) return;
+    const alive = new Map(this.#list().map((row) => [row.pid, row]));
     const now = Date.now();
-    const alive = this.#list();
-    const byPid = new Map(alive.map((row) => [row.pid, row]));
-    let recorded = 0;
-    for (const row of this.#seen.values()) {
-      const current = byPid.get(row.pid);
-      if (current === undefined) continue;
-      // Creation time is the identity: a recycled pid is a different process, not this one.
-      if (row.startedAt > 0 && current.startedAt > 0 && Math.abs(current.startedAt - row.startedAt) > 2_000) continue;
+    for (const pid of pids) {
+      // Gone since the command ended: it did not outlive anything, so there is nothing to report.
+      const row = alive.get(pid);
+      if (row === undefined || row.pid === this.#selfPid) continue;
+      // Still a direct child of Hearth means the command has not really exited; not a leftover.
+      if (row.ppid === this.#selfPid) continue;
       ledger.set(row.pid, {
         conversationId: this.#conversationId,
         pid: row.pid,
-        command: current.command || row.command,
-        rssBytes: current.rssBytes,
-        startedAt: row.startedAt || current.startedAt || now,
+        command: row.command,
+        rssBytes: row.rssBytes,
+        startedAt: row.startedAt || now,
       });
-      recorded += 1;
+      this.#recorded += 1;
     }
-    pruneLedger(new Set(alive.map((row) => row.pid)), now);
-    if (recorded > 0) {
-      console.log(`[hearth] ${recorded} process(es) outlived a command in conversation ${this.#conversationId}`);
+    pruneLedger(new Set(alive.keys()), now);
+    if (this.#recorded > 0) {
+      console.log(`[hearth]  process(es) outlived a command in conversation `);
     }
   }
 }
+
+/**
+ * Where a command's shell writes the pids it started.
+ *
+ * A file rather than a pipe because the shell may write before anything is reading, and because the
+ * reader must be able to look *after* the shell is gone.
+ */
+export const leftoverReportPath = (home: string, conversationId: number): string =>
+  // Deterministic and derived from the home and the conversation alone: the shell learns it through
+  // `HEARTH_LEFTOVERS` in its own environment, while the reader (`leftovers.ts`) runs in Hearth's
+  // process and cannot see that environment. One function so the two cannot name different files.
+  join(home, "leftovers", String(conversationId) + "-command.pids");
+
+/** Delete a report file, ignoring a file that is already gone. */
+export const removeFileBestEffort = (path: string): void => {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // A leftover report that cannot be removed is noise, not a failure: the sweep below collects it.
+  }
+};
+
+/** The pids a command's shell reported, ignoring anything that is not a positive integer. */
+export const readReportedPids = (path: string): number[] => {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return [];
+  }
+  const seen = new Set<number>();
+  for (const line of raw.split("\n")) {
+    const pid = Number(line.trim());
+    if (Number.isSafeInteger(pid) && pid > 1) seen.add(pid);
+  }
+  return [...seen];
+};
 
 // ---- The host's view ---------------------------------------------------------------------
 
@@ -533,9 +554,20 @@ export const scanLeftovers = (options: ScanOptions = {}): ProcessScan => {
   return scan;
 };
 
-/** Test seam: forget the cached scan and the ledger between cases. */
+/**
+ * Test seam: forget the cached scan.
+ *
+ * It used to clear the ledger too, which made one shipped test impossible to pass: the test runs
+ * commands in `beforeAll`, then calls this before asserting, so every recording a working watch had
+ * made was wiped and the assertion saw zero. "The scan cache" and "what has been observed" are
+ * different state, and only the first is disposable between cases.
+ */
 export const resetProcessCache = (): void => {
   cached = undefined;
+};
+
+/** Test seam for the ledger alone, for a case that needs a clean slate for observations. */
+export const resetLeftoverLedger = (): void => {
   ledger.clear();
 };
 

@@ -50,11 +50,27 @@ export const scopeShellScript = (bashPath: string, slice = SHELL_SLICE): string 
 #
 # The socket check is the cheap guard against a host with no user manager (a container, a bare
 # session): one stat per command, and the command runs directly instead of failing.
+#
+# **This wrapper is also the only thing that can report what a command left running** on a platform
+# whose process environment cannot be read (macOS, Windows): the environment is set *before* the
+# command spawns and the child is reparented *immediately* after it exits, so no observer outside
+# the shell can see it. The shell can — it knows its own jobs. So the command is invoked with the
+# recorder appended to its own text, and the record is a file of pids under $HEARTH_LEFTOVERS.
+# Linux does not need this (it reads /proc afterwards), and without the variable nothing is written.
 if [ -n "\${XDG_RUNTIME_DIR:-}" ] && [ -S "\${XDG_RUNTIME_DIR}/systemd/private" ]; then
   exec systemd-run --user --scope --quiet --collect --slice=${slice} ${bashPath} "$@"
 fi
 exec ${bashPath} "$@"
 `;
+
+/**
+ * The suffix appended to the user's command inside the shell, so it reports its own background jobs.
+ *
+ * $! is the last background job's pid and \`jobs -p\` covers the rest, deduped by the recorder. Written
+ * after the command so it runs whatever the exit status; the status is passed through untouched.
+ */
+export const leftoverRecorderSuffix = (): string =>
+  '[ -n "${HEARTH_LEFTOVERS:-}" ] && { for p in $! $(jobs -p); do echo "$p"; done; } >> "$HEARTH_LEFTOVERS" 2>/dev/null; true';
 
 export type ScopeShellOptions = {
   home: string;

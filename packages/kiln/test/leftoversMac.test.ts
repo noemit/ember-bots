@@ -1,94 +1,163 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { CommandWatch, listPosixProcesses, parseElapsed } from "../src/processes";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CommandWatch, listPosixProcesses, parseElapsed, readReportedPids } from "../src/processes";
+import { leftoverRecorderSuffix } from "../src/shell";
 
 /**
  * The macOS path of "what did this command leave running".
  *
- * Both failures below shipped, and both were invisible on Linux because that platform reads
- * `/proc/<pid>/environ` instead of using this code at all. They were found by running the suite on
- * a Mac: the leftover note never appeared, and the scan reported nothing for a command that had
- * plainly left a process behind.
+ * Three versions of this mechanism shipped before one worked, so the shape is pinned here:
+ *
+ * 1. a poll every 1500ms — looked before the spawn, and after the reparent
+ * 2. a poll every 250ms — same, because there is no moment in between for a 3ms command
+ * 3. **the shell reports its own children**, which is what this file tests
+ *
+ * The earlier version of this test was worse than useless: it asserted a counter it incremented
+ * itself, so it passed while the feature was broken. Everything below reads real state.
  */
 
-const originalNow = Date.now;
+const dirs: string[] = [];
+const tempDir = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), "hearth-leftovers-"));
+  dirs.push(dir);
+  return dir;
+};
 afterEach(() => {
-  Date.now = originalNow;
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe('parsing ps elapsed time', () => {
-  test('the three shapes ps emits', () => {
-    // `ps` prints `mm:ss` for anything under an hour — there is no bare-seconds form to accept.
-    expect(parseElapsed('00:05')).toBe(5_000);
-    expect(parseElapsed('01:05')).toBe(65_000);
-    expect(parseElapsed('02:01:05')).toBe(7_265_000);
-    expect(parseElapsed('3-02:01:05')).toBe(((3 * 24 + 2) * 60 * 60 + 60 + 5) * 1_000);
+describe("parsing ps elapsed time", () => {
+  test("the shapes ps emits", () => {
+    // `ps` prints mm:ss under an hour — there is no bare-seconds form to accept.
+    expect(parseElapsed("00:05")).toBe(5_000);
+    expect(parseElapsed("01:05")).toBe(65_000);
+    expect(parseElapsed("02:01:05")).toBe(7_265_000);
+    expect(parseElapsed("3-02:01:05")).toBe(((3 * 24 + 2) * 60 * 60 + 60 + 5) * 1_000);
   });
 
-  test('something unparseable is null, not the epoch', () => {
-    // A wrong `0` would claim the process started in 1970 and make every age check meaningless.
-    expect(parseElapsed('')).toBeNull();
-    expect(parseElapsed('n/a')).toBeNull();
-    expect(parseElapsed('1:2:3:4:5')).toBeNull();
+  test("something unparseable is null, not the epoch", () => {
+    expect(parseElapsed("")).toBeNull();
+    expect(parseElapsed("n/a")).toBeNull();
+    expect(parseElapsed("1:2:3:4:5")).toBeNull();
   });
 });
 
-describe('ps rows carry a real start time', () => {
-  test('elapsed is turned into an age relative to now', () => {
-    Date.now = () => 1_000_000;
-    const rows = listPosixProcesses({
-      run: () => '  4242     1   8192 01:05 sleep 60\n',
-      now: () => 1_000_000,
-    });
+describe("ps rows carry a real start time", () => {
+  test("elapsed becomes an age relative to now", () => {
+    const rows = listPosixProcesses({ run: () => "  4242     1   8192 01:05 sleep 60\n", now: () => 1_000_000 });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.pid).toBe(4242);
     expect(rows[0]?.rssBytes).toBe(8192 * 1024);
-    // 65 seconds before "now", which is what a leftover's age is computed from.
     expect(rows[0]?.startedAt).toBe(1_000_000 - 65_000);
   });
 
-  test('a row whose etime cannot be read is dropped, not given a wrong age', () => {
-    // A `ps` that formatted the column differently leaves no parseable age; the row is skipped so
-    // the ledger never records a process with a fabricated start time.
-    const rows = listPosixProcesses({ run: () => '  7     1   100 not-a-time bash\n', now: () => 5 });
-    expect(rows).toHaveLength(0);
+  test("a row whose etime cannot be read is dropped, not given a wrong age", () => {
+    expect(listPosixProcesses({ run: () => "  7     1   100 not-a-time bash\n", now: () => 5 })).toHaveLength(0);
   });
 });
 
-describe('CommandWatch sees a child of a fast command', () => {
-  /**
-   * The bug, reproduced without a real shell.
-   *
-   * `sleep 60 & echo started` finishes in milliseconds. A watch that polls on a 1.5s timer runs its
-   * first look before the child exists and its second after the child has been reparented to init —
-   * so it never sees it attached, and nothing is ever recorded. A 250ms cadence catches both.
-   */
-  test('a child that exists only briefly is still recorded', async () => {
-    let childVisible = false;
-    let recorded = 0;
-    const watch = new CommandWatch({
-      conversationId: 7,
-      selfPid: 1,
-      list: () =>
-        childVisible
-          ? [{ pid: 50, ppid: 1, command: 'sleep 60', rssBytes: 4096, startedAt: 1_000 }]
-          : [{ pid: 1, ppid: 0, command: 'hearth', rssBytes: 1, startedAt: 1 }],
-    });
-    const finish = watch.start();
-    // The child appears and is reparented away — both inside what used to be one poll interval.
-    childVisible = true;
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(watch.sawAny).toBe(true);
-    childVisible = false; // reparented: no longer a descendant of selfPid
-    // `#poll` only records descendants, so what matters is that a poll *saw* it while attached.
-    finish();
-    recorded += 1;
-    expect(recorded).toBe(1);
+describe("what the shell reports", () => {
+  test("the recorder writes $! and jobs -p to $HEARTH_LEFTOVERS", () => {
+    const suffix = leftoverRecorderSuffix();
+    expect(suffix).toContain("HEARTH_LEFTOVERS");
+    expect(suffix).toContain("$!");
+    expect(suffix).toContain("jobs -p");
+    // Never touches the command's exit status: appending to a `&&` chain or a failing command must
+    // not change what the tool reports.
+    expect(suffix.trimEnd().endsWith("true")).toBe(true);
+    expect(suffix).not.toContain("exit");
   });
 
-  test('a watch that never saw anything says so', () => {
-    const watch = new CommandWatch({ conversationId: 7, selfPid: 1, list: () => [] });
+  test("the recorder really records a background job, in bash", () => {
+    const dir = tempDir();
+    const report = join(dir, "cmd.pids");
+    // Exactly the shape the tool builds: the user's command, a newline, then the recorder.
+    const script = `sleep 3 &\n${leftoverRecorderSuffix()}`;
+    const run = Bun.spawnSync(["bash", "-c", script], {
+      env: { ...process.env, HEARTH_LEFTOVERS: report },
+    });
+    expect(run.exitCode).toBe(0);
+    const pids = readReportedPids(report);
+    expect(pids.length).toBeGreaterThanOrEqual(1);
+    // A pid the test can see is a pid it can clean up.
+    expect(pids[0]).toBeGreaterThan(1);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  });
+
+  test("the exit status survives the suffix", () => {
+    const dir = tempDir();
+    const report = join(dir, "cmd.pids");
+    const run = Bun.spawnSync(["bash", "-c", `exit 7\n${leftoverRecorderSuffix()}`], {
+      env: { ...process.env, HEARTH_LEFTOVERS: report },
+    });
+    // The command's own status, not the recorder's.
+    expect(run.exitCode).toBe(7);
+  });
+
+  test("without the variable nothing is written anywhere", () => {
+    const dir = tempDir();
+    const run = Bun.spawnSync(["bash", "-c", `sleep 0.1 &\n${leftoverRecorderSuffix()}`], {
+      env: { ...process.env, HEARTH_LEFTOVERS: "" },
+    });
+    expect(run.exitCode).toBe(0);
+  });
+});
+
+describe("CommandWatch attributes what the report names", () => {
+  test("a reported pid that is still alive becomes this conversation's leftover", () => {
+    const dir = tempDir();
+    const report = join(dir, "cmd.pids");
+    writeFileSync(report, "4242\n4243\n");
+    const watch = new CommandWatch({
+      conversationId: 9,
+      selfPid: 1,
+      reportPath: report,
+      // 4242 survived, reparented to init; 4243 is gone.
+      list: () => [{ pid: 4242, ppid: 0, command: "sleep 60", rssBytes: 8192, startedAt: 1_000 }],
+    });
     const finish = watch.start();
-    expect(watch.sawAny).toBe(false);
     finish();
+    expect(watch.recorded).toBe(1);
+  });
+
+  test("a pid still parented to Hearth is not a leftover", () => {
+    const dir = tempDir();
+    const report = join(dir, "cmd.pids");
+    writeFileSync(report, "4242\n");
+    const watch = new CommandWatch({
+      conversationId: 9,
+      selfPid: 1,
+      reportPath: report,
+      // ppid 1 === selfPid: the command has not really exited.
+      list: () => [{ pid: 4242, ppid: 1, command: "still running", rssBytes: 1, startedAt: 1 }],
+    });
+    watch.start()();
+    expect(watch.recorded).toBe(0);
+  });
+
+  test("a missing report is zero, not an error", () => {
+    const watch = new CommandWatch({
+      conversationId: 9,
+      selfPid: 1,
+      reportPath: join(tempDir(), "never-written.pids"),
+      list: () => [],
+    });
+    watch.start()();
+    expect(watch.recorded).toBe(0);
+  });
+
+  test("junk in the report is ignored", () => {
+    const dir = tempDir();
+    const report = join(dir, "cmd.pids");
+    writeFileSync(report, "not-a-pid\n0\n-3\n1\n4242\n");
+    expect(readReportedPids(report)).toEqual([4242]);
   });
 });

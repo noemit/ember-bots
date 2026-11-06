@@ -32,16 +32,19 @@ step; it can be reopened from Settings.
 - **NVIDIA** (`NVIDIA_API_KEY`) is registered alongside the other keyed providers.
 
 ### Fixed
-- **"Left running" worked on Linux and not on macOS.** Two separate faults in the same mechanism,
-  both invisible here because Linux reads `/proc/<pid>/environ` and never runs this code:
-  - The `CommandWatch` polled every 1.5s, but a command like `sleep 60 & echo started` returns in
-    tens of milliseconds — so the watch's first look ran before the child existed and its second
-    after the child had been reparented to init, when it no longer counted as a descendant. Nothing
-    was ever recorded. It now polls every 250ms.
-  - `ps` was asked for `pid,ppid,rss,command` and given no start time, so every row reported
-    `startedAt: 0`. A leftover could not be aged, and the pid-reuse guard never engaged. It now asks
-    for `etime` and converts it, which is portable across BSD `ps` (macOS) and procps (Linux).
-  A note about leftovers is only useful if it appears on the machine you are actually working on.
+- **"Left running" worked on Linux and not on macOS — the mechanism was rebuilt.** Linux reads
+  `/proc/<pid>/environ`, so it never used this code; every macOS bug here shipped unseen.
+  - **Polling could not work, and no interval would fix it.** A `ps` pass takes ~70ms and
+  `sleep 60 & echo started` finishes in ~3ms, so the only polls that could run were the one
+  *before* the shell spawned and the one *after* it exited and the child was reparented to launchd.
+  250ms, 50ms and 10ms intervals all recorded nothing. **The shell now reports its own background
+  jobs** (`$!` and `jobs -p`) to a per-command file, and that file is read once the command ends.
+  Exact, free, and with no window to miss.
+  - `ps` was asked for no start time, so every row carried `startedAt: 0`: a leftover could not be
+    aged and the pid-reuse guard never engaged. It now reads `etime`.
+  - `resetProcessCache()` cleared the *ledger* as well as the scan cache, which wiped the
+    observations a test had just made — so one shipped test could never pass even with a working
+    watch. The two are separate now.
 - **A local harness is always listed.** It only appeared when *this launch* started it, and the
   disk fallback was skipped whenever the settings file held any endpoint — so a machine with Kiln
   installed and one remote endpoint showed no local instance at all. `attached` hosts now list too;
