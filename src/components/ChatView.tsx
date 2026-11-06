@@ -2,6 +2,7 @@ import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, ShieldCheck, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
+import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
 import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
 import type { ModelPrefill } from '../lib/newSessionDefaults';
@@ -1498,6 +1499,19 @@ function ChatView({
     </React.Suspense>
   );
 
+  /**
+   * The wash of colour behind the top-left corner.
+   *
+   * It is the session's **own** blob colour — the same value the avatar and the rail draw from — so a
+   * column is recognisable by temperature before you read its title. Kept deliberately faint: one
+   * very wide radial gradient, no blur filter (a 560px blurred layer is repainted on every scroll),
+   * and low alpha, so it reads as light in the room rather than a coloured panel. `blobColor` returns
+   * a `var(--blob-N)` reference, which is why `color-mix` can grade it without knowing the value.
+   */
+  const cornerTint = session
+    ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, seed)} 30%, transparent), transparent 56%)`
+    : undefined;
+
   return (
     <main
       ref={columnRef}
@@ -1518,7 +1532,17 @@ function ChatView({
         }
       }}
     >
-      <div className="flex min-w-0 flex-1 flex-col">
+      {cornerTint ? (
+        // Its own layer, not a background on <main>: the transcript scrolls above it and must not
+        // carry the gradient along, and `pointer-events-none` keeps it out of every hit test.
+        <div
+          aria-hidden="true"
+          data-corner-tint=""
+          className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
+          style={{ backgroundImage: cornerTint }}
+        />
+      ) : null}
+      <div className="relative flex min-w-0 flex-1 flex-col">
         <AnimatePresence mode="popLayout" initial={false}>
         {session ? (
           <motion.div

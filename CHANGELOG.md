@@ -14,6 +14,13 @@ that has ever had a working host records `onboardedAt` and is never shown the gu
 does not lecture anyone who has been using Ember for months. Esc and "Skip for now" work from every
 step; it can be reopened from Settings.
 
+### Added — a colour cue per column
+- **A soft wash of the agent's own colour in the top-left of each session column.** It is the same
+  colour the blob and the rail use, so a column is recognisable before you read its title. Deliberately
+  faint — one wide radial gradient at low alpha, no blur filter (a blurred 400px layer is repainted on
+  scroll) — and painted in its own `pointer-events-none` layer so it never enters a hit test or scrolls
+  with the transcript.
+
 ### Fixed — the composer
 - **It grows much further, and scrolls when full.** The cap was 160px, about eight lines, and the
   box had `overflow-hidden`, so pasting a stack trace silently clipped the rest with no bar and no
