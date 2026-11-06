@@ -1,3 +1,14 @@
+## 1.4.1
+
+### Fixed
+- **"New messages: Don't notify" could not be switched on — it flickered and reverted.** The row
+  saved the flag, and the stored copy that main handed back had lost it: `parseReadMarks` in
+  `electron/transport.ts` rebuilds every read mark from a fixed list of fields (`through`, `ids`,
+  `readAt`, `comments`), and `quiet` was not among them. So each click wrote a value that was
+  validated away, the optimistic row was replaced by the stored one a moment later, and the switch
+  appeared stuck. The field is now carried through, and a quiet session with no read history at all
+  keeps its key instead of being pruned as "a mark that says nothing".
+
 ## 1.4.0
 
 ### Fixed

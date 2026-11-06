@@ -328,13 +328,17 @@ export const parseReadMarks = (value: unknown): Record<string, StoredReadMark> =
         : [];
       const readAt = toOrdinal(entry.readAt);
       const comments = toOrdinal(entry.comments);
-      // A mark that says nothing is not worth a key.
-      if (through === 0 && ids.length === 0 && !readAt && !comments) return;
+      // A standing policy, not a mark: it has to survive the round trip or the toggle snaps back.
+      const quiet = entry.quiet === true;
+      // A mark that says nothing is not worth a key — but a quiet session with no read history is
+      // a real choice, and dropping it would silently turn notifications back on.
+      if (through === 0 && ids.length === 0 && !readAt && !comments && !quiet) return;
       marks[key] = {
         through,
         ...(ids.length ? { ids } : {}),
         ...(readAt ? { readAt } : {}),
         ...(comments ? { comments } : {}),
+        ...(quiet ? { quiet: true } : {}),
       };
     });
   return marks;

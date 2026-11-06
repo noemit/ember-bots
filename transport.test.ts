@@ -9,6 +9,7 @@ import {
   parseColorAssignments,
   parseComposerDrafts,
   parsePiEndpoints,
+  parseReadMarks,
   parseSessionNotes,
   parseStringArray,
   parseStringRecord,
@@ -191,4 +192,29 @@ test('discovers local harness token from ~/.ember, ~/.hearth, or EMBER_HOME / HE
     token: 'local-secret-token',
   });
   expect(discoverLocalPiEndpoint(() => undefined, '/home/alex', {})).toBeNull();
+});
+
+/**
+ * The read-mark round trip.
+ *
+ * `parseReadMarks` rebuilds each mark from a fixed list of fields, and a field it does not name is
+ * dropped silently. That is how the "New messages: Don't notify" toggle shipped broken: it saved,
+ * main validated the `quiet` flag away, and the stored copy that came back had no policy in it — so
+ * the row flickered and reverted. A standing policy has to survive storage or it is not a setting.
+ */
+describe('read marks survive the settings round trip', () => {
+  test('a quiet session keeps its policy, even with no read history at all', () => {
+    const parsed = parseReadMarks({ 'pi:h::4': { through: 0, quiet: true } });
+    expect(parsed['pi:h::4']).toEqual({ through: 0, quiet: true });
+  });
+
+  test('quiet rides alongside a normal mark', () => {
+    const parsed = parseReadMarks({ 'pi:h::4': { through: 12, ids: [14], readAt: 500, quiet: true } });
+    expect(parsed['pi:h::4']).toEqual({ through: 12, ids: [14], readAt: 500, quiet: true });
+  });
+
+  test('turning it off is a real value, and a mark with nothing in it is still not worth a key', () => {
+    expect(parseReadMarks({ 'pi:h::4': { through: 0, quiet: false } })).toEqual({});
+    expect(parseReadMarks({ 'pi:h::4': { quiet: 'yes' } })).toEqual({});
+  });
 });
