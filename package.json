@@ -22,7 +22,7 @@
     "kiln": "./cli/ember.ts"
   },
   "scripts": {
-    "build:harness": "mkdir -p build/harness && bun build --compile packages/kiln/src/index.ts --outfile build/harness/kiln",
+    "build:harness": "rm -rf build/harness && mkdir -p build/harness && bun build --compile packages/kiln/src/index.ts --outfile build/harness/kiln",
     "build": "bun run build:harness && tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
     "dev": "bun run build && electron .",
     "dev:web": "vite --port 5179",
