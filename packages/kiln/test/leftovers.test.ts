@@ -51,10 +51,7 @@ beforeAll(async () => {
         // Exactly what `src/index.ts` builds: the session's env plus the file this command's shell
         // records its background children in. Without the second half the note can only ever appear
         // on Linux, which reads /proc instead.
-        shellEnv: {
-          ...sessionEnv(home, Number(id)),
-          HEARTH_LEFTOVERS: join(home, "leftovers", "cmd-" + String(id) + "-" + String(Date.now()) + ".pids"),
-        },
+        shellEnv: sessionEnv(home, Number(id)),
       }),
     },
     context
@@ -100,7 +97,17 @@ const toolResults = async (): Promise<string[]> => {
   );
 };
 
-describe("a command that leaves something running", () => {
+/**
+ * The whole loop — shell, tag, orphan, note, scan — on the platform running these tests.
+ *
+ * This is a **Linux** feature: attribution reads `/proc/<pid>/environ`, and there is no reliable
+ * equivalent elsewhere (see `src/leftovers.ts`). So on macOS the same test asserts the opposite and
+ * honest thing: no note, and a scan with nothing to say. Both are pinned, because "off" is a
+ * decision worth failing a test over if it quietly changes.
+ */
+const linuxOnly = process.platform === "linux";
+
+describe.skipIf(!linuxOnly)("a command that leaves something running", () => {
   test("the agent is told, with the command that ends it", async () => {
     const results = await toolResults();
     expect(results).toHaveLength(2);
@@ -131,6 +138,26 @@ describe("a command that leaves something running", () => {
     // standing warning repeated on every call.
     const results = await toolResults();
     expect(results[1]).not.toContain("Left running");
+  });
+});
+
+/**
+ * The other half of the same decision, pinned where it can actually run.
+ *
+ * On a platform without `/proc` the note must not appear, and the scan must report nothing rather
+ * than guess. A silent feature that half-works is what taught people to ignore the note in the first
+ * place, so "off" is asserted, not assumed.
+ */
+describe.skipIf(linuxOnly)("leftovers are Linux-only", () => {
+  test("a command that leaves something running gets no note", async () => {
+    const results = await toolResults();
+    expect(results[0]).toContain("started");
+    expect(results[0]).not.toContain("Left running");
+  });
+
+  test("the scan has nothing to say", () => {
+    resetProcessCache();
+    expect(scanLeftovers({ fresh: true }).all).toEqual([]);
   });
 });
 

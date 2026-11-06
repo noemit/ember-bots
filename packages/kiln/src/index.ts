@@ -15,7 +15,6 @@ import { startCrewSupervisor } from "./crew";
 import { buildMcpTools, mcpNamespaces, mcpSection, readMcpConfig } from "./mcp";
 import { prepareScopeShell, SHELL_SLICE } from "./shell";
 import { pruneScratch, sessionEnv } from "./scratch";
-import { leftoverReportPath } from "./processes";
 
 /**
  * Every line this process writes carries an ISO timestamp.
@@ -142,14 +141,7 @@ const main = async (): Promise<void> => {
   //    because `/tmp` is tmpfs on a Linux desktop and agents had filled 5.7 GB of it.
   // Windows' environment is not readable from outside a process, so the tag is only read on Linux;
   // setting it everywhere keeps the two hosts' command lines otherwise identical.
-  //  - `HEARTH_LEFTOVERS`, the file this command's shell records its background children in. It is
-  //    per command, not per session, so two commands of one conversation cannot write to the same
-  //    file. Outside Linux this is the only way a leftover can be attributed at all: a `ps` poll
-  //    cannot see a 3ms command's child, because by the first tick it is already reparented.
-  const shellEnvFor = (conversationId: number): Record<string, string> => ({
-    ...sessionEnv(config.home, conversationId),
-    HEARTH_LEFTOVERS: leftoverReportPath(config.home, conversationId),
-  });
+  const shellEnvFor = (conversationId: number): Record<string, string> => sessionEnv(config.home, conversationId);
   // A command runs under a wrapper that puts it in its own transient systemd scope (see
   // `src/shell.ts`), so what an agent starts is not charged to — or killed with — this unit.
   // `undefined` means "the platform's own shell": no systemd here, or a wrapper that could not be

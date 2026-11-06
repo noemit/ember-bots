@@ -7,15 +7,10 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord";
 import { createBashTool } from "@earendil-works/pi-durable/tools";
-import { leftoverReportPath, removeFileBestEffort } from "./processes";
-import { leftoverRecorderSuffix } from "./shell";
 import {
-  CommandWatch,
   leftoverNote,
-  listNonLinuxProcesses,
   scanLeftovers,
   type LeftProcess,
-  type ProcessRow,
   type ProcessScan,
 } from "./processes";
 
@@ -31,8 +26,6 @@ export type WatchOptions = {
   home?: string;
   /** Test seam for the platform split (Linux reads `/proc`, elsewhere polls a ledger). */
   platform?: NodeJS.Platform;
-  /** The Windows process table, for the ledger's liveness checks. */
-  list?: () => ProcessRow[];
 };
 
 /**
@@ -46,57 +39,32 @@ export type WatchOptions = {
  * The scan is a diff around the one command — processes already running before it are not mentioned
  * again on every later call, which would train the model to ignore the line.
  *
- * `CommandWatch` covers platforms whose process environment is not readable: there the attribution is
- * built while the command runs, so the recording has to stop before the scan.
+ * **Linux only** (see `src/processes.ts`): the attribution needs `/proc`, and on a platform without
+ * it the wrapper passes the command straight through, so the agent is told nothing rather than told
+ * something unreliable.
  */
 export const watchBash = (tool: ToolRegistration, options: WatchOptions = {}): ToolRegistration => {
   const scan = options.scan ?? scanLeftovers;
   const platform = options.platform ?? process.platform;
-  const list = options.list ?? listNonLinuxProcesses;
   return {
     ...tool,
     execute: async (args, api: ToolExecutionApi, context: Context): Promise<ToolExecutionResult> => {
       const conversationId = Number(api.conversationId);
       if (!Number.isSafeInteger(conversationId) || conversationId <= 0) return tool.execute(args, api, context);
+      // Linux only, deliberately.
+      //
+      // Attribution here reads `/proc/<pid>/environ` for the tag every command inherits, which is
+      // exact and costs nothing. Everywhere else that is unreadable, and three attempts at working
+      // around it all failed for the same reason: a poll cannot observe a command that finishes in
+      // milliseconds (the child is reparented before the next look), and asking the shell to report
+      // its own jobs still could not distinguish a real leftover from a backgrounded process whose
+      // parent had not yet exited. The feature was switched off on those platforms rather than left
+      // half-working: a note that appears on some machines and not others teaches people to ignore
+      // it. `scanLeftovers` still answers honestly there — it just always has nothing to say.
+      if (platform !== "linux") return tool.execute(args, api, context);
       const current = (): LeftProcess[] => scan({ fresh: true }).byConversation.get(conversationId) ?? [];
-      // On Linux an orphan is recognised from the tree, so "before" is the whole diff baseline. Where
-      // the platform needs the ledger, only this command's own recordings count as new.
-      const before = new Set(platform === "linux" ? current().map((entry) => entry.pid) : []);
-      // Wherever the environment is unreadable, the *shell* is asked to record what it started, and
-      // the report is read once the command is over. See `CommandWatch` for why polling this cannot
-      // work: a command that finishes in milliseconds has no window in which a poll could run.
-      // Both sides have to name the same file, and they are built from different things: the shell
-      // gets its environment from the execution env, while this code runs in Hearth's own process.
-      // So the path is *derived* here from values both have — the host's home (which the extension
-      // resolves) and the conversation — rather than read back from an environment this file cannot
-      // see. Passing it through `context` is not an option: the tool API carries no per-call env.
-      const reportPath = options.home ? leftoverReportPath(options.home, conversationId) : undefined;
-      const watch =
-        platform === "linux" || !reportPath
-          ? undefined
-          : new CommandWatch({ conversationId, list, reportPath });
-      const finish = watch?.start();
-      // Where the shell must report for itself, the recorder is appended to the command it runs —
-      // inside the same `bash -c`, so `$!` and `jobs -p` are the jobs that command actually started.
-      // Appended rather than prepended so the exit status and the output stay the command's own:
-      // the suffix ends in `true` and never touches `$?`.
-      const original = (args ?? {}) as Record<string, unknown>;
-      const wrapped =
-        watch && typeof original.command === "string"
-          ? `${original.command}\n${leftoverRecorderSuffix()}`
-          : null;
-      let result: ToolExecutionResult;
-      try {
-        result = await tool.execute(
-          wrapped === null ? args : ({ ...original, command: wrapped } as typeof args),
-          api,
-          context
-        );
-      } finally {
-        finish?.();
-        // The report is this command's only; leaving it behind would accumulate one file per command.
-        if (reportPath) removeFileBestEffort(reportPath);
-      }
+      const before = new Set(current().map((entry) => entry.pid));
+      const result: ToolExecutionResult = await tool.execute(args, api, context);
       const fresh = current().filter((entry) => !before.has(entry.pid));
       if (fresh.length === 0) return result;
       return {

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import {
-  CommandWatch,
   TAG_ENV,
   briefCommand,
   hostMemory,
@@ -194,53 +193,23 @@ describe("telling a platform's time apart", () => {
   });
 });
 
-describe("the ledger, where /proc is not available", () => {
-  const returns: Array<() => void> = [];
-  afterEach(() => {
-    for (const undo of returns.splice(0)) undo();
-  });
-  const row = (pid: number, ppid: number, createdAt: number, command = "worker"): ProcessRow => ({
-    pid,
-    ppid,
-    command,
-    rssBytes: 1024,
-    startedAt: createdAt,
-  });
-
-  /**
-   * The ledger is fed by what the *shell* reported, not by what a poll happened to see.
-   *
-   * The tests here used to model a watch observing a child while it was still attached. That design
-   * could not work — for a command that finishes in milliseconds there is no moment to observe — so
-   * it was replaced (see `CommandWatch`). What remains to pin is the reading half: a reported pid
-   * that is alive and no longer ours becomes a leftover, and one whose identity changed does not.
-   */
-  const withReport = (pids: number[], run: (finish: () => void) => void): string => {
-    const dir = mkdtempSync(join(tmpdir(), "hearth-ledger-"));
-    const path = join(dir, "cmd.pids");
-    writeFileSync(path, pids.join("\n"));
-    returns.push(() => rmSync(dir, { recursive: true, force: true }));
-    return path;
-  };
-
-  test("a reported process that outlives the command is recorded, a dead one is not", () => {
-    // Real epoch milliseconds: the ledger ages rows out, so a synthetic `1000` is already ancient.
-    const t0 = Date.now() - 60_000;
-    const table: ProcessRow[] = [row(1, 0, 0, "init"), row(10, 1, 0, "hearth"), row(30, 1, t0 + 100, "vite")];
-    const path = withReport([30, 31], () => {});
-    const watch = new CommandWatch({ conversationId: 5, selfPid: 10, reportPath: path, list: () => table });
-    watch.start()();
-    const scan = scanLeftovers({ platform: "win32", list: () => table, fresh: true });
-    // 30 survived; 31 was reported but is gone.
-    expect(scan.byConversation.get(5)?.map((entry) => entry.pid)).toEqual([30]);
+/**
+ * Leftovers are a Linux feature.
+ *
+ * Attribution reads `/proc/<pid>/environ` for the tag every command inherits. Three attempts at an
+ * equivalent elsewhere failed for one reason — without that file there is no reliable way to say
+ * which conversation a process belongs to — so the feature is off there rather than half-working.
+ * These pin the honest answer: no rows, and no note.
+ */
+describe("leftovers where /proc is not available", () => {
+  test("the scan reports nothing, rather than guessing", () => {
+    const scan = scanLeftovers({ platform: "darwin", fresh: true, list: () => [] });
+    expect(scan.all).toEqual([]);
+    expect([...scan.byConversation.keys()]).toEqual([]);
   });
 
-  test("a reported pid that is now a different process is not attributed", () => {
-    // The identity is (pid, startedAt): a recycled pid must not inherit the conversation's blame.
-    const watch = new CommandWatch({ conversationId: 5, selfPid: 10, reportPath: withReport([30], () => {}), list: () => [] });
-    watch.start()();
-    // Nothing alive at all, so nothing recorded — the same outcome a stale pid gets.
-    expect(scanLeftovers({ platform: "win32", list: () => [], fresh: true }).all).toEqual([]);
+  test("a windows host is the same: no rows", () => {
+    expect(scanLeftovers({ platform: "win32", fresh: true, list: () => [] }).all).toEqual([]);
   });
 });
 

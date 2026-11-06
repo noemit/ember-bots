@@ -32,8 +32,20 @@ step; it can be reopened from Settings.
 - **NVIDIA** (`NVIDIA_API_KEY`) is registered alongside the other keyed providers.
 
 ### Fixed
-- **"Left running" worked on Linux and not on macOS — the mechanism was rebuilt.** Linux reads
-  `/proc/<pid>/environ`, so it never used this code; every macOS bug here shipped unseen.
+- **"Left running" is now a Linux-only feature.** Attribution reads `/proc/<pid>/environ`, and there
+  is no reliable substitute: three attempts failed for the same reason — without that file there is
+  no dependable way to say which conversation a process belongs to. Polling the table cannot see a
+  command that finishes in milliseconds, and asking the shell to report its own jobs still cannot
+  tell a real leftover from a child whose parent had not yet exited. On macOS and Windows the
+  wrapper now passes the command straight through: the agent is told nothing, rather than told
+  something unreliable. A note that appears on some machines and not others is worse than none,
+  because it teaches people to ignore it.
+
+  The window for this was a day: the mechanism was rebuilt twice, and each rebuild fixed a real
+  fault (a 1.5s poll, a `ps` call with no start time) without making the design sound. Both those
+  fixes are kept where they still apply.
+
+### Previously, on the same feature
   - **Polling could not work, and no interval would fix it.** A `ps` pass takes ~70ms and
   `sleep 60 & echo started` finishes in ~3ms, so the only polls that could run were the one
   *before* the shell spawned and the one *after* it exited and the child was reparented to launchd.
