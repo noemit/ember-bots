@@ -38,8 +38,10 @@ import { hashRemotePassword, MAX_REMOTE_PASSWORD_LENGTH, MIN_REMOTE_PASSWORD_LEN
 import { ModelStatsStore } from './modelStats';
 import { ActivityLog, parseActivityQuery } from './activity';
 import { PiClient } from './piClient';
+import * as dataDir from './dataDir';
 import {
   localHarnessNotice,
+  mergeLocalHarnessEndpoint,
   startLocalHarness,
   type LocalHarnessState,
 } from './localHarness';
@@ -109,25 +111,22 @@ const openchamberSettingsPath = (): string =>
     ? path.join(process.env.OPENCHAMBER_DATA_DIR, 'settings.json')
     : path.join(os.homedir(), '.config', 'openchamber', 'settings.json');
 
-/**
- * A side-by-side "canary" identity: with `EMBER_DATA_DIR` set, this build keeps its own
- * settings, model stats and activity log (and calls itself Ember Canary), so it can run
- * beside the daily Ember without the two fighting over `~/.config/ember`. The OpenChamber
- * settings are shared and read-only, which is safe; only remote access (port 57821) must not
- * be enabled on both at once — the canary starts from fresh settings, so it is off there.
- */
-const emberDataDir = (): string => {
-  const override = process.env.EMBER_DATA_DIR && process.env.EMBER_DATA_DIR.trim();
-  return override ? path.resolve(override) : path.join(os.homedir(), '.config', 'ember');
-};
+const emberHome = ((): string => {
+  const current = dataDir.emberDataDir();
+  // Only the default location migrates: an explicit EMBER_DATA_DIR is a canary, with its own tree.
+  if (process.env.EMBER_DATA_DIR && process.env.EMBER_DATA_DIR.trim()) return current;
+  const moved = dataDir.migrateLegacyDataDir({ from: dataDir.legacyEmberDataDir(), to: current });
+  if (moved.length > 0) console.log('[ember] moved settings from ~/.config/ember:', moved.join(', '));
+  return current;
+})();
 const canaryBuild = Boolean(process.env.EMBER_DATA_DIR && process.env.EMBER_DATA_DIR.trim());
 const displayName = canaryBuild ? 'Ember Canary' : 'Ember';
 app.setName(displayName);
 
-const emberSettingsPath = (): string => path.join(emberDataDir(), 'settings.json');
-const modelStats = new ModelStatsStore(path.join(emberDataDir(), 'model-stats.json'));
+const emberSettingsPath = (): string => path.join(emberHome, 'settings.json');
+const modelStats = new ModelStatsStore(path.join(emberHome, 'model-stats.json'));
 // The durable activity log: one JSONL file per local day, written from the event stream.
-const activityLog = new ActivityLog(path.join(emberDataDir(), 'activity'));
+const activityLog = new ActivityLog(path.join(emberHome, 'activity'));
 
 /** The file's object, or undefined when it is missing or does not parse (not the same as empty). */
 const readJsonRoot = (file: string): Record<string, unknown> | undefined => {
@@ -244,6 +243,24 @@ const writeJson = async (file: string, data: unknown): Promise<void> => {
 
 const hostId = (host: StoredHost, index: number): string => String(host.id || `host-${index}`);
 
+/**
+ * What the bundled harness is doing, and the one way to build it.
+ *
+ * Settings asks for this so a person can see "running on this computer" rather than a listed host
+ * they cannot explain. It carries no token: the renderer only needs the state and the address.
+ */
+let localHarnessState: LocalHarnessState = { kind: 'disabled' };
+const localHarnessReport = (): { kind: LocalHarnessState['kind']; url?: string; version?: string; notice: string | null } => ({
+  kind: localHarnessState.kind,
+  ...('url' in localHarnessState ? { url: localHarnessState.url } : {}),
+  ...('version' in localHarnessState && localHarnessState.version ? { version: localHarnessState.version } : {}),
+  notice: localHarnessNotice(localHarnessState),
+});
+ipcMain.handle('ember:local-harness', (event) => {
+  assertTrustedSender(event);
+  return localHarnessReport();
+});
+
 const readEmberSettings = (): EmberSettings => {
   const root = readEmberSettingsFile();
   // Older builds stored one theme per instance; fall back to the first of those.
@@ -292,6 +309,9 @@ const readEmberSettings = (): EmberSettings => {
         : null,
     minimizedSessions: parseStringArray(root.minimizedSessions),
     piEndpoints: (() => {
+      // The harness this app started is merged in by `piEndpoints()`, so an explicit entry for the
+      // same address wins and nothing is duplicated in the file. Here only the pre-existing case is
+      // handled: settings that have never held a `piEndpoints` array at all discover a local token.
       const configured = parsePiEndpoints(root.piEndpoints);
       if (configured.length > 0 || Array.isArray(root.piEndpoints)) return configured;
       const discovered = discoverLocalPiEndpoint(
@@ -583,21 +603,20 @@ const piClient = new PiClient(
     return ids;
   }
 );
-const piEndpoints = (): PiEndpoint[] => {
-  const configured = readEmberSettings().piEndpoints;
-  // The harness this app started answers on loopback with a token we can read, but it is only in
-  // `piEndpoints` once the settings file has been written — which happens when a setting changes,
-  // not on launch. Merging it here means the first launch lists it without racing a settings write
-  // (and without the renderer ever holding a token the file does not have). An explicit entry for
-  // the same address wins: this only fills a gap.
-  if (localHarnessState.kind !== 'started') return configured;
-  const started = localHarnessState;
-  if (configured.some((endpoint) => endpoint.url.replace(/\/+$/, '') === started.url)) return configured;
-  return [
-    { id: 'pi:local', label: 'This computer', url: started.url, token: started.token },
-    ...configured,
-  ];
-};
+/**
+ * The endpoints Ember talks to: the configured ones, plus the harness this app started.
+ *
+ * The local harness answers on loopback with a token we can read, but it only enters `piEndpoints`
+ * once the settings file is written — which happens when a setting changes, not on launch. Merging
+ * it here is what makes it appear on the first launch without racing a settings write. The merge
+ * rule itself lives in `localHarness.ts` so it can be tested without a settings file.
+ */
+const piEndpoints = (): PiEndpoint[] =>
+  mergeLocalHarnessEndpoint(
+    readEmberSettings().piEndpoints,
+    localHarnessState.kind === 'started' ? { url: localHarnessState.url, token: localHarnessState.token } : null
+  );
+
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>
   Promise.all(
     endpoints.map(async (endpoint) => {
@@ -745,23 +764,6 @@ ipcMain.handle('ember:instances', (event, refresh?: unknown) => {
 
 ipcMain.handle('ember:app-version', () => app.getVersion());
 
-/**
- * What the bundled harness is doing, and the one way to build it.
- *
- * Settings asks for this so a person can see "running on this computer" rather than a listed host
- * they cannot explain. It carries no token: the renderer only needs the state and the address.
- */
-let localHarnessState: LocalHarnessState = { kind: 'disabled' };
-const localHarnessReport = (): { kind: LocalHarnessState['kind']; url?: string; version?: string; notice: string | null } => ({
-  kind: localHarnessState.kind,
-  ...('url' in localHarnessState ? { url: localHarnessState.url } : {}),
-  ...('version' in localHarnessState && localHarnessState.version ? { version: localHarnessState.version } : {}),
-  notice: localHarnessNotice(localHarnessState),
-});
-ipcMain.handle('ember:local-harness', (event) => {
-  assertTrustedSender(event);
-  return localHarnessReport();
-});
 ipcMain.handle('ember:settings:get', (event) => {
   assertTrustedSender(event);
   return readEmberSettings();
@@ -1268,6 +1270,8 @@ if (primaryInstance) app.whenReady().then(async () => {
   // host to show instead of an empty rail and instructions to go and find one.
   const localHarness = await startLocalHarness({
     resourcesDir: process.resourcesPath,
+    // One directory for the app and its harness: `~/.ember` (or the canary's own tree).
+    home: emberHome,
     ...(process.env.EMBER_BUNDLED_HARNESS ? { binaryName: process.env.EMBER_BUNDLED_HARNESS } : {}),
     // The same switch the settings screen shows. Persisted so a person who turned it off is not
     // asked again on the next launch.

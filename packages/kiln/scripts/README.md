@@ -1,7 +1,7 @@
 # Hearth — running it on each device
 
 Hearth is one process per device, each with its own SQLite, token, and port. Ember lists all of
-them side by side via `piEndpoints` in `~/.config/ember/settings.json`.
+them side by side via `piEndpoints` in `~/.ember/settings.json`.
 
 ## Example devices
 
@@ -135,7 +135,7 @@ scripts/from-mac.sh remote-host url                     # prints the address Emb
 
 ## Point Ember at all of them
 
-`~/.config/ember/settings.json` (or the canary dir):
+`~/.ember/settings.json` (or the canary dir):
 
 ```json
 "piEndpoints": [

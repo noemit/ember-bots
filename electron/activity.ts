@@ -1,6 +1,6 @@
 /**
  * Durable activity log: one JSONL line per interesting instance event, one file per local
- * day (`~/.config/ember/activity/activity-YYYY-MM-DD.jsonl`, mode 0600). Main is the single
+ * day (`~/.ember/activity/activity-YYYY-MM-DD.jsonl`, mode 0600). Main is the single
  * writer so a desktop window and a remote web client can't double-record, and the log keeps
  * filling while the window is closed. Entries come from `describeEvent` in `eventStream.ts`
  * — the bounded summary main extracted from the event payload, never transcript content.

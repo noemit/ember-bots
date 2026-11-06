@@ -430,6 +430,8 @@ export default function App() {
   }, [sessionsByInstance]);
 
   const [settingsView, setSettingsView] = React.useState<'general' | 'instances' | 'providers'>('general');
+  /** The host whose Providers screen is open, when it was opened from a session's model picker. */
+  const [providerEndpointId, setProviderEndpointId] = React.useState<string | undefined>(undefined);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
   /**
    * A message a column should open on, from a link's context bar on Home. Token-keyed so the same
@@ -5048,6 +5050,14 @@ export default function App() {
           }
           onMinimize={() => minimizeSession(key)}
           onActivate={() => activateSession(key)}
+          // The picker's "Add providers…" opens the host's own Providers screen. Which endpoint is
+          // being configured is a property of that screen, so the id comes along.
+          onOpenProviders={(instanceId) => {
+            setProviderEndpointId(instanceId);
+            setSettingsView('providers');
+            setSettingsActivated(true);
+            setSettingsOpen(true);
+          }}
           onArchive={session.kind === 'worker' ? undefined : () => requestArchive(session)}
           onRename={(title) => void handleRenameSession(session, title)}
           crew={crewWorkers.get(key) ?? []}
@@ -5254,6 +5264,7 @@ export default function App() {
             unreadMessages={unreadMessages}
             hideNavigation={activityVisible || usageOpen || scheduledOpen}
             onOpenSettings={() => {
+              setProviderEndpointId(undefined);
               setSettingsView('instances');
               setSettingsActivated(true);
               setSettingsOpen(true);
@@ -5337,6 +5348,7 @@ export default function App() {
               }}
               onOpenSettings={() => {
                 setMobileRailOpen(false);
+                setProviderEndpointId(undefined);
                 setSettingsView('general');
                 setSettingsActivated(true);
                 setSettingsOpen(true);
@@ -5586,7 +5598,13 @@ export default function App() {
                 recentModelsByInstance={recentModelsByInstance}
                 onChange={handleSettings}
                 onOpenChange={setSettingsOpen}
-                onViewChange={setSettingsView}
+                onViewChange={(next) => {
+                  // Leaving the Providers screen clears the host it was opened for, so a later open
+                  // from Settings → Instances does not silently configure the last session's host.
+                  if (next !== 'providers') setProviderEndpointId(undefined);
+                  setSettingsView(next);
+                }}
+                {...(providerEndpointId ? { providerEndpointId } : {})}
                 onRefreshInstances={() => void refreshInstances()}
                 onRefreshModels={(id) => void refreshModels(id)}
               />

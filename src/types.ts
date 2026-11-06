@@ -752,7 +752,7 @@ export type EmberBridge = {
   observeModels?(observations: import('./lib/modelStats').ModelObservation[]): Promise<import('./lib/modelStats').ModelObservation[]>;
   clearModelStats?(): Promise<void>;
   /**
-   * The durable activity log (one JSONL day file per local day in `~/.config/ember/activity`).
+   * The durable activity log (one JSONL day file per local day in `~/.ember/activity`).
    * Entries are the bounded event summaries main extracted; nothing else about a payload
    * crosses the bridge. Optional: an older remote server may not serve them.
    */

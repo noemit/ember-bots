@@ -62,6 +62,9 @@ const fakeChild = (pid = 4242): FakeChild => {
 const okProbe = async () => ({ ok: true, version: '1.2.0' });
 const downProbe = async () => ({ ok: false });
 
+/** A token that always reads, so cases about the *port* are not silently about the token too. */
+const staticToken = (value = 'test-token') => () => value;
+
 describe('where the harness lives', () => {
   test('the binary is named per platform and sits in the app resources', () => {
     expect(binaryNameFor('darwin')).toBe('kiln');
@@ -108,6 +111,7 @@ describe('starting (or adopting) the local harness', () => {
       binaryName: path.basename(binary),
       home,
       probe: okProbe,
+      readToken: staticToken('adopted'),
       spawn: (() => {
         spawned += 1;
         return fakeChild();
@@ -167,6 +171,8 @@ describe('starting (or adopting) the local harness', () => {
     const { state } = await startLocalHarness({
       resourcesDir: binaryDir,
       home,
+      // The harness writes its token as it boots; the probe answers a beat before that lands.
+      readToken: () => (fs.existsSync(path.join(home, 'hearth.token')) ? fs.readFileSync(path.join(home, 'hearth.token'), 'utf8').trim() : undefined),
       probe: async () => {
         calls += 1;
         // Not answering on the first look, answering once it has "booted".
@@ -287,6 +293,7 @@ describe('starting (or adopting) the local harness', () => {
     const { state } = await startLocalHarness({
       resourcesDir: binaryDir,
       home,
+      readToken: staticToken(),
       probe: async () => {
         calls += 1;
         return calls === 1 ? { ok: false } : { ok: true, version: '1.2.0' };
@@ -294,5 +301,114 @@ describe('starting (or adopting) the local harness', () => {
       spawn: (() => fakeChild()) as never,
     });
     expect(state.kind).toBe('started');
+  });
+});
+
+/**
+ * The merge rule, which is where first-launch behaviour actually goes wrong.
+ *
+ * A settings file written before the harness was bundled usually already holds an endpoint pointing
+ * at `127.0.0.1:3002`. Adding the started harness as a *second* entry would list one host twice and
+ * open its watch set twice — the duplicate-endpoint failure this project already paid for once.
+ */
+import { mergeLocalHarnessEndpoint } from './electron/localHarness';
+
+describe('merging the started harness into the configured endpoints', () => {
+  const endpoint = (over: Partial<{ id: string; label: string; url: string; token: string }> = {}) => ({
+    id: 'pi:local',
+    label: 'Local',
+    url: 'http://127.0.0.1:3002',
+    token: 'file-token',
+    ...over,
+  });
+
+  test('no started harness leaves the configured list exactly as it is', () => {
+    const configured = [endpoint()];
+    expect(mergeLocalHarnessEndpoint(configured, null)).toBe(configured);
+  });
+
+  test('an existing entry for the same address is relabelled, never duplicated', () => {
+    const merged = mergeLocalHarnessEndpoint([endpoint({ label: 'Heliograph' })], {
+      url: 'http://127.0.0.1:3002/',
+      token: 'running-token',
+    });
+    expect(merged).toHaveLength(1);
+    // The person's own name survives; the running host's token wins, because it is the one answering.
+    expect(merged[0]?.label).toBe('Heliograph');
+    expect(merged[0]?.token).toBe('running-token');
+  });
+
+  test('a different address is added in front, so the local host is the first row', () => {
+    const merged = mergeLocalHarnessEndpoint(
+      [endpoint({ id: 'pi:remote', label: 'Tower', url: 'http://100.64.0.2:3002' })],
+      { url: 'http://127.0.0.1:3002', token: 'running-token' }
+    );
+    expect(merged.map((entry) => entry.id)).toEqual(['pi:local', 'pi:remote']);
+    expect(merged[0]?.label).toBe('This computer');
+  });
+
+  test('trailing slashes do not create a second entry', () => {
+    const one = mergeLocalHarnessEndpoint([endpoint({ url: 'http://127.0.0.1:3002/' })], {
+      url: 'http://127.0.0.1:3002',
+      token: 't',
+    });
+    expect(one).toHaveLength(1);
+    const two = mergeLocalHarnessEndpoint([endpoint({ url: 'http://127.0.0.1:3002' })], {
+      url: 'http://127.0.0.1:3002///',
+      token: 't',
+    });
+    expect(two).toHaveLength(1);
+  });
+});
+
+/**
+ * The failure that shipped in 1.3.0: a harness that answered `/health` a moment before it wrote its
+ * token, so the app recorded an empty credential and every later request was a 401. Reload could not
+ * fix it — reload re-uses the recorded token — and nothing logged it.
+ */
+describe('ready means answering *and* authenticating', () => {
+  test('an answering harness with no readable token yet is still booting, not ready', async () => {
+    const binaryDir = tempDir();
+    fs.writeFileSync(path.join(binaryDir, 'kiln'), '#!/bin/sh\n', { mode: 0o755 });
+    const home = tempDir();
+    let answers = 0;
+    let token: string | undefined;
+    const { state } = await startLocalHarness({
+      resourcesDir: binaryDir,
+      home,
+      probe: async () => {
+        answers += 1;
+        // The port answers from the first poll; the token appears on the third.
+        if (answers === 3) token = 'late-token';
+        return { ok: true, version: '1.3.0' };
+      },
+      readToken: () => token,
+      spawn: (() => fakeChild()) as never,
+    });
+    expect(state.kind).toBe('started');
+    // The credential the harness actually uses, not the empty one the first poll saw.
+    if (state.kind === 'started') expect(state.token).toBe('late-token');
+    expect(answers).toBeGreaterThanOrEqual(3);
+  });
+
+  test('a host answering with a credential we cannot read is not adopted', async () => {
+    const binaryDir = tempDir();
+    fs.writeFileSync(path.join(binaryDir, 'kiln'), '#!/bin/sh\n', { mode: 0o755 });
+    const home = tempDir();
+    let t = 0;
+    const { state } = await startLocalHarness({
+      resourcesDir: binaryDir,
+      home,
+      probe: okProbe,
+      // Something else owns the port and we hold no token for it.
+      readToken: () => undefined,
+      spawn: (() => fakeChild()) as never,
+      now: () => {
+        t += HARNESS_START_TIMEOUT_MS;
+        return t;
+      },
+    });
+    // Not "attached" with an empty token: that was the 401.
+    expect(state.kind).not.toBe('attached');
   });
 });

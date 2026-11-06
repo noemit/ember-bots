@@ -25,6 +25,12 @@ type Props = {
    * a new key unlocked — until the next poll happened to land.
    */
   onProviderChange?: (endpointId: string) => void;
+  /**
+   * Which host to show first. Set when the panel is opened *for* a host — the picker's "Add
+   * providers…" from a session names its own instance — so the screen lands on the machine that
+   * needs the credential rather than whichever endpoint happens to be first.
+   */
+  initialEndpointId?: string;
 };
 
 const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string> = {
@@ -38,8 +44,8 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
  * `$HEARTH_HOME/auth.json` and is never sent back or rendered. OAuth providers (xAI, OpenAI)
  * sign in on the host with `hearth.sh provider login`, so this panel only manages API keys.
  */
-export default function ProvidersSettings({ endpoints, instances, onProviderChange }: Props) {
-  const [endpointId, setEndpointId] = React.useState(endpoints[0]?.id ?? '');
+export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId }: Props) {
+  const [endpointId, setEndpointId] = React.useState(initialEndpointId ?? endpoints[0]?.id ?? '');
   const [providers, setProviders] = React.useState<PiProviderInfo[] | null>(null);
   const [defaultModel, setDefaultModel] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -50,10 +56,14 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   const [signIn, setSignIn] = React.useState<PiProviderInfo | null>(null);
 
   React.useEffect(() => {
+    if (initialEndpointId && endpoints.some((endpoint) => endpoint.id === initialEndpointId)) {
+      setEndpointId(initialEndpointId);
+      return;
+    }
     if (!endpoints.some((endpoint) => endpoint.id === endpointId)) {
       setEndpointId(endpoints[0]?.id ?? '');
     }
-  }, [endpointId, endpoints]);
+  }, [endpointId, endpoints, initialEndpointId]);
 
   // Stable identity, so the signing dialog's effects don't restart on every parent render.
   const notifyChanged = useStableCallback((id: string) => onProviderChange?.(id));

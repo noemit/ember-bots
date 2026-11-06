@@ -31,6 +31,13 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Re-fetch the instance's catalogue. The picker already refreshes on open; this is the manual one. */
   onRefresh?: () => Promise<unknown> | void;
+  /**
+   * Open this host's provider settings. Offered instead of a dead end when the catalogue is empty:
+   * a host with no credentials has nothing to pick, and the only fix is on its Providers screen.
+   */
+  onAddProviders?: () => void;
+  /** The host's label, so the empty state names which machine needs credentials. */
+  instanceLabel?: string;
 };
 
 type Group = { id: string; title: string; models: ModelOption[] };
@@ -159,6 +166,8 @@ export default function ModelPicker({
   onSelect,
   onOpenChange,
   onRefresh,
+  onAddProviders,
+  instanceLabel,
 }: Props) {
   const [query, setQuery] = React.useState('');
   const [hovered, setHovered] = React.useState<string | null>(null);
@@ -340,9 +349,31 @@ export default function ModelPicker({
 
               {groups.length === 0 ? (
                 <div className="px-3 py-10 text-center text-[12px] text-muted-foreground">
-                  {models.length === 0
-                    ? 'No models loaded from this instance yet.'
-                    : `No models match “${query.trim()}”.`}
+                  {models.length === 0 ? (
+                    <span className="flex flex-col items-center gap-2.5">
+                      {/* A host with no providers cannot offer a model, and no amount of refreshing
+                          changes that: name the machine and put the one control that fixes it here,
+                          instead of leaving a dead end. */}
+                      <span>
+                        {instanceLabel || 'This host'} has no model providers yet, so there are no
+                        models to pick.
+                      </span>
+                      {onAddProviders ? (
+                        <Button
+                          type="button"
+                          size="xs"
+                          onClick={() => {
+                            onOpenChange(false);
+                            onAddProviders();
+                          }}
+                        >
+                          Add providers…
+                        </Button>
+                      ) : null}
+                    </span>
+                  ) : (
+                    'No models match your search.'
+                  )}
                 </div>
               ) : null}
             </div>

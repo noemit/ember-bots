@@ -154,8 +154,13 @@ Remote clients use the desktop host's settings and model-experience store. Logou
 | Location | Purpose |
 | --- | --- |
 | `~/.config/openchamber/settings.json` | OpenChamber instance discovery; read by Ember |
-| `~/.config/ember/settings.json` | Appearance, workspace layout, drafts/model choices, notes, pins, and remote-access settings |
-| `~/.config/ember/model-stats.json` | Observed model-call metadata and personal ratings |
+| `~/.ember/settings.json` | Appearance, workspace layout, drafts/model choices, notes, pins, and remote-access settings |
+| `~/.ember/model-stats.json` | Observed model-call metadata and personal ratings |
+| `~/.ember/hearth.sqlite` | The local harness's conversations, when Ember runs its own agent server |
+| `~/.ember/hearth.token` | That harness's bearer token (mode 0600) |
+
+Everything Ember owns lives in `~/.ember`: deleting that directory is a clean reset. An install from
+before 1.4 kept its settings in `~/.config/ember`; those are moved across once, on the next launch.
 
 Draft text and model choices persist across launches. Attachments and reply context remain in memory. Treat the settings file as private: it can contain draft text and notes.
 

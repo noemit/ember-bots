@@ -59,6 +59,8 @@ export type LocalHarnessOptions = {
   spawn?: (command: string, args: string[], options: Record<string, unknown>) => ChildProcess;
   /** Test seam: the loopback probe. */
   probe?: (url: string) => Promise<{ ok: boolean; version?: string }>;
+  /** Test seam: where the harness's credential is read from. Defaults to `readHarnessToken(home)`. */
+  readToken?: () => string | undefined;
   now?: () => number;
 };
 
@@ -126,6 +128,31 @@ export const readHarnessToken = (home: string): string | undefined => {
     }
   }
   return undefined;
+};
+
+/**
+ * Whether a harness is *usable*, not merely answering.
+ *
+ * `/health` answering and a token being readable are two different facts, and the harness makes them
+ * true at different moments: it binds the port and starts answering, then writes `hearth.token`.
+ * The first client to poll in that window saw a healthy host and recorded an **empty** token, so the
+ * app listed a connection that answered `/health` and rejected everything else with 401 — a failure
+ * nothing logged, because from the harness's side nothing was wrong.
+ *
+ * So "ready" means both: it answers *and* we hold the credential it answers to. A host that is
+ * already running and whose token we cannot read is not adopted either — an adopted endpoint with no
+ * token is the same 401 wearing a different label.
+ */
+export const harnessIsReady = async (
+  probe: (url: string) => Promise<{ ok: boolean; version?: string }>,
+  readToken: () => string | undefined,
+  url: string
+): Promise<{ ready: boolean; version?: string; token?: string }> => {
+  const answer = await probe(url);
+  if (!answer.ok) return { ready: false };
+  const token = readToken()?.trim();
+  if (!token) return { ready: false };
+  return { ready: true, token, ...(answer.version ? { version: answer.version } : {}) };
 };
 
 const defaultProbe = async (
@@ -201,11 +228,17 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
     clearLock(home);
   };
 
+  const readToken = options.readToken ?? (() => readHarnessToken(home));
+
   // 1. Something already answering is not ours. This is the service the CLI installed, a container,
-  //    or a second Ember window; either way, quitting must not stop it.
-  const existing = await probe(url);
-  if (existing.ok) {
-    return { state: { kind: 'attached', url, token: readHarnessToken(home) ?? '', ...(existing.version ? { version: existing.version } : {}) }, stop: () => {} };
+  //    or a second Ember window; either way, quitting must not stop it. It is only adopted when we
+  //    can authenticate to it — a host whose answer we cannot use is not a host we can list.
+  const existing = await harnessIsReady(probe, readToken, url);
+  if (existing.ready) {
+    return {
+      state: { kind: 'attached', url, token: existing.token ?? '', ...(existing.version ? { version: existing.version } : {}) },
+      stop: () => {},
+    };
   }
 
   if (options.disabled === true) return { state: { kind: 'disabled' }, stop: () => {} };
@@ -227,9 +260,12 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
     // It may still be booting. Wait for it rather than starting a rival.
     const deadline = now() + HARNESS_START_TIMEOUT_MS;
     while (now() < deadline) {
-      const answer = await probe(url);
-      if (answer.ok) {
-        return { state: { kind: 'attached', url, token: readHarnessToken(home) ?? '', ...(answer.version ? { version: answer.version } : {}) }, stop: () => {} };
+      const answer = await harnessIsReady(probe, readToken, url);
+      if (answer.ready) {
+        return {
+          state: { kind: 'attached', url, token: answer.token ?? '', ...(answer.version ? { version: answer.version } : {}) },
+          stop: () => {},
+        };
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
@@ -282,9 +318,13 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
         stop,
       };
     }
-    const answer = await probe(url);
-    if (answer.ok) {
-      return { state: { kind: 'started', url, token: readHarnessToken(home) ?? '', ...(answer.version ? { version: answer.version } : {}) }, stop };
+    // Both facts, not just the port: see `harnessIsReady`.
+    const answer = await harnessIsReady(probe, readToken, url);
+    if (answer.ready) {
+      return {
+        state: { kind: 'started', url, token: answer.token ?? '', ...(answer.version ? { version: answer.version } : {}) },
+        stop,
+      };
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
@@ -307,4 +347,30 @@ export const localHarnessNotice = (state: LocalHarnessState, home = defaultHarne
     case 'failed':
       return `The local agent server did not start: ${state.reason}. You can still add a host in Settings → Instances. Log: ${path.join(home, 'kiln.log')}`;
   }
+};
+
+/** The endpoints Ember talks to: the configured ones, plus the harness this app started. */
+export type HarnessEndpoint = { id: string; label: string; url: string; token: string };
+
+const sameAddress = (a: string, b: string): boolean => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+
+/**
+ * Merge the harness this app started into the configured endpoint list.
+ *
+ * A settings file written before the harness was bundled usually already holds an entry pointing at
+ * `127.0.0.1:3002`. Adding the started harness as a *second* entry would list one host twice and open
+ * its watch set twice — the duplicate-endpoint failure this project already paid for once. So an
+ * entry for the same address is **relabelled, not duplicated**: the person's own name survives and
+ * the running host's token wins, because it is the one that will answer.
+ */
+export const mergeLocalHarnessEndpoint = <T extends HarnessEndpoint>(
+  configured: readonly T[],
+  started: { url: string; token: string } | null
+): T[] | HarnessEndpoint[] => {
+  if (!started) return configured as T[];
+  const match = configured.find((endpoint) => sameAddress(endpoint.url, started.url));
+  if (match) {
+    return configured.map((endpoint) => (endpoint === match ? { ...endpoint, token: started.token } : endpoint));
+  }
+  return [{ id: 'pi:local', label: 'This computer', url: started.url, token: started.token }, ...configured];
 };

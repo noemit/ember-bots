@@ -1,3 +1,31 @@
+## 1.4.0
+
+### Fixed
+- **A harness that had just started could be listed with an empty token, so every request was a
+  401.** `/health` answering and the credential being readable were treated as one fact, and they are
+  not: the harness binds its port and starts answering, *then* writes `hearth.token`. The first poll
+  that landed in that window saw a healthy host and recorded an empty token — Ember listed a
+  connection that answered its health check and rejected everything else. Reload could not fix it
+  (reload re-uses the recorded token) and nothing logged it, because from the harness's side nothing
+  was wrong. Ready now means **both**: it answers *and* we hold the credential it answers to
+  (`harnessIsReady`). A host already running whose token we cannot read is not adopted either — that
+  was the same 401 wearing a different label.
+
+### Changed
+- **Everything Ember owns now lives in `~/.ember`.** It was split across `~/.config/ember` (settings,
+  model stats, activity) and `~/.ember` (the harness's home), which meant one product with two data
+  directories, two backup stories and two things to delete. Both now share one directory, so deleting
+  it deletes Ember. A pre-1.4 `~/.config/ember` is moved across once, before anything reads settings,
+  and never overwrites a file already at the destination; token files are deliberately not carried
+  over, because whichever harness is running owns the credential. `EMBER_DATA_DIR` still gives a
+  canary build its own tree.
+
+### Added
+- **An empty model picker now says what to do.** A host with no providers cannot offer a model, and
+  refreshing changes nothing, so the picker named the dead end. It now says *"<host> has no model
+  providers yet, so there are no models to pick"* and offers **Add providers…**, which opens that
+  host's Providers screen with the host already selected.
+
 ## 1.3.0
 
 ### Added

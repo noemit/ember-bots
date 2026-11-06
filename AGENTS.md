@@ -43,9 +43,9 @@ Desktop control room for **Kiln** (`packages/kiln`, Ember's durable agent harnes
 - `bun run dev` — build renderer + electron, then launch Electron.
 - `EMBER_DATA_DIR=<dir> bun run dev` — run this build side-by-side with the daily Ember as
   **Ember Canary**: it keeps its own settings, model-stats and activity log under that directory
-  (the wordmark and window title say "Ember Canary"), so the two never fight over
-  `~/.config/ember`. OpenChamber's settings are shared but read-only. Don't enable remote
-  access on both — they'd contend for port 57821.
+  (the wordmark and window title say "Ember Canary"), so the two never fight over `~/.ember`.
+  OpenChamber's settings are shared but read-only. Don't enable remote access on both — they'd
+  contend for port 57821.
 - `bun run dev:web` — renderer only under Vite with a mock bridge (`src/dev/mockBridge.ts`) so the UI
   can be exercised in a plain browser. The mock loads automatically when `window.ember` is absent.
   The default is the **pi mock** (`src/dev/mockPi.ts` — Hearth semantics); `?legacy` loads the
@@ -68,7 +68,7 @@ Desktop control room for **Kiln** (`packages/kiln`, Ember's durable agent harnes
 ## Layout
 
 - `electron/` — main process (reads OpenChamber hosts, probes health, proxies API calls, stores
-  Ember settings in `~/.config/ember/settings.json`) and the preload bridge. OpenChamber's
+  Ember settings in `~/.ember/settings.json`) and the preload bridge. OpenChamber's
   `settings.json` is consulted on every proxied request, so it's cached by mtime
   (`readOpenchamberSettings`). The settings contract (`EmberSettings`, `BlobStyle`,
   `InstanceDefaults`) lives once in `electron/transport.ts` and is imported by main and preload;
@@ -84,7 +84,7 @@ Desktop control room for **Kiln** (`packages/kiln`, Ember's durable agent harnes
   directly. `randomId.test.ts` scans `src/` to keep it that way. A durable activity log
   (`electron/activity.ts`, fed by `describeEvent` in `electron/eventStream.ts`) records whitelisted
   milestone events — bounded, single-line summaries only — as JSONL in
-  `~/.config/ember/activity/activity-YYYY-MM-DD.jsonl` (mode 0600, buffered flush + flush-on-quit,
+  `~/.ember/activity/activity-YYYY-MM-DD.jsonl` (mode 0600, buffered flush + flush-on-quit,
   30-day retention sweep, per-day size cap). Events now carry `id`/`at` and that optional
   `summary` on `EmberEvent`; the renderer threads them through `parseEmberEvent`.
 - `src/App.tsx` — owns the data state: instances, per-instance sessions/states/models/queues,

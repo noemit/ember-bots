@@ -61,6 +61,8 @@ type Props = {
    * and disappear when the credential is removed.
    */
   onRefreshModels?: (endpointId: string) => void;
+  /** The host the Providers screen should open on, when it was opened *for* one. */
+  providerEndpointId?: string;
 };
 
 /**
@@ -475,6 +477,7 @@ export default function SettingsPanel({
   onViewChange,
   onRefreshInstances,
   onRefreshModels,
+  providerEndpointId,
 }: Props) {
   // The packaged version, so an upgrade can be checked without quitting to look at a bundle.
   const [appVersion, setAppVersion] = React.useState<string | null>(null);
@@ -810,6 +813,7 @@ export default function SettingsPanel({
                     endpoints={settings.piEndpoints}
                     instances={instances}
                     onProviderChange={onRefreshModels}
+                    {...(providerEndpointId ? { initialEndpointId: providerEndpointId } : {})}
                   />
                 </CardContent>
               </Card>

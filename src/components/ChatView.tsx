@@ -280,6 +280,11 @@ type Props = {
    * worker column; the app opens `PromoteWorkerDialog` and calls Hearth.
    */
   onPromote?: () => void;
+  /**
+   * Open the Providers screen for this column's host. The model picker offers it when the host has
+   * no providers at all, because that is the one state refreshing cannot fix.
+   */
+  onOpenProviders?: (instanceId: string) => void;
   /** Persist a new session title on its instance (double-click on the header title). */
   onRename?: (title: string) => void;
   /** Called when the user interacts with this column, so the active session follows focus. */
@@ -497,6 +502,7 @@ function ChatView({
   onAskSideQuestion,
   onMinimize,
   onActivate,
+  onOpenProviders,
   onArchive,
   onPromote,
   onRename,
@@ -2513,6 +2519,13 @@ function ChatView({
                     }}
                     onOpenChange={setPickerOpen}
                     onRefresh={onModelsRefresh}
+                    instanceLabel={instanceLabel ?? draftInstance?.label}
+                    {...(onOpenProviders && (session?.instanceId ?? draftInstanceId)
+                      ? {
+                          onAddProviders: () =>
+                            onOpenProviders((session?.instanceId ?? draftInstanceId) as string),
+                        }
+                      : {})}
                   />
                 </React.Suspense>
               ) : null}
