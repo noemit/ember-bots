@@ -1,3 +1,11 @@
+## 1.14.2
+
+### Fixed
+- Tool-call steps no longer get read bubbles or count as unread messages, including completed
+  steps with commentary. They no longer prevent a reply’s read mark from advancing.
+- Folding tool history into a final reply preserves that reply’s read indicator. Turn failures
+  remain eligible for acknowledgement; pending approvals and questions keep their own controls.
+
 ## 1.14.1
 
 ### Fixed

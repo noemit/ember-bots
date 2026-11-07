@@ -322,6 +322,18 @@ const fixtureB = makeConversation({
   ],
 });
 
+// Some stored tool steps are completed even though they are execution history, not replies.
+if (fixtureParam === 'tool-unread') {
+  fixtureB.entries[1].model![0].stopReason = 'stop';
+  fixtureB.entries[3].id = 9;
+  fixtureB.entries.splice(3, 0,
+    { id: 7, kind: 'pi.assistant', model: [assistantMessage(
+      toolCall('call_unread_check', 'bash', { command: 'bun test' }), 'stop', minutes(87)
+    )] },
+    { id: 8, kind: 'pi.tool-result', model: [toolResult('call_unread_check', 'bash', 'Tests passed', false, minutes(87))] }
+  );
+}
+
 // An older host reuses an archived conversation when its schedule fires again.
 if (fixtureParam === 'scheduled-archived') fixtureB.archived = minutes(100);
 

@@ -62,3 +62,25 @@ test('a single unread reply uses its bubble, with reduced-motion confirmation', 
   await expect(column.locator('[data-read-confirming]')).toHaveCount(0);
   await expect(column.locator('[data-unread-navigation]')).toHaveCount(0);
 });
+
+test('tool steps need no acknowledgement and folded tools preserve the reply read bubble', async ({ page }) => {
+  await page.goto('/?fixture=tool-unread');
+  await page.locator('aside').getByRole('button', { name: /Remote access hardening/ }).first().click();
+  const column = page.locator('main[data-session-key="pi:hearth::11"]');
+  const toolStep = column.locator('[data-message-id="e4"]');
+  const reply = column.locator('[data-message-id="e9"]');
+  await expect(toolStep).toContainText('Reading the auth code now.');
+  await expect(toolStep.getByRole('button', { name: 'Mark this message as read' })).toHaveCount(0);
+  await expect(reply).toContainText('Used 1 tool');
+  await expect(reply.getByRole('button', { name: 'Mark this message as read' })).toBeVisible();
+  await expect(column.getByRole('button', { name: 'Mark all as read', exact: true })).toHaveCount(0);
+  await column.getByRole('button', { name: /Go to new messages/ }).click();
+  await expect(reply).toHaveAttribute('data-highlighted', 'true');
+  await reply.getByRole('button', { name: 'Mark this message as read' }).click();
+  await expect(column.locator('[data-unread-navigation]')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.readMarks['pi:hearth::11']?.through))).toBe(9);
+  await page.reload();
+  await page.locator('aside').getByRole('button', { name: /Remote access hardening/ }).first().click();
+  await expect(reply).toBeVisible();
+  await expect(column.locator('[data-unread-dot]')).toHaveCount(0);
+});

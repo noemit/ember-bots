@@ -127,7 +127,7 @@ import {
 import { composeCommentMessage, type TranscriptComment } from './lib/comments';
 import { deriveSessionName } from './lib/sessionNames';
 import { useUnreadDigests } from './hooks/useUnreadDigests';
-import { unreadItemsFor, visibleUnreadItems } from './lib/unreadDigest';
+import { isUnreadEligible, unreadItemsFor, visibleUnreadItems } from './lib/unreadDigest';
 import { useEmberSettings } from './hooks/useEmberSettings';
 import { useFeedback } from './hooks/useFeedback';
 import { mergePolledQueues, useMessageQueue, type QueueTarget } from './hooks/useMessageQueue';
@@ -4681,6 +4681,7 @@ export default function App() {
    * a digest for this session yet.
    */
   const handleMarkMessageReadInColumn = (session: Session, message: ChatMessage) => {
+    if (!isUnreadEligible(message)) return;
     const key = sessionKey(session);
     const current = settingsRef.current.readMarks[key];
     const ordinal = entryOrdinal(message.id);
@@ -4693,7 +4694,7 @@ export default function App() {
       const transcriptUnread = heldMessages
         .filter(
           (m) =>
-            m.role === 'assistant' &&
+            isUnreadEligible(m) &&
             !isMessageRead(current, entryOrdinal(m.id), m.completedAt ?? m.createdAt ?? 0)
         )
         .map((m) => entryOrdinal(m.id))

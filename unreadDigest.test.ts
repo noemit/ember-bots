@@ -78,7 +78,7 @@ describe('digestUnread', () => {
     expect(digest.items.map((item) => item.id)).toEqual(['e2', 'e8']);
   });
 
-  test('a message with a pending ask is a question, not a status word', () => {
+  test('a pending ask is handled by the question card, not a read receipt', () => {
     const asking: ChatMessage = {
       ...assistant('e9', 'Which address copy?'),
       parts: [
@@ -87,11 +87,10 @@ describe('digestUnread', () => {
       ],
     };
     const digest = digestUnread([asking], { mark: undefined, complete: true, version: 9 });
-    expect(digest.items[0].kind).toBe('question');
-    expect(digest.items[0].tags).toContain('Asking');
+    expect(digest.items).toEqual([]);
   });
 
-  test('tool steps are counted as tag facts', () => {
+  test('completed tool steps with commentary do not count as unread replies', () => {
     const busy: ChatMessage = {
       ...assistant('e10', 'Ran the suite.'),
       parts: [
@@ -100,7 +99,9 @@ describe('digestUnread', () => {
         { type: 'tool', id: 'e10-2', call: { id: 'c2', tool: 'write', status: 'completed' } },
       ],
     };
-    expect(digestUnread([busy], { mark: undefined, complete: true, version: 10 }).items[0].tags).toEqual(['2 steps']);
+    expect(digestUnread([busy], { mark: undefined, complete: true, version: 10 }).items).toEqual([]);
+    const failure = { ...busy, error: 'The model could not finish its reply.' };
+    expect(digestUnread([failure], { mark: undefined, complete: true, version: 10 }).items[0].kind).toBe('failure');
   });
 
   test('an incomplete read says so instead of guessing', () => {

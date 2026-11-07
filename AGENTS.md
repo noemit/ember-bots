@@ -64,6 +64,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   finished reply without marking it. Multiple unread replies offer “Mark all as read”. Each reply's
   `MessageReadButton` has a 44px hit area and immediate check/spin/fade confirmation (fade only for
   reduced motion). Read eligibility is shared with `unreadDigest`; live output is never marked early.
+  Tool-call steps (including commentary) need no read receipt. Folded tool rows keep the final
+  reply’s original eligibility, and tool steps never block advancing a reply’s read mark.
 - Home has been removed. Startup restores the workspace or opens a recent chat; an empty install
   starts a draft on an available Kiln. Unread reading remains accessible from the rail.
 - `settings.blobSize` chooses Standard, Large or Extra large on recognition surfaces through

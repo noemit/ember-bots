@@ -2190,13 +2190,17 @@ function Transcript({
     scrollToBottom(virtualized ? 'auto' : 'smooth');
   };
 
-  const unreadIndices = React.useMemo(() => items.flatMap(({ message }, index) =>
-    isUnreadEligible(message) &&
+  // Folded rows borrow tool parts from earlier steps. Read status belongs to the original reply.
+  const unreadIndices = React.useMemo(() => items.flatMap(({ message, index: sourceIndex }, index) =>
+    isUnreadEligible(messages[sourceIndex]) &&
     !isMessageRead(readMark, entryOrdinal(message.id), message.createdAt ?? 0)
       ? [index] : []
-  ), [items, readMark]);
+  ), [items, messages, readMark]);
   const unreadIds = React.useMemo(() => new Set(unreadIndices.map((index) => items[index].message.id)), [items, unreadIndices]);
-  const markMessageRead = useStableCallback((message: ChatMessage) => onMarkRead?.(message));
+  const markMessageRead = useStableCallback((message: ChatMessage) => {
+    const original = messages.find((entry) => entry.id === message.id);
+    if (original) onMarkRead?.(original);
+  });
 
   const last = messages[messages.length - 1];
   const busy = isTurnLive({ sending, state, last });

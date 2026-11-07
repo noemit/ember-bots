@@ -62,7 +62,11 @@ export const isUnreadEligible = (message: ChatMessage): boolean =>
   !message.live &&
   // A stop is not news: the user pressed it, so there is nothing to catch up on.
   !message.aborted &&
-  (message.text.trim().length > 0 || Boolean(message.error));
+  // A tool step is execution history, even when it includes commentary and is marked completed.
+  // A failed turn still needs the person's attention; a tool's own result/error alone does not.
+  (Boolean(message.error) || (
+    message.text.trim().length > 0 && !message.parts.some((part) => part.type === 'tool')
+  ));
 
 /** Tag facts about the turn that Home can print without the transcript's tool rows. */
 const tagsFor = (message: ChatMessage): string[] => {
