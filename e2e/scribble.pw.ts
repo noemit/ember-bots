@@ -15,7 +15,7 @@ test('Scribble can be selected and customised, with the same creature beside the
   await page.getByRole('button', { name: 'thistle', exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(row.locator('.blob-scribble')).toHaveAttribute('data-shape', 'thistle');
-  const composer = page.locator('main[data-session-key="pi:hearth::10"] [data-composer-identity]');
+  const composer = page.locator('[data-active-chat="pi:hearth::10"] [data-composer-identity]');
   await expect(composer.locator('.blob-scribble')).toHaveAttribute('data-shape', 'thistle');
   await expect(composer.locator('[data-scribble-eye]').first()).toHaveAttribute('stroke', '#29212f');
   await expect(composer.locator('path[fill="#fff4c2"]')).toHaveCount(1);

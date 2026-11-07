@@ -1,6 +1,8 @@
 import { hasUnreadMessages } from './lib/sessionUnread';
 import { AvatarSizeContext } from './blob/size';
 import * as React from 'react';
+import { WorkspaceConnection } from './components/workspaceConnection';
+import { blobColor } from './blob/color';
 import { MotionConfig } from 'motion/react';
 import InstanceBar from './components/InstanceBar';
 import LeftRail from './components/LeftRail';
@@ -484,6 +486,9 @@ export default function App() {
   const clearActionError = React.useCallback(() => showActionError(null), [showActionError]);
   const { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings } =
     useEmberSettings({ onError: showActionError, onBeforeSave: clearActionError });
+  React.useEffect(() => {
+    document.documentElement.style.setProperty('--conversation-text-size', `${settings.conversationFontSize ?? 14}px`);
+  }, [settings.conversationFontSize]);
 
   // The remote web client's session can end under it (the desktop restarted, the password changed,
   // or the 12-hour idle window passed). The bridge reports that as one event so the user gets a
@@ -5164,6 +5169,7 @@ export default function App() {
     <AvatarSizeContext.Provider value={settings.blobSize}>
     <ImageViewerContext.Provider value={imageViewerApi}>
     <MotionConfig reducedMotion="user">
+    <WorkspaceConnection activeKey={!newSessionInstanceId && !usageOpen && !scheduledOpen ? selectedKey : null} color={blobColor(settings.blobStyle, selectedIdentity)}>
       <TooltipProvider delayDuration={300}>
         <div className="flex h-full flex-col">
           <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -5217,6 +5223,7 @@ export default function App() {
             ) : null}
             {!usageOpen && !scheduledOpen ? (
             <LeftRail
+              onRenameSession={(session, title) => void handleRenameSession(session, title)}
               mode={settings.railMode}
               onCycleMode={cycleRailMode}
               instances={instances}
@@ -5594,6 +5601,7 @@ export default function App() {
 
         </div>
       </TooltipProvider>
+    </WorkspaceConnection>
     </MotionConfig>
     {readingSession && readingKey ? (
       <React.Suspense fallback={null}>

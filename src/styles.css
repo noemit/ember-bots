@@ -171,3 +171,37 @@ html.motion-paused *::after {
     scroll-behavior: auto !important;
   }
 }
+
+/* The shared lower edge carries identity from navigation into composing. */
+.connection-band {
+  background-color: color-mix(in oklab, var(--connection-agent) 9%, var(--background));
+  border-color: color-mix(in oklab, var(--connection-agent) 22%, var(--border));
+  transition: background-color .55s ease, border-color .55s ease;
+}
+.conversation-prose, [data-composer-surface] textarea {
+  font-size: var(--conversation-text-size, 14px);
+  line-height: 1.8;
+}
+.conversation-prose h1, .conversation-prose h2 { font-size: 1.5em; line-height: 1.4; }
+.conversation-prose h3 { font-size: 1.15em; }
+.conversation-prose code, .conversation-prose table { font-size: .9em; }
+.conversation-prose pre, .conversation-prose :not(pre) > code { background-color: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  .connection-band { transition: none; }
+}
+
+
+[data-connection-trace] {
+  position: absolute; inset: -1px 0 auto; height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--connection-agent) 30%, transparent);
+  transform-origin: left; opacity: 0;
+  animation: connection-handover .8s .15s ease-out both;
+}
+@keyframes connection-handover {
+  0% { transform: scaleX(0); opacity: 0; }
+  45% { transform: scaleX(.5); opacity: .45; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-connection-trace] { animation: none; }
+}

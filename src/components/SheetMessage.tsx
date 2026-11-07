@@ -22,7 +22,7 @@ export default function SheetMessage({ message }: { message: ChatMessage }) {
       : [];
 
   return (
-    <div className="flex flex-col gap-3 text-[13.5px] leading-[1.65] text-foreground">
+    <div className="conversation-prose flex flex-col gap-3 text-foreground">
       {blocks.map((part) => {
         if (part.type === 'text') {
           if (!part.text.trim()) return null;

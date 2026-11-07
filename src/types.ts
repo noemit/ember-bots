@@ -546,6 +546,8 @@ export type EmberSettings = {
   blobStyle: BlobStyle;
   /** Avatar size on the rail and beside the composer. */
   blobSize: BlobSize;
+  /** Reading and composing text in CSS pixels. */
+  conversationFontSize: number;
   /** Only list sessions active within this many hours; 0 means show everything. */
   sessionWindowHours: number;
   /**
@@ -591,7 +593,7 @@ export type EmberSettings = {
   compactRail: boolean;
   /**
    * How wide the session list is: `mini` is a 64px dock of blobs (the icon-sized collapse),
-   * `normal` is the familiar 320px rail, and `wide` is about half the window so each row can show
+   * `normal` is the 272px rail, and `wide` is about half the window so each row can show
    * the latest message. Remembered across restarts.
    */
   railMode: RailMode;

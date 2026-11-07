@@ -22,6 +22,7 @@ import {
   parseStringRecord,
   isBlobStyle,
   isBlobSize,
+  isConversationFontSize,
   migrateBlobStyle,
   isReasoningDisplay,
   resolveApiUrl,
@@ -435,6 +436,7 @@ const readEmberSettings = (): EmberSettings => {
     theme: theme || DEFAULT_THEME_ID,
     blobStyle: migrateBlobStyle(root.blobStyle) ?? DEFAULT_BLOB_STYLE,
     blobSize: isBlobSize(root.blobSize) ? root.blobSize : 'standard',
+    conversationFontSize: isConversationFontSize(root.conversationFontSize) ? root.conversationFontSize : 14,
     sessionWindowHours: isWindowHours(root.sessionWindowHours)
       ? root.sessionWindowHours
       : DEFAULT_SESSION_WINDOW_HOURS,
@@ -1043,6 +1045,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (typeof value.theme === 'string' && value.theme) settings.theme = value.theme;
   if (isBlobStyle(value.blobStyle)) settings.blobStyle = value.blobStyle;
   if (isBlobSize(value.blobSize)) settings.blobSize = value.blobSize;
+  if (isConversationFontSize(value.conversationFontSize)) settings.conversationFontSize = value.conversationFontSize;
   if (isWindowHours(value.sessionWindowHours)) settings.sessionWindowHours = value.sessionWindowHours;
   if (value.hiddenInstances !== undefined) settings.hiddenInstances = parseStringArray(value.hiddenInstances);
   if (value.dismissedOutages !== undefined) settings.dismissedOutages = parseStringArray(value.dismissedOutages);

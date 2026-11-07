@@ -1376,10 +1376,10 @@ const renderBlock = (
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={spring}
         className={cn(
-          'relative max-w-[85%] rounded-xl px-3.5 py-2 text-[13px] leading-relaxed',
+          'conversation-prose relative',
           mine
-            ? 'self-end whitespace-pre-wrap break-words rounded-br-sm bg-user-bubble text-user-bubble-foreground'
-            : 'self-start rounded-bl-sm bg-muted text-foreground'
+            ? 'max-w-[85%] self-end whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-user-bubble px-3.5 py-2 text-user-bubble-foreground'
+            : 'w-full max-w-[780px] self-start py-2 text-foreground'
         )}
       >
         {mine ? (
@@ -1754,7 +1754,7 @@ const MessageRow = React.memo(function MessageRow({
       data-message-id={message.id}
       data-highlighted={highlighted ? 'true' : undefined}
       className={cn(
-        'group/message relative flex w-full flex-col gap-1.5 rounded-xl px-5 transition-[background-color,box-shadow] duration-150 sm:px-7',
+        'group/message relative mx-auto flex w-full max-w-[760px] flex-col gap-1.5 rounded-xl px-5 transition-[background-color,box-shadow] duration-150 sm:px-7',
         highlighted && 'bg-highlight/10 ring-2 ring-highlight/30'
       )}
     >

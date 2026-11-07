@@ -1,4 +1,5 @@
 import * as React from 'react';
+import AvatarTransition from './AvatarTransition';
 import BuddyBlob from './BuddyBlob';
 import CrystalBlob from './CrystalBlob';
 import MosaicBlob from './MosaicBlob';
@@ -42,9 +43,8 @@ export default function Blob({ style, ...rest }: Props) {
     ) : (
       <CrystalBlob {...props} />
     );
-  if (mood !== 'unread') return rendered;
+  const avatar = mood !== 'unread' ? rendered : (
   // An unread turn gets a small highlight dot, style-agnostic so every style shows it.
-  return (
     <span className="relative inline-flex flex-none" style={{ width: size, height: size }}>
       {rendered}
       <span
@@ -53,4 +53,5 @@ export default function Blob({ style, ...rest }: Props) {
       />
     </span>
   );
+  return <AvatarTransition seed={rest.seed}>{avatar}</AvatarTransition>;
 }

@@ -86,8 +86,8 @@ require(process.env.EMBER_TEST_ENTRY);
     nativeWindow.on('pageerror', (error) => errors.push(error.message));
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 900));
     await expect(nativeWindow.locator('textarea')).toHaveCount(2);
-    await expect(nativeWindow.getByText('Native fixture response a', { exact: true })).toBeVisible();
-    await expect(nativeWindow.getByText('Native fixture response b', { exact: true })).toBeVisible();
+    await expect(nativeWindow.getByRole('log', { name: 'Conversation' }).getByText('Native fixture response a', { exact: true })).toBeVisible();
+    await expect(nativeWindow.getByRole('log', { name: 'Conversation' }).getByText('Native fixture response b', { exact: true })).toBeVisible();
     expect(await nativeWindow.evaluate(() => Boolean(window.ember.capabilities))).toBe(true);
 
     await test.step('native IPC saves separate drafts and usage to the isolated home', async () => {
@@ -118,7 +118,18 @@ require(process.env.EMBER_TEST_ENTRY);
       await expect(nativeWindow.locator('[data-composer-identity]')).toHaveCount(2);
       await expect(nativeWindow.locator('[data-composer-identity]').nth(0)).toContainText('Native session a');
       await expect(nativeWindow.locator('[data-composer-identity]').nth(1)).toContainText('Native session b');
-      await expect(nativeWindow.locator('[data-composer-identity] .blob').first()).toHaveCSS('width', '48px');
+      await expect(nativeWindow.locator('[data-composer-identity] .blob').first()).toHaveCSS('width', '83px');
+    });
+
+    await test.step('conversation size is validated, saved through IPC, and restored after reload', async () => {
+      const changed = await nativeWindow.evaluate(() => window.ember.setSettings({ conversationFontSize: 18 }));
+      expect(changed.conversationFontSize).toBe(18);
+      expect(JSON.parse(await readFile(join(ember, 'settings.json'), 'utf8')).conversationFontSize).toBe(18);
+      const rejected = await nativeWindow.evaluate(() => window.ember.setSettings({ conversationFontSize: 99 }));
+      expect(rejected.conversationFontSize).toBe(18);
+      await nativeWindow.reload();
+      await expect(nativeWindow.locator('.conversation-prose').first()).toHaveCSS('font-size', '18px');
+      await expect(nativeWindow.locator('textarea').first()).toHaveCSS('font-size', '18px');
     });
 
     // Remote interactions no longer need a visible native window.

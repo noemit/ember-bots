@@ -65,7 +65,6 @@
     .active-identity::after { content: ''; position: absolute; right: -5px; top: 50%; width: 28px; height: 1px; background: color-mix(in srgb, var(--agent) 35%, transparent); }
     .active-identity .portrait { width: 56px; height: 62px; flex: none; }
     .identity-text { min-width: 0; }
-    .active-label { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: color-mix(in srgb, var(--agent) 75%, #252922); margin-bottom: 6px; }
     .active-name { font-size: 13px; font-weight: 650; line-height: 1.4; }
     .active-topic { font-size: 10px; color: #707c69; line-height: 1.5; margin-top: 4px; }
     .composer-wrap { padding: 16px 24px 12px 22px; min-width: 0; }
@@ -150,7 +149,7 @@
     const chat = chats.find(c => c.id === active);
     $('app').style.setProperty('--agent', chat.color);
     $('chat-list').innerHTML = '<li class="list-label">Recent conversations</li>' + chats.filter(c => c.id !== active).map(c => `<li><button class="chat-row" data-id="${c.id}" style="--color:${c.color}" aria-label="Open ${escape(c.name)}${c.unread ? ', unread reply' : ''}">${portrait(c)}<span class="copy"><span class="name">${escape(c.name)}</span><span class="topic">${escape(c.topic)}</span></span><span><time>${c.age}</time>${c.unread ? '<span class="unread" aria-hidden="true"></span>' : ''}</span></button></li>`).join('');
-    $('identity').innerHTML = portrait(chat) + `<div class="identity-text"><div class="active-label">You’re talking to</div><div class="active-name">${escape(chat.name)}</div><div class="active-topic">${escape(chat.topic)}</div></div>`;
+    $('identity').innerHTML = portrait(chat) + `<div class="identity-text"><div class="active-name">${escape(chat.name)}</div><div class="active-topic">${escape(chat.topic)}</div></div>`;
     $('folder').textContent = `workspace / ${chat.project}`;
     $('messages').innerHTML = `<p class="user-message">${escape(chat.prompt)}</p><article class="answer"><h2>${escape(chat.heading)}</h2><p>${escape(chat.reply)}</p>${chat.bullets ? '<ul>'+chat.bullets.map(b=>'<li>'+escape(b)+'</li>').join('')+'</ul>' : ''}<div class="message-meta"><span class="read-bubble"></span>DeepSeek Flash · ${chat.age === 'now' ? 'just now' : chat.age + ' ago'}</div></article>` + (sent.get(active) || []).map(text=>`<p class="user-message" style="margin-top:25px">${escape(text)}</p>`).join('');
     $('draft').value = drafts.get(active) || '';

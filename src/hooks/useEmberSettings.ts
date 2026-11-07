@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   theme: DEFAULT_THEME_ID,
   blobStyle: 'buddy',
   blobSize: 'standard',
+  conversationFontSize: 14,
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],

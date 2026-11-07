@@ -6,10 +6,10 @@ test('avatar sizes keep rail and composer identities together without crowding t
   const row = rail.getByRole('button', { name: /Habit onboarding QA/ });
   await row.click();
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
-  const composer = column.locator('[data-composer-identity]');
+  const composer = page.locator('[data-composer-identity]');
   await expect(composer).toContainText('Habit onboarding QA');
   await expect(row.locator('.blob').first()).toHaveCSS('width', '55px');
-  for (const [label, size, composerSize] of [['Large', 69, 40], ['Extra large', 83, 48], ['Standard', 55, 32]] as const) {
+  for (const [label, size, composerSize] of [['Large', 69, 69], ['Extra large', 83, 83], ['Standard', 55, 55]] as const) {
     await rail.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: `${label} avatars`, exact: true }).click();
     await page.keyboard.press('Escape');
@@ -36,7 +36,7 @@ test('avatar sizes keep rail and composer identities together without crowding t
   const mini = rail.locator('[data-mini-session="pi:hearth::10"]');
   await expect(mini.locator('.blob').first()).toHaveCSS('width', '60px');
   await expect(rail).toHaveCSS('width', '84px');
-  expect(await rail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await expect.poll(() => rail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.keyboard.press('ControlOrMeta+b');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.screenshot({ path: '/tmp/ember-avatar-size.png' });

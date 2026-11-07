@@ -240,22 +240,27 @@ declare global {
 }
 if (slowCreateFixture) window.emberCreateFixture = { releaseCreate };
 
-const makeConversation = (overrides: Partial<MockConversation> = {}): MockConversation => ({
-  id: (conversationSequence += 1),
-  cwd: '/workspace/hearth',
-  model: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' },
-  autoAccept: { enabled: false, allowed: [] },
-  entries: [],
-  nextEntry: 1,
-  busy: false,
-  compacting: false,
-  approvals: [],
-  questions: [],
-  inbox: [],
-  nextSubmission: 1,
-  timers: [],
-  ...overrides,
-});
+const makeConversation = (overrides: Partial<MockConversation> = {}): MockConversation => {
+  // Named fixtures reserve explicit ids. New chats and promoted peers must never reuse one:
+  // a collision would merge distinct identities in the rail and the shared-avatar handover.
+  conversationSequence = Math.max(conversationSequence + 1, overrides.id ?? 0);
+  return {
+    id: conversationSequence,
+    cwd: '/workspace/hearth',
+    model: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' },
+    autoAccept: { enabled: false, allowed: [] },
+    entries: [],
+    nextEntry: 1,
+    busy: false,
+    compacting: false,
+    approvals: [],
+    questions: [],
+    inbox: [],
+    nextSubmission: 1,
+    timers: [],
+    ...overrides,
+  };
+};
 
 const conversations: MockConversation[] = [];
 
@@ -1697,7 +1702,7 @@ const mockFolders: Record<string, string[]> = {
  */
 const READ_STATE_KEY = 'ember-pi-read-state';
 
-const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'theme' | 'blobStyle'>> => {
+const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
   try {
     return JSON.parse(window.localStorage.getItem(READ_STATE_KEY) ?? 'null') ?? {};
   } catch {
@@ -1711,6 +1716,7 @@ let settings: EmberSettings = {
   theme: storedRead.theme ?? 'stone',
   blobStyle: storedRead.blobStyle ?? 'buddy',
   blobSize: 'standard',
+  conversationFontSize: storedRead.conversationFontSize ?? 14,
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],
@@ -1801,10 +1807,10 @@ export const bridge: EmberBridge = {
       else drafts[key] = draft;
     }
     settings = { ...settings, ...safe, ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
-    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined) {
+    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,
-        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults, avatarOverrides: settings.avatarOverrides, theme: settings.theme, blobStyle: settings.blobStyle })
+        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults, avatarOverrides: settings.avatarOverrides, theme: settings.theme, blobStyle: settings.blobStyle, conversationFontSize: settings.conversationFontSize })
       );
     }
     return settings;

@@ -477,6 +477,9 @@ export const isBlobStyle = (value: unknown): value is BlobStyle =>
 export const isBlobSize = (value: unknown): value is BlobSize =>
   value === 'standard' || value === 'large' || value === 'extra-large';
 
+export const isConversationFontSize = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 12 && value <= 20;
+
 export const migrateBlobStyle = (value: unknown): BlobStyle | undefined =>
   value === 'pip' ? 'mosaic' : isBlobStyle(value) ? value : undefined;
 
@@ -570,6 +573,8 @@ export type EmberSettings = {
   blobStyle: BlobStyle;
   /** Avatar size on the rail and beside the composer. */
   blobSize: BlobSize;
+  /** Reading and composing text in CSS pixels. */
+  conversationFontSize: number;
   /** Only list sessions active within this many hours; 0 means no limit. */
   sessionWindowHours: number;
   /** Instances switched off in the Instances menu; their sessions are filtered out everywhere. */

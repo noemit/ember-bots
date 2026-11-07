@@ -17,11 +17,11 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('textarea')).toHaveCount(2);
 });
 
-test('double-clicking the header title renames the session on the instance', async ({ page }) => {
+test('double-clicking the docked title renames the session on the instance', async ({ page }) => {
   await captureMutations(page);
   const column = page.locator('main[data-session-key="local::perf-0"]');
-  await column.locator('header').getByText('Performance session 0').dblclick();
-  const input = column.getByRole('textbox', { name: 'Rename session' });
+  await page.locator('[data-active-chat]').getByText('Performance session 0', { exact: true }).dblclick();
+  const input = page.locator('[data-active-chat]').getByRole('textbox', { name: 'Rename session' });
   await expect(input).toBeVisible();
   await input.fill('Renamed session');
   await input.press('Enter');
@@ -31,14 +31,14 @@ test('double-clicking the header title renames the session on the instance', asy
   expect(patch.path).toContain('/api/session/perf-0');
   expect(patch.body.title).toBe('Renamed session');
   // The blob's label chip in the rail follows the rename.
-  await expect(page.locator('aside [data-session-key="local::perf-0"]')).toContainText('Renamed session');
+  await expect(page.locator('[data-active-chat="local::perf-0"]')).toContainText('Renamed session');
 });
 
 test('Escape cancels the rename without touching the instance', async ({ page }) => {
   await captureMutations(page);
   const column = page.locator('main[data-session-key="local::perf-0"]');
-  await column.locator('header').getByText('Performance session 0').dblclick();
-  const input = column.getByRole('textbox', { name: 'Rename session' });
+  await page.locator('[data-active-chat]').getByText('Performance session 0', { exact: true }).dblclick();
+  const input = page.locator('[data-active-chat]').getByRole('textbox', { name: 'Rename session' });
   await input.fill('Discard me');
   await input.press('Escape');
   await expect(input).toHaveCount(0);
@@ -48,10 +48,10 @@ test('Escape cancels the rename without touching the instance', async ({ page })
 });
 
 test('every blob in a project card carries a two-line title chip', async ({ page }) => {
-  const blob = page.locator('aside [data-session-key="local::perf-0"]');
+  const blob = page.locator('aside [data-session-key="local::perf-1"]');
   // The full title is present in a chip under the blob — clipped after two lines, never
   // shortened with an ellipsis or em-dash.
-  await expect(blob).toContainText('Performance session 0');
+  await expect(blob).toContainText('Performance session 1');
   await expect(blob).not.toContainText('…');
   await expect(blob).not.toContainText('—');
   const label = blob.locator('[data-blob-label]');

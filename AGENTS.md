@@ -89,6 +89,24 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   can mean a restart or a forgotten failure; never treat a 404 as success. Each dialog attempt owns
   its polling lifetime so an old response cannot replace the current code or result.
 
+## Workspace connection (1.16.0)
+
+- The rail displays older entries above newer entries and pins the current chat beside the input
+  on desktop. `workspaceConnection.tsx` owns the measured geometry shared by LeftRail and ChatView:
+  the active column reports its real footer height and input centre through ResizeObserver, so the
+  rail’s dock aligns through textarea growth, attachments, queues and shelves. Inputs remain in
+  their session’s ChatView DOM; drafts, focus, drag/drop and split columns retain their boundaries.
+  Mobile keeps the identity inside the composer and the rail retains its complete session list.
+- `AvatarTransitionContext` enables identity movement only within the rail’s LayoutGroup. Blob
+  delegates this optional wrapper to AvatarTransition; transcript, reading, settings and dock-icon
+  renderers never participate. Shared ids use the full instance/session key. RailItem immediately
+  makes exiting rows inert and aria-hidden while their visual handover finishes. The active dock
+  keeps session actions in its context menu and renames on double-click; no “you’re talking to” label.
+- Agent prose has no bubble fill or wrapping border; user bubbles remain. `conversationFontSize`
+  is a persisted, validated whole-pixel size from 12–20, default 14. The CSS variable
+  `--conversation-text-size` reaches transcripts, reading sheets and composer text; toolbar and
+  metadata sizing stays independent. Settings → General contains the control and a live preview.
+
 ## Packaging
 
 - `scripts/build-binaries.mjs` builds Kiln and standalone Tinder with platform-correct executable
@@ -466,7 +484,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   open. Error/notice toasts render inline next to search. Home is no longer a view or command.
 - `src/components/LeftRail.tsx` — **three widths, one toggle** (`settings.railMode`): **mini** is a
   64px dock of session blobs (tooltip = title + latest message; no search, groups or labels),
-  **normal** is the 320px rail, and **wide** is about half the window, where each row shows the latest
+  **normal** is the 272px rail, and **wide** is about half the window, where each row shows the latest
   message over up to three lines (`SessionRow`'s `expanded`) and a project's blob strip spreads into
   the room. The panel button in the toolbar cycles them and `Cmd/Ctrl+B` does the same from anywhere.
   The rail is a single recency-ordered list from

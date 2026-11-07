@@ -1,3 +1,14 @@
+## 1.16.0
+
+### Changed
+- The rail now runs from older chats to newer ones, with the current chat anchored at its lower
+  edge beside the composer. Creatures move between the list and this dock, neighbouring rows
+  slide into place, and the chat’s colour continues across the connection. Names and folders
+  identify the destination without an extra label. Settings remains available at the rail’s top.
+- Agent replies sit directly on the conversation surface; user messages retain their bubbles.
+  Conversation text defaults to 14px with more open spacing. Settings → General offers sizes
+  from 12px to 20px for reading and composing, saved across restarts.
+
 ## 1.15.9
 
 ### Changed

@@ -690,6 +690,18 @@ export default function SettingsPanel({
               </Card>
 
               <Card>
+                <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Conversation text</CardTitle></CardHeader>
+                <CardContent className="p-3">
+                  <label className="flex items-center justify-between gap-3 text-xs">Text size
+                    <select aria-label="Conversation text size" value={settings.conversationFontSize ?? 14} onChange={event => onChange({ conversationFontSize: Number(event.target.value) })} className="rounded-md border bg-background px-2 py-1.5">
+                      {[12, 13, 14, 15, 16, 18, 20].map(size => <option key={size} value={size}>{size}px{size === 14 ? ' · Default' : ''}</option>)}
+                    </select>
+                  </label>
+                  <p className="mt-3 leading-[1.8]" style={{ fontSize: settings.conversationFontSize ?? 14 }}>Messages appear at this size.</p>
+                </CardContent>
+              </Card>
+
+              <Card>
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Theme

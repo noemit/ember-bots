@@ -1,3 +1,8 @@
+import RailItem from './RailItem';
+import ComposerIdentity from './ComposerIdentity';
+import { useWorkspaceConnection } from './workspaceConnection';
+import { AvatarTransitionContext } from '../blob/AvatarTransition';
+import { motion } from 'motion/react';
 import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
@@ -47,7 +52,8 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import ProjectCard from './ProjectCard';
 import GroupRow from './GroupRow';
-import SessionRow from './SessionRow';
+import SessionRow, { SessionContextMenuContent } from './SessionRow';
+import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { sessionKey } from '../types';
 import type { ScheduledTask } from '../api';
 import type {
@@ -151,6 +157,7 @@ type Props = {
   /** Open the group panel for a group, or start one from a session. */
   onManageGroup: (draft: { id?: string; name: string; keys: string[]; primaryKey?: string }) => void;
   onOpenSettings: () => void;
+  onRenameSession: (session: Session, title: string) => void;
 };
 
 /** No-op for callers that render the rail without read state (tests, the archive screen). */
@@ -211,7 +218,17 @@ export default function LeftRail({
   onUngroup,
   onManageGroup,
   onOpenSettings,
+  onRenameSession,
 }: Props) {
+  const composerConnection = useWorkspaceConnection();
+  const docked = Boolean(composerConnection.activeKey && selectedSession);
+  const scroller = React.useRef<HTMLDivElement>(null);
+  const dockElement = React.useRef<HTMLDivElement>(null);
+  const focusDock = React.useRef(false);
+  const followBottom = React.useRef(true);
+  React.useLayoutEffect(() => {
+    if (docked && focusDock.current) { dockElement.current?.focus({ preventScroll: true }); focusDock.current = false; }
+  }, [docked, selectedKey]);
   const [query, setQuery] = React.useState('');
   // Search starts scoped to the current view; the empty state can widen it to all time/archived.
   const [searchAllTime, setSearchAllTime] = React.useState(false);
@@ -252,8 +269,8 @@ export default function LeftRail({
   );
 
   const entries = React.useMemo(
-    () => buildRailEntries(itemSessions, projectsByInstance, groups),
-    [itemSessions, projectsByInstance, groups]
+    () => buildRailEntries(itemSessions.filter(session => !docked || sessionKey(session) !== selectedKey), projectsByInstance, groups).sort((a, b) => a.updated - b.updated || a.id.localeCompare(b.id)),
+    [itemSessions, projectsByInstance, groups, docked, selectedKey]
   );
 
   const matchesSession = React.useCallback(
@@ -341,6 +358,10 @@ export default function LeftRail({
     // Group cards found by name go first, like buildRailEntries' own ordering, then projects.
     return [...matchedGroups, ...withSessions, ...emptyProjects];
   }, [needle, entries, activeMatches, projectsByInstance, groups]);
+
+  React.useLayoutEffect(() => {
+    if (followBottom.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [railEntries]);
 
   const hasItems = railEntries.length > 0 || archivedMatches.length > 0;
 
@@ -686,18 +707,25 @@ export default function LeftRail({
   const miniAvatarSize = useAvatarSize(40);
 
   return (
+    <LayoutGroup id="rail-connection"><AvatarTransitionContext.Provider value={docked && !needle}>
     <aside
       style={{ '--mini-rail-width': `${miniAvatarSize + 24}px` } as React.CSSProperties}
+      data-testid="session-rail"
+      onPointerDownCapture={() => { focusDock.current = false; }}
+      onKeyDownCapture={event => {
+        if (docked && (event.key === 'Enter' || event.key === ' ') && event.target instanceof Element && event.target.closest('button')?.querySelector('.blob')) focusDock.current = true;
+      }}
       className={cn(
         'mobile-rail fixed left-0 z-40 flex w-[min(88vw,320px)] flex-none flex-col border-r bg-card transition-transform duration-200 md:static md:z-auto md:translate-x-0',
-        // Collapsible: narrow (320px) as before, or about half the window so a row can show the
+        // Collapsible: the study’s 272px rail, a compact dock, or about half the window so a row can show the
         // latest message. The ceiling keeps the text at a readable measure.
         'md:transition-[width] md:duration-200',
-        mode === 'wide' ? 'md:w-[min(50vw,760px)]' : mode === 'mini' ? 'md:w-[var(--mini-rail-width)]' : 'md:w-[320px]',
+        mode === 'wide' ? 'md:w-[min(50vw,760px)]' : mode === 'mini' ? 'md:w-[var(--mini-rail-width)]' : 'md:w-[272px]',
         mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
       )}
     >
       <div className={cn('flex flex-col gap-2 border-b', mode === 'mini' ? 'items-center p-1.5' : 'p-2.5')}>
+        <div className={cn('flex gap-1.5', mode === 'mini' ? 'flex-col items-center' : 'items-center')}>
         {mode === 'mini' ? (
           <div className="flex flex-col items-center gap-1.5">
             <Tooltip>
@@ -735,7 +763,7 @@ export default function LeftRail({
         {mode === 'mini' ? null : multiInstance ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" className="w-full justify-start" size="sm">
+              <Button variant="secondary" className="min-w-0 flex-1 justify-start" size="sm">
                 <Plus />
                 New agent
                 <ChevronDown className="ml-auto opacity-70" />
@@ -760,7 +788,7 @@ export default function LeftRail({
         ) : (
           <Button
             variant="secondary"
-            className="w-full justify-start"
+            className="min-w-0 flex-1 justify-start"
             size="sm"
             disabled={!defaultInstanceId}
             onClick={() => defaultInstanceId && onNewAgent(defaultInstanceId)}
@@ -770,6 +798,8 @@ export default function LeftRail({
           </Button>
         )}
 
+        <Button variant="ghost" size="icon-sm" onClick={onOpenSettings} aria-label="Settings" title="Settings"><Settings /></Button>
+        </div>
         {mode === 'mini' ? null : (
         <div className="flex gap-1.5">
           <div className="relative flex-1">
@@ -843,12 +873,13 @@ export default function LeftRail({
           {mode === 'mini' ? unreadMessages : `${unreadMessages} unread messages`}
         </button>
       ) : null}
-      <div className={cn('min-h-0 flex-1 overflow-y-auto' , mode === 'mini' ? 'px-1 py-1' : 'px-1.5 py-1.5')}>
+      <div ref={scroller} data-rail-scroll onScroll={event => { const el = event.currentTarget; followBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }} className={cn('min-h-0 flex-1 overflow-y-auto', mode === 'mini' ? 'px-1 py-1' : 'px-1.5 py-1.5')}>
+        <div className="flex min-h-full flex-col justify-end">
         {mode === 'mini' ? (
           <div className="flex flex-col items-center gap-1">
             {[...itemSessions]
-              .filter((session) => !session.archived)
-              .sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))
+              .filter((session) => !session.archived && (!docked || sessionKey(session) !== selectedKey))
+              .sort((a, b) => (a.updated ?? 0) - (b.updated ?? 0))
               .map((session) => {
                 const key = sessionKey(session);
                 const label = session.title?.trim() || projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name || session.id;
@@ -899,11 +930,9 @@ export default function LeftRail({
             {silentInstances.map(renderSilentInstance)}
           </div>
         ) : null}
-        <LayoutGroup>
           <AnimatePresence initial={false} mode="popLayout">
-            {railEntries.map(renderEntry)}
+            {railEntries.map(entry => <RailItem key={entry.id}>{renderEntry(entry)}</RailItem>)}
           </AnimatePresence>
-        </LayoutGroup>
 
         {archivedMatches.length > 0 ? (
           <div className="mt-2 flex flex-col gap-0.5 border-t pt-2">
@@ -1008,7 +1037,7 @@ export default function LeftRail({
           </div>
         ) : null}
 
-        {!hasItems ? (
+        {!hasItems && (!docked || needle) ? (
           <div className="px-3 py-8">
             {loading ? (
               <div className="flex flex-col gap-3">
@@ -1042,21 +1071,35 @@ export default function LeftRail({
         {hasItems ? breadthControls : null}
           </>
         )}
+        </div>
       </div>
 
-      <div className={cn('border-t', mode === 'mini' ? 'flex justify-center p-1.5' : 'p-2')}>
-        <Button
-          variant="ghost"
-          size={mode === 'mini' ? 'icon-sm' : 'sm'}
-          className={mode === 'mini' ? 'size-8' : 'w-full'}
-          onClick={onOpenSettings}
-          aria-label="Settings"
-          title="Settings"
-        >
-          <Settings />
-          {mode === 'mini' ? null : 'Settings'}
-        </Button>
-      </div>
+      {docked && selectedSession ? (
+        <div data-active-chat={selectedKey} aria-label={`Current chat: ${selectedSession.title?.trim() || selectedSession.id}`} className="connection-band relative flex-none border-t" style={{ height: composerConnection.metrics?.height ?? 128 }}>
+          <ContextMenu><ContextMenuTrigger asChild>
+            <div ref={dockElement} role="button" tabIndex={0} aria-label={selectedSession.title?.trim() || selectedSession.id} data-selected="true" aria-current="true" data-mini-session={mode === 'mini' ? selectedKey : undefined}
+              onClick={event => { if (!(event.target instanceof Element && event.target.closest('input'))) selectSession(selectedSession); }}
+              onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(selectedSession); } }}
+              className="absolute inset-x-0 translate-y-1/2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" style={{ bottom: composerConnection.metrics?.centre ?? 64 }}>
+              <motion.div key={selectedKey} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .35 }}>
+                <ComposerIdentity docked compact={mode === 'mini'} name={selectedSession.title?.trim() || selectedSession.id}
+                  seed={sessionKey(selectedSession)} identity={avatarIdentities[sessionKey(selectedSession)]}
+                  style={blobStyle} mood={moods[sessionKey(selectedSession)] ?? 'unknown'} directory={selectedSession.directory}
+                  onRename={title => onRenameSession(selectedSession, title)} avatarOverlay={<ProcessIndicator session={selectedSession} overlay />} />
+              </motion.div>
+            </div>
+          </ContextMenuTrigger><SessionContextMenuContent session={selectedSession}
+            reloading={reloadingKeys.has(sessionKey(selectedSession))} archiving={archivingKeys.has(sessionKey(selectedSession))}
+            onReload={reloadSession} onArchive={archiveSession} onCustomizeAppearance={customizeAppearance}
+            onMarkAllRead={markAllRead} hasUnread={unreadKeys?.has(sessionKey(selectedSession))}
+            quiet={quietKeys?.has(sessionKey(selectedSession))} onQuietChange={onQuietChange}
+            scheduledTask={scheduledTaskBySession[sessionKey(selectedSession)]}
+            scheduledRunning={Boolean(scheduledTaskBySession[sessionKey(selectedSession)] && runningScheduledKeys.has(scheduledTaskBySession[sessionKey(selectedSession)].key))}
+            onRunScheduledTask={runScheduledTask} onChangeScheduledTaskModel={changeScheduledTaskModel}
+            onGroupWith={selectedSession.kind === 'worker' ? undefined : session => onManageGroup({ name: '', keys: [sessionKey(session)] })} /></ContextMenu>
+        </div>
+      ) : null}
     </aside>
+    </AvatarTransitionContext.Provider></LayoutGroup>
   );
 }

@@ -513,7 +513,7 @@ test('the session list has three widths: mini, normal, wide', async ({ page }) =
   const rail = page.locator('aside');
   const width = async () => (await rail.boundingBox())?.width ?? 0;
   // The width animates, so every step is polled rather than measured once.
-  await expect.poll(width).toBe(320);
+  await expect.poll(width).toBe(272);
 
   // Wide: about half the window, and the whole reason for it — more of the latest message.
   await page.getByRole('button', { name: 'Widen the session list' }).click();
@@ -529,13 +529,13 @@ test('the session list has three widths: mini, normal, wide', async ({ page }) =
 
   // Back to normal, and the keyboard walks the same ring.
   await page.getByRole('button', { name: 'Show the normal session list' }).click();
-  await expect.poll(width).toBe(320);
+  await expect.poll(width).toBe(272);
   await page.keyboard.press('ControlOrMeta+b');
   await expect.poll(width).toBeGreaterThan(viewport * 0.4);
   await page.keyboard.press('ControlOrMeta+b');
   await expect.poll(width).toBeLessThan(80);
   await page.keyboard.press('ControlOrMeta+b');
-  await expect.poll(width).toBe(320);
+  await expect.poll(width).toBe(272);
 });
 
 test('the new-agent folder picker lists Hearth directories', async ({ page }) => {

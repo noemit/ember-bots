@@ -1,3 +1,4 @@
+import { useComposerConnection } from './workspaceConnection';
 import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
 import * as React from 'react';
@@ -1508,6 +1509,7 @@ function ChatView({
    * and low alpha, so it reads as light in the room rather than a coloured panel. `blobColor` returns
    * a `var(--blob-N)` reference, which is why `color-mix` can grade it without knowing the value.
    */
+  const connection = useComposerConnection(session ? seed : null);
   const cornerTint = session
     ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, identity ?? seed)} 10%, transparent), transparent 56%)`
     : undefined;
@@ -1544,7 +1546,7 @@ function ChatView({
         />
       ) : null}
       <div className="relative flex min-w-0 flex-1 flex-col">
-        <AnimatePresence mode="popLayout" initial={false}>
+        <AnimatePresence mode="popLayout" initial={connection.connected}>
         {session ? (
           <motion.div
             key={`${session.instanceId}:${session.id}`}
@@ -1552,7 +1554,7 @@ function ChatView({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
+            transition={{ duration: connection.connected ? .3 : .16 }}
           >
             <header data-active={active} className="flex min-h-11 flex-none flex-wrap items-center gap-x-2.5 gap-y-1 border-b px-3 py-1 sm:px-4 data-[active=true]:bg-muted/25">
               {editingTitle ? (
@@ -1571,7 +1573,7 @@ function ChatView({
                 />
               ) : (
                 <span
-                  className={cn('min-w-[5.5rem] flex-1 truncate text-[13px] font-medium', onRename && 'cursor-text')}
+                  className={cn('min-w-[5.5rem] flex-1 truncate text-[13px] font-medium', onRename && 'cursor-text', connection.connected && 'sr-only')}
                   title={onRename ? `${session.title ?? session.id} — double-click to rename` : undefined}
                   onDoubleClick={onRename ? () => setEditingTitle(true) : undefined}
                   style={instanceMarkerColor === undefined ? undefined : {
@@ -1665,6 +1667,7 @@ function ChatView({
                   {COST_UNKNOWN_LABEL}
                 </Badge>
               ) : null}
+              {connection.connected ? <span className="flex-1" aria-hidden="true" /> : null}
               <ViewMenu
                 view={view}
                 onChange={onViewChange}
@@ -1939,7 +1942,8 @@ function ChatView({
         />
       ) : null}
       {composerKey ? (
-        <div className="safe-composer flex-none border-t p-2.5 sm:p-3">
+        <div ref={connection.footer} data-connection-composer={connection.connected || undefined} className={cn("safe-composer relative flex-none border-t p-2.5 sm:p-3", connection.connected && "connection-band")}>
+          {connection.connected ? <span key={seed} data-connection-trace aria-hidden="true" /> : null}
           {/* The region is a boundary plus one surface, not two: this band draws the line against the
               transcript and the input card is the surface inside it. It used to paint its own fill too,
               so the chips and the queue above the input sat on a rectangle inside another rectangle. */}
@@ -2193,11 +2197,12 @@ function ChatView({
               // `box-shadow` (`has-focus-visible:shadow-[…]`) has one curve and falls off smoothly
               // while the border keeps its own colour at every state (`focus-within` and
               // `:focus-visible` stay distinct: clicking a row control does not trigger the glow).
+              ref={connection.surface}
               data-composer-surface
               style={session ? { backgroundImage: `radial-gradient(ellipse at top left, color-mix(in oklab, ${blobColor(blobStyle, identity)} 10%, transparent), transparent 75%)` } : undefined}
               className="group/composer flex flex-col rounded-xl border bg-background transition-shadow duration-200 has-focus-visible:shadow-[0_0_12px_-2px_color-mix(in_oklab,var(--ring)_28%,transparent)]"
             >
-            {session ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} /> : null}
+            {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} /> : null}
             {replyContext ? (
               /* A left accent carries "this is quoted" without drawing a rectangle inside the
                  composer's rectangle. */

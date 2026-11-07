@@ -283,6 +283,7 @@ let settings: EmberSettings = {
   theme: 'stone',
   blobStyle: 'buddy',
   blobSize: 'standard',
+  conversationFontSize: 14,
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],

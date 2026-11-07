@@ -138,7 +138,11 @@ export const SessionContextMenuContent = ({
   // restoring is a different action and keeps its own arrow.
   const ArchiveIcon = archived ? ArchiveRestore : Trash2;
   return (
-    <ContextMenuContent>
+    <ContextMenuContent onPointerUpCapture={event => {
+      // A menu near the bottom edge can open upward under the pointer. Releasing the
+      // right click that opened it must not silently choose the item now beneath it.
+      if (event.button !== 0) { event.preventDefault(); event.stopPropagation(); }
+    }}>
       {(onMarkAllRead && hasUnread) || onQuietChange ? (
         <>
           {onMarkAllRead && hasUnread ? (

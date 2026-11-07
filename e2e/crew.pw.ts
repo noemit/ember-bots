@@ -61,7 +61,8 @@ test('opening a worker from the strip opens a transient column, still out of the
   const worker = page.locator('main[data-session-key="pi:hearth::17"]');
   await expect(worker).toBeVisible();
   await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Parse the config and report back.');
-  await expect(page.locator('aside').getByRole('button', { name: /^Parse config/ })).toHaveCount(0);
+  await expect(page.locator('[data-rail-scroll]').getByRole('button', { name: /^Parse config/ })).toHaveCount(0);
+  await expect(page.locator('[data-active-chat]')).toContainText('Parse config');
 });
 
 test('an already promoted worker links to its peer, and the peer shows in the rail', async ({ page }) => {
