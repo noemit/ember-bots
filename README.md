@@ -224,6 +224,7 @@ src/blob/       Avatars, moods, palettes, animation, and dock rendering
 src/dev/        Browser-only mock bridge and test fixtures
 e2e/            Browser and native integration tests
 tests/          Bun unit and regression tests
+sketches/       Standalone HTML design studies (sample data, outside the app build)
 ```
 
 SSE events are invalidation hints; REST responses remain authoritative. Requests are coalesced, streaming updates use bounded message tails, and periodic full reads repair history. Transcript caching has a byte budget, but visible conversations and pending sends are protected, so it is not a hard limit on total process memory.

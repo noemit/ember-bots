@@ -1,3 +1,10 @@
+## 1.15.4
+
+### Added
+- A standalone, interactive HTML study at `sketches/bottom-rail.html`: recent chats sit near
+  the bottom and the active chat’s identity flows into a shared composer strip. Uses sample
+  data with local draft switching; the application’s rail is unchanged.
+
 ## 1.15.3
 
 ### Changed

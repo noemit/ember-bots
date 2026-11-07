@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ember · A rail that meets the composer</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #292a26; background: #f4f3ee; font-synthesis: none; }
+    body { margin: 0; padding: 32px 40px; }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; color: inherit; }
+    button:focus-visible, textarea:focus-visible { outline: 2px solid #367f70; outline-offset: 4px; }
+    .page { max-width: 1420px; margin: auto; }
+    .intro { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 23px; }
+    .eyebrow { font-size: 10px; letter-spacing: .15em; text-transform: uppercase; color: #73766a; font-weight: 650; }
+    h1 { font-size: 29px; font-weight: 550; letter-spacing: -.035em; margin: 10px 0 8px; }
+    .intro p { font-size: 13px; color: #6c6f63; margin: 0; line-height: 1.6; }
+    .prototype-label { font-size: 11px; white-space: nowrap; border: 1px solid #d9dbd1; border-radius: 30px; padding: 8px 12px; color: #6c6f63; }
+    .app { --agent: #378c80; --rail: 272px; overflow: hidden; border: 1px solid #c9cdc0; border-radius: 14px; background: #e7e8e1; box-shadow: 0 18px 60px #2935220c; height: min(730px, calc(100dvh - 195px)); min-height: 510px; display: grid; grid-template: 49px minmax(0, 1fr) auto / var(--rail) minmax(0, 1fr); }
+    .topbar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; border-bottom: 1px solid #cbd0c3; }
+    .brand { font-size: 15px; font-weight: 650; letter-spacing: -.04em; display: flex; align-items: center; gap: 9px; }
+    .ember-mark { width: 10px; height: 14px; background: #b67045; border-radius: 60% 25% 55% 40%; transform: rotate(15deg); }
+    .top-context { font-size: 11px; color: #69705f; display: flex; gap: 20px; align-items: center; }
+    .online { display: inline-block; width: 5px; height: 5px; background: #55836a; border-radius: 50%; margin-right: 5px; }
+    .quiet-button { background: transparent; border: 0; border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+    .quiet-button:hover { background: #00000007; }
+    .rail { min-height: 0; display: flex; flex-direction: column; background: #dfe2d8; border-right: 1px solid #cbd0c3; }
+    .rail-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 17px 8px 20px; }
+    .rail-head h2 { font-size: 12px; font-weight: 650; margin: 0; }
+    .order-hint { padding: 0 20px; font-size: 10px; color: #767d6c; }
+    .chat-list { list-style: none; padding: 0 10px 9px; margin: 18px 0 0; overflow: auto; min-height: 0; display: flex; flex-direction: column; }
+    .list-spacer { flex: 1; min-height: 14px; }
+    .chat-row { position: relative; width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 47px minmax(0, 1fr) 22px; gap: 9px; align-items: center; text-align: left; padding: 12px 8px; border-radius: 9px; min-height: 72px; }
+    .chat-row:hover { background: #ffffff55; }
+    .chat-row .name { font-size: 12px; font-weight: 570; display: block; }
+    .chat-row .topic { font-size: 10px; color: #727968; display: block; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-row time { font-size: 9px; color: #7d8474; align-self: start; padding-top: 6px; }
+    .chat-row .unread { display: block; background: var(--color); width: 6px; height: 6px; border-radius: 50%; margin: 8px auto 0; }
+    .list-label { padding: 0 10px 8px; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: #8b9182; }
+    .portrait { width: 47px; height: 51px; display: grid; place-items: center; }
+    .portrait svg { width: 100%; height: 100%; overflow: visible; }
+    .conversation { min-height: 0; overflow: auto; padding: 22px 40px 30px; display: flex; flex-direction: column; }
+    .folder { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #747b6c; }
+    .folder svg { width: 14px; height: 14px; }
+    .conversation-body { width: min(100%, 660px); margin: auto; padding: 32px 0 12px; font-size: 14px; line-height: 1.8; }
+    .user-message { margin: 0 0 35px auto; max-width: 480px; padding: 12px 17px; border-radius: 15px 15px 4px 15px; background: #d7dcd0; }
+    .answer { padding-left: 2px; }
+    .answer h2 { font-size: 21px; line-height: 1.4; letter-spacing: -.025em; font-weight: 550; margin: 0 0 15px; }
+    .answer p { margin: 12px 0; }
+    .answer ul { padding-left: 19px; margin: 18px 0; }
+    .answer li { padding-left: 3px; margin: 8px 0; }
+    .message-meta { font-size: 10px; color: #858c7b; margin-top: 22px; }
+    .read-bubble { display: inline-block; width: 7px; height: 7px; border: 1px solid #889a85; border-radius: 50%; margin-right: 7px; }
+    .connection { grid-column: 1 / -1; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); align-items: stretch; background: linear-gradient(100deg, color-mix(in srgb, var(--agent) 14%, #e2e6dc), color-mix(in srgb, var(--agent) 5%, #e7e8e1) 70%); border-top: 1px solid color-mix(in srgb, var(--agent) 22%, #cbd0c3); position: relative; }
+    .active-identity { padding: 19px 16px 18px 22px; display: flex; align-items: center; gap: 11px; position: relative; }
+    .active-identity::after { content: ''; position: absolute; right: -5px; top: 50%; width: 28px; height: 1px; background: color-mix(in srgb, var(--agent) 35%, transparent); }
+    .active-identity .portrait { width: 56px; height: 62px; flex: none; }
+    .identity-text { min-width: 0; }
+    .active-label { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: color-mix(in srgb, var(--agent) 75%, #252922); margin-bottom: 6px; }
+    .active-name { font-size: 13px; font-weight: 650; line-height: 1.4; }
+    .active-topic { font-size: 10px; color: #707c69; line-height: 1.5; margin-top: 4px; }
+    .composer-wrap { padding: 16px 24px 12px 22px; min-width: 0; }
+    .composer { background: #f5f6f0cf; border: 1px solid color-mix(in srgb, var(--agent) 22%, #c5cebc); border-radius: 12px; padding: 12px 13px 9px; box-shadow: 0 2px 6px #29352204; }
+    textarea { display: block; width: 100%; resize: vertical; min-height: 36px; max-height: 90px; padding: 0 2px; border: 0; outline: none; background: transparent; font-size: 13px; line-height: 1.6; color: #343e30; }
+    textarea::placeholder { color: #858e7d; }
+    .composer-tools { display: flex; align-items: center; justify-content: space-between; margin-top: 7px; }
+    .model { display: flex; gap: 12px; font-size: 10px; color: #79836e; align-items: center; }
+    .send { border: 0; color: #fff; width: 28px; height: 28px; border-radius: 8px; background: var(--agent); font-size: 18px; }
+    .send:disabled { opacity: .35; cursor: default; }
+    .composer-hint { text-align: right; color: #929a88; font-size: 9px; padding: 7px 2px 0; }
+    .notes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px; padding: 22px 3px 0; }
+    .notes strong { font-size: 11px; font-weight: 650; }
+    .notes p { margin: 6px 0 0; font-size: 11px; line-height: 1.65; color: #777d6d; }
+    .status { font-size: 11px; color: #6b7660; min-height: 16px; margin-top: 15px; }
+    @media(max-width: 850px) { body { padding: 20px 14px; } .app { --rail: 220px; height: 690px; } .conversation { padding: 20px; } .active-identity { padding-left: 12px; gap: 5px; } .active-identity .portrait { width: 45px; } .composer-wrap { padding-right: 14px; } .notes { gap: 15px; } }
+    @media(max-width: 580px) { .intro { align-items: start; } h1 { font-size: 23px; } .prototype-label { display: none; } .app { --rail: 75px; min-height: 590px; height: calc(100dvh - 135px); } .rail-head { padding: 14px 6px; justify-content: center; } .rail-head h2, .order-hint, .list-label, .chat-row .copy, .chat-row time, .identity-text, .top-context span { display: none; } .chat-list { padding: 0 5px; } .chat-row { grid-template-columns: 1fr; justify-items: center; padding: 7px 0; min-height: 64px; } .chat-row .unread { position: absolute; right: 4px; top: 8px; margin: 0; } .active-identity { padding: 12px 8px; justify-content: center; } .active-identity .portrait { width: 50px; } .active-identity::after { width: 13px; right: -3px; } .conversation { padding: 18px; } .conversation-body { font-size: 12px; } .answer h2 { font-size: 18px; } .composer-wrap { padding: 12px; } .model { gap: 6px; font-size: 9px; } .notes { grid-template-columns: 1fr; gap: 12px; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <header class="intro">
+    <div><div class="eyebrow">Ember / layout study 01</div><h1>The rail meets the conversation.</h1><p>Newest toward the bottom. Your current chat flows straight into where you steer it.</p></div>
+    <span class="prototype-label">Interactive sketch · sample chats</span>
+  </header>
+  <div class="app" id="app">
+    <header class="topbar"><div class="brand"><span class="ember-mark"></span>ember</div><div class="top-context"><span><i class="online"></i>Local Kiln</span><button class="quiet-button" id="reset">Reset sketch ↺</button></div></header>
+    <aside class="rail" aria-label="Chats, older to newer">
+      <div class="rail-head"><h2>Your chats</h2><button class="quiet-button" id="new-chat" aria-label="New chat">＋</button></div>
+      <div class="order-hint">Older ↑ &nbsp; Newer ↓</div>
+      <div class="list-spacer"></div>
+      <ul class="chat-list" id="chat-list"></ul>
+    </aside>
+    <main class="conversation" id="conversation">
+      <div class="folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7V5h7l2 3h9v12H3Z"/></svg><span id="folder">workspace / ember</span></div>
+      <div class="conversation-body" id="messages"></div>
+    </main>
+    <footer class="connection" aria-label="Active chat and composer">
+      <div class="active-identity" id="identity"></div>
+      <div class="composer-wrap"><form class="composer" id="composer">
+        <textarea aria-label="Message the selected chat" id="draft" rows="2"></textarea>
+        <div class="composer-tools"><div class="model"><span aria-hidden="true">＋</span><span>DeepSeek Flash</span><span>Thinking · medium</span></div><button class="send" id="send" type="submit" aria-label="Send sample message" disabled>↑</button></div>
+      </form><div class="composer-hint">You think. You decide. You steer.</div></div>
+    </footer>
+  </div>
+  <section class="notes" aria-label="Design considerations">
+    <div><strong>01 / One continuous edge</strong><p>The selected blob, name and colour become the left edge of the composer. No repeated title or second avatar above the input.</p></div>
+    <div><strong>02 / A stable place to type</strong><p>The active chat stays anchored here. Other chats run oldest to newest above it. Click one to try the handover; drafts stay with their chat.</p></div>
+    <div><strong>03 / The tradeoff to try</strong><p>This pins the active chat, so the order isn’t strictly chronological. I’d keep it anchored rather than let background activity move your composer.</p></div>
+  </section>
+  <p class="status" id="status" role="status">Click any creature to try the connection. Everything here stays in this sample page.</p>
+</div>
+<script>
+  const initial = [
+    { id: 'fern', name: 'Patient Fern', topic: 'A quieter onboarding', color: '#69945d', style: 'buddy', age: '2h', project: 'garden', prompt: 'Help me simplify the first-run experience.', heading: 'Start with one useful choice.', reply: 'Ask where their work lives. Once they choose a folder, let them begin. Everything else can wait until it becomes relevant.' },
+    { id: 'comet', name: 'Curious Comet', topic: 'Naming sessions', color: '#8f76b9', style: 'gem', age: '54m', project: 'ember', prompt: 'Keep the whimsy, but make the names relevant.', heading: 'A little character, a useful clue.', reply: 'Let the topic provide the noun and the tone provide the adjective. Keep the name short enough to recognise in the rail.' },
+    { id: 'thistle', name: 'Restless Thistle', topic: 'Tool approval copy', color: '#bc7b49', style: 'wire', age: '21m', project: 'ember', unread: true, prompt: 'Make the approval choices easier to understand.', heading: 'Two choices, with a clear difference.', reply: 'Allow handles this request. Switch to YOLO mode delegates future tool approvals in this chat. Keep that broader choice visibly distinct.' },
+    { id: 'tide', name: 'Quiet Tide', topic: 'A softer colour palette', color: '#668ba0', style: 'buddy', age: '8m', project: 'studio', prompt: 'Can this palette feel calmer without losing its character?', heading: 'Let the colour belong to the creature.', reply: 'Keep the surfaces quiet and carry a faint tint into the composer. The blob remains the strongest cue for which conversation you are in.' },
+    { id: 'pixel', name: 'Pixel Cartographer', topic: 'Rethinking the chat rail', color: '#378c80', style: 'pixel', age: 'now', project: 'ember', prompt: 'What if the newest chats were at the bottom, and the rail just extended into the composer?', heading: 'The next thought starts here.', reply: 'The active chat becomes the corner where navigation turns into conversation.', bullets: ['Older chats sit above, with newer activity closer to your hand.', 'The blob and its colour carry across into the composer.', 'Your current chat stays still while you read and write.'] },
+  ];
+  const $ = id => document.getElementById(id);
+  let chats = structuredClone(initial), active = 'pixel';
+  const drafts = new Map(), sent = new Map();
+  const escape = text => String(text).replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+  function portrait(chat) {
+    const c = chat.color;
+    let body = '';
+    if (chat.style === 'pixel') {
+      const rows = [[3,5],[2,7],[2,8],[1,8],[2,8],[1,9],[2,8],[2,8],[2,7],[3,7]];
+      body = rows.map(([from,to],y) => Array.from({length:to-from}, (_,i) => `<rect x="${12+(i+from)*7}" y="${9+y*7}" width="7" height="7" fill="${['#8aab58','#5caa77',c,'#31969c','#438ca8'][(i+from)%5]}"/>`).join('')).join('') + '<path d="M33 42h14v7H33Zm21 0h14v7H54Z" fill="#fffdf4"/><path d="M40 42h7v7h-7Zm21 0h7v7h-7Z" fill="#252625"/>';
+    } else if (chat.style === 'gem') {
+      body = `<path d="M18 35L44 12L73 21L85 53L64 78L28 81L11 58Z" fill="${c}"/><path d="M18 35L51 44L44 12ZM51 44L73 21L85 53Z" fill="white" opacity=".3"/><path d="M11 58L51 44L28 81ZM51 44L64 78L85 53Z" fill="#292337" opacity=".22"/>`;
+    } else if (chat.style === 'wire') {
+      body = `<path d="M43 62L40 90m17-28l4 28" stroke="${c}" stroke-width="2"/><g stroke="${c}" fill="none">` + Array.from({length:18},(_,i)=>{const a=i*Math.PI/9, r=31+i%4*2;const x=50+Math.cos(a)*r,y=44+Math.sin(a)*r;return `<path d="M44 43Q${x-6} ${y+3} ${x} ${y}L55 46" stroke-width="${i%3===0?2.4:1.5}"/>`;}).join('') + `</g><ellipse cx="50" cy="44" rx="19" ry="17" fill="${c}"/><g fill="#fffdf3" stroke="#39342c" stroke-width="1.3"><ellipse cx="42" cy="42" rx="8" ry="9"/><ellipse cx="60" cy="45" rx="6" ry="7"/></g><g fill="#222"><circle cx="43" cy="42" r="2"/><circle cx="60" cy="45" r="1.7"/></g>`;
+    } else {
+      body = `<path d="M17 61C8 39 25 16 42 22C57 5 83 24 85 46C96 74 66 84 45 79C22 86 10 76 17 61" fill="${c}"/><g fill="#fffdf5"><ellipse cx="38" cy="48" rx="11" ry="13"/><ellipse cx="63" cy="48" rx="10" ry="12"/></g><g fill="#252b25"><circle cx="41" cy="49" r="5"/><circle cx="66" cy="49" r="5"/></g>`;
+    }
+    return `<span class="portrait" aria-hidden="true"><svg viewBox="0 0 100 100">${body}</svg></span>`;
+  }
+  function render() {
+    const chat = chats.find(c => c.id === active);
+    $('app').style.setProperty('--agent', chat.color);
+    $('chat-list').innerHTML = '<li class="list-label">Recent conversations</li>' + chats.filter(c => c.id !== active).map(c => `<li><button class="chat-row" data-id="${c.id}" style="--color:${c.color}" aria-label="Open ${escape(c.name)}${c.unread ? ', unread reply' : ''}">${portrait(c)}<span class="copy"><span class="name">${escape(c.name)}</span><span class="topic">${escape(c.topic)}</span></span><span><time>${c.age}</time>${c.unread ? '<span class="unread" aria-hidden="true"></span>' : ''}</span></button></li>`).join('');
+    $('identity').innerHTML = portrait(chat) + `<div class="identity-text"><div class="active-label">You’re talking to</div><div class="active-name">${escape(chat.name)}</div><div class="active-topic">${escape(chat.topic)}</div></div>`;
+    $('folder').textContent = `workspace / ${chat.project}`;
+    $('messages').innerHTML = `<p class="user-message">${escape(chat.prompt)}</p><article class="answer"><h2>${escape(chat.heading)}</h2><p>${escape(chat.reply)}</p>${chat.bullets ? '<ul>'+chat.bullets.map(b=>'<li>'+escape(b)+'</li>').join('')+'</ul>' : ''}<div class="message-meta"><span class="read-bubble"></span>DeepSeek Flash · ${chat.age === 'now' ? 'just now' : chat.age + ' ago'}</div></article>` + (sent.get(active) || []).map(text=>`<p class="user-message" style="margin-top:25px">${escape(text)}</p>`).join('');
+    $('draft').value = drafts.get(active) || '';
+    $('draft').placeholder = `Steer ${chat.name}…`;
+    $('send').disabled = !$('draft').value.trim();
+  }
+  $('chat-list').addEventListener('click', event => {
+    const row = event.target.closest('[data-id]');
+    if (!row) return;
+    drafts.set(active, $('draft').value);
+    active = row.dataset.id;
+    render();
+    $('status').textContent = 'The active chat is anchored at the bottom; its colour continues into the composer. Opening it does not mark its messages read.';
+  });
+  $('draft').addEventListener('input', () => { drafts.set(active, $('draft').value); $('send').disabled = !$('draft').value.trim(); });
+  $('composer').addEventListener('submit', event => {
+    event.preventDefault();
+    const text = $('draft').value.trim();
+    if (!text) return;
+    sent.set(active, [...(sent.get(active) || []), text]); drafts.delete(active); render();
+    $('conversation').scrollTop = $('conversation').scrollHeight;
+    $('draft').focus(); $('status').textContent = 'Sample message added locally. This sketch does not contact an agent.';
+  });
+  $('new-chat').addEventListener('click', () => {
+    drafts.set(active, $('draft').value);
+    const id = `draft-${chats.length}`;
+    chats.push({id, name:'New conversation', topic:'Choose your next direction', color:'#7d8b63', style:'wire', age:'now', project:'ember', prompt:'', heading:'What are you thinking about?', reply:'Your next conversation starts at the same quiet corner.'});
+    active=id; render(); $('draft').focus(); $('status').textContent='A new sample chat, anchored to the composer.';
+  });
+  $('reset').addEventListener('click', () => { chats=structuredClone(initial);active='pixel';drafts.clear();sent.clear();render();$('status').textContent='Sketch reset. Click any creature to try the connection.'; });
+  render();
+</script>
+</body>
+</html>
