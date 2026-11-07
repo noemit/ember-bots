@@ -1500,7 +1500,7 @@ function ChatView({
    * a `var(--blob-N)` reference, which is why `color-mix` can grade it without knowing the value.
    */
   const cornerTint = session
-    ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, identity ?? seed)} 30%, transparent), transparent 56%)`
+    ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, identity ?? seed)} 10%, transparent), transparent 56%)`
     : undefined;
 
   return (

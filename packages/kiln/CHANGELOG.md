@@ -1,3 +1,13 @@
+## 1.8.0
+
+### Fixed
+- Register the SDK's static OAuth loaders so provider sign-in works in compiled Kiln and Tinder.
+
+### Added
+- Authenticated `POST /directories` creates one named folder in an existing parent. Existing
+  folders are never overwritten, names cannot walk outside the parent, and default workspace scope
+  is preserved unless the client explicitly requests computer browsing.
+
 ## 1.7.0
 
 ### Added

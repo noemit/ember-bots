@@ -298,7 +298,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
           open
           endpointId={endpointId}
           providerId={signIn.id}
-          providerName={signIn.name}
+          providerName={signIn.id === 'openai-codex' ? 'OpenAI (ChatGPT Plus/Pro)' : signIn.name}
           onOpenChange={(open) => {
             if (!open) setSignIn(null);
           }}

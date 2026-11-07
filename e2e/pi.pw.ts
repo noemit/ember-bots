@@ -38,6 +38,9 @@ test('opening a conversation renders its pi transcript', async ({ page }) => {
 test('a running command shows its output as it arrives, without opening the row', async ({ page }) => {
   await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
+  await column.getByRole('button', { name: 'View options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'List all tools' }).click();
+  await page.keyboard.press('Escape');
   await column.locator('textarea').fill('live tail of the log please');
   await column.locator('textarea').press('Enter');
 
@@ -59,6 +62,9 @@ test('a running command shows its output as it arrives, without opening the row'
 test('a failed command keeps its whole output, and the row names the exit code', async ({ page }) => {
   await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
+  await column.getByRole('button', { name: 'View options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'List all tools' }).click();
+  await page.keyboard.press('Escape');
   await column.locator('textarea').fill('a failing grep please');
   await column.locator('textarea').press('Enter');
 
@@ -145,7 +151,8 @@ test('with following off, growth does not scroll even at the bottom', async ({ p
 
   await scroller.hover();
   await page.mouse.wheel(0, -600);
-  expect(await distanceFromBottom(scroller)).toBeGreaterThan(60);
+  // Wheel dispatch returns before Chromium applies the scroll. Wait for the user's movement.
+  await expect.poll(() => distanceFromBottom(scroller)).toBeGreaterThan(60);
   await composer.fill('another without following');
   await composer.press('Enter');
   await page.waitForTimeout(1800);
@@ -311,6 +318,9 @@ test('a message can be copied as the Markdown it was written in', async ({ page 
 test('a tool-result entry merges into the assistant tool row', async ({ page }) => {
   await page.getByRole('button', { name: /Remote access hardening/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::11"]');
+  await column.getByRole('button', { name: 'View options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'List all tools' }).click();
+  await page.keyboard.press('Escape');
   await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('src/remote.ts');
 });
 
@@ -320,7 +330,7 @@ test('sending to a conversation echoes the scripted pi reply', async ({ page }) 
   const composer = column.locator('textarea');
   await composer.fill('hello there');
   await composer.press('Enter');
-  await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('Hello! Hearth is listening.');
+  await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('Hello! ember-harness is listening.');
 });
 
 test('a parked approval shows a permission card and replying runs the tool', async ({ page }) => {
@@ -358,6 +368,9 @@ test('a tool that returns an image shows it in the transcript', async ({ page })
 test('the eye menu toggles what the transcript shows, and stays open', async ({ page }) => {
   await page.getByRole('button', { name: /Remote access hardening/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::11"]');
+  await column.getByRole('button', { name: 'View options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'List all tools' }).click();
+  await page.keyboard.press('Escape');
   const log = column.getByRole('log', { name: 'Conversation' });
   await expect(log).toContainText('src/remote.ts');
 
@@ -411,7 +424,7 @@ test('Settings → Instances manages Hearth endpoints', async ({ page }) => {
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
   const row = page.locator('[data-endpoint="pi:hearth"]');
   await expect(row).toBeVisible();
-  await expect(row).toContainText('Hearth (mock)');
+  await expect(row).toContainText('ember-harness (mock)');
   await expect(row).toContainText('••••');
 
   // Add a second endpoint.
@@ -419,7 +432,7 @@ test('Settings → Instances manages Hearth endpoints', async ({ page }) => {
   await page.getByLabel('New endpoint address').fill('http://127.0.0.1:3999');
   await page.getByLabel('New endpoint token').fill('test-token');
   await page.getByRole('button', { name: 'Add' }).click();
-  const added = page.locator('[data-endpoint="pi:castle-test"]');
+  const added = page.locator('[data-endpoint="pi:studio-test"]');
   await expect(added).toBeVisible();
 
   // Test probes /health through the bridge; the mock answers.
@@ -528,7 +541,8 @@ test('the session list has three widths: mini, normal, wide', async ({ page }) =
 test('the new-agent folder picker lists Hearth directories', async ({ page }) => {
   await page.getByRole('button', { name: 'New agent' }).click();
   await page.getByRole('button', { name: 'New agent project' }).click();
-  await expect(page.getByText('/workspace/habit')).toBeVisible();
+  await page.getByRole('button', { name: 'Use this workspace' }).click();
+  await expect(page.getByRole('option', { name: /habit/ })).toBeVisible();
   await page.getByRole('option', { name: /habit/ }).click();
   await expect(page.getByRole('button', { name: 'New agent project' })).toContainText('habit');
 });
@@ -696,6 +710,9 @@ test('a queued message can be sent now as a steer', async ({ page }) => {
 test('stopping a run interrupts the running step and shows `[step interrupted]`', async ({ page }) => {
   await page.getByRole('button', { name: /Remote access hardening/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::11"]');
+  await column.getByRole('button', { name: 'View options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'List all tools' }).click();
+  await page.keyboard.press('Escape');
   await expect(column).toBeVisible();
   const composer = column.locator('textarea');
 
@@ -839,6 +856,6 @@ test('sending works in an insecure HTTP context where crypto.randomUUID and navi
   const composer = column.locator('textarea');
   await composer.fill('hello over tailscale');
   await composer.press('Enter');
-  await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('Hello! Hearth is listening.');
+  await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('Hello! ember-harness is listening.');
   await expect(page.getByRole('alert')).toHaveCount(0);
 });

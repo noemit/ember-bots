@@ -1,3 +1,21 @@
+## 1.9.0
+
+### Added
+- Windows installer builds now include `kiln.exe`, run a fresh-profile packaged-app smoke test,
+  and provide the installer, standalone Tinder and checksums through the Windows build workflow.
+- Folder browsing offers New folder, with cancellation, explicit selection and recovery when a
+  name already exists or the parent is not writable.
+
+### Fixed
+- Standalone Kiln and Tinder embed the SDK's OAuth flows, fixing packaged OpenAI sign-in failing
+  with a missing `openai-codex.js` module. A compiled regression exercises the full device-code
+  exchange and saved credential without accessing a real account.
+- Setup says “Setting up Ember Bots,” gives the heading 10px more vertical padding on each side,
+  and says Ember “has” the Kiln token. Background glows are softer and follow their blobs' colours.
+- The OpenAI sign-in dialog uses the subscription name instead of the SDK's legacy provider label.
+- Browser regressions now follow the current host labels, explicit tool-list setting and project
+  picker. The mock reports empty conversations like Kiln does, restoring dropped-create retry coverage.
+
 ## 1.8.0
 
 ### Added

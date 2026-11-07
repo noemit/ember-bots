@@ -828,6 +828,16 @@ describe("hearth wire", () => {
     expect((await api(`/directories?scope=computer&path=${encodeURIComponent(join(home, "missing"))}`)).status).toBe(400);
   });
 
+  test("folder creation is explicit, authenticated and never overwrites or walks a name", async () => {
+    const create = (name: string) => api('/directories?scope=computer', { method: 'POST', body: JSON.stringify({ parent: home, name }) });
+    expect((await fetch(`${stack.server.url}/directories?scope=computer`, { method: 'POST' })).status).toBe(401);
+    expect((await create('new-work')).status).toBe(201);
+    expect((await create('new-work')).status).toBe(400);
+    for (const name of ['..', '../escape', 'nested/folder', 'nested\\folder', '']) expect((await create(name)).status).toBe(400);
+    const listing = await body(await api(`/directories?scope=computer&path=${encodeURIComponent(join(home, 'new-work'))}`));
+    expect(listing.directories).toEqual([]);
+  });
+
   test("a refused whenBusy reject leaves no context entry behind", async () => {
     // The keyword rule writes a `hearth.context` entry ahead of the input. If the input is then
     // refused as busy, that entry is orphaned context the model never had a message for — so the

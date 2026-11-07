@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { createHash, randomUUID } from "node:crypto";
-import { readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord";
@@ -983,7 +983,7 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/providers\/import$/, ["POST"]],
   [/^\/providers\/[^/]+\/login$/, ["GET", "POST", "DELETE"]],
   [/^\/providers\/[^/]+$/, ["POST", "DELETE"]],
-  [/^\/directories$/, ["GET"]],
+  [/^\/directories$/, ["GET", "POST"]],
   [/^\/directory$/, ["GET"]],
   [/^\/directory\/peers$/, ["GET", "PUT"]],
   [/^\/directory\/send$/, ["POST"]],
@@ -1388,6 +1388,27 @@ const server = Bun.serve<{
       // The folder browser for a new conversation: immediate subdirectories of the configured
       // workspace root by default. Explicit `scope=computer` allows choosing existing work elsewhere.
       // Both modes are token-authenticated and only return folder names, never file contents.
+      if (request.method === "POST" && path === "/directories") {
+        const input = await request.json().catch(() => null) as { parent?: unknown; name?: unknown } | null;
+        if (!input || typeof input.parent !== "string" || !input.parent.trim() || typeof input.name !== "string") return badRequest("Choose a parent folder and a name.");
+        const name = input.name.trim();
+        if (!name || name === "." || name === ".." || name.length > 255 || /[\\/<>:"|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name)) {
+          return badRequest("Use a folder name without slashes or special characters.");
+        }
+        const parent = resolve(input.parent);
+        const root = resolve(config.workspace);
+        if (url.searchParams.get("scope") !== "computer" && parent !== root && !parent.startsWith(root + "/") && !parent.startsWith(root + "\\")) {
+          return badRequest("Choose a folder inside the workspace.");
+        }
+        try {
+          const directory = join(parent, name);
+          // No recursive creation or overwrite: a typo in the parent never creates a new tree.
+          mkdirSync(directory);
+          return json({ path: directory }, 201);
+        } catch {
+          return badRequest("Kiln could not create that folder. Choose another name or check access to the parent folder.");
+        }
+      }
       if (request.method === "GET" && path === "/directories") {
         const root = resolve(config.workspace);
         const requested = url.searchParams.get("path");

@@ -1134,6 +1134,11 @@ export const piLoadDirectories = async (
   };
 };
 
+export const piCreateDirectory = async (endpointId: string, parent: string, name: string): Promise<string | null> => {
+  const response = await request<{ path?: string }>(endpointId, '/directories?scope=computer', { method: 'POST', body: { parent, name } });
+  return response.ok && typeof response.data.path === 'string' ? response.data.path : null;
+};
+
 const asDirectory = (value: unknown): PiDirectory | null => {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;

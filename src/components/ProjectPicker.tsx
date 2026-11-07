@@ -4,7 +4,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { piLoadDirectories, type PiDirectory } from '../piApi';
+import { piCreateDirectory, piLoadDirectories, type PiDirectory } from '../piApi';
 import type { Instance, Project } from '../types';
 
 export const pathSegments = (path: string): string[] =>
@@ -69,6 +69,9 @@ function PickerContent({ instance, projects, recentDirectories = [], value, work
   const [loading, setLoading] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
   const [retry, setRetry] = React.useState(0);
+  const [newFolder, setNewFolder] = React.useState<string | null>(null);
+  const [creating, setCreating] = React.useState(false);
+  const [createFailed, setCreateFailed] = React.useState(false);
   const canBrowse = instance.kind === 'pi';
   const browsing = mode !== 'projects';
 
@@ -87,7 +90,7 @@ function PickerContent({ instance, projects, recentDirectories = [], value, work
     return () => { cancelled = true; };
   }, [instance.id, canBrowse, path, retry]);
 
-  const navigate = (next: string) => { if (next !== path) { setListing(null); setLoading(canBrowse); } setPath(next); setQuery(''); setManual(false); };
+  const navigate = (next: string) => { if (next !== path) { setListing(null); setLoading(canBrowse); } setNewFolder(null); setCreateFailed(false); setPath(next); setQuery(''); setManual(false); };
   const choose = (directory: string) => { onSelect(directory); onClose(); };
   const confirmWorkspace = (directory: string) => {
     onWorkspaceChange(directory);
@@ -114,7 +117,7 @@ function PickerContent({ instance, projects, recentDirectories = [], value, work
     <Command>
       <CommandInput value={query} onValueChange={setQuery} placeholder={browsing ? 'Search folders…' : 'Search projects…'} aria-label="Filter projects" />
       {browsing ? <div className="flex items-center gap-2 border-b px-3 py-2">
-        <Button variant="ghost" size="icon-sm" aria-label="Up one level" disabled={!parent || loading} onClick={() => parent && navigate(parent)}><ArrowLeft className="size-4" /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Up one level" disabled={!parent || loading || creating} onClick={() => parent && navigate(parent)}><ArrowLeft className="size-4" /></Button>
         <span className="min-w-0 truncate text-xs text-muted-foreground" title={currentPath}>{currentPath || 'Loading workspace…'}</span>
       </div> : null}
       <CommandList className="max-h-[300px] p-1.5">
@@ -131,7 +134,7 @@ function PickerContent({ instance, projects, recentDirectories = [], value, work
           </CommandItem>)}
         </CommandGroup> : null}
         <CommandGroup heading={browsing ? undefined : 'In your workspace'}>
-          {rows.filter((row) => browsing || !recents.includes(row.path)).map((row) => <CommandItem key={row.path} value={`${row.name} ${row.path}`} className={rowClass}
+          {rows.filter((row) => browsing || !recents.includes(row.path)).map((row) => <CommandItem key={row.path} disabled={creating} value={`${row.name} ${row.path}`} className={rowClass}
             onSelect={() => browsing ? navigate(row.path) : choose(row.path)}>
             <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1"><span className="block truncate">{row.name}</span>
@@ -147,7 +150,7 @@ function PickerContent({ instance, projects, recentDirectories = [], value, work
     </Command>
     <div className="flex flex-col gap-1 border-t p-2">
       {browsing ? <>
-        <Button className="justify-start" size="sm" disabled={canBrowse ? !listing || loading || failed : !currentPath.trim()}
+        <Button className="justify-start" size="sm" disabled={creating || (canBrowse ? !listing || loading || failed : !currentPath.trim())}
           onClick={() => mode === 'workspace' ? confirmWorkspace(currentPath) : choose(currentPath)}>
           <Check className="size-4" />{mode === 'workspace' ? 'Use this workspace' : 'Use this folder'}
         </Button>
@@ -160,6 +163,23 @@ function PickerContent({ instance, projects, recentDirectories = [], value, work
           <button className="shrink-0 underline-offset-2 hover:underline" onClick={() => { navigate(workspace ?? ''); setMode('workspace'); }}>Change workspace</button>
         </div>
       </>}
+      {browsing && canBrowse && listing && !loading && !failed ? <>
+        {newFolder === null ? <Button size="sm" variant="ghost" className="justify-start" onClick={() => { setNewFolder(''); setCreateFailed(false); }}>New folder…</Button> :
+          <form className="flex flex-col gap-2 p-1" onSubmit={async (event) => {
+            event.preventDefault();
+            if (creating || !newFolder.trim()) return;
+            setCreating(true); setCreateFailed(false);
+            const created = await piCreateDirectory(instance.id, currentPath, newFolder.trim()).catch(() => null);
+            setCreating(false);
+            if (created) navigate(created);
+            else setCreateFailed(true);
+          }}>
+            <Input autoFocus aria-label="New folder name" placeholder="Folder name" value={newFolder} disabled={creating} onChange={(event) => setNewFolder(event.target.value)} />
+            {createFailed ? <p role="alert" className="text-xs text-destructive">{instance.label} could not create this folder. Try another name or check access to the parent folder.</p> : null}
+            <div className="flex gap-2"><Button size="sm" disabled={creating || !newFolder.trim()}>{creating ? 'Creating…' : 'Create folder'}</Button>
+              <Button type="button" size="sm" variant="ghost" disabled={creating} onClick={() => { setNewFolder(null); setCreateFailed(false); }}>Cancel</Button></div>
+          </form>}
+      </> : null}
       {browsing ? <>
         {manual || !canBrowse ? <form className="flex gap-2 p-1" onSubmit={(event) => {
           event.preventDefault();

@@ -977,7 +977,7 @@ const summaryOf = (conversation: MockConversation): Record<string, unknown> => (
   // Hearth reports the newest entry's ordinal, and Ember's read marks use that same number: a
   // summary whose `lastEntryId` disagreed with the entries would make every transcript look read
   // (or permanently unread). Entries are the source, in both places.
-  lastEntryId: Math.max(0, ...conversation.entries.map((entry) => entry.id)),
+  lastEntryId: conversation.entries.length ? Math.max(...conversation.entries.map((entry) => entry.id)) : undefined,
   updatedAt: Math.max(
     ...conversation.entries.map((entry) => Number((entry.model?.[0]?.timestamp as number) ?? 0)),
     0
@@ -1197,20 +1197,17 @@ const piRequest = async (
         })),
     });
   }
+  if (url.pathname === '/directories' && method === 'POST') {
+    const parent = String(body.parent); const name = String(body.name);
+    const path = `${parent === '/' ? '' : parent}/${name}`;
+    if (!mockFolders[parent] || mockFolders[path] || !name || /[\\/]/.test(name)) return fail(400, 'Choose another folder name.');
+    mockFolders[parent].push(name); mockFolders[path] = [];
+    return ok({ path }, 201);
+  }
   if (url.pathname === '/directories' && method === 'GET') {
     const path = url.searchParams.get('path') || '/workspace';
-    const folders: Record<string, string[]> = {
-      '/': ['workspace', 'Users'],
-      '/workspace': ['habit', 'channels', 'ember'],
-      '/workspace/habit': ['src', 'docs'],
-      '/workspace/habit/src': [], '/workspace/habit/docs': [],
-      '/workspace/channels': [], '/workspace/ember': [],
-      '/Users': ['alex'], '/Users/alex': ['Work'],
-      '/Users/alex/Work': ['Website', 'Research'],
-      '/Users/alex/Work/Website': [], '/Users/alex/Work/Research': [],
-    };
-    if (!(path in folders)) return { ok: false, status: 400, data: { error: 'not a directory' } };
-    return ok({ workspace: '/workspace', path, directories: folders[path].map((name) => ({
+    if (!(path in mockFolders)) return { ok: false, status: 400, data: { error: 'not a directory' } };
+    return ok({ workspace: '/workspace', path, directories: mockFolders[path].map((name) => ({
       name, path: `${path === '/' ? '' : path}/${name}`, hasChildren: true,
     })) });
   }
@@ -1663,6 +1660,17 @@ const providers = [
 const providerCredentials = new Map<string, 'api_key' | 'oauth'>([['faux-hearth', 'api_key']]);
 /** In-flight mock sign-ins, keyed by provider id. */
 const mockLogins = new Map<string, { polls: number }>();
+
+const mockFolders: Record<string, string[]> = {
+      '/': ['workspace', 'Users'],
+      '/workspace': ['habit', 'channels', 'ember'],
+      '/workspace/habit': ['src', 'docs'],
+      '/workspace/habit/src': [], '/workspace/habit/docs': [],
+      '/workspace/channels': [], '/workspace/ember': [],
+      '/Users': ['alex'], '/Users/alex': ['Work'],
+      '/Users/alex/Work': ['Website', 'Research'],
+      '/Users/alex/Work/Website': [], '/Users/alex/Work/Research': [],
+    };
 
 // ---- Bridge ---------------------------------------------------------------------------
 

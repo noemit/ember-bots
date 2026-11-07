@@ -103,3 +103,21 @@ test('Settings uses the same workspace and project choices', async ({ page }) =>
   await defaults.getByRole('button', { name: 'Use the most recent project instead' }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.instanceDefaults['pi:hearth']?.directory))).toBeUndefined();
 });
+
+test('creating a folder can be cancelled, retried by name, and selected', async ({ page }) => {
+  await startDraft(page);
+  const picker = page.getByRole('dialog');
+  await picker.getByRole('button', { name: 'New folder', exact: false }).click();
+  await picker.getByRole('textbox', { name: 'New folder name' }).fill('Cancelled');
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(picker.getByRole('option', { name: 'Cancelled', exact: true })).toHaveCount(0);
+  await picker.getByRole('button', { name: 'New folder', exact: false }).click();
+  await picker.getByRole('textbox', { name: 'New folder name' }).fill('habit');
+  await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
+  await expect(picker.getByRole('alert')).toContainText('Try another name');
+  await picker.getByRole('textbox', { name: 'New folder name' }).fill('New work');
+  await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
+  await expect(picker).toContainText('/workspace/New work');
+  await picker.getByRole('button', { name: 'Use this workspace' }).click();
+  await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.instanceDefaults['pi:hearth']?.workspaceDirectory))).toBe('/workspace/New work');
+});

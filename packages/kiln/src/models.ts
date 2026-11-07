@@ -1,4 +1,5 @@
 import { dirname, join } from "node:path";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { createModels, createProvider, envApiKeyAuth, type CredentialStore, type Model, type Models } from "@earendil-works/pi-ai";
 import { FileCredentialStore, FileModelsStore, importOpenCodeCredentials } from "./credentials";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
@@ -27,6 +28,10 @@ import {
 } from "./kimi";
 import { orcarouterModel, orcarouterOptions, routerLimits, type RouterCatalogEntry } from "./orcarouter";
 import { lmStudioProvider, ollamaProvider, probeLocalRuntimes, type LocalRuntimeProbe } from "./local-models";
+
+// Embed the SDK OAuth flows before any provider can load one. Variable imports cannot
+// resolve relative modules once Kiln or Tinder is compiled into a standalone executable.
+registerBunOAuthFlows();
 
 export type HearthDefault = { model: { provider: string; modelId: string } };
 

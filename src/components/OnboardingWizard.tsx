@@ -2,6 +2,7 @@ import * as React from 'react';
 import { ArrowLeftRight, Boxes, Cpu, Laptop, Monitor, ArrowRight, Check, CircleAlert, FolderOpen, KeyRound, Loader2, PlugZap, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Blob from '../blob/Blob';
+import { blobColor } from '../blob/color';
 import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
 import ProjectPicker from './ProjectPicker';
@@ -125,18 +126,18 @@ export default function OnboardingWizard({
       className="fixed inset-0 z-50 isolate overflow-hidden bg-background text-base [&_button]:text-base"
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-        style={{ backgroundImage: 'radial-gradient(ellipse at 100% 0%, rgba(249,115,22,0.24), transparent 55%), radial-gradient(ellipse at 0% 100%, rgba(245,158,11,0.18), transparent 50%), radial-gradient(ellipse at 65% 75%, rgba(167,139,250,0.12), transparent 55%)' }}>
-        <div className="absolute -right-24 -top-24 rotate-12 opacity-30 blur-[48px]">
+        style={{ backgroundImage: `radial-gradient(ellipse at 100% 0%, color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 10%, transparent), transparent 55%), radial-gradient(ellipse at 0% 100%, color-mix(in oklab, ${blobColor('crystal', 'onboarding-crystalglow')} 10%, transparent), transparent 50%)` }}>
+        <div className="absolute -right-24 -top-24 rotate-12 opacity-10 blur-[48px]">
           <Blob style="lava" seed="onboarding-fireglow" size={400} mood="idle" interactive={false} />
         </div>
-        <div className="absolute -bottom-24 -left-20 -rotate-12 opacity-20 blur-[40px]">
+        <div className="absolute -bottom-24 -left-20 -rotate-12 opacity-10 blur-[40px]">
           <Blob style="crystal" seed="onboarding-crystalglow" size={340} mood="idle" interactive={false} />
         </div>
       </div>
       <div data-testid="onboarding-surface" className="flex h-full w-full flex-col">
-        <div className="flex items-center justify-between gap-4 border-b border-border/60 bg-background/65 px-6 py-4 backdrop-blur-xl">
+        <div className="flex items-center justify-between gap-4 border-b border-border/60 bg-background/65 px-6 py-[26px] backdrop-blur-xl">
           <h2 id="onboarding-title" className="text-base font-semibold">
-            Setting up Ember
+            Setting up Ember Bots
           </h2>
           <div className="flex items-center gap-2">
             <span className="text-base text-muted-foreground">
@@ -363,7 +364,7 @@ function Connection({
           <div className="flex flex-col gap-0.5">
             <span className="text-base font-medium">Connected to this computer</span>
             <span className="text-base text-muted-foreground">
-              Kiln is running on this computer and Ember holds its token.
+              Kiln is running on this computer and Ember has its token.
             </span>
           </div>
         </div>

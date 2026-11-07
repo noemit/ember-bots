@@ -85,7 +85,7 @@ test('a refusal is shown in the pane, and Try again starts the session once the 
   const failure = page.getByRole('status').filter({ hasText: "didn't start this session" });
   await expect(failure).toBeVisible();
   // The reason names the host and the folder, and the folder is on screen below it.
-  await expect(failure).toContainText('Hearth (mock)');
+  await expect(failure).toContainText('ember-harness (mock)');
   await expect(failure).toContainText('/workspace/hearth');
   await expect(failure.getByRole('button', { name: 'Try again' })).toBeVisible();
   await expect(failure.getByRole('button', { name: 'Edit' })).toBeVisible();
@@ -130,7 +130,7 @@ test('leaving the draft lets the create finish, and offers the session instead o
   await page.evaluate(() => window.emberCreateFixture?.releaseCreate());
 
   // The session is real, and the rail says so — but the reader is not pulled off what they opened.
-  await expect(page.getByText(/Started “.*” on Hearth \(mock\)\./)).toBeVisible();
+  await expect(page.getByText(/Started “.*” on ember-harness \(mock\)\./)).toBeVisible();
   await expect(reading).toHaveAttribute('data-session-key', readingKey ?? '');
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(page.locator('main[data-session-key]')).not.toHaveAttribute('data-session-key', readingKey ?? '');

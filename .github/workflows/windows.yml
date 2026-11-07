@@ -1,0 +1,52 @@
+name: Windows executable
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: packages/kiln
+      - run: bun run build
+      - run: bunx electron-builder --win --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: bun test packagedOAuth.test.ts
+      - run: bun run dist:cli
+      - name: Verify the packaged application with a fresh profile
+        run: bunx playwright test --config playwright.packaged.config.ts
+        env:
+          EMBER_PACKAGED_EXECUTABLE: release/win-unpacked/Ember.exe
+      - name: Create checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem release/*-windows-*-setup.exe, release/tinder-cli.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content release/SHA256SUMS-windows.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ember-windows-x64
+          path: |
+            release/*-windows-*-setup.exe
+            release/tinder-cli.exe
+            release/SHA256SUMS-windows.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: windows-test-diagnostics
+          path: test-results/

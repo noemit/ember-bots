@@ -80,6 +80,7 @@ test('an already promoted worker links to its peer, and the peer shows in the ra
 });
 
 test('the directory lists every spawned session automatically', async ({ page }) => {
+  await expect(page.locator('aside')).toBeVisible();
   // Since Hearth 0.38.0 a spawned session is registered under its title in the same commit, so the
   // directory has names without anyone promoting anything — the state that used to be empty.
   const names = await page.evaluate(async () => {

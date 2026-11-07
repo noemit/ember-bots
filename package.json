@@ -1,6 +1,6 @@
 {
   "name": "ember",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -22,7 +22,7 @@
     "kiln": "./cli/ember.ts"
   },
   "scripts": {
-    "build:harness": "rm -rf build/harness && mkdir -p build/harness && bun build --compile packages/kiln/src/index.ts --outfile build/harness/kiln",
+    "build:harness": "node scripts/build-binaries.mjs kiln",
     "build": "bun run build:harness && tsc -p tsconfig.json --noEmit && vite build && tsc -p tsconfig.electron.json",
     "dev": "bun run build && electron .",
     "dev:web": "vite --port 5179",
@@ -30,7 +30,7 @@
     "dist:mac": "bun run build && EMBER_RELEASE=1 electron-builder --mac",
     "dist:win": "bun run build && electron-builder --win",
     "dist:linux": "bun run build && electron-builder --linux",
-    "dist:cli": "mkdir -p release && bun build --compile packages/kiln/src/tinder.ts --outfile release/tinder-cli",
+    "dist:cli": "node scripts/build-binaries.mjs tinder",
     "buddy-arena": "bun run buddy-arena/server.ts",
     "test": "bun test",
     "test:e2e": "playwright test",
@@ -81,10 +81,11 @@
       ],
       "extraResources": [
         {
-          "from": "build/harness/kiln",
-          "to": "kiln"
+          "from": "build/harness/kiln.exe",
+          "to": "kiln.exe"
         }
-      ]
+      ],
+      "artifactName": "Ember-${version}-windows-${arch}-setup.${ext}"
     },
     "linux": {
       "category": "Development",

@@ -44,13 +44,14 @@ a keep-running-on-quit mode. On macOS, closing the window is not quitting the ap
 entry point for a standalone backend with an independent lifetime. Connecting to a Tinder-managed
 Kiln does not give Ember ownership of it, and quitting Ember must leave it running.
 
-## Product direction (1.8.0)
+## Product direction (1.9.0)
 
 - Project selection is one anchored menu shared by setup, the composer and Settings. A per-instance
   `workspaceDirectory` is the user's chosen parent folder for browsing, separate from `directory`
   (the optional default project for new chats). Recent projects come from non-worker, active chats.
   Kiln's suggested workspace is only a starting point; explicit `scope=computer` directory requests
-  let the human browse existing work elsewhere. Path entry is revealed on demand.
+  let the human browse existing work elsewhere. Path entry and New folder are revealed on demand.
+  Folder creation never overwrites an existing folder or creates a missing parent tree.
 - The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
   (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
   `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.
@@ -66,6 +67,16 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   mode's shield/word treatment. YOLO delegates all tool approvals for that conversation.
 - Adding a provider, by key or sign-in, offers a choice to keep or change the instance's default
   model. Credentials never select a replacement model implicitly.
+
+## Packaging
+
+- `scripts/build-binaries.mjs` builds Kiln and standalone Tinder with platform-correct executable
+  names. Windows resources must contain `kiln.exe`; the launcher resolves that exact name.
+- `models.ts` registers `registerBunOAuthFlows()` before creating providers. Keep this registration:
+  SDK variable imports cannot load OAuth modules from standalone binaries. `packagedOAuth.test.ts`
+  compiles and runs a complete offline device-code exchange from an empty directory.
+- `.github/workflows/windows.yml` builds installer artifacts and runs `playwright.packaged.config.ts`
+  against the packaged executable, with a fresh profile and its own bundled Kiln.
 
 ## Commands
 
