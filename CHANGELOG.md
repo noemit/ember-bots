@@ -9,6 +9,11 @@
   Conversation text defaults to 14px with more open spacing. Settings → General offers sizes
   from 12px to 20px for reading and composing, saved across restarts.
 
+## 1.17.0
+
+### Changed
+- New chats combine the first human prompt's topic with a whimsical character, such as Login Locksmith. Collisions retain the topic; vague prompts retain the seeded character fallback. Names are set once at creation, preserving human renames and blob identities without an extra model call.
+
 ## 1.15.9
 
 ### Changed

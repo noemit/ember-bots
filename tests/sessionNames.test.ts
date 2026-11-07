@@ -8,7 +8,7 @@ import {
   MESSAGE_VOCABULARY,
   ROLES,
   titleCase,
-} from '../src/lib/sessionNames';
+} from '../src/lib/sessionNameFallback';
 
 /**
  * The contract is a *shape and a set of qualities*, not one string per message.

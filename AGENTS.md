@@ -240,24 +240,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   event summaries, bounded and de-duped by event id), `useSelectionComments` (watches the document
   selection inside one transcript and positions the comment bar over it; `Mod+Alt+C` opens its
   reply input, so the bar never needs a mouse).
-- `src/lib/` — `sessionNames` (`deriveSessionName`: a new conversation's **`<Adjective> <Noun>`**
-  name from its first message — *Lazy Librarian*, *Frantic Mechanic*, *Spotted Fox*. The noun is
-  **always from a fixed roster and never from the message**: 32 trades matched from the imperative
-  or a keyword (fix → Mechanic, plan → Cartographer), 22 keyword-less crafts and 42 creatures that
-  carry a session when nothing matches — 96 nouns, so a hundred sessions can nearly all be different
-  people. The adjective comes from a per-tone pool — breakage → *Frantic*/*Overworked*, curiosity →
-  *Curious*/*Inquisitive*, building → *Patient*/*Diligent*, routine → *Brisk*/*Deft*, nothing
-  discernible → the neutral row, which is the calmest and the only home of *Lazy*/*Sleepy*
-  (`detectTone` classifies the message; the tone picks an adjective and never a noun, and it is
-  measured: ≥55% of 200 draws carry the tone, and a crash never draws a placid word). Still pure and
-  offline: one hash of the seed (instance + folder + message here, the conversation id elsewhere).
-  With a `taken` list the walk prefers a **noun the rail does not already hold too often** — the
-  owner's "i have too many gardeners" — so a hundred "fix …" sessions or a hundred idle ones each
-  show 90+ distinct nouns (measured), while a lone session still lands on the message's own noun. A
-  `taken` hit never returns a duplicate, and only an exhausted set numbers a name. The
-  folder and project are **seed only** and never supply a word (that is how `Hearth Gardener` used
-  to happen). Unit-tested in `tests/sessionNames.test.ts`; sent as `title` on `POST /conversations` so the
-  name is the conversation's, not Ember's), `useStableCallback` (pin a prop's identity for `React.memo` children),
+- `src/lib/` — `sessionNames` (topic + curated character from the initial human prompt, e.g. Login Locksmith; local and deterministic, set once on creation, never renaming an existing chat. Collisions preserve the topic before numbering. Unknown subjects use filtered prompt vocabulary; vague prompts use `sessionNameFallback`'s seeded tone/character vocabulary. Folder names are seed only. Tests in `topicSessionNames.test.ts` cover the active policy; `sessionNames.test.ts` covers the fallback), `useStableCallback` (pin a prop's identity for `React.memo` children),
   `messageSignature` (digest-based change detection for polls), `invalidation` (event → resource
   mapping and the coalescing `InvalidationQueue`), `projectGroups` (`buildRailEntries` grouping +
   `blobStripLayout`), `bulkArchive` (bulk-archive target selection), `workspace`, `clipboard`,

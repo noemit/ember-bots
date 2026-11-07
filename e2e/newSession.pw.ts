@@ -13,9 +13,6 @@ import { expect, test } from '@playwright/test';
  * failure that must not become a second session).
  */
 
-/** A rail row's accessible name when the session is named the new way: `<Adjective> <noun>`. */
-const RAIL_TITLE = /^[A-Z][a-z]+ [A-Z][a-z]+/;
-
 const newAgent = async (page: import('@playwright/test').Page, query = '') => {
   await page.goto(`/${query}`);
   await page.getByRole('button', { name: 'New agent' }).first().click();
@@ -180,11 +177,9 @@ test('a create whose answer was lost is adopted on retry, never created twice', 
   await expect(column.getByRole('log', { name: 'Conversation' }).locator('[data-message-id]').first()).toHaveText(
     'ambiguous create'
   );
-  // One row: the adopted conversation, never a second one. Its title is `<Adjective> <noun>` from
-  // the naming roster, which is what `lib/sessionNames` tests exhaustively — not a word lifted from
-  // the message, which is the shape the owner rejected ("What Gardener", "Ambiguous Create Gardener").
-  await expect(page.locator('aside').getByRole('button', { name: RAIL_TITLE })).toHaveCount(1);
-  await expect(page.locator('aside').getByRole('button', { name: /Ambiguous/ })).toHaveCount(0);
+  // The adopted chat keeps its original topic name; retry does not create a numbered duplicate.
+  await expect(page.locator('aside').getByRole('button', { name: 'Ambiguous Scout', exact: true })).toHaveCount(1);
+  await expect(page.locator('aside').getByRole('button', { name: /^Ambiguous Scout \d/ })).toHaveCount(0);
 });
 
 test('a create that succeeds but whose send fails lands in the session, without a banner', async ({ page }) => {

@@ -482,13 +482,11 @@ test('a new agent is named from its first message, not given a number', async ({
   await composer.fill('Fix the flaky tailnet reconnect before the demo.');
   await composer.press('Enter');
 
-  // A person-noun from the roster and a breakage adjective: "Feral Mechanic" for this seed — never
-  // "57458", and never a word of the message standing in as a person ("Tailnet Mechanic").
+  // The subject survives naming, and the dock exposes the same identity as the conversation.
   const column = page.locator('main[data-session-key]').first();
   await expect(column).toBeVisible();
-  await expect(column.locator('header')).toContainText(/[A-Z][a-z]+ Mechanic/);
-  await expect(column.locator('header')).not.toContainText('Tailnet');
-  await expect(page.locator('aside').getByRole('button', { name: /[A-Z][a-z]+ Mechanic/ }).first()).toBeVisible();
+  await expect(column.locator('header')).toContainText('Network Navigator');
+  await expect(page.locator('[data-active-chat]')).toContainText('Network Navigator');
 });
 
 test('closing every column keeps the rail available, and Sessions reopens a chat', async ({ page }) => {
