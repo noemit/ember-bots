@@ -56,6 +56,10 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 - The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
   (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
   `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.
+- Unread navigation lives above the transcript: “Go to new messages” jumps to the newest unread
+  finished reply without marking it. Multiple unread replies offer “Mark all as read”. Each reply's
+  `MessageReadButton` has a 44px hit area and immediate check/spin/fade confirmation (fade only for
+  reduced motion). Read eligibility is shared with `unreadDigest`; live output is never marked early.
 - Home has been removed. Startup restores the workspace or opens a recent chat; an empty install
   starts a draft on an available Kiln. Unread reading remains accessible from the rail.
 - `settings.blobSize` chooses Standard, Large or Extra large on recognition surfaces through

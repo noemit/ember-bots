@@ -270,7 +270,7 @@ export default function ReadingSheet({
             className="flex-none text-[11px]"
           >
             <CheckCheck />
-            Mark all read
+            Mark all as read
           </Button>
           <Button type="button" variant="ghost" size="icon-xs" onClick={onClose} aria-label="Close reading view">
             <X />

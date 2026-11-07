@@ -1,3 +1,13 @@
+## 1.13.0
+
+### Changed
+- A top-of-conversation “Go to new messages” control jumps to the newest unread reply without
+  marking anything read. “Mark all as read” appears when multiple unread replies are loaded.
+- Each unread reply has a 44px read-bubble target. Pressing it immediately shows a check that spins
+  and fades away; reduced-motion preferences use a quiet fade. Individual read marks persist.
+- Removed the ambiguous floating read action and the duplicate icon-only header action. Unread
+  controls now use the same finished-reply eligibility as the reading view.
+
 ## 1.12.0
 
 ### Added

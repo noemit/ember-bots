@@ -31,7 +31,7 @@ test('muting a chat keeps its read history intact and survives reload', async ({
   await page.getByRole('menuitem', { name: "New Messages: Don't Notify" }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.mutedSessions))).toContain('pi:hearth::10');
   expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
-  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: 'Mark as read', exact: true })).toBeVisible();
+  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: /Go to new messages/ })).toBeVisible();
   await page.reload();
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'New Messages: Notify', exact: true }).click();

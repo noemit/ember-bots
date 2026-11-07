@@ -56,7 +56,7 @@ export const excerptText = (text: string, limit = UNREAD_EXCERPT_LIMIT): { excer
 };
 
 /** A message belongs on Home when it is a finished assistant turn with something to read. */
-const isUnreadEligible = (message: ChatMessage): boolean =>
+export const isUnreadEligible = (message: ChatMessage): boolean =>
   message.role === 'assistant' &&
   message.completed &&
   !message.live &&

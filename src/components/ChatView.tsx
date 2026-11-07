@@ -2,7 +2,7 @@ import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
+import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
 import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
@@ -217,7 +217,7 @@ type Props = {
   readMark?: SessionReadMark;
   /** Mark one message read (the dot beside it). Omitted where marking is not offered. */
   onMarkMessageRead?: (session: Session, message: ChatMessage) => void;
-  /** Mark the whole session read (the header control). */
+  /** Mark the whole session read (the unread navigation bar). */
   onMarkAllRead?: (session: Session) => void;
   /** Set or clear "mark everything read, no notifications" for this session. */
   onQuietChange?: (session: Session, quiet: boolean) => void;
@@ -1470,7 +1470,8 @@ function ChatView({
         toolDisplay={view.toolDisplay}
         showCost={costShown}
         {...(readMark ? { readMark } : {})}
-        {...(onMarkMessageRead ? { onMarkRead: (message: ChatMessage) => onMarkMessageRead(session!, message) } : {})}
+        {...(onMarkMessageRead && session ? { onMarkRead: (message: ChatMessage) => onMarkMessageRead(session, message) } : {})}
+        {...(onMarkAllRead && session ? { onMarkAllRead: () => onMarkAllRead(session) } : {})}
         showMessageDetails={view.showMessageDetails}
         showAvatars={pane.showAvatars ?? view.showAvatars}
         crew={pane.crew ?? crew}
@@ -1671,25 +1672,8 @@ function ChatView({
                     : undefined
                 }
               />
-              {onMinimize || onArchive || onMarkAllRead || onQuietChange ? (
+              {onMinimize || onArchive ? (
                 <div className="flex items-center gap-0.5">
-                  {onMarkAllRead && session ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => onMarkAllRead(session)}
-                          aria-label="Mark everything in this session as read"
-                        >
-                          <CheckCheck className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Mark everything read. Reading a session never marks it on its own.
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : null}
                   {onMinimize ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
