@@ -21,8 +21,6 @@ import { clearComposerText, composerMemory, removedDrafts, type ComposerState, t
 import { canonicalVariant, resolveComposerModel } from '@/lib/modelSelection';
 import { applyMention, matchMentions, mentionQueryAt, type MentionQuery } from '@/lib/mentions';
 import MentionSuggest from './MentionSuggest';
-import { followUpsFor } from '@/lib/followUps';
-import FollowUpChips from './FollowUpChips';
 import { isTurnLive } from '@/lib/turnActivity';
 import { shortcutLabel } from '@/lib/shortcuts';
 import type { QueueReplaceRequest } from '@/lib/queueMerge';
@@ -1953,24 +1951,6 @@ function ChatView({
               transcript and the input card is the surface inside it. It used to paint its own fill too,
               so the chips and the queue above the input sat on a rectangle inside another rectangle. */}
           <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <FollowUpChips
-              chips={followUpsFor(messages, {
-                busy: sending || state === 'active',
-                hasCrew: crew.length > 0,
-              })}
-              onSend={(chipText) => {
-                const input: PromptInput = {
-                  text: chipText,
-                  model,
-                  selectedModelId: modelId,
-                  mode: session?.agent,
-                  variant: variant || undefined,
-                  steer: yeet ? true : undefined,
-                };
-                void (shouldQueue ? onQueue(input) : onSend(input));
-              }}
-              disabled={sending || stoppingNow || Boolean(modelError)}
-            />
             {draftInstance ? (
               <div className="flex items-center gap-1.5 px-0.5" aria-label="New agent options">
                 {/* Starting a session freezes its destination: the request is already out, so an

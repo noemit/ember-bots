@@ -52,6 +52,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   Kiln's suggested workspace is only a starting point; explicit `scope=computer` directory requests
   let the human browse existing work elsewhere. Path entry and New folder are revealed on demand.
   Folder creation never overwrites an existing folder or creates a missing parent tree.
+- The composer has no generic “Next” reply suggestions; the human supplies the next direction.
 - The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
   (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
   `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.

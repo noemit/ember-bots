@@ -1,3 +1,8 @@
+## 1.11.1
+
+### Removed
+- The generic “Next” reply suggestions above the composer, along with their unused generation logic.
+
 ## 1.11.0
 
 ### Added

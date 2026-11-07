@@ -2166,7 +2166,7 @@ function Transcript({
    * The viewport and content sizes as of the last scroll event.
    *
    * A scrollTop that falls while these change is the browser clamping a shorter scroll range — the
-   * follow-up chips closing, the tray folding, an image decoding — and must never be read as the reader
+   * tray folding or an image decoding — and must never be read as the reader
    * scrolling back (`lib/scrollIntent`). Measured before this: 42 messages at ~230ms left the
    * transcript at the top of an 8,428px list with "Jump to latest" showing.
    */
