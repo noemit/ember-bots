@@ -1,3 +1,8 @@
+## 1.18.3
+
+### Fixed
+- Scribble’s legs extend behind its body into the centre of the tangle, keeping their upper ends hidden during movement.
+
 ## 1.18.2
 
 ### Changed
