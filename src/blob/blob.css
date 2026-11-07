@@ -129,6 +129,39 @@
   opacity: .24;
   animation: blob-crystal-swell 3.4s ease-in-out infinite;
 }
+/* Working light makes a slow circuit; thinking keeps its quicker individual glints. */
+.blob-crystal[data-mood='busy'] .blob-body {
+  animation: crystal-working-loop 7.2s ease-in-out infinite;
+}
+.crystal-working-facet { opacity: 0; animation: crystal-working-facet 7.2s ease-in-out infinite; }
+.crystal-reflection-sweep { animation: crystal-reflection-sweep 7.2s ease-in-out infinite; }
+.crystal-sparkle {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: crystal-sparkle 7.2s ease-in-out infinite;
+}
+@keyframes crystal-working-loop {
+  0%, 100% { translate: 0 0; }
+  25% { translate: 1px -1.5px; }
+  50% { translate: 0 -2px; }
+  75% { translate: -1px -1px; }
+}
+@keyframes crystal-working-facet {
+  0%, 60%, 100% { opacity: 0; }
+  28% { opacity: .32; }
+  42% { opacity: .1; }
+}
+@keyframes crystal-reflection-sweep {
+  0%, 12% { translate: 0 0; opacity: 0; }
+  25%, 65% { opacity: .65; }
+  85%, 100% { translate: 180px 0; opacity: 0; }
+}
+@keyframes crystal-sparkle {
+  0%, 18%, 48%, 100% { opacity: 0; scale: .35; }
+  30% { opacity: .85; scale: 1; }
+  38% { opacity: .3; scale: .65; }
+}
 .blob-crystal[data-mood='input'] .blob-heat { opacity: .24; }
 .blob-crystal[data-mood='question'] .blob-heat { opacity: .16; }
 @keyframes blob-crystal-swell {
@@ -346,6 +379,9 @@
   .blob .blob-flip,
   .blob .buddy-gaze,
   .blob .crystal-glint,
+  .blob .crystal-working-facet,
+  .blob .crystal-reflection-sweep,
+  .blob .crystal-sparkle,
   .blob .blob-orbit,
   .blob .blob-heat {
     animation: none !important;

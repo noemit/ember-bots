@@ -75,6 +75,12 @@ export default function CrystalBlob({
           <filter id={`${uid}-heat`} x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur stdDeviation={3} />
           </filter>
+          <linearGradient id={`${uid}-reflection`} x1="0" y1="0" x2="1" y2=".4">
+            <stop offset="0" stopColor="white" stopOpacity="0" />
+            <stop offset=".48" stopColor="white" stopOpacity=".04" />
+            <stop offset=".55" stopColor="white" stopOpacity=".5" />
+            <stop offset=".64" stopColor="white" stopOpacity="0" />
+          </linearGradient>
           <clipPath id={`${uid}-lump`}>
             <path d={geometry.body} />
           </clipPath>
@@ -100,7 +106,22 @@ export default function CrystalBlob({
                 opacity={facet.kind === 'lit' ? 0.2 : facet.kind === 'shade' ? 0.18 : 0.1}
               />
             ))}
+            {mood === 'busy' ? <g className="crystal-working-light">
+              {geometry.facets.map((facet, index) => (
+                <path key={index} className="crystal-working-facet" d={facet.d} fill="white"
+                  style={{ animationDelay: `${geometry.heatDelay - index * 1.6}s` }} />
+              ))}
+              <rect className="crystal-reflection-sweep" x={-90} y={0} width={100} height={100}
+                fill={`url(#${uid}-reflection)`} style={{ animationDelay: `${geometry.heatDelay}s` }} />
+            </g> : null}
           </g>
+          {mood === 'busy' ? <g fill="white" stroke={ink} strokeWidth={.35}>
+            {[[32, 29], [69, 46], [43, 73]].map(([x, y], index) => (
+              <path key={index} className="crystal-sparkle"
+                d={`M${x} ${y - 4} Q${x + .8} ${y - .8} ${x + 4} ${y} Q${x + .8} ${y + .8} ${x} ${y + 4} Q${x - .8} ${y + .8} ${x - 4} ${y} Q${x - .8} ${y - .8} ${x} ${y - 4}Z`}
+                style={{ animationDelay: `${geometry.heatDelay - index * 2.1}s` }} />
+            ))}
+          </g> : null}
         </g>
 
         <MoodBadge mood={mood} inset={-2} />

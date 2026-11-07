@@ -1,3 +1,8 @@
+## 1.18.4
+
+### Changed
+- Crystal’s working state gently loops through facet reflections and soft sparkles, distinct from its thinking animation.
+
 ## 1.18.3
 
 ### Fixed
