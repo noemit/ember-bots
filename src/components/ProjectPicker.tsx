@@ -1,40 +1,12 @@
 import * as React from 'react';
-import { Check, ChevronRight, CornerLeftUp, FolderOpen, Loader2 } from 'lucide-react';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, FolderOpen, Loader2 } from 'lucide-react';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import type { Project } from '../types';
+import { Input } from '@/components/ui/input';
+import { piLoadDirectories, type PiDirectory } from '../piApi';
+import type { Instance, Project } from '../types';
 
-/** A folder the picker can descend into. `hasChildren: false` hides the chevron. */
-export type BrowseDirectory = { name: string; path: string; hasChildren?: boolean };
-
-type Props = {
-  projects: Project[];
-  /** Current folder; matches a project by path, otherwise shows as a custom folder. */
-  value: string;
-  onSelect: (directory: string) => void;
-  /**
-   * Lists the subfolders of `path`, for descending past the workspace root's own children. Without
-   * it the picker stays a flat list of `projects` — the host cannot be asked for anything deeper.
-   * `null` means the request failed, which the picker shows as an error rather than an empty folder.
-   */
-  onBrowse?: (path: string) => Promise<BrowseDirectory[] | null>;
-  /** A new agent's session is already being created, so its destination can no longer change. */
-  disabled?: boolean;
-};
-
-/** `/home/em/workspace/ember` → `['/', 'home', 'em', 'workspace', 'ember']`. A bare drive survives. */
 export const pathSegments = (path: string): string[] =>
   path.split(/[\\/]/).reduce<string[]>((segments, part, index) => {
     if (index === 0 && part === '') return ['/'];
@@ -43,251 +15,163 @@ export const pathSegments = (path: string): string[] =>
   }, []);
 
 export const parentPath = (path: string): string | null => {
-  const segments = pathSegments(path);
-  // `['/', 'home']` is the top of what the browser can show: there is nowhere further up to go.
-  if (segments.length <= 2) return null;
-  // Segments after a leading '/' join without one, or every parent would start with '//'.
-  const [head, ...rest] = segments;
-  const parent = rest.slice(0, -1).join('/');
-  return head === '/' ? `/${parent}` : parent;
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!normalized || /^[A-Za-z]:$/.test(normalized)) return null;
+  const index = normalized.lastIndexOf('/');
+  if (index < 0) return null;
+  const parent = normalized.slice(0, index);
+  return !parent ? '/' : /^[A-Za-z]:$/.test(parent) ? `${parent}/` : parent;
 };
-
-/** Every ancestor of `path`, outermost first, each with the path to navigate to. */
 export const breadcrumbPath = (path: string, upTo: number): string => {
-  const named = pathSegments(path).filter((segment) => segment !== '/');
-  const joined = named.slice(0, upTo + 1).join('/');
+  const joined = pathSegments(path).filter((segment) => segment !== '/').slice(0, upTo + 1).join('/');
   return path.startsWith('/') ? `/${joined}` : joined;
 };
+export const directoryName = (path: string): string => pathSegments(path).at(-1) ?? path;
 
-export const directoryName = (path: string): string => {
-  const segments = pathSegments(path);
-  return segments[segments.length - 1] ?? path;
+type Props = {
+  instance: Instance;
+  projects: Project[];
+  recentDirectories?: string[];
+  value: string;
+  workspace?: string;
+  onWorkspaceChange: (directory: string) => void;
+  onSelect: (directory: string) => void;
+  workspaceOnly?: boolean;
+  disabled?: boolean;
 };
 
-export default function ProjectPicker({ projects, value, onSelect, onBrowse, disabled = false }: Props) {
+/** One destination control. Workspace setup and deeper browsing are revealed only when needed. */
+export default function ProjectPicker({ instance, projects, recentDirectories = [], value, workspace, onWorkspaceChange, onSelect, workspaceOnly = false, disabled = false }: Props) {
   const [open, setOpen] = React.useState(false);
+  return <Popover open={open} onOpenChange={setOpen}>
+    <PopoverTrigger asChild><Button type="button" variant="ghost" size="sm" disabled={disabled}
+      className="h-8 min-w-0 max-w-[300px] gap-2 px-2 text-xs font-normal"
+      aria-label={workspaceOnly ? 'Choose workspace' : 'New agent project'} title={workspaceOnly ? workspace : value}
+      >
+      <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{workspaceOnly ? (workspace ? directoryName(workspace) : 'Choose workspace') : value ? directoryName(value) : 'Choose project'}</span>
+      <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+    </Button></PopoverTrigger>
+      <PopoverContent align="start" side="top" aria-label={workspaceOnly || !workspace ? 'Choose your workspace' : 'Choose a project'} className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(400px,calc(100vw-2rem))] flex-col overflow-y-auto p-0">
+        {open ? <PickerContent key={instance.id} instance={instance} projects={projects} recentDirectories={recentDirectories} value={value} workspace={workspace}
+          workspaceOnly={workspaceOnly} onWorkspaceChange={onWorkspaceChange} onSelect={onSelect} onClose={() => setOpen(false)} /> : null}
+      </PopoverContent>
+  </Popover>;
+}
+
+function PickerContent({ instance, projects, recentDirectories = [], value, workspace, onWorkspaceChange, onSelect, workspaceOnly, onClose }: Props & { onClose: () => void }) {
+  const [mode, setMode] = React.useState<'projects' | 'workspace' | 'browse'>(workspaceOnly || !workspace ? 'workspace' : 'projects');
+  const [path, setPath] = React.useState(workspace ?? '');
   const [query, setQuery] = React.useState('');
-  /** The folder being browsed; empty means "the workspace root", i.e. the configured projects. */
-  const [browsing, setBrowsing] = React.useState('');
-  const [children, setChildren] = React.useState<BrowseDirectory[] | null>(null);
+  const [manual, setManual] = React.useState(false);
+  const [typedPath, setTypedPath] = React.useState('');
+  const [listing, setListing] = React.useState<{ path: string; directories: PiDirectory[] } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
-  const requestRef = React.useRef(0);
-
-  const selectableProjects = React.useMemo(
-    () => projects.filter((project): project is Project & { path: string } => Boolean(project.path)),
-    [projects]
-  );
-  const selected = selectableProjects.find((project) => project.path === value) ?? null;
+  const [retry, setRetry] = React.useState(0);
+  const canBrowse = instance.kind === 'pi';
+  const browsing = mode !== 'projects';
 
   React.useEffect(() => {
-    if (open) {
-      setQuery('');
-      setBrowsing('');
-      setChildren(null);
-      setFailed(false);
-    }
-  }, [open]);
-
-  // Descending is a fresh request; a stale answer (a fast second click) must not replace the current folder.
-  React.useEffect(() => {
-    if (!open || !browsing || !onBrowse) return;
-    const ticket = ++requestRef.current;
+    if (!canBrowse) return;
+    let cancelled = false;
     setLoading(true);
     setFailed(false);
-    setChildren(null);
-    void onBrowse(browsing).then((result) => {
-      if (requestRef.current !== ticket) return;
+    setListing(null);
+    void piLoadDirectories(instance.id, path || undefined, 'computer').catch(() => null).then((result) => {
+      if (cancelled) return;
       setLoading(false);
-      if (result === null) {
-        setFailed(true);
-        setChildren([]);
-        return;
-      }
-      // A folder with nothing in it would strand the user on an empty screen: back out instead.
-      if (result.length === 0) {
-        setBrowsing('');
-        return;
-      }
-      setChildren(result);
+      setFailed(!result);
+      setListing(result);
     });
-    return () => {
-      requestRef.current += 1;
-    };
-  }, [open, browsing, onBrowse]);
+    return () => { cancelled = true; };
+  }, [instance.id, canBrowse, path, retry]);
 
-  const select = (directory: string) => {
-    onSelect(directory);
-    setOpen(false);
+  const navigate = (next: string) => { if (next !== path) { setListing(null); setLoading(canBrowse); } setPath(next); setQuery(''); setManual(false); };
+  const choose = (directory: string) => { onSelect(directory); onClose(); };
+  const confirmWorkspace = (directory: string) => {
+    onWorkspaceChange(directory);
+    if (workspaceOnly) { onClose(); return; }
+    navigate(directory);
+    setMode('projects');
   };
+  const currentPath = listing?.path ?? path;
+  const rows = browsing ? listing?.directories ?? [] : [
+    ...(listing?.directories ?? []),
+    ...(!canBrowse ? projects.filter((project) => project.path).map((project) => ({ name: project.name, path: project.path! })) : []),
+  ].filter((row, index, all) => all.findIndex((other) => other.path === row.path) === index);
+  const recents = [...new Set([value, ...recentDirectories].filter((directory) => directory && directory !== workspace))].slice(0, 6);
+  const parent = parentPath(currentPath);
+  const rowClass = 'cursor-pointer gap-3 rounded-md px-3 py-2.5 text-sm';
 
-  const descend = (directory: BrowseDirectory) => {
-    setQuery('');
-    setBrowsing(directory.path);
-  };
-
-  const atRoot = !browsing;
-  const parent = browsing ? parentPath(browsing) : null;
-  const rows: BrowseDirectory[] = atRoot
-    ? selectableProjects.map((project) => ({ name: project.name, path: project.path }))
-    : children ?? [];
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 max-w-[220px] px-2 text-xs font-normal"
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        aria-label="New agent project"
-      >
-        <FolderOpen className="size-3.5 text-muted-foreground" />
-        <span className="truncate">{selected?.name ?? 'Custom folder'}</span>
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-[460px] gap-0 overflow-hidden p-0" showCloseButton={false}>
-          <DialogTitle className="sr-only">Choose a project</DialogTitle>
-          <Command>
-            <CommandInput
-              value={query}
-              onValueChange={setQuery}
-              placeholder={atRoot ? 'Type a project name or folder…' : `Filter in ${directoryName(browsing) || browsing}…`}
-              aria-label="Filter projects"
-              className="h-10 text-xs"
-            />
-            {!atRoot ? (
-              <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-0.5 text-[11px] text-muted-foreground">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQuery('');
-                    setBrowsing('');
-                  }}
-                  className="truncate underline-offset-2 hover:text-foreground hover:underline"
-                  title="Back to the workspace root"
-                >
-                  Projects
-                </button>
-                {pathSegments(browsing).filter((segment) => segment !== '/').map((segment, index, all) => {
-                  const target = breadcrumbPath(browsing, index);
-                  return (
-                    <React.Fragment key={target}>
-                      <ChevronRight className="size-3 flex-none opacity-60" aria-hidden="true" />
-                      {index === all.length - 1 ? (
-                        <span className="truncate font-medium text-foreground">{segment}</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQuery('');
-                            setBrowsing(target);
-                          }}
-                          className="truncate underline-offset-2 hover:text-foreground hover:underline"
-                        >
-                          {segment}
-                        </button>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </div>
-            ) : null}
-            <CommandList className="max-h-[320px] overflow-y-auto p-1.5">
-              <CommandGroup>
-                {atRoot ? (
-                  <CommandItem
-                    value=""
-                    onSelect={() => select('')}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12.5px] aria-selected:bg-muted"
-                  >
-                    <span className="flex-1">Custom folder</span>
-                    {!selected ? <Check className="size-3.5 text-highlight" /> : null}
-                  </CommandItem>
-                ) : parent !== null ? (
-                  <CommandItem
-                    value="__up__"
-                    onSelect={() => {
-                      setQuery('');
-                      setBrowsing(parent === '' ? '' : parent);
-                    }}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12.5px] aria-selected:bg-muted"
-                  >
-                    <CornerLeftUp className="size-3.5 text-muted-foreground" />
-                    <span className="flex-1">Up one level</span>
-                  </CommandItem>
-                ) : null}
-                {browsing ? (
-                  <CommandItem
-                    key={`__here__${browsing}`}
-                    value={`__here__${browsing} ${browsing}`}
-                    onSelect={() => select(browsing)}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12.5px] aria-selected:bg-muted"
-                  >
-                    <FolderOpen className="size-3.5 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">Use “{directoryName(browsing) || browsing}”</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">{browsing}</span>
-                    </span>
-                    {browsing === value ? <Check className="mt-0.5 size-3.5 text-highlight" /> : null}
-                  </CommandItem>
-                ) : null}
-                {loading ? (
-                  <div
-                    className="flex items-center gap-2 px-2.5 py-3 text-[11.5px] text-muted-foreground"
-                    role="status"
-                  >
-                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                    Loading folders…
-                  </div>
-                ) : null}
-                {failed ? (
-                  <div className="px-2.5 py-3 text-[11.5px] text-destructive" role="alert">
-                    Could not read this folder.
-                  </div>
-                ) : null}
-                {rows.map((row) => {
-                  const canDescend = Boolean(onBrowse) && row.hasChildren !== false;
-                  return (
-                    <CommandItem
-                      key={row.path}
-                      value={`${row.name}\n${row.path}`}
-                      onSelect={() => select(row.path)}
-                      className="flex cursor-pointer items-start gap-2 rounded-md py-2 pl-2.5 pr-1 text-left text-[12.5px] aria-selected:bg-muted"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{row.name}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">{row.path}</span>
-                      </span>
-                      {row.path === value ? <Check className="mt-0.5 size-3.5 text-highlight" /> : null}
-                      {canDescend ? (
-                        <button
-                          type="button"
-                          aria-label={`Open ${row.name}`}
-                          title={`Open ${row.name}`}
-                          onClick={(event) => {
-                            // The row's own onSelect must not fire: descending is not choosing.
-                            event.preventDefault();
-                            event.stopPropagation();
-                            descend(row);
-                          }}
-                          className="-mr-0.5 flex size-6 flex-none items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                        >
-                          <ChevronRight className="size-3.5" />
-                        </button>
-                      ) : null}
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-              <CommandEmpty className="px-3 py-8 text-center text-xs text-muted-foreground">
-                {atRoot ? `No projects match “${query.trim()}”.` : 'No folders match.'}
-              </CommandEmpty>
-            </CommandList>
-          </Command>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
+  return <>
+    <div className="border-b px-4 py-3">
+      <h2 className="text-sm font-medium">{mode === 'workspace' ? 'Choose your workspace' : browsing ? 'Choose a folder' : 'Choose a project'}</h2>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+        {mode === 'workspace' ? `Pick the folder on ${instance.label} where your projects or work already live.` : `Work on ${instance.label}`}
+      </p>
+    </div>
+    <Command>
+      <CommandInput value={query} onValueChange={setQuery} placeholder={browsing ? 'Search folders…' : 'Search projects…'} aria-label="Filter projects" />
+      {browsing ? <div className="flex items-center gap-2 border-b px-3 py-2">
+        <Button variant="ghost" size="icon-sm" aria-label="Up one level" disabled={!parent || loading} onClick={() => parent && navigate(parent)}><ArrowLeft className="size-4" /></Button>
+        <span className="min-w-0 truncate text-xs text-muted-foreground" title={currentPath}>{currentPath || 'Loading workspace…'}</span>
+      </div> : null}
+      <CommandList className="max-h-[300px] p-1.5">
+        {loading ? <div role="status" className="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading folders on {instance.label}…</div> : null}
+        {failed ? <div role="alert" className="px-3 py-3 text-xs">
+          <p>{instance.label} could not open this folder. Check the path or choose another folder. Older Kilns may need an update to browse outside their workspace.</p>
+          <Button variant="link" size="sm" onClick={() => setRetry((n) => n + 1)}>Try again</Button>
+        </div> : null}
+        {!browsing && recents.length > 0 ? <CommandGroup heading="Recent">
+          {recents.map((directory) => <CommandItem key={directory} value={`recent ${directory}`} className={rowClass} onSelect={() => choose(directory)}>
+            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1"><span className="block truncate">{directoryName(directory)}</span><span className="block truncate text-xs text-muted-foreground">{directory}</span></span>
+            {directory === value ? <Check className="size-4 text-highlight" /> : null}
+          </CommandItem>)}
+        </CommandGroup> : null}
+        <CommandGroup heading={browsing ? undefined : 'In your workspace'}>
+          {rows.filter((row) => browsing || !recents.includes(row.path)).map((row) => <CommandItem key={row.path} value={`${row.name} ${row.path}`} className={rowClass}
+            onSelect={() => browsing ? navigate(row.path) : choose(row.path)}>
+            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1"><span className="block truncate">{row.name}</span>
+              {!browsing ? <span className="block truncate text-xs text-muted-foreground">{row.path}</span> : null}</span>
+            {!browsing && row.path === value ? <Check className="size-4 text-highlight" /> : null}
+            {browsing ? <ChevronRight className="size-4 text-muted-foreground" /> : null}
+          </CommandItem>)}
+        </CommandGroup>
+        {!loading && !failed ? <CommandEmpty className="px-3 py-5 text-center text-xs text-muted-foreground">
+          {query ? 'No matching folders. Try another name or browse below.' : browsing ? 'No subfolders here. You can use this folder.' : 'No projects here yet. Use the workspace or choose another folder below.'}
+        </CommandEmpty> : null}
+      </CommandList>
+    </Command>
+    <div className="flex flex-col gap-1 border-t p-2">
+      {browsing ? <>
+        <Button className="justify-start" size="sm" disabled={canBrowse ? !listing || loading || failed : !currentPath.trim()}
+          onClick={() => mode === 'workspace' ? confirmWorkspace(currentPath) : choose(currentPath)}>
+          <Check className="size-4" />{mode === 'workspace' ? 'Use this workspace' : 'Use this folder'}
+        </Button>
+        {workspace && !workspaceOnly ? <Button variant="ghost" size="sm" className="justify-start" onClick={() => { navigate(workspace); setMode('projects'); }}>Back to projects</Button> : null}
+      </> : <>
+        {workspace ? <Button variant="ghost" size="sm" className="justify-start" onClick={() => choose(workspace)}><FolderOpen className="size-4" />Work in {directoryName(workspace)}</Button> : null}
+        <Button variant="ghost" size="sm" className="justify-start" onClick={() => { navigate(workspace ?? ''); setMode('browse'); }}><FolderOpen className="size-4" />Choose another folder…</Button>
+        <div className="flex items-center justify-between gap-2 px-3 py-1 text-xs text-muted-foreground">
+          <span className="truncate" title={workspace}>Workspace · {directoryName(workspace ?? '')}</span>
+          <button className="shrink-0 underline-offset-2 hover:underline" onClick={() => { navigate(workspace ?? ''); setMode('workspace'); }}>Change workspace</button>
+        </div>
+      </>}
+      {browsing ? <>
+        {manual || !canBrowse ? <form className="flex gap-2 p-1" onSubmit={(event) => {
+          event.preventDefault();
+          if (!typedPath.trim()) return;
+          if (canBrowse) navigate(typedPath.trim());
+          else if (mode === 'workspace') confirmWorkspace(typedPath.trim());
+          else choose(typedPath.trim());
+        }}>
+          <Input autoFocus aria-label="Folder path" placeholder="Full folder path" value={typedPath} onChange={(event) => setTypedPath(event.target.value)} className="h-8 text-xs" />
+          <Button size="sm" variant="secondary" disabled={!typedPath.trim()}>{canBrowse ? 'Open' : 'Use folder'}</Button>
+        </form> : <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => { setTypedPath(currentPath); setManual(true); }}>Enter a folder path…</Button>}
+      </> : null}
+    </div>
+  </>;
 }

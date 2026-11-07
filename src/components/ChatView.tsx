@@ -8,11 +8,8 @@ import { normalizeDirectory } from '../blob/seed';
 import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
 import type { ModelPrefill } from '../lib/newSessionDefaults';
 import type { BlockedWorker } from '../lib/crew';
-import { Input } from '@/components/ui/input';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import type { PromptInput } from '../api';
-import { piLoadDirectories } from '../piApi';
-import type { BrowseDirectory } from './ProjectPicker';
 import { ModelPickerFallback } from './ModelPickerFallback';
 import ReasoningLevelPicker from './ReasoningLevelPicker';
 import { INSTRUCTION_PRESETS, presetFor, type InstructionPreset } from '../lib/instructionPresets';
@@ -130,6 +127,9 @@ type Props = {
   instance: Instance | null;
   instanceMarkerColor?: number;
   newSessionInstanceId: string | null;
+  workspaceDirectory?: string;
+  recentDirectories?: string[];
+  onWorkspaceChange?: (instanceId: string, directory: string) => void;
   /** Prefill for a new-agent draft: last-used or default folder, model and YOLO on that instance. */
   newSessionPrefill: { directory: string | null; model: ModelPrefill | null; bypass: boolean } | null;
   instances: Instance[];
@@ -427,6 +427,9 @@ function ChatView({
   instance,
   instanceMarkerColor,
   newSessionInstanceId,
+  workspaceDirectory,
+  recentDirectories,
+  onWorkspaceChange,
   newSessionPrefill,
   instances,
   mentionNames = [],
@@ -577,7 +580,6 @@ function ChatView({
   const [findRequest, setFindRequest] = React.useState(0);
   const [now, setNow] = React.useState(() => Date.now());
   const fileRef = React.useRef<HTMLInputElement>(null);
-  const folderRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   /** The column, which is `relative`: the selection bar is positioned inside it. */
   const columnRef = React.useRef<HTMLElement>(null);
@@ -976,20 +978,6 @@ function ChatView({
         : `${modelId} (unavailable)`;
   const draftProjects = draftInstanceId ? projectsByInstance[draftInstanceId] ?? [] : [];
 
-  // The picker's folder browser: one level below the workspace root, then however deep the user
-  // goes. `null` (not `[]`) on failure, so the picker can say "could not read" instead of "empty".
-  const browseProjectFolders = useStableCallback(
-    async (path: string): Promise<BrowseDirectory[] | null> => {
-      if (!draftInstanceId) return null;
-      const listing = await piLoadDirectories(draftInstanceId, path);
-      if (!listing) return null;
-      return listing.directories.map((entry) => ({
-        name: entry.name,
-        path: entry.path,
-        hasChildren: entry.hasChildren,
-      }));
-    }
-  );
   const draftReady = Boolean(draftInstanceId && draftDirectory.trim());
   React.useEffect(() => {
     setYeet(readYeet(composerKey));
@@ -2007,28 +1995,24 @@ function ChatView({
                 <React.Suspense fallback={null}>
                   <ProjectPicker
                     projects={draftProjects}
-                    onBrowse={browseProjectFolders}
+                    key={draftInstance.id}
+                    instance={draftInstance}
+                    workspace={workspaceDirectory}
+                    recentDirectories={recentDirectories}
+                    onWorkspaceChange={(directory) => {
+                      onWorkspaceChange?.(draftInstance.id, directory);
+                      draftTouchedRef.current.directory = true;
+                      setDraftDirectory(directory);
+                    }}
                     value={draftDirectory}
                     disabled={creatingSession}
                     onSelect={(directory) => {
                       draftTouchedRef.current.directory = true;
                       setDraftDirectory(directory);
-                      if (!directory) window.requestAnimationFrame(() => folderRef.current?.focus());
                     }}
                   />
                 </React.Suspense>
-                <Input
-                  ref={folderRef}
-                  value={draftDirectory}
-                  readOnly={creatingSession}
-                  onChange={(event) => {
-                    draftTouchedRef.current.directory = true;
-                    setDraftDirectory(event.target.value);
-                  }}
-                  placeholder="Folder path"
-                  aria-label="New agent folder"
-                  className="h-7 min-w-0 flex-1 border-dashed bg-transparent px-2 font-mono text-[11.5px] shadow-none hover:bg-muted focus-visible:border-solid focus-visible:bg-background dark:bg-transparent"
-                />
+                <div className="flex-1" />
                 <Button variant="ghost" size="icon-sm" className="size-7" onClick={onCancelNewSession} aria-label="Cancel new agent">
                   <X />
                 </Button>

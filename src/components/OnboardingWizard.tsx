@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import Blob from '../blob/Blob';
 import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
+import ProjectPicker from './ProjectPicker';
 import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import {
@@ -11,7 +12,6 @@ import {
   isCompactStep,
   stepStates,
   stepsFor,
-  workspaceHint,
   type OnboardingState,
   type OnboardingStep,
   type OnboardingStepId,
@@ -27,8 +27,6 @@ type Props = {
   instances: Instance[];
   endpoints: PiEndpoint[];
   instanceDefaults?: Record<string, InstanceDefaults>;
-  /** The folder root Kiln resolved (or the wizard asked for); shown, and used for the first agent. */
-  workspaceRoot: string | null;
   onDismiss: () => void;
   onRetryLocal: () => Promise<void>;
   onRefreshInstances: () => void;
@@ -69,7 +67,6 @@ export default function OnboardingWizard({
   localProblem,
   instances,
   endpoints,
-  workspaceRoot,
   onDismiss,
   onRetryLocal,
   onRefreshInstances,
@@ -94,7 +91,7 @@ export default function OnboardingWizard({
   React.useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         event.preventDefault();
         onDismiss();
       }
@@ -205,7 +202,6 @@ export default function OnboardingWizard({
                   instances={instances}
                   onChange={onChange}
                   onAdded={onRefreshInstances}
-                  workspaceRoot={workspaceRoot}
                 />
               ) : null}
 
@@ -219,9 +215,10 @@ export default function OnboardingWizard({
 
               {step.id === 'first-agent' ? (
                 <FirstAgent
+                  key={state.targetInstanceId}
+                  instanceDefaults={instanceDefaults}
                   state={state}
                   instances={instances}
-                  workspaceRoot={workspaceRoot}
                   onChange={onChange}
                   onStart={onStartAgent}
                 />
@@ -342,7 +339,6 @@ function Connection({
   instances,
   onChange,
   onAdded,
-  workspaceRoot,
 }: {
   state: OnboardingState;
   problem: string | null;
@@ -352,7 +348,6 @@ function Connection({
   instances: Instance[];
   onChange: (patch: EmberSettingsPatch) => void;
   onAdded: () => void;
-  workspaceRoot: string | null;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -369,7 +364,6 @@ function Connection({
             <span className="text-base font-medium">Connected to this computer</span>
             <span className="text-base text-muted-foreground">
               Kiln is running on this computer and Ember holds its token.
-              {workspaceRoot ? ` Work lives in ${workspaceRoot}.` : ''}
             </span>
           </div>
         </div>
@@ -570,52 +564,44 @@ function Providers({
   );
 }
 
-function FirstAgent({
-  state,
-  instances,
-  workspaceRoot,
-  onChange,
-  onStart,
-}: {
+function FirstAgent({ state, instances, instanceDefaults, onChange, onStart }: {
   state: OnboardingState;
   instances: Instance[];
-  workspaceRoot: string | null;
+  instanceDefaults: Record<string, InstanceDefaults>;
   onChange: (patch: EmberSettingsPatch) => void;
   onStart: (input: { instanceId: string; directory: string | null }) => void;
 }) {
-  const target = state.targetInstanceId ?? instances[0]?.id ?? null;
-  const label = instances.find((instance) => instance.id === target)?.label ?? null;
+  const target = instances.find((instance) => instance.id === state.targetInstanceId);
+  const workspace = target ? instanceDefaults[target.id]?.workspaceDirectory : undefined;
+  const [project, setProject] = React.useState('');
   return (
-    <div className="flex flex-col gap-4">
-      <h3 className="text-base font-semibold">Start your first agent</h3>
-      <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
-        <p className="text-base text-muted-foreground">Agents start in</p>
-        <p className="mt-0.5 font-mono text-base">{workspaceRoot ?? '(no folder set)'}</p>
-        {workspaceRoot ? (
-          <p className="mt-1.5 text-base leading-relaxed text-muted-foreground">{workspaceHint(workspaceRoot)}</p>
-        ) : null}
-      </div>
-      <p className="text-base leading-relaxed text-muted-foreground">
-        Nothing is sent until you type. Ember opens a new agent and leaves the message box to you.
+    <div className="flex max-w-xl flex-col gap-5">
+      <h3 className="text-base font-semibold">Where does your work live?</h3>
+      <p className="leading-relaxed text-muted-foreground">
+        Choose your workspace — the folder where you already keep your projects or work.
+        You can pick a project inside it for each new chat.
       </p>
-      <div>
-        <Button
-          size="sm"
-          disabled={!target}
-          onClick={() => {
-            if (!target) return;
-            // Persist the folder as this instance's default so the draft prefills it: the choice made
-            // here is what the composer will offer next time, without a second dialog asking again.
-            if (workspaceRoot) {
-              onChange({ instanceDefaults: { [target]: { directory: workspaceRoot } } });
-            }
-            onStart({ instanceId: target, directory: workspaceRoot });
-          }}
-        >
-          New agent{label ? ` on ${label}` : ''}
-          <ArrowRight />
-        </Button>
-      </div>
+      {target ? <div className="rounded-lg border bg-background/60 p-4">
+        <p className="mb-2 text-sm text-muted-foreground">Workspace on {target.label}</p>
+        <ProjectPicker key={target.id} instance={target} projects={[]} workspaceOnly value={workspace ?? ''} workspace={workspace}
+          onWorkspaceChange={(directory) => {
+            setProject('');
+            onChange({ instanceDefaults: { ...instanceDefaults, [target.id]: { ...instanceDefaults[target.id], workspaceDirectory: directory } } });
+          }} onSelect={() => {}} />
+        {workspace ? <p className="mt-2 break-all text-sm text-muted-foreground">{workspace}</p> : null}
+      </div> : <p className="text-muted-foreground">Connect a Kiln in the setup steps to choose a workspace.</p>}
+      {target && workspace ? <div>
+        <p className="mb-2 text-sm text-muted-foreground">Start in a project, or work directly in your workspace.</p>
+        <ProjectPicker key={`${target.id}:${workspace}`} instance={target} projects={[]} value={project || workspace} workspace={workspace}
+          onWorkspaceChange={(directory) => {
+            setProject('');
+            onChange({ instanceDefaults: { ...instanceDefaults, [target.id]: { ...instanceDefaults[target.id], workspaceDirectory: directory } } });
+          }} onSelect={setProject} />
+      </div> : null}
+      <p className="text-sm leading-relaxed text-muted-foreground">Nothing is sent until you write your first message.</p>
+      <Button className="self-start" disabled={!target || !workspace} onClick={() => {
+        if (target && workspace) onStart({ instanceId: target.id, directory: project || workspace });
+      }}>New agent<ArrowRight /></Button>
     </div>
   );
 }

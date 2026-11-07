@@ -46,6 +46,8 @@ export type ModelRef = {
 };
 
 export type InstanceDefaults = {
+  /** User-chosen parent folder for discovering projects on this instance. */
+  workspaceDirectory?: string;
   directory?: string;
   model?: ModelRef;
   /** Reasoning-effort variant for the default model, e.g. 'high'. */

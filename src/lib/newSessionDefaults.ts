@@ -1,5 +1,6 @@
 import { modelRefKey } from '../types';
 import type { InstanceDefaults, Project, Session } from '../types';
+import { isWorker } from './crew';
 
 const byRecency = <T extends { updated?: number }>(a: T, b: T) => (b.updated ?? 0) - (a.updated ?? 0);
 
@@ -19,8 +20,13 @@ export const newSessionDirectoryPrefill = (
   const recentProject = projects
     .filter((project) => project.path && project.lastOpenedAt)
     .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0]?.path;
-  return recentProject ?? null;
+  return recentProject ?? defaults.workspaceDirectory ?? null;
 };
+
+/** Recent folders are per host, distinct, and led by human-facing chats. */
+export const recentProjectDirectories = (sessions: Session[]): string[] =>
+  [...new Set([...sessions].filter((session) => !isWorker(session) && !session.archived && session.directory)
+    .sort(byRecency).map((session) => session.directory!))].slice(0, 6);
 
 export type ModelPrefill = { key: string; variant: string };
 

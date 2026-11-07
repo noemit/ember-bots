@@ -1111,9 +1111,13 @@ export type PiDirectory = { name: string; path: string; hasChildren?: boolean };
 /** The folder browser for a new conversation: Hearth lists the workspace root's subfolders. */
 export const piLoadDirectories = async (
   endpointId: string,
-  path?: string
+  path?: string,
+  scope?: 'computer'
 ): Promise<{ workspace: string; path: string; directories: PiDirectory[] } | null> => {
-  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  const params = new URLSearchParams();
+  if (path) params.set('path', path);
+  if (scope) params.set('scope', scope);
+  const query = params.size ? `?${params}` : '';
   const response = await request<{ workspace?: string; path?: string; directories?: PiDirectory[] }>(
     endpointId,
     `/directories${query}`

@@ -33,7 +33,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
 import SecretInput from '@/components/ui/secret-input';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
@@ -41,6 +40,7 @@ import { DEFAULT_MODEL, modelRefKey, SESSION_WINDOWS } from '../types';
 import { providersForPicker } from '../lib/providerPreference';
 import { suggestMarkerColor } from '../lib/instanceMarker';
 import type { ModelList } from '../api';
+import ProjectPicker from './ProjectPicker';
 import type { BlobStyle, EmberSettings, EmberSettingsPatch, Instance, InstanceDefaults, Project, RemoteAccessState } from '../types';
 
 type Props = {
@@ -195,7 +195,7 @@ const InstanceDefaultsSettings = ({
       <div className="flex flex-col divide-y rounded-lg border">
         {instances.map((instance) => {
           const defaults = defaultsFor(instance.id);
-          const configured = Boolean(defaults.model || defaults.directory || defaults.bypass !== undefined);
+          const configured = Boolean(defaults.model || defaults.directory || defaults.workspaceDirectory || defaults.bypass !== undefined);
           return (
             <div key={instance.id} className="flex items-center gap-2 px-2.5 py-2">
               <span className="flex min-w-0 flex-1 flex-col">
@@ -327,46 +327,19 @@ const InstanceDefaultsSettings = ({
                 </div>
               </section>
 
-              <section className="flex flex-col gap-1.5">
+              {editingInstance ? <section className="flex flex-col gap-2">
+                <span className="text-xs font-medium">Workspace</span>
+                <span className="text-[11px] text-muted-foreground">The folder where your projects or work already live.</span>
+                <ProjectPicker instance={editingInstance} projects={projectsByInstance[editing] ?? []} workspaceOnly
+                  workspace={editingDefaults.workspaceDirectory} value={editingDefaults.workspaceDirectory ?? ''}
+                  onWorkspaceChange={(workspaceDirectory) => update(editing, { workspaceDirectory })} onSelect={() => {}} />
                 <span className="text-xs font-medium">Default project</span>
-                <span className="text-[11px] text-muted-foreground">
-                  Where new agents on this instance start. A project keeps its own name; the box
-                  below takes any path.
-                </span>
-                <Select
-                  value={
-                    (projectsByInstance[editing] ?? []).some(
-                      (project) => project.path && project.path === editingDefaults.directory
-                    )
-                      ? (editingDefaults.directory as string)
-                      : '__none'
-                  }
-                  onValueChange={(value) =>
-                    update(editing, { directory: value === '__none' ? undefined : value })
-                  }
-                >
-                  <SelectTrigger className="w-full" aria-label="Default project">
-                    <SelectValue placeholder="No default" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">No default</SelectItem>
-                    {(projectsByInstance[editing] ?? [])
-                      .filter((project) => project.path)
-                      .map((project) => (
-                        <SelectItem key={project.path!} value={project.path!}>
-                          {project.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  value={editingDefaults.directory ?? ''}
-                  onChange={(event) => update(editing, { directory: event.target.value || undefined })}
-                  placeholder="Or a custom path"
-                  aria-label="Default folder"
-                  className="mt-1"
-                />
-              </section>
+                <ProjectPicker instance={editingInstance} projects={projectsByInstance[editing] ?? []}
+                  workspace={editingDefaults.workspaceDirectory} value={editingDefaults.directory ?? ''}
+                  onWorkspaceChange={(workspaceDirectory) => update(editing, { workspaceDirectory })}
+                  onSelect={(directory) => update(editing, { directory })} />
+                {editingDefaults.directory ? <Button size="sm" variant="ghost" onClick={() => update(editing, { directory: undefined })}>Use the most recent project instead</Button> : null}
+              </section> : null}
 
               <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
                 <div className="flex min-w-0 flex-col">

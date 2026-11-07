@@ -1198,15 +1198,21 @@ const piRequest = async (
     });
   }
   if (url.pathname === '/directories' && method === 'GET') {
-    return ok({
-      workspace: '/workspace',
-      path: '/workspace',
-      directories: [
-        { name: 'habit', path: '/workspace/habit' },
-        { name: 'channels', path: '/workspace/channels' },
-        { name: 'ember', path: '/workspace/ember' },
-      ],
-    });
+    const path = url.searchParams.get('path') || '/workspace';
+    const folders: Record<string, string[]> = {
+      '/': ['workspace', 'Users'],
+      '/workspace': ['habit', 'channels', 'ember'],
+      '/workspace/habit': ['src', 'docs'],
+      '/workspace/habit/src': [], '/workspace/habit/docs': [],
+      '/workspace/channels': [], '/workspace/ember': [],
+      '/Users': ['alex'], '/Users/alex': ['Work'],
+      '/Users/alex/Work': ['Website', 'Research'],
+      '/Users/alex/Work/Website': [], '/Users/alex/Work/Research': [],
+    };
+    if (!(path in folders)) return { ok: false, status: 400, data: { error: 'not a directory' } };
+    return ok({ workspace: '/workspace', path, directories: folders[path].map((name) => ({
+      name, path: `${path === '/' ? '' : path}/${name}`, hasChildren: true,
+    })) });
   }
   if (url.pathname === '/scheduled-tasks' && method === 'GET') {
     return ok({
@@ -1662,13 +1668,13 @@ const mockLogins = new Map<string, { polls: number }>();
 
 /**
  * Read state survives a page reload, like the real thing (it lives in Ember's settings file).
- * Only the read marks are kept: everything else resets, so a fixture's theme or window cannot leak
+ * Read marks, notification policy and instance defaults are kept; a fixture's theme or window cannot leak
  * from one test run into the next. localStorage rather than sessionStorage, because "relaunch and
  * the dot is still gone" is exactly what the read-state tests check.
  */
 const READ_STATE_KEY = 'ember-pi-read-state';
 
-const storedReadState = (): { readMarks?: EmberSettings['readMarks']; readSince?: number; mutedSessions?: string[] } => {
+const storedReadState = (): { readMarks?: EmberSettings['readMarks']; readSince?: number; mutedSessions?: string[]; instanceDefaults?: EmberSettings['instanceDefaults'] } => {
   try {
     return JSON.parse(window.localStorage.getItem(READ_STATE_KEY) ?? 'null') ?? {};
   } catch {
@@ -1698,7 +1704,7 @@ let settings: EmberSettings = {
   splitView: false,
   showActivityRail: true,
   sessionGroups: [],
-  instanceDefaults: {},
+  instanceDefaults: storedRead.instanceDefaults ?? {},
   sessionNotes: {},
   // The mock is a fresh install with no read history: every finished assistant turn is unread,
   // which is what Home's cards and the per-message bubbles need to exercise.
@@ -1771,10 +1777,10 @@ export const bridge: EmberBridge = {
       else drafts[key] = draft;
     }
     settings = { ...settings, ...safe, ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
-    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined) {
+    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,
-        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions })
+        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults })
       );
     }
     return settings;

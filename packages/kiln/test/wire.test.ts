@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
@@ -818,6 +818,14 @@ describe("hearth wire", () => {
     expect(names).toContain("project-a");
     expect(names).toContain("project-b");
     expect((await api(`/directories?path=${encodeURIComponent("/etc")}`)).status).toBe(400);
+    expect((await fetch(`${stack.server.url}/directories?scope=computer`)).status).toBe(401);
+    // The authenticated human can explicitly browse outside the suggested workspace.
+    const computer = await body(await api(`/directories?scope=computer&path=${encodeURIComponent(dirname(home))}`));
+    expect(computer.path).toBe(dirname(home));
+    expect(computer.directories.some((entry: any) => entry.path === home)).toBe(true);
+    const empty = await body(await api(`/directories?scope=computer&path=${encodeURIComponent(join(home, "project-a"))}`));
+    expect(empty.directories).toEqual([]);
+    expect((await api(`/directories?scope=computer&path=${encodeURIComponent(join(home, "missing"))}`)).status).toBe(400);
   });
 
   test("a refused whenBusy reject leaves no context entry behind", async () => {

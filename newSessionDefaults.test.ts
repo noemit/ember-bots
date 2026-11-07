@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { newSessionDirectoryPrefill, newSessionModelPrefill } from './src/lib/newSessionDefaults';
+import { newSessionDirectoryPrefill, newSessionModelPrefill, recentProjectDirectories } from './src/lib/newSessionDefaults';
 import type { Session } from './src/types';
 
 const session = (partial: Partial<Session>): Session => ({ id: 'x', instanceId: 'local', ...partial });
@@ -22,6 +22,10 @@ describe('new agent folder prefill', () => {
 
   test('most recently updated session directory beats projects', () => {
     expect(newSessionDirectoryPrefill(sessions, projects, {})).toBe('/work/new');
+  });
+
+  test('a chosen workspace is the fallback for a new install', () => {
+    expect(newSessionDirectoryPrefill([], [], { workspaceDirectory: '/Users/alex/Work' })).toBe('/Users/alex/Work');
   });
 
   test('falls back to the last-opened project, then nothing', () => {
@@ -51,4 +55,14 @@ describe('new agent model prefill', () => {
   test('null when unset so the composer uses the server default', () => {
     expect(newSessionModelPrefill({})).toBeNull();
   });
+});
+
+test('recent project folders are distinct, ordered, and omit archived chats and workers', () => {
+  expect(recentProjectDirectories([
+    session({ directory: '/a', updated: 1 }),
+    session({ directory: '/b', updated: 2 }),
+    session({ directory: '/a', updated: 3 }),
+    session({ directory: '/archived', updated: 4, archived: true }),
+    session({ directory: '/worker', updated: 5, kind: 'worker' }),
+  ])).toEqual(['/a', '/b']);
 });

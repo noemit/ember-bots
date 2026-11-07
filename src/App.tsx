@@ -134,7 +134,7 @@ import { PROCESS_EXTENSION_MS, processKey } from './lib/processExpiry';
 import { usePoll } from './hooks/usePoll';
 import { useMotionPause } from './lib/useMotionPause';
 import ManageGroupDialog, { type GroupDraft } from './components/ManageGroupDialog';
-import { newSessionDirectoryPrefill, newSessionModelPrefill } from './lib/newSessionDefaults';
+import { recentProjectDirectories, newSessionDirectoryPrefill, newSessionModelPrefill } from './lib/newSessionDefaults';
 import { isQuietlyArchivable, sessionStatusAnswer, staleScheduledRuns } from './lib/bulkArchive';
 import { instancesWithFreshStates, sessionStates } from './lib/sessionState';
 import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups';
@@ -976,19 +976,6 @@ export default function App() {
    * has ever had a working host is set up, whatever this launch looks like, so upgrading to the
    * build that introduced the guide does not lecture someone who has used Ember for months.
    */
-  /**
-   * The folder root agents start in.
-   *
-   * Read from the local instance's own report where possible; the wizard shows it rather than
-   * *choosing* it, because Kiln already resolves `/workspace` on a container and `~/workspace`
-   * elsewhere, and a second opinion here would only disagree with the harness.
-   */
-  const workspaceRoot: string | null = React.useMemo(() => {
-    const local = settings.piEndpoints.find((endpoint) => endpoint.id === 'pi:local');
-    if (local?.url) return null; // a URL is not a folder; the hint falls back to the generic sentence
-    return null;
-  }, [settings.piEndpoints]);
-
   const onboardingState: OnboardingState = React.useMemo(() => {
     const localView = settings.localHarnessState;
     const localEndpoint = instances.find((instance) => instance.id === 'pi:local');
@@ -5342,6 +5329,9 @@ export default function App() {
                   instanceMarkerColor={undefined}
                   newSessionInstanceId={newSessionInstanceId}
                   newSessionPrefill={newSessionPrefill}
+                  recentDirectories={recentProjectDirectories(sessionsByInstance[newSessionInstanceId ?? ''] ?? [])}
+                  workspaceDirectory={newSessionInstanceId ? settings.instanceDefaults[newSessionInstanceId]?.workspaceDirectory : undefined}
+                  onWorkspaceChange={(id, directory) => handleSettings({ instanceDefaults: { ...settings.instanceDefaults, [id]: { ...settings.instanceDefaults[id], workspaceDirectory: directory } } })}
                   instances={instances}
                   projectsByInstance={projectsByInstance}
                   seed={selectedKey ?? (newSessionInstanceId ? `new:${newSessionInstanceId}` : '')}
@@ -5525,7 +5515,6 @@ export default function App() {
                 localProblem={onboardingProblem}
                 instances={instances}
                 endpoints={settings.piEndpoints}
-                workspaceRoot={workspaceRoot}
                 onDismiss={dismissOnboarding}
                 onRetryLocal={async () => {
                   try {

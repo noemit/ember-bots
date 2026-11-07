@@ -11,7 +11,8 @@ import { parseInstanceDefaults } from './electron/transport';
 
 const stored = {
   'pi:keep': {
-    directory: '/home/alex/code',
+    directory: '/home/alex/code/project',
+    workspaceDirectory: '/home/alex/code',
     agent: 'build',
     model: { providerID: 'github-copilot', modelID: 'gpt-5', variant: 'high' },
     variant: 'low',
@@ -60,4 +61,12 @@ test('prototype keys cannot be smuggled through instance ids', () => {
   expect(Object.keys(parsed)).toEqual([]);
   // No other instance may inherit the smuggled entry.
   expect(parsed.local).toBeUndefined();
+});
+
+test('workspace selection stays bounded and does not become a chat default', () => {
+  const entry = parseInstanceDefaults({ local: { workspaceDirectory: ' /Users/alex/Work ' } }).local;
+  expect(entry.workspaceDirectory).toBe('/Users/alex/Work');
+  expect(entry.directory).toBeUndefined();
+  expect(parseInstanceDefaults({ local: { workspaceDirectory: 'x'.repeat(4097) } }).local.workspaceDirectory).toBeUndefined();
+  expect(parseInstanceDefaults({ local: { workspaceDirectory: 42 } }).local.workspaceDirectory).toBeUndefined();
 });

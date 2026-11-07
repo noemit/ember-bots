@@ -44,8 +44,13 @@ a keep-running-on-quit mode. On macOS, closing the window is not quitting the ap
 entry point for a standalone backend with an independent lifetime. Connecting to a Tinder-managed
 Kiln does not give Ember ownership of it, and quitting Ember must leave it running.
 
-## Product direction (1.7.0)
+## Product direction (1.8.0)
 
+- Project selection is one anchored menu shared by setup, the composer and Settings. A per-instance
+  `workspaceDirectory` is the user's chosen parent folder for browsing, separate from `directory`
+  (the optional default project for new chats). Recent projects come from non-worker, active chats.
+  Kiln's suggested workspace is only a starting point; explicit `scope=computer` directory requests
+  let the human browse existing work elsewhere. Path entry is revealed on demand.
 - The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
   (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
   `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.

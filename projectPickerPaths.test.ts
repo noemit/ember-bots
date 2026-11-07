@@ -6,8 +6,8 @@
  * folder's own name are all derived from the path string, and getting them wrong would either strand
  * the user at a root that cannot be left or send them somewhere outside the workspace.
  *
- * The server owns the walk (it refuses `?path=` outside the root); this only covers turning a path
- * back into its parts.
+ * The server owns the walk. Explicit computer browsing may climb to the filesystem root;
+ * this only covers turning a path back into its parts.
  */
 import { describe, expect, test } from 'bun:test';
 import { breadcrumbPath, directoryName, parentPath, pathSegments } from './src/components/ProjectPicker';
@@ -34,7 +34,10 @@ describe('parentPath', () => {
   });
 
   test('the root has no parent, so "Up one level" is not drawn there', () => {
-    expect(parentPath('/home')).toBeNull();
+    expect(parentPath('/home')).toBe('/');
+    expect(parentPath('C:/Users/alex')).toBe('C:/Users');
+    expect(parentPath('C:/Users')).toBe('C:/');
+    expect(parentPath('C:/')).toBeNull();
     expect(parentPath('/')).toBeNull();
   });
 });

@@ -474,6 +474,8 @@ export const isReasoningDisplay = (value: unknown): value is ReasoningDisplay =>
   typeof value === 'string' && (REASONING_DISPLAYS as string[]).includes(value);
 
 export type InstanceDefaults = {
+  /** User-chosen parent folder for discovering projects on this instance. */
+  workspaceDirectory?: string;
   directory?: string;
   agent?: string;
   model?: { providerID: string; modelID: string; variant?: string };
@@ -520,6 +522,8 @@ export const parseInstanceDefaults = (value: unknown): Record<string, InstanceDe
       ? entry.preferredProvider
       : undefined;
     defaults[instanceId] = {
+      ...(typeof entry.workspaceDirectory === 'string' && entry.workspaceDirectory.trim() && entry.workspaceDirectory.length <= 4096
+        ? { workspaceDirectory: entry.workspaceDirectory.trim() } : {}),
       directory: typeof entry.directory === 'string' && entry.directory ? entry.directory : undefined,
       agent,
       model: providerID && modelID ? { providerID, modelID, variant: modelVariant } : undefined,

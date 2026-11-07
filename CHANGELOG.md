@@ -1,3 +1,17 @@
+## 1.8.0
+
+### Added
+- Choose the workspace where your projects or work already live, separately for each instance,
+  during setup or from the project picker and Settings.
+- A compact project menu above the composer shows recent folders, searches workspace projects,
+  and reveals deeper browsing or path entry on demand. Empty folders can be selected too.
+
+### Changed
+- Removed the always-visible folder path field from new chats. The selected folder stays visible
+  on the picker, with its full path on hover.
+- Workspace setup preserves provider/model defaults and other instance preferences.
+- Included Kiln 1.7.0 supports explicit authenticated folder browsing outside its suggested workspace.
+
 ## 1.7.0
 
 ### Added

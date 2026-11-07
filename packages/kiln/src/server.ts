@@ -1386,12 +1386,15 @@ const server = Bun.serve<{
 
       // ---- directories ----------------------------------------------------------------
       // The folder browser for a new conversation: immediate subdirectories of the configured
-      // workspace root (or of `?path=` when it stays inside that root). Token-authenticated.
+      // workspace root by default. Explicit `scope=computer` allows choosing existing work elsewhere.
+      // Both modes are token-authenticated and only return folder names, never file contents.
       if (request.method === "GET" && path === "/directories") {
         const root = resolve(config.workspace);
         const requested = url.searchParams.get("path");
         const target = resolve(requested && requested.trim() ? requested : root);
-        if (target !== root && !target.startsWith(root + "/") && !target.startsWith(root + "\\")) {
+        // Explicit computer browsing lets the human choose where their existing work lives.
+        // This endpoint is token-authenticated, like conversation creation with an arbitrary cwd.
+        if (url.searchParams.get("scope") !== "computer" && target !== root && !target.startsWith(root + "/") && !target.startsWith(root + "\\")) {
           return badRequest("path is outside the workspace");
         }
         // `hasChildren` lets a client draw the "open folder" affordance only where descending

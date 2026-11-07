@@ -1,3 +1,10 @@
+## 1.7.0
+
+### Added
+- `GET /directories?scope=computer` lets an authenticated user browse existing work outside the
+  suggested workspace. Default requests remain restricted to the configured workspace; browsing
+  neither moves files nor changes the host configuration.
+
 ## 1.6.1
 
 ### Fixed
