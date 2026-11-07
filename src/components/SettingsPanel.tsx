@@ -534,7 +534,7 @@ export default function SettingsPanel({
                     <div className="flex min-w-0 flex-1 flex-col">
                       <span className="font-medium">Auto-archive scheduled runs</span>
                       <span className="text-[11px] text-muted-foreground">
-                        Task runs archive themselves a day after they finish. The scheduled view still lists them.
+                        Finished task runs archive after a day, once you’ve marked their messages read. They stay in Scheduled.
                       </span>
                     </div>
                     <Toggle

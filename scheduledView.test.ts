@@ -5,6 +5,8 @@ import {
   countUnseenScheduledRuns,
   deriveNextRunAt,
   scheduledBadgeTitle,
+  scheduledReadSessions,
+  unreadScheduledRunsByTask,
 } from './src/lib/scheduledView';
 import type { Session } from './src/types';
 
@@ -76,7 +78,7 @@ describe('buildScheduledRuns and notification counter', () => {
 
     expect(runs).toHaveLength(3);
     expect(countUnseenScheduledRuns(runs)).toBe(1);
-    expect(scheduledBadgeTitle(1)).toBe('1 scheduled run finished since you last looked');
+    expect(scheduledBadgeTitle(1)).toBe('1 scheduled run has unread messages');
   });
 
   test('derives nextRunAt for daily and once schedules and returns null when paused', () => {
@@ -99,4 +101,35 @@ test('muting a scheduled run suppresses its notification without recording it re
   expect(countUnseenScheduledRuns(buildScheduledRuns({ ...input, mutedSessions: ['pi:local::run'] }))).toBe(0);
   expect(marks['pi:local::run'].through).toBe(2);
   expect(countUnseenScheduledRuns(buildScheduledRuns(input))).toBe(1);
+});
+
+
+test('scheduled counters and plans use explicit message marks, regardless of startup time', () => {
+  const task = makeTask('brief', { state: { lastSessionId: 'new', lastRunAt: 3000 } });
+  const sessions = [makeSession('old', 1000), makeSession('new', 3000)];
+  const input = {
+    tasks: [task], sessions, bindings: { 'pi:local::old': task.key },
+    seenBaselineAt: 5000,
+    unreadKeys: new Set(['pi:local::old']),
+  };
+  const runs = buildScheduledRuns(input);
+  expect(countUnseenScheduledRuns(runs)).toBe(1);
+  expect(unreadScheduledRunsByTask(runs)[task.key].id).toBe('old');
+  expect(countUnseenScheduledRuns(buildScheduledRuns({ ...input, unreadKeys: new Set() }))).toBe(0);
+  expect(countUnseenScheduledRuns(buildScheduledRuns({ ...input, states: { 'pi:local::old': 'active' } }))).toBe(0);
+});
+
+test('new scheduled output after an archive is eligible, but archiving after output stays respected', () => {
+  const sessions = [
+    makeSession('new-output', 3000, { archived: 2000 }),
+    makeSession('archived-after', 1000, { archived: 2000 }),
+    makeSession('ordinary', 3000, { archived: 2000 }),
+  ];
+  const readable = scheduledReadSessions(sessions, {
+    'pi:local::new-output': 'task', 'pi:local::archived-after': 'task',
+  });
+  expect(readable[0].archived).toBeUndefined();
+  expect(readable[1].archived).toBe(2000);
+  expect(readable[2].archived).toBe(2000);
+  expect(sessions[0].archived).toBe(2000);
 });

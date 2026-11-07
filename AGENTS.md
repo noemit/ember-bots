@@ -464,7 +464,10 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   mark beside its title whose tooltip says "This was triggered by a scheduled task." and names the task
   — and the **plans** have their own section at the bottom (`data-testid="rail-scheduled-plan"`): one
   trigger per task with its schedule text (`lib/scheduleText.ts`), `paused` and last-failure state,
-  a run-now button and a click through to the last run. There is no scheduled *mode* any more (0.78.0):
+  a run-now button, an unread dot, and a click through to the newest unread run (otherwise the last run).
+  Scheduled counters use the same message marks as the rail, never a visit/startup timestamp.
+  New output after an older host reused an archived scheduled conversation appears unread on the
+  plan; opening it restores the conversation. Archives after the latest output stay respected. There is no scheduled *mode* any more (0.78.0):
   a clock toggle used to swap the whole list for the latest run of each task, which hid the sessions
   the person was working in. Search is scoped to the rail by default; when it comes up empty it offers
   "Search all time" and "Search archived sessions", the latter listing archived hits as individual
@@ -487,7 +490,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   day / 3 days / 1 week / 2 weeks / 1 month" with counts), driven by `src/lib/bulkArchive.ts`. Bulk
   actions never touch a busy/thinking/needs-input session and share one Undo notice
   (`handleArchiveMany`). Separately, `sweepStaleScheduledRuns` in App auto-archives scheduled-task
-  runs that are a day old, finished, and not open — `staleScheduledRuns` in `bulkArchive.ts` picks
+  runs that are a day old, finished, fully read, and not open — `staleScheduledRuns` in `bulkArchive.ts` picks
   the targets, retry attempts are throttled per session, and the scheduled view still lists them
   via `scheduledSessionBindings`. The `autoArchiveScheduledRuns` setting (default on) gates it.
 - `src/components/SessionRow.tsx` — the shared full session row (55px blob, title, preview,

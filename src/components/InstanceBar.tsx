@@ -1,3 +1,4 @@
+import { scheduledBadgeTitle } from '../lib/scheduledView';
 import * as React from 'react';
 import { ChevronDown, Menu, RefreshCw, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -40,7 +41,7 @@ type Props = {
   /** The scheduled view: runs newest-first and the plans that trigger them. */
   onShowScheduled?: () => void;
   scheduledActive?: boolean;
-  /** Runs that finished since you last looked, for the Scheduled tab's counter. */
+  /** Finished runs with unread messages, for the Scheduled tab's counter. */
   unseenScheduledRuns?: number;
 
   hideNavigation?: boolean;
@@ -214,7 +215,7 @@ export default function InstanceBar({
                 <span
                   data-testid="scheduled-count"
                   className="grid min-w-4 place-items-center rounded-full bg-highlight px-1 text-[10px] font-semibold tabular-nums text-highlight-foreground"
-                  title={`${unseenScheduledRuns} scheduled ${unseenScheduledRuns === 1 ? 'run' : 'runs'} finished since you last looked`}
+                  title={scheduledBadgeTitle(unseenScheduledRuns)}
                 >
                   {unseenScheduledRuns}
                 </span>

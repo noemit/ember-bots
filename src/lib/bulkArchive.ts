@@ -75,7 +75,7 @@ export const bulkArchiveTargets = (
 
 /**
  * Scheduled-task runs that are safe to auto-archive: bound to a task, past the age limit, not
- * open in the workspace, and not working or waiting on the user. Bindings accumulate as each
+ * open in the workspace, explicitly read, and not working or waiting on the user. Bindings accumulate as each
  * run becomes the task's `lastSessionId`, so this covers every run Ember has observed — and an
  * archived run still shows in the scheduled view through that same binding.
  *
@@ -88,12 +88,13 @@ export const staleScheduledRuns = (
   moods: Readonly<Record<string, BallMood | undefined>>,
   openKeys: ReadonlySet<string>,
   now: number,
+  readKeys: ReadonlySet<string>,
   olderThanHours = 24
 ): Session[] => {
   const cutoff = now - olderThanHours * 3_600_000;
   return sessions.filter((session) => {
     const key = sessionKey(session);
-    if (!bindings[key] || session.archived || openKeys.has(key)) return false;
+    if (!bindings[key] || session.archived || openKeys.has(key) || !readKeys.has(key)) return false;
     if (session.updated === undefined || session.updated >= cutoff) return false;
     return isQuietlyArchivable(sessionStatusAnswer(moods, session));
   });

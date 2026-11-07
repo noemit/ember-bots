@@ -1,4 +1,4 @@
-import type { SessionReadMark } from '../types';
+import { sessionKey, type Session, type SessionReadMark } from '../types';
 
 /**
  * Per-message read state.
@@ -116,9 +116,8 @@ export const addComments = (mark: SessionReadMark | undefined, count: number): S
 };
 
 /**
- * Keep marks for the sessions still in play. Called with the workspace and the live session keys,
- * so an archived-then-restored session loses its history rather than leaking forever; the newest
- * `limit` are kept as a backstop.
+ * Keep marks for known sessions, including archived chats that may be restored or run again.
+ * The `limit` bounds retained history.
  */
 export const pruneReadMarks = (
   marks: Readonly<Record<string, SessionReadMark>>,
@@ -131,4 +130,22 @@ export const pruneReadMarks = (
   // Deterministic, so a settings write that changes nothing is skipped by the caller.
   const bounded = kept.length > limit ? kept.slice(-limit) : kept;
   return Object.fromEntries(bounded);
+};
+
+
+/** A missing/empty host snapshot is not evidence that its chats disappeared. Archive is not
+ * deletion either: recurring tasks can reuse those chats, and restoring must preserve read marks.
+ */
+export const pruneSessionReadMarks = (
+  marks: Readonly<Record<string, SessionReadMark>>,
+  sessionsByInstance: Readonly<Record<string, readonly Session[]>>,
+  instanceIds: readonly string[]
+): Record<string, SessionReadMark> => {
+  const keep: string[] = [];
+  for (const id of instanceIds) {
+    const sessions = sessionsByInstance[id];
+    if (sessions?.length) keep.push(...sessions.map(sessionKey));
+    else keep.push(...Object.keys(marks).filter((key) => key.startsWith(`${id}::`)));
+  }
+  return pruneReadMarks(marks, keep);
 };

@@ -144,7 +144,7 @@ export default function ScheduledView({
                             {run.unseen ? (
                               <span
                                 className="size-1.5 flex-none rounded-full bg-highlight"
-                                title="Finished since you last looked"
+                                title="Unread messages"
                               />
                             ) : null}
                             {run.session ? (

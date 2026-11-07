@@ -10,7 +10,7 @@
  */
 import type { ScheduledTask } from '../api';
 import {
-   sessionKey,
+  sessionKey,
   type BallState,
   type Instance,
   type Session,
@@ -35,12 +35,10 @@ export type ScheduledRunRow = {
 };
 
 /**
- * Whether a finished run has not been looked at yet.
- *
- * A run is unseen when it is not currently running and:
+ * Explicit per-message read state wins when provided. Without a loaded session, use the
+ * available run metadata conservatively. A fallback run is unseen when it is not currently running and:
  * - its session has a `lastEntryId` newer than the session's `readMark.through`, or
- * - it has no `readMark` and its timestamp (`at`) is newer than `seenBaselineAt` (such as `readSince`
- *   or `scheduledSeenAt`), or
+ * - it has no `readMark` and its timestamp (`at`) is newer than the migration baseline, or
  * - it is the task's latest run and `task.state.lastStatus === 'error'` after `seenBaselineAt`.
  */
 export const isRunUnseen = (input: {
@@ -49,11 +47,14 @@ export const isRunUnseen = (input: {
   at: number;
   mark?: SessionReadMark;
   muted?: boolean;
+  /** Exact per-message answer when the session is available. */
+  unread?: boolean;
   seenBaselineAt?: number;
 }): boolean => {
   const { status, session, at, mark, seenBaselineAt = 0 } = input;
   if (status === 'running') return false;
   if (input.muted) return false;
+  if (input.unread !== undefined) return input.unread;
   if (at > 0 && seenBaselineAt > 0 && at <= seenBaselineAt) return false;
   if (session?.lastEntryId !== undefined && mark) {
     return session.lastEntryId > mark.through;
@@ -78,6 +79,8 @@ export const buildScheduledRuns = (input: {
   mutedSessions?: readonly string[];
   seenBaselineAt?: number;
   instances?: readonly Instance[];
+  /** The same per-message unread truth used by the rail. */
+  unreadKeys?: ReadonlySet<string>;
 }): ScheduledRunRow[] => {
   const {
     tasks,
@@ -119,6 +122,7 @@ export const buildScheduledRuns = (input: {
       ...(error ? { error } : {}),
       at,
       unseen: isRunUnseen({
+        unread: input.unreadKeys && session ? input.unreadKeys.has(sessionKey(session)) : undefined,
         status,
         session,
         at,
@@ -156,6 +160,7 @@ export const buildScheduledRuns = (input: {
       ...(failed && task.state.lastError ? { error: task.state.lastError } : {}),
       at,
       unseen: isRunUnseen({
+        unread: input.unreadKeys && session ? input.unreadKeys.has(sessionKey(session)) : undefined,
         status,
         session,
         at,
@@ -170,15 +175,36 @@ export const buildScheduledRuns = (input: {
 };
 
 /**
- * The notification counter for the top-bar Scheduled tab: runs that finished since you last looked
- * and are worth a look (succeeded or failed), never "tasks that exist" and never a run still in flight.
+ * The Scheduled tab counts finished runs with unread messages, never plans or runs still in flight.
  */
 export const countUnseenScheduledRuns = (runs: readonly ScheduledRunRow[]): number =>
   runs.reduce((count, run) => (run.unseen ? count + 1 : count), 0);
 
 /** Tooltip for the Scheduled tab's counter badge. */
 export const scheduledBadgeTitle = (count: number): string =>
-  `${count} scheduled ${count === 1 ? 'run' : 'runs'} finished since you last looked`;
+  `${count} scheduled ${count === 1 ? 'run has' : 'runs have'} unread messages`;
+
+/** Older hosts can reuse an archived conversation for a new scheduled run. Its new output still
+ * deserves an unread indicator on the plan; opening that plan offers the normal restore path.
+ * An archive newer than the output remains respected. This never changes the host's archive flag.
+ */
+export const scheduledReadSessions = (
+  sessions: readonly Session[],
+  bindings: Readonly<Record<string, string>>
+): Session[] => sessions.map((session) =>
+  session.archived && bindings[sessionKey(session)] && (session.updated ?? 0) > session.archived
+    ? { ...session, archived: undefined }
+    : session
+);
+
+/** The newest unread run of each plan; a newer read run must not hide an older unread one. */
+export const unreadScheduledRunsByTask = (runs: readonly ScheduledRunRow[]): Record<string, Session> => {
+  const result: Record<string, Session> = {};
+  for (const run of runs) {
+    if (run.unseen && run.session && !result[run.task.key]) result[run.task.key] = run.session;
+  }
+  return result;
+};
 
 /**
  * Derive the next run timestamp (epoch ms) from a task's state or its `schedule` object when

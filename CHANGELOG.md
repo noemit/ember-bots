@@ -1,3 +1,13 @@
+## 1.14.1
+
+### Fixed
+- Scheduled plans show an unread dot and open their newest unread run. Their counters survive
+  restarts and visits to Scheduled, clearing only with explicit message read marks.
+- Automatic cleanup keeps unread scheduled results. New output in a previously archived recurring
+  chat stays discoverable on its plan; opening it restores the chat.
+- Read marks survive archiving/restoring and staggered instance loading during startup.
+- A cached empty unread digest no longer hides a later report while fresh messages load.
+
 ## 1.14.0
 
 ### Added

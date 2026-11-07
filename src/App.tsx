@@ -1,3 +1,4 @@
+import { hasUnreadMessages } from './lib/sessionUnread';
 import { AvatarSizeContext } from './blob/size';
 import * as React from 'react';
 import { MotionConfig } from 'motion/react';
@@ -65,7 +66,7 @@ import {
   type PromptInput,
   type ScheduledTask,
 } from './api';
-import { buildScheduledRuns, countUnseenScheduledRuns } from './lib/scheduledView';
+import { buildScheduledRuns, countUnseenScheduledRuns, scheduledReadSessions, unreadScheduledRunsByTask } from './lib/scheduledView';
 import {
   checkGithubForUpdate,
   formatUpdateNotice,
@@ -121,11 +122,11 @@ import {
   markAllRead,
   markRead,
   markTimestampRead,
-  pruneReadMarks,
+  pruneSessionReadMarks,
 } from './lib/readState';
 import { composeCommentMessage, type TranscriptComment } from './lib/comments';
 import { deriveSessionName } from './lib/sessionNames';
-import { mayHaveUnread, useUnreadDigests } from './hooks/useUnreadDigests';
+import { useUnreadDigests } from './hooks/useUnreadDigests';
 import { unreadItemsFor, visibleUnreadItems } from './lib/unreadDigest';
 import { useEmberSettings } from './hooks/useEmberSettings';
 import { useFeedback } from './hooks/useFeedback';
@@ -360,8 +361,6 @@ export default function App() {
   const [usageOpen, setUsageOpen] = React.useState(false);
   /** The Scheduled view: runs newest-first and recurring plans, a fourth top-bar tab. */
   const [scheduledOpen, setScheduledOpen] = React.useState(false);
-  /** Epoch ms when the Scheduled view was last looked at; seeds to `settings.readSince` on first render. */
-  const [scheduledSeenAt, setScheduledSeenAt] = React.useState<number>(() => Date.now());
   /** GitHub release update check: shown as an "Update available" pill in the top bar until dismissed. */
   const [availableUpdate, setAvailableUpdate] = React.useState<UpdateCheckResult | null>(null);
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = React.useState<string | null>(null);
@@ -1302,30 +1301,25 @@ export default function App() {
   }, [states, summaries]);
   // Unread is per message now: a session is unread when its digest still holds a message the marks
   // do not cover. Busy/error/needs-input moods take priority over the unread dot.
+  const unreadSessions = React.useMemo(
+    () => scheduledReadSessions(everySession, settings.scheduledSessionBindings),
+    [everySession, settings.scheduledSessionBindings]
+  );
   const unreadDigests = useUnreadDigests({
-    sessions: everySession,
+    sessions: unreadSessions,
     marks: readMarks,
     readSince,
     enabled: settingsLoaded,
   });
   const unreadKeys = React.useMemo(() => {
     const keys = new Set<string>();
-    Object.entries(sessionsByInstance).forEach(([, list]) =>
-      list.forEach((session) => {
-        if (session.archived || session.kind === 'worker') return;
-        const key = sessionKey(session);
-        if (settings.mutedSessions?.includes(key)) return;
-        const digest = unreadDigests.digests[key];
-        if (digest) {
-          if (visibleUnreadItems(digest, readMarks[key]).length > 0) keys.add(key);
-          return;
-        }
-        // No digest yet: the session list alone says whether it could have anything new.
-        if (mayHaveUnread(session, readMarks[key])) keys.add(key);
-      })
-    );
+    unreadSessions.forEach((session) => {
+      const key = sessionKey(session);
+      if (!settings.mutedSessions?.includes(key) &&
+          hasUnreadMessages(session, readMarks[key], unreadDigests.digests[key])) keys.add(key);
+    });
     return keys;
-  }, [sessionsByInstance, unreadDigests.digests, readMarks, settings.mutedSessions]);
+  }, [unreadSessions, unreadDigests.digests, readMarks, settings.mutedSessions]);
 
   const quietKeys = React.useMemo(() => new Set(settings.mutedSessions ?? []), [settings.mutedSessions]);
 
@@ -1357,7 +1351,8 @@ export default function App() {
         failedKeys: failedSessionKeys,
         readMarks,
         mutedSessions: settings.mutedSessions,
-        seenBaselineAt: Math.max(readSince ?? 0, scheduledSeenAt),
+        seenBaselineAt: readSince ?? 0,
+        unreadKeys,
         instances,
       }),
     [
@@ -1369,10 +1364,12 @@ export default function App() {
       readMarks,
       settings.mutedSessions,
       readSince,
-      scheduledSeenAt,
+      unreadKeys,
       instances,
     ]
   );
+
+  const unreadRunByTask = React.useMemo(() => unreadScheduledRunsByTask(scheduledRuns), [scheduledRuns]);
 
   const unseenScheduledRunsCount = React.useMemo(
     () => countUnseenScheduledRuns(scheduledRuns),
@@ -2001,22 +1998,14 @@ export default function App() {
     setMinimizedSessions(new Set(next.minimized));
   }, [sessionsByInstance, instances, instancesLoaded, openSessions, activeSession, minimizedSessions]);
 
-  // Read marks are pruned with the sessions they belong to: a session that is gone (or archived)
-  // keeps no history, so the settings file can't grow one key per conversation ever seen.
+  // Keep read receipts across archives and while another host's session list is still loading.
   React.useEffect(() => {
     if (!instancesLoaded) return;
-    const live = Object.values(sessionsByInstance)
-      .flat()
-      .filter((session) => !session.archived)
-      .map(sessionKey);
-    // "No sessions yet" is not "no sessions exist": on a cold start (or with every host down) the
-    // list is empty for a moment, and pruning against it would delete the marks the app just loaded.
-    if (live.length === 0) return;
     const current = settingsRef.current.readMarks;
-    const next = pruneReadMarks(current, live);
+    const next = pruneSessionReadMarks(current, sessionsByInstance, instances.map((instance) => instance.id));
     if (Object.keys(next).length === Object.keys(current).length) return;
     handleSettings({ readMarks: next }, { preserveActionError: true });
-  }, [sessionsByInstance, instancesLoaded, handleSettings, settingsRef]);
+  }, [sessionsByInstance, instances, instancesLoaded, handleSettings, settingsRef]);
 
   // Recovery for notes a previous build stranded on the shared project key: 0.13.0's migration
   // (removed in this release) moved a project session's notes onto the project key and deleted the
@@ -4008,7 +3997,7 @@ export default function App() {
   };
 
   /**
-   * Housekeeping: scheduled-task runs archive themselves once they're a day old, finished, and
+   * Housekeeping: scheduled-task runs archive themselves once they're read, a day old, finished, and
    * not on screen. They stay reachable — the scheduled view lists bound sessions regardless of
    * archive state, and Undo/restore still works. One notice covers the whole sweep.
    */
@@ -4022,7 +4011,11 @@ export default function App() {
       .filter((session) => ready.has(session.instanceId));
     const now = Date.now();
     // A failed archive is retried at most every five minutes, not on every poll.
-    const targets = staleScheduledRuns(pool, settings.scheduledSessionBindings, moods, open, now)
+    // Silence/muting is not a read receipt. Only current message evidence permits cleanup.
+    const readKeys = new Set(pool.filter((session) => !hasUnreadMessages(
+      session, readMarks[sessionKey(session)], unreadDigests.digests[sessionKey(session)]
+    )).map(sessionKey));
+    const targets = staleScheduledRuns(pool, settings.scheduledSessionBindings, moods, open, now, readKeys)
       .filter((session) => {
         const key = sessionKey(session);
         const attempted = sweepAttemptsRef.current.get(key) ?? 0;
@@ -5199,7 +5192,6 @@ export default function App() {
             onShowScheduled={() => {
               setUsageOpen(false);
               setScheduledOpen(true);
-              setScheduledSeenAt(Date.now());
             }}
             scheduledActive={scheduledOpen}
             unseenScheduledRuns={unseenScheduledRunsCount}
@@ -5258,6 +5250,7 @@ export default function App() {
               }
               scheduledTasks={scheduledTaskList}
               scheduledTaskBySession={scheduledTaskBySession}
+              unreadRunByTask={unreadRunByTask}
               runningScheduledKeys={runningScheduledKeys}
               onRunScheduledTask={(task) => void handleRunScheduledTask(task)}
               onChangeScheduledTaskModel={handleChangeScheduledTaskModel}

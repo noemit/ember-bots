@@ -7,6 +7,7 @@ import {
   markRead,
   markTimestampRead,
   pruneReadMarks,
+  pruneSessionReadMarks,
 } from './src/lib/readState';
 
 describe('isMessageRead', () => {
@@ -111,4 +112,19 @@ test('explicit timestamp marking moves only the read watermark and retains comme
   const mark = { through: 5, readAt: 100, comments: 3 };
   expect(markTimestampRead(mark, 500)).toEqual({ through: 5, readAt: 500, comments: 3 });
   expect(markTimestampRead(mark, 99)).toBe(mark);
+});
+
+
+test('archived read receipts survive restore, and a slow host cannot lose receipts during startup', () => {
+  const marks = {
+    'local::archived': { through: 12 },
+    'remote::report': { through: 25 },
+    'removed::old': { through: 4 },
+    'local::deleted': { through: 3 },
+  };
+  const local = [{ id: 'archived', instanceId: 'local', archived: 2000 }];
+  const retained = { 'local::archived': marks['local::archived'], 'remote::report': marks['remote::report'] };
+  expect(pruneSessionReadMarks(marks, { local }, ['local', 'remote'])).toEqual(retained);
+  expect(pruneSessionReadMarks(marks, { local, remote: [] }, ['local', 'remote'])).toEqual(retained);
+  expect(pruneSessionReadMarks(marks, { local, remote: [{ id: 'report', instanceId: 'remote' }] }, ['local', 'remote'])).toEqual(retained);
 });

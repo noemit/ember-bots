@@ -118,6 +118,7 @@ type Props = {
   scheduledTasks: ScheduledTask[];
   /** Session key → scheduled task, for the run/model actions on a task's run rows. */
   scheduledTaskBySession: Record<string, ScheduledTask>;
+  unreadRunByTask: Record<string, Session>;
   runningScheduledKeys: Set<string>;
   onRunScheduledTask: (task: ScheduledTask) => void;
   onChangeScheduledTaskModel: (task: ScheduledTask) => void;
@@ -186,6 +187,7 @@ export default function LeftRail({
   windowLabel,
   scheduledTasks,
   scheduledTaskBySession,
+  unreadRunByTask,
   runningScheduledKeys,
   onRunScheduledTask,
   onChangeScheduledTaskModel,
@@ -926,6 +928,8 @@ export default function LeftRail({
                       session.instanceId === task.instanceId && session.id === task.state.lastSessionId
                   ) ?? null)
                 : null;
+              const unreadRun = unreadRunByTask[task.key];
+              const targetRun = unreadRun ?? lastRun;
               const schedule = describeSchedule(task.raw.schedule);
               const failed = task.state.lastStatus === 'error' || Boolean(task.state.lastError);
               return (
@@ -945,10 +949,12 @@ export default function LeftRail({
                     <span className="flex min-w-0 items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => (lastRun ? selectSession(lastRun) : undefined)}
-                        disabled={!lastRun}
+                        onClick={() => (targetRun ? selectSession(targetRun) : undefined)}
+                        disabled={!targetRun}
                         title={
-                          lastRun
+                          unreadRun
+                            ? `Open unread messages from ${task.name}`
+                            : lastRun
                             ? `Open the last run of ${task.name}`
                             : `${task.name} has not run yet`
                         }
@@ -959,6 +965,13 @@ export default function LeftRail({
                       >
                         {task.name}
                       </button>
+                      {unreadRun ? (
+                        <span
+                          role="img"
+                          aria-label={`Unread messages from ${task.name}`}
+                          className="size-2 flex-none rounded-full bg-highlight"
+                        />
+                      ) : null}
                       {!task.enabled ? (
                         <span className="flex-none rounded-sm bg-muted px-1 text-[9.5px] leading-4 font-semibold text-muted-foreground uppercase">
                           paused

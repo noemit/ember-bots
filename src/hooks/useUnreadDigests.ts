@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { loadMessageAppend, loadMessageTail } from '../api';
 import { digestUnread, type UnreadDigest } from '../lib/unreadDigest';
+import { mayHaveUnread, unreadVersion as versionOf } from '../lib/sessionUnread';
 import { MAX_READ_MARKS } from '../lib/readState';
 import { sessionKey } from '../types';
 import type { EmberSettings, Session, SessionReadMark } from '../types';
@@ -18,19 +19,6 @@ export type UnreadDigestState = {
   /** Keys whose first read is in flight, so a card can hold its place. */
   pending: Record<string, true>;
 };
-
-/**
- * Could this session hold anything unread? Answered from the session list alone — Hearth's
- * `lastEntryId` against the read mark — so Home never reads a transcript to find out.
- */
-export const mayHaveUnread = (session: Session, mark: SessionReadMark | undefined): boolean => {
-  if (session.archived || session.kind === 'worker') return false;
-  if (typeof session.lastEntryId === 'number') return session.lastEntryId > (mark?.through ?? 0);
-  // An ordinal-free wire can only compare times.
-  return (session.updated ?? 0) > (mark?.readAt ?? 0);
-};
-
-const versionOf = (session: Session): number => session.lastEntryId ?? session.updated ?? 0;
 
 /** A read mark in one string, for "has this changed since the digest was built?". */
 const markSignature = (mark: SessionReadMark | undefined): string =>

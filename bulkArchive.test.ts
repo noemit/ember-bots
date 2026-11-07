@@ -143,7 +143,8 @@ describe('stale scheduled runs', () => {
       { ...bindings, 'local::untimestamped-run': 'task:local::p1::brief' },
       { ...moodMap, 'local::untimestamped-run': 'idle' },
       new Set(['local::open-run']),
-      now
+      now,
+      new Set(list.map(sessionKey))
     );
     expect(targets.map((s) => s.id).sort()).toEqual(['done-run', 'stale-run']);
   });
@@ -157,12 +158,12 @@ describe('stale scheduled runs', () => {
     };
     // This sweep runs unattended every fifteen minutes: a guess here archives a working run with
     // nobody watching, so an unanswered status has to mean "leave it".
-    const targets = staleScheduledRuns([unknownRun, idleRun], runBindings, moods({ 'idle-run': 'idle' }), new Set(), now);
+    const targets = staleScheduledRuns([unknownRun, idleRun], runBindings, moods({ 'idle-run': 'idle' }), new Set(), now, new Set([sessionKey(idleRun), sessionKey(unknownRun)]));
     expect(targets.map((s) => s.id)).toEqual(['idle-run']);
   });
 
   test('no bindings means nothing is a scheduled run', () => {
-    expect(staleScheduledRuns(list, {}, moodMap, new Set(), now)).toEqual([]);
+    expect(staleScheduledRuns(list, {}, moodMap, new Set(), now, new Set())).toEqual([]);
   });
 });
 
@@ -217,6 +218,6 @@ describe('pre-fix witness', () => {
 
     // And what the fixed module does: nothing, because unknown is not idle.
     expect(bulkArchiveTargets([unbound], {}, { now })).toEqual([]);
-    expect(staleScheduledRuns([unbound], { [sessionKey(unbound)]: 'task' }, {}, new Set(), now)).toEqual([]);
+    expect(staleScheduledRuns([unbound], { [sessionKey(unbound)]: 'task' }, {}, new Set(), now, new Set([sessionKey(unbound)]))).toEqual([]);
   });
 });

@@ -322,6 +322,9 @@ const fixtureB = makeConversation({
   ],
 });
 
+// An older host reuses an archived conversation when its schedule fires again.
+if (fixtureParam === 'scheduled-archived') fixtureB.archived = minutes(100);
+
 const fixtureC = makeConversation({
   id: 12,
   cwd: '/workspace/ember',
