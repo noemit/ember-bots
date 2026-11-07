@@ -34,6 +34,21 @@ describe('blob layers', () => {
     const html = renderToStaticMarkup(<Blob style="crystal" seed="seed" mood="busy" />);
     expect(html.indexOf('blob-heat')).toBeLessThan(html.indexOf('blob-body'));
   });
+
+  test('unread and question circles share their size and position for every style', () => {
+    for (const style of ['buddy', 'scribble', 'mosaic', 'lava', 'crystal'] as const) {
+      const render = (mood: 'unread' | 'question' | 'input') =>
+        renderToStaticMarkup(<Blob style={style} seed="seed" mood={mood} />);
+      const circle = (html: string) => /data-badge="[^"]+"><circle ([^>]+)>/.exec(html)?.[1];
+      const geometry = (html: string) => circle(html)?.match(/(?:cx|cy|r|stroke-width)="[^"]+"/g);
+      expect(geometry(render('unread'))).toBeDefined();
+      expect(geometry(render('unread'))).toEqual(geometry(render('question')));
+      expect(geometry(render('input'))).toEqual(geometry(render('question')));
+      expect(circle(render('unread'))).toContain('fill="var(--highlight)"');
+      expect(circle(render('question'))).toContain('fill="var(--attention)"');
+      expect(circle(render('input'))).toContain('fill="var(--attention)"');
+    }
+  });
 });
 
 

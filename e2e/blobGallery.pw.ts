@@ -1,5 +1,40 @@
 import { expect, test } from '@playwright/test';
 
+test('notification circles align with question badges and Clay uses readable, distinct status colours', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/blob-gallery.html');
+  await page.getByLabel('Theme', { exact: true }).selectOption('clay');
+  for (const label of ['Rail · 55px', 'Detail · 112px']) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    for (const style of ['buddy', 'scribble', 'mosaic', 'lava', 'crystal']) {
+      const measurements = await page.locator(`[data-style="${style}"] .gallery-example[data-example="1"] .blob-badge`).evaluateAll(badges =>
+        badges.filter(badge => ['unread', 'question', 'input'].includes(badge.getAttribute('data-badge')!)).map(badge => {
+          const circle = badge.querySelector('circle')!;
+          const svg = badge.closest('svg')!.getBoundingClientRect();
+          const rect = circle.getBoundingClientRect();
+          return {
+            mood: badge.getAttribute('data-badge'),
+            x: rect.x - svg.x, y: rect.y - svg.y, width: rect.width, height: rect.height,
+            fill: getComputedStyle(circle).fill,
+            symbol: badge.querySelector('text, rect') ? getComputedStyle(badge.querySelector('text, rect')!).fill : null,
+          };
+        }));
+      const question = measurements.find(badge => badge.mood === 'question')!;
+      const input = measurements.find(badge => badge.mood === 'input')!;
+      const unread = measurements.find(badge => badge.mood === 'unread')!;
+      for (const dimension of ['x', 'y', 'width', 'height'] as const) {
+        expect(unread[dimension]).toBeCloseTo(question[dimension], 3);
+        expect(input[dimension]).toBeCloseTo(question[dimension], 3);
+      }
+      expect(question.fill).toBe(input.fill);
+      expect(question.fill).not.toBe(unread.fill);
+      expect(question.symbol).toBe('rgb(17, 17, 17)');
+      expect(input.symbol).toBe(question.symbol);
+    }
+  }
+  await page.getByRole('region', { name: 'Crystal states', exact: true }).screenshot({ path: '/tmp/ember-clay-badges.png' });
+});
+
 test('gallery shows every state and previews distinct Scribble working gestures', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));

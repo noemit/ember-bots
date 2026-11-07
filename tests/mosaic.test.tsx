@@ -65,7 +65,7 @@ test('Mosaic preserves explicit unread and decision indicators without relying o
   for (const mood of ['input', 'question', 'error'] as const) {
     expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood={mood} />)).toContain('blob-badge');
   }
-  expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="unread" />)).toContain('bg-highlight');
+  expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="unread" />)).toContain('data-badge="unread"');
   expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="thinking" />)).toContain('mosaic-thought');
 });
 

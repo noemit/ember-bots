@@ -1,8 +1,8 @@
 /**
  * Palettes are neutral first: surfaces, text and borders are grays/beiges, and the one
- * bright colour (`highlight`) is reserved for indicators — activity dots, focus rings,
- * selection ticks and the wordmark. User bubbles use a softer neighbour of the highlight
- * so chat remains calm while the accent stays available for interaction states.
+ * main accent (`highlight`) is reserved for indicators — activity dots, focus rings,
+ * selection ticks and the wordmark. Questions and approvals share a stronger, hue-shifted
+ * secondary accent (`attention`); errors keep their own red. User bubbles stay softer.
  */
 import { identityPaletteFor, instanceMarkerPaletteFor } from './blob/contrast';
 
@@ -15,6 +15,9 @@ export type ThemePalette = {
   border: string;
   highlight: string;
   highlightText: string;
+  /** Secondary accent for questions/approvals, distinct from the main accent and error red. */
+  attention: string;
+  attentionText: string;
   /**
    * Readable green for connected/ready states. The vivid `emerald-*` utilities the components used
    * are tuned for dark surfaces; on a light theme they land near 1.3:1, so the state colour has to
@@ -28,6 +31,7 @@ export type ThemePalette = {
   userBubble: string;
   userBubbleText: string;
   danger: string;
+  dangerText: string;
 };
 
 export type ThemeGroup = 'neutral';
@@ -63,6 +67,8 @@ export const THEMES: Theme[] = [
       // which the previous mid-blue was not: it measured 3.0–3.4:1 on stone's surfaces.
       highlight: '#1e40af',
       highlightText: '#ffffff',
+      attention: '#6524cf',
+      attentionText: '#ffffff',
       success: '#065f46',
       diffAdd: '#065f46',
       diffDel: '#991b1b',
@@ -70,6 +76,7 @@ export const THEMES: Theme[] = [
       userBubble: '#c1cee0',
       userBubbleText: '#232322',
       danger: '#9e2f2f',
+      dangerText: '#ffffff',
     },
   },
   {
@@ -86,14 +93,17 @@ export const THEMES: Theme[] = [
       border: '#534b42',
       highlight: '#f0a35e',
       highlightText: '#2a241d',
+      attention: '#2dd4aa',
+      attentionText: '#111111',
       success: '#34d399',
       diffAdd: '#6ee7b7',
       diffDel: '#fca5a5',
       warning: '#f0b36b',
       userBubble: '#604d3d',
       userBubbleText: '#f1ebe2',
-      // Lightened from #f07a6a: error text sat at 4.17:1 on clay's panel and elev.
-      danger: '#ff9d8a',
+      // Rose-red separates errors from the warm orange highlight and mint attention badges.
+      danger: '#ff94a8',
+      dangerText: '#111111',
     },
   },
   {
@@ -110,6 +120,8 @@ export const THEMES: Theme[] = [
       border: '#262c34',
       highlight: '#4cc2ff',
       highlightText: '#06121c',
+      attention: '#a78bfa',
+      attentionText: '#111111',
       success: '#34d399',
       diffAdd: '#6ee7b7',
       diffDel: '#fca5a5',
@@ -117,6 +129,7 @@ export const THEMES: Theme[] = [
       userBubble: '#30434f',
       userBubbleText: '#e6e9ed',
       danger: '#ff6b6b',
+      dangerText: '#111111',
     },
   },
 ];
@@ -151,12 +164,15 @@ const toCssVars = (palette: ThemePalette): Record<string, string> => ({
   '--accent': palette.elev,
   '--accent-foreground': palette.text,
   '--destructive': palette.danger,
+  '--destructive-foreground': palette.dangerText,
   '--border': palette.border,
   '--input': palette.border,
   '--ring': palette.highlight,
   '--sidebar': palette.panel,
   '--highlight': palette.highlight,
   '--highlight-foreground': palette.highlightText,
+  '--attention': palette.attention,
+  '--attention-foreground': palette.attentionText,
   '--success': palette.success,
   '--diff-add': palette.diffAdd,
   '--diff-del': palette.diffDel,

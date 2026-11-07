@@ -590,10 +590,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   `animation-play-state` — progress survives — whenever the document is hidden. Crystal draws its volume as white/black *facet planes* clipped to the
   silhouette (`coalGeometry`… now `crystalGeometry` in `blob/crystal.ts`), so shading works on every
   palette entry in both themes with no colour maths; its heat halo is the mood channel — dark when
-  idle, gently warm when busy, amber when it wants you, cold grey when the turn failed — and each mood
+  idle, gently warm when busy, the secondary attention accent when it wants you, cold grey when the turn failed — and each mood
   sets that halo *statically* first, so the state survives a still frame and reduced motion (only the
-  swell is dropped). The `?`/lock/`!` decision badges are shared by styles
-  (`blob/overlays.tsx`). Visuals key off
+  swell is dropped). Notification and `?`/lock/`!` decision badges are shared by styles
+  (`blob/overlays.tsx`); notification, question and lock circles share their geometry and scale with
+  the blob. Visuals key off
   a `BallMood` (`blob/mood.ts`): `busy` = hop+flip (Buddy) / subtle silhouette-shaped halo (Crystal),
   `thinking` = each style’s own movement, `input` =
   wobble + padlock badge, `question` = tilt + "?" badge, `error` = wobble + warning triangle,
@@ -760,9 +761,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 - `src/themes.ts` — three neutral palettes (Stone, Clay, Graphite) mapped onto shadcn CSS
   variables; `applyTheme` toggles `.dark`. `--primary` is derived from the text colour so
   buttons stay neutral, while each palette's softer `userBubble` neighbour keeps chat calm. The
-  bright colour is `--highlight` (Tailwind `highlight`), reserved for indicators: activity dot,
+  main accent is `--highlight` (Tailwind `highlight`), reserved for indicators: activity dot,
   focus ring, selection ticks, "Needs input", question cards, the wordmark. Permission cards keep
-  semantic amber.
+  semantic amber. Blob question/lock badges share a stronger secondary `--attention` accent with
+  `--attention-foreground` symbols; error badges use `--destructive-foreground`. Clay uses mint
+  attention badges with black symbols and rose-red errors, distinct from its orange main accent.
 
 ## Data freshness
 

@@ -30,7 +30,6 @@ export default function Blob({ style, ...rest }: Props) {
   const mood = rest.mood ?? moodFrom(rest.state ?? 'idle', undefined, false);
   const state = rest.state ?? stateFromMood(mood);
   const props = { ...rest, identity, mood, state };
-  const size = rest.size ?? 30;
   const rendered =
     style === 'buddy' ? (
       <BuddyBlob {...props} />
@@ -43,15 +42,5 @@ export default function Blob({ style, ...rest }: Props) {
     ) : (
       <CrystalBlob {...props} />
     );
-  const avatar = mood !== 'unread' ? rendered : (
-  // An unread turn gets a small highlight dot, style-agnostic so every style shows it.
-    <span className="relative inline-flex flex-none" style={{ width: size, height: size }}>
-      {rendered}
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-highlight ring-2 ring-background"
-      />
-    </span>
-  );
-  return <AvatarTransition seed={rest.seed}>{avatar}</AvatarTransition>;
+  return <AvatarTransition seed={rest.seed}>{rendered}</AvatarTransition>;
 }

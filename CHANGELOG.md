@@ -1,3 +1,9 @@
+## 1.19.4
+
+### Fixed
+- Unread notification circles match the question and lock badges in size and position across every blob style and display size.
+- Question and lock badges share a stronger secondary theme accent. Clay uses mint with black symbols, and errors use a clearer rose-red with a dark symbol.
+
 ## 1.19.3
 
 ### Added

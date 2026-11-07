@@ -96,12 +96,9 @@ export const renderDockIcon = async (
   const offset = (CANVAS - blobSize) / 2;
   ctx.drawImage(image, offset, offset, blobSize, blobSize);
 
-  // Blobs show state through motion, which a still image loses. Buddy draws its own badge for
-  // input/question/error paint their own badge, so only the rest need a corner marker.
-  const hasOwnBadge =
-    style === 'buddy' || style === 'lava' || style === 'mosaic' || style === 'scribble'
-      ? mood === 'input' || mood === 'question' || mood === 'error'
-      : mood === 'error';
+  // Every style includes the shared decision/unread badge in its SVG. Only motion-only moods
+  // need an extra marker when rasterised into a still dock icon.
+  const hasOwnBadge = mood === 'input' || mood === 'question' || mood === 'error' || mood === 'unread';
   // An unknown status gets no marker at all: the dot means "something is waiting for you", and the
   // one thing Ember knows here is that it does not know. The neutral blob above carries it instead.
   if (!hasOwnBadge && mood !== 'idle' && mood !== 'unknown') {

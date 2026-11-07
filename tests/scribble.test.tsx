@@ -44,7 +44,7 @@ test('Scribble keeps decisions and unread indicators while thinking belongs to t
     expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood={mood} />)).toContain('blob-badge');
   }
   expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="thinking" />)).not.toContain('blob-arc');
-  expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="unread" />)).toContain('bg-highlight');
+  expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="unread" />)).toContain('data-badge="unread"');
 });
 
 

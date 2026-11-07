@@ -4,6 +4,7 @@ import {
   AVATAR_COLOR_COUNT,
   colorHue,
   contrastRatio,
+  hexToOklch,
   IDENTITY_COLORS,
   identityPaletteFor,
   instanceMarkerPaletteFor,
@@ -65,6 +66,7 @@ describe('theme text tokens', () => {
         ['foreground', theme.palette.text],
         ['muted', theme.palette.dim],
         ['highlight', theme.palette.highlight],
+        ['attention', theme.palette.attention],
         ['success', theme.palette.success],
         ['warning', theme.palette.warning],
         ['danger', theme.palette.danger],
@@ -92,7 +94,26 @@ describe('theme text tokens', () => {
         contrastRatio(theme.palette.userBubbleText, theme.palette.userBubble),
         `${theme.id}: user bubble text`
       ).toBeGreaterThanOrEqual(4.5);
+      for (const [foreground, background] of [
+        [theme.palette.attentionText, theme.palette.attention],
+        [theme.palette.dangerText, theme.palette.danger],
+      ]) expect(contrastRatio(foreground, background), `${theme.id}: badge symbol`).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  test('attention is bolder than the main accent and stays apart from error red', () => {
+    const hueGap = (a: string, b: string) => {
+      const gap = Math.abs(colorHue(a) - colorHue(b));
+      return Math.min(gap, 360 - gap);
+    };
+    for (const { palette } of THEMES) {
+      expect(hexToOklch(palette.attention)[1]).toBeGreaterThan(hexToOklch(palette.highlight)[1]);
+      expect(hueGap(palette.attention, palette.highlight)).toBeGreaterThan(20);
+      expect(hueGap(palette.attention, palette.danger)).toBeGreaterThan(60);
+    }
+    const clay = THEMES.find(theme => theme.id === 'clay')!.palette;
+    expect(hexToOklch(clay.attentionText)[0]).toBeLessThan(.25);
+    expect(colorHue(clay.danger)).toBeLessThan(20);
   });
 });
 

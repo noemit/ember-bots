@@ -2,7 +2,7 @@ import * as React from 'react';
 import { hashString, mulberry32, seedIdentity } from './seed';
 import { IDENTITY_COLORS } from './contrast';
 import { CRYSTAL_SHAPES, crystalGeometry } from './crystal';
-import { MoodBadge } from './overlays';
+import { accentFor, MoodBadge } from './overlays';
 import { OrbitRing } from './OrbitRing';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
@@ -60,7 +60,7 @@ export default function CrystalBlob({
   const ink = cold ? COLD : body;
   // Heat colour per mood: the accent takes over when the blob is asking for something.
   const heat =
-    cold ? COLD : mood === 'input' ? 'var(--warning)' : mood === 'question' ? 'var(--highlight)' : glow;
+    cold ? COLD : mood === 'input' || mood === 'question' ? accentFor(mood) : glow;
 
   return (
     <div

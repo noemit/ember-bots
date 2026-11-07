@@ -32,7 +32,7 @@ const geometry = (r: number) => {
 
 const Marker = ({ r, orbit, half }: { r: number; orbit: string; half: 'front' | 'back' }) => (
   <g className={`blob-orbit blob-orbit-${half}`} style={{ offsetPath: `path('${orbit}')` }}>
-    <circle r={r * MARKER_SCALE} fill="var(--highlight)" stroke="var(--background)" strokeWidth={r * STROKE_SCALE} />
+    <circle r={r * MARKER_SCALE} fill="var(--attention)" stroke="var(--background)" strokeWidth={r * STROKE_SCALE} />
   </g>
 );
 
@@ -43,7 +43,7 @@ const Half = ({ cx, cy, r, half }: Props & { half: 'front' | 'back' }) => {
       <path
         d={half === 'front' ? front : back}
         fill="none"
-        stroke="var(--highlight)"
+        stroke="var(--attention)"
         strokeWidth={r * STROKE_SCALE}
         strokeLinecap="round"
         opacity={half === 'front' ? 0.9 : 0.45}
