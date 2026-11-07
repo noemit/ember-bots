@@ -119,6 +119,44 @@ test('Lava changes course between separations, keeps colour with its lobes, and 
   await expect(lava.first().locator('circle.blob-lava-bud')).toHaveCSS('translate', 'none');
 });
 
+test('Lava waits with fluid motion while approval and question badges stay anchored', async ({ page }) => {
+  await page.goto('/blob-gallery.html');
+  await page.getByLabel('Theme', { exact: true }).selectOption('clay');
+  await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
+  const waiting = page.locator('[data-style="lava"]:is([data-state="input"], [data-state="question"]) .blob');
+  await expect(waiting).toHaveCount(6);
+  for (const size of ['Rail · 55px', 'Detail · 112px']) {
+    await page.getByRole('button', { name: size, exact: true }).click();
+    const samples = await waiting.evaluateAll(nodes => nodes.map(node => {
+      const animations = node.getAnimations({ subtree: true });
+      const badge = node.querySelector('.blob-badge')!;
+      const core = node.querySelector('.blob-lava-core')!;
+      const frames = [0, 350, 1050, 1400, 4800, 11000, 23000].map(time => {
+        animations.forEach(animation => { animation.currentTime = time; });
+        const rect = badge.getBoundingClientRect();
+        return {
+          badge: [rect.x, rect.y, rect.width, rect.height],
+          body: getComputedStyle(core).transform,
+          wrapper: getComputedStyle(node).transform,
+        };
+      });
+      return { frames, paused: animations.every(animation => animation.playState === 'paused') };
+    }));
+    for (const { frames, paused } of samples) {
+      expect(paused).toBe(true);
+      expect(new Set(frames.map(frame => frame.body)).size).toBeGreaterThan(1);
+      for (const frame of frames) {
+        expect(frame.wrapper).toBe('none');
+        expect(frame.badge).toEqual(frames[0].badge);
+      }
+    }
+  }
+  await page.getByRole('region', { name: 'Lava states', exact: true }).screenshot({ path: '/tmp/ember-lava-waiting.png' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await waiting.evaluateAll(nodes => nodes.flatMap(node => node.getAnimations({ subtree: true })).length)).toBe(0);
+  for (const badge of await waiting.locator('.blob-badge').all()) await expect(badge).toBeVisible();
+});
+
 test('Mosaic pixels change on both sides while the body stays anchored, with a static reduced-motion pose', async ({ page }) => {
   await page.goto('/blob-gallery.html');
   const mosaic = page.locator('[data-preview="mosaic"] .gallery-example[data-example="1"] > .blob');

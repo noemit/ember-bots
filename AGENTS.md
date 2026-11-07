@@ -648,7 +648,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   takes a different path on successive splits. `lava-slosh` gives middle lobes uneven inward/outward
   drift. The main body squashes/stretches while the whole goo
   drifts in translation, without rocking as one solid shape. Approval/question use slower cycles
-  and keep their badges stationary; no orbit. Idle, unread, unknown and error remain still.
+  and keep their badges stationary; no orbit. The shared needs-input wrapper wiggle excludes Lava
+  so it cannot rock the fluid body or its badge. Idle, unread, unknown and error remain still.
   Reduced motion removes every animation and keeps badges; busy retains its detached static bud.
 - **A blob's cost**: one goo filter per blob, and a busy blob re-evaluates it every frame. With 4 busy
   55px blobs an idle Ember holds 60fps at 2× DPI (same as before the extra motion, because dropping

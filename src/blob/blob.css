@@ -178,7 +178,8 @@
   50% { transform: scale(1.09, 1.02) rotate(3deg); opacity: .28; }
 }
 
-.blob[data-state='needs-input'] {
+/* Lava already waits through its own fluid currents; rocking its wrapper shakes the badge too. */
+.blob[data-state='needs-input']:where(:not(.blob-lava)) {
   animation: blob-wiggle 1.4s ease-in-out infinite;
 }
 

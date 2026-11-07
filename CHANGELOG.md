@@ -1,3 +1,8 @@
+## 1.19.6
+
+### Fixed
+- Lava approval and question states keep their slow fluid motion without shaking the whole blob and badge.
+
 ## 1.19.5
 
 ### Fixed
