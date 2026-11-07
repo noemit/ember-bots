@@ -123,26 +123,31 @@ export const resolveAvatarIdentity = (
   projects: Project[],
   scheduledBindings: Record<string, string>,
   overrides: Record<string, AvatarOverride>,
-  projectColors: Record<string, number> = {}
+  _projectColors: Record<string, number> = {}
 ): AvatarIdentity => {
   const key = sessionKey(session);
   const projectKey = projectAvatarKey(session, projectForSession(session, projects));
   const taskKey = scheduledBindings[key];
-  const override = {
-    ...(projectKey ? overrides[projectKey] : undefined),
-    ...(taskKey ? overrides[taskKey] : undefined),
-    ...overrides[sessionAvatarKey(session)],
-  };
+  const override: AvatarOverride = {};
+  for (const scope of [projectKey, taskKey, sessionAvatarKey(session)]) {
+    const choice = scope ? overrides[scope] : undefined;
+    if (!choice) continue;
+    // A curated swatch and a custom colour are alternatives for the same identity trait.
+    if (choice.color !== undefined || choice.colorIndex !== undefined) {
+      delete override.color;
+      delete override.colorIndex;
+    }
+    Object.assign(override, choice);
+  }
   return {
     sessionKey: key,
     projectKey,
     taskKey,
-    colorSeed: projectKey ?? key,
+    colorSeed: key,
     shapeSeed: taskKey ?? key,
     motionSeed: key,
-    colorIndex:
-      override.colorIndex ??
-      (projectKey ? projectColors[projectKey] ?? hashString(`avatar-color:${projectKey}`) % AVATAR_COLOR_COUNT : undefined),
+    colorIndex: override.colorIndex ?? hashString(`avatar-color:${key}`) % AVATAR_COLOR_COUNT,
+    color: override.color,
     shapeName: override.shapeName,
   };
 };

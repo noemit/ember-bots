@@ -16,7 +16,7 @@ import {
   type OnboardingStep,
   type OnboardingStepId,
 } from '@/lib/onboarding';
-import type { EmberSettingsPatch, Instance, LocalHarnessToken, PiEndpoint } from '../types';
+import type { EmberSettingsPatch, InstanceDefaults, Instance, LocalHarnessToken, PiEndpoint } from '../types';
 
 type Props = {
   open: boolean;
@@ -26,6 +26,7 @@ type Props = {
   localProblem: string | null;
   instances: Instance[];
   endpoints: PiEndpoint[];
+  instanceDefaults?: Record<string, InstanceDefaults>;
   /** The folder root Kiln resolved (or the wizard asked for); shown, and used for the first agent. */
   workspaceRoot: string | null;
   onDismiss: () => void;
@@ -73,6 +74,7 @@ export default function OnboardingWizard({
   onRetryLocal,
   onRefreshInstances,
   onChange,
+  instanceDefaults = {},
   onStartAgent,
   loadToken,
 }: Props) {
@@ -212,7 +214,7 @@ export default function OnboardingWizard({
               ) : null}
 
               {step.id === 'providers' ? (
-                <Providers state={state} endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onRefreshInstances} />
+                <Providers instanceDefaults={instanceDefaults} state={state} endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onRefreshInstances} />
               ) : null}
 
               {step.id === 'first-agent' ? (
@@ -535,10 +537,12 @@ function Providers({
   endpoints,
   instances,
   onChange,
+  instanceDefaults,
   onRefreshInstances,
 }: {
   state: OnboardingState;
   endpoints: PiEndpoint[];
+  instanceDefaults: Record<string, InstanceDefaults>;
   instances: Instance[];
   onChange: (patch: EmberSettingsPatch) => void;
   onRefreshInstances: () => void;
@@ -555,6 +559,8 @@ function Providers({
         endpoints={endpoints}
         instances={instances}
         onProviderChange={() => onRefreshInstances()}
+        instanceDefaults={instanceDefaults}
+        onDefaultChange={(id, model) => onChange({ instanceDefaults: { ...instanceDefaults, [id]: { ...instanceDefaults[id], model, variant: model?.variant } } })}
         {...(state.targetInstanceId ? { initialEndpointId: state.targetInstanceId } : {})}
       />
       <p className="text-base text-muted-foreground">

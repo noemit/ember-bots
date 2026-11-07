@@ -153,8 +153,8 @@ export default function ViewMenu({
                   <span>{quiet ? 'New messages: Notify' : "New messages: Don't notify"}</span>
                   <span className="text-[11px] text-muted-foreground">
                     {quiet
-                      ? 'They appear on Home as unread and count in the top bar.'
-                      : 'They are marked read as they arrive, so this session never shows as unread.'}
+                      ? 'Unread messages appear in the rail.'
+                      : 'Unread messages stay unread; this session stops raising notification indicators.'}
                   </span>
                 </span>
               </DropdownMenuItem>

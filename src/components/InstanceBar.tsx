@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronDown, House, Menu, RefreshCw, Search, Settings } from 'lucide-react';
+import { ChevronDown, Menu, RefreshCw, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { shortcutLabel } from '@/lib/shortcuts';
 import { readyInstanceCount } from '@/lib/instanceHealth';
@@ -32,10 +32,6 @@ type Props = {
   onRefresh: () => void;
   onOpenSettings: () => void;
 
-  /** The activity home: default when nothing is open, explicit toggle over open columns. */
-  onToggleActivity: () => void;
-  /** True while the home screen is showing. */
-  activityActive: boolean;
   /** Back to the workspace (rail + columns); opens the most recent session if none is open. */
   onShowSessions: () => void;
   /** The usage view, as a sibling of Home rather than a dialog over it. */
@@ -47,9 +43,6 @@ type Props = {
   /** Runs that finished since you last looked, for the Scheduled tab's counter. */
   unseenScheduledRuns?: number;
 
-  /** Unread messages across every session, for Home's one counter. */
-  unreadMessages?: number;
-  /** Home has no rail, so the drawer toggle would open nothing. */
   hideNavigation?: boolean;
 };
 
@@ -137,15 +130,12 @@ export default function InstanceBar({
   onOpenCommandPalette,
   onRefresh,
   onOpenSettings,
-  onToggleActivity,
-  activityActive,
   onShowSessions,
   onShowUsage,
   usageActive,
   onShowScheduled,
   scheduledActive = false,
   unseenScheduledRuns = 0,
-  unreadMessages = 0,
   hideNavigation = false,
 }: Props) {
   // Same predicate the dropdown's per-row dot and `statusLabel` use: a host in its probe grace
@@ -199,26 +189,7 @@ export default function InstanceBar({
         className="no-drag flex h-7 flex-none items-center gap-0.5 rounded-full border bg-muted/50 p-0.5"
       >
         <ViewTab
-          active={activityActive}
-          onClick={onToggleActivity}
-          label="Home"
-          ariaLabel="Home — unread messages and recent activity"
-          title="Unread messages, and what happened while you were away"
-          icon={<House className="size-3.5" />}
-          badge={
-            unreadMessages > 0 ? (
-              <span
-                data-testid="unread-count"
-                className="grid min-w-4 place-items-center rounded-full bg-highlight px-1 text-[10px] font-semibold tabular-nums text-highlight-foreground"
-                title={`${unreadMessages} unread ${unreadMessages === 1 ? 'message' : 'messages'}`}
-              >
-                {unreadMessages}
-              </span>
-            ) : null
-          }
-        />
-        <ViewTab
-          active={!activityActive && !usageActive && !scheduledActive}
+          active={!usageActive && !scheduledActive}
           onClick={onShowSessions}
           label="Sessions"
           ariaLabel="Sessions — the workspace and its columns"

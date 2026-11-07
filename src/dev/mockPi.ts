@@ -705,8 +705,8 @@ const replyApprovalMock = (conversation: MockConversation, key: string, decision
   const approval = conversation.approvals.find((entry) => entry.key === key);
   if (!approval || approval.status !== 'pending') return false;
   approval.status = decision;
-  if (decision === 'always' && !conversation.autoAccept.allowed.includes(approval.tool)) {
-    conversation.autoAccept.allowed.push(approval.tool);
+  if (decision === 'always') {
+    conversation.autoAccept.enabled = true;
   }
   const followUp = conversation.parked?.followUp ?? (() => finishRun(conversation));
   conversation.parked = undefined;
@@ -988,6 +988,12 @@ const summaryOf = (conversation: MockConversation): Record<string, unknown> => (
   // Hearth sends `cost` on every summary; the mock has to as well, or the badge's "never ran" and
   // "unknown" states are indistinguishable in dev:web.
   cost: ledgerCostOf(conversation),
+  ...(fixtureParam === 'processes' && conversation.id === 10 ? { processes: {
+    count: 2, rssBytes: 32 * 1024 * 1024, items: [
+      { pid: 91001, command: 'vite --host 127.0.0.1', rssBytes: 20 * 1024 * 1024, startedAt: Date.now() },
+      { pid: 91002, command: 'bun run api', rssBytes: 12 * 1024 * 1024, startedAt: Date.now() },
+    ],
+  } } : {}),
 });
 
 const docsOf = (conversation: MockConversation): Record<string, unknown> => {
@@ -1662,7 +1668,7 @@ const mockLogins = new Map<string, { polls: number }>();
  */
 const READ_STATE_KEY = 'ember-pi-read-state';
 
-const storedReadState = (): { readMarks?: EmberSettings['readMarks']; readSince?: number } => {
+const storedReadState = (): { readMarks?: EmberSettings['readMarks']; readSince?: number; mutedSessions?: string[] } => {
   try {
     return JSON.parse(window.localStorage.getItem(READ_STATE_KEY) ?? 'null') ?? {};
   } catch {
@@ -1698,6 +1704,7 @@ let settings: EmberSettings = {
   // which is what Home's cards and the per-message bubbles need to exercise.
   readMarks: storedRead.readMarks ?? {},
   readSince: storedRead.readSince ?? 0,
+  mutedSessions: storedRead.mutedSessions ?? [],
   composerDrafts: {},
   scheduledSessionBindings: {},
   autoArchiveScheduledRuns: true,
@@ -1764,10 +1771,10 @@ export const bridge: EmberBridge = {
       else drafts[key] = draft;
     }
     settings = { ...settings, ...safe, ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
-    if (patch.readMarks !== undefined || patch.readSince !== undefined) {
+    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,
-        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince })
+        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions })
       );
     }
     return settings;

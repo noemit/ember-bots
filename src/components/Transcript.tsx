@@ -1,3 +1,4 @@
+import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
@@ -910,13 +911,13 @@ const PermissionCard = ({
               Deny
             </Button>
             <div className="flex-1" />
-            <Button size="xs" variant="secondary" disabled={busy !== null} onClick={() => void reply('always')}>
+            <Button size="xs" variant="secondary" className="border border-warning/50 bg-warning/10 text-warning hover:bg-warning/20" title="Automatically approve all tools in this conversation, even while Ember is closed" disabled={busy !== null} onClick={() => void reply('always')}>
               {busy === 'always' ? <Loader2 className="animate-spin" /> : null}
-              Always allow
+              Switch to <YoloLabel /> mode
             </Button>
             <Button size="xs" disabled={busy !== null} onClick={() => void reply('once')}>
               {busy === 'once' ? <Loader2 className="animate-spin" /> : <Check />}
-              Allow once
+              Allow
             </Button>
           </div>
         </CardContent>

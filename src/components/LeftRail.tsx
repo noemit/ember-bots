@@ -1,3 +1,4 @@
+import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { AnimatePresence, LayoutGroup } from 'motion/react';
 import {
@@ -132,6 +133,8 @@ type Props = {
   onCustomizeAppearance: (session: Session) => void;
   /** Right-click "Mark all as read" for a session with unread messages. */
   onMarkAllRead?: (session: Session) => void;
+  unreadMessages?: number;
+  onReadUnread?: () => void;
   /** Session keys with unread messages, from Home's own read marks. */
   unreadKeys?: Set<string>;
   /** Session keys set to "New Messages: Don't Notify". */
@@ -194,6 +197,8 @@ export default function LeftRail({
   onArchiveMany,
   onCustomizeAppearance,
   onMarkAllRead,
+  unreadMessages = 0,
+  onReadUnread,
   unreadKeys,
   quietKeys,
   onQuietChange,
@@ -827,7 +832,12 @@ export default function LeftRail({
         )}
       </div>
 
-      <div className={cn('min-h-0 flex-1 overflow-y-auto', mode === 'mini' ? 'px-1 py-1' : 'px-1.5 py-1.5')}>
+      {unreadMessages > 0 && onReadUnread ? (
+        <button type="button" onClick={onReadUnread} className="mx-2 mb-1 rounded-md px-2 py-1 text-left text-xs text-highlight hover:bg-muted" aria-label="Read unread messages">
+          {mode === 'mini' ? unreadMessages : `${unreadMessages} unread messages`}
+        </button>
+      ) : null}
+      <div className={cn('min-h-0 flex-1 overflow-y-auto' , mode === 'mini' ? 'px-1 py-1' : 'px-1.5 py-1.5')}>
         {mode === 'mini' ? (
           <div className="flex flex-col items-center gap-1">
             {[...itemSessions]
@@ -856,6 +866,7 @@ export default function LeftRail({
                           size={40}
                           mood={moods[key] ?? 'unknown'}
                         />
+                        <ProcessIndicator session={session} overlay />
                         {visibleColumnKeys.has(key) ? (
                           <span
                             data-column-underline

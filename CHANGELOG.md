@@ -1,3 +1,24 @@
+## 1.7.0
+
+### Added
+- Rail markers show the programs each chat has running, including compact, project and group views.
+- Each chat gets its own stable colour. Appearance defaults to this chat, offers a custom colour
+  picker, and uses the same resolved colour for the blob and its soft background glow.
+- Adding an API key or signing in to a provider offers a choice to keep or change the instance's
+  default model, both during setup and in Settings.
+
+### Changed
+- Removed Home. Ember opens the workspace directly; the rail keeps unread reading available.
+- Approval choices are Allow and Switch to YOLO mode, alongside Deny. YOLO uses the same shield
+  and label in approval cards, the composer and crews, with its conversation-wide scope explained.
+- Muting notifications is stored separately from read marks and never marks incoming messages read.
+  Existing quiet-session preferences migrate without changing their recorded read history.
+
+### Fixed
+- The reader respects Enter on focused buttons and uses the conversation's selected model without
+  silently substituting another. Unsent feedback stays in place when that model is unavailable
+  and appears in the composer when opening its conversation from the reader.
+
 ## 1.6.9
 
 ### Fixed

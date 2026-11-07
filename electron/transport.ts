@@ -114,6 +114,8 @@ export const resolveHealthUrl = (baseValue: string): string | null => {
 
 export type StoredAvatarOverride = {
   colorIndex?: number;
+  /** An explicit custom colour, stored as six-digit hex. */
+  color?: string;
   shapeName?: string;
 };
 
@@ -321,7 +323,14 @@ export const parseSessionGroups = (value: unknown): SessionGroup[] => {
  * One session's read mark. The ordinal is the only thing that matters; `ids` are the out-of-order
  * marks kept until the run closes, and `readAt` is the fallback for wires without ordinals.
  */
-export type StoredReadMark = { through: number; ids?: number[]; readAt?: number; comments?: number };
+export type StoredReadMark = {
+  through: number;
+  ids?: number[];
+  readAt?: number;
+  comments?: number;
+  /** Legacy notification preference, migrated into mutedSessions. */
+  quiet?: boolean;
+};
 
 const MAX_READ_MARKS = 2000;
 const MAX_OUT_OF_ORDER = 200;
@@ -413,6 +422,12 @@ export const parseComposerDrafts = (value: unknown): Record<string, StoredCompos
   return drafts;
 };
 
+/** An explicit new policy, including an empty one, wins over legacy automatic-read flags. */
+export const parseMutedSessions = (value: unknown, legacyMarks: unknown): string[] =>
+  Array.isArray(value)
+    ? parseStringArray(value)
+    : Object.entries(parseReadMarks(legacyMarks)).filter(([, mark]) => mark.quiet).map(([key]) => key);
+
 export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvatarOverride> => {
   if (!value || typeof value !== 'object') return {};
   return Object.fromEntries(
@@ -434,9 +449,10 @@ export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvata
         const shapeName = typeof entry.shapeName === 'string' && /^[a-z0-9-]{1,80}$/i.test(entry.shapeName)
           ? entry.shapeName
           : undefined;
-        return [key, { colorIndex, shapeName }] as const;
+        const color = typeof entry.color === 'string' && /^#[0-9a-f]{6}$/i.test(entry.color) ? entry.color.toLowerCase() : undefined;
+        return [key, { colorIndex, color, shapeName }] as const;
       })
-      .filter(([, entry]) => entry.colorIndex !== undefined || entry.shapeName !== undefined)
+      .filter(([, entry]) => entry.colorIndex !== undefined || entry.color !== undefined || entry.shapeName !== undefined)
   );
 };
 
@@ -571,6 +587,8 @@ export type EmberSettings = {
   readMarks: Record<string, StoredReadMark>;
   /** Epoch ms of the first launch that understood read marks; absent means it hasn't happened. */
   readSince?: number;
+  /** Sessions whose unread messages should not raise notification indicators. */
+  mutedSessions?: string[];
   composerDrafts: Record<string, StoredComposerDraft>;
   scheduledSessionBindings: Record<string, string>;
   /** Archive finished scheduled-task runs once they're a day old. */

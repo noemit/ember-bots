@@ -210,6 +210,7 @@ export default function ReadingSheet({
       const target = event.target as HTMLElement | null;
       // Typing in a field (or a disclosure) keeps its own keys.
       if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+      if (event.key === 'Enter' && target?.closest('button, a, summary, [role="button"]')) return;
       if (event.key === 'j') {
         event.preventDefault();
         go(1);
@@ -304,7 +305,7 @@ export default function ReadingSheet({
             <div className="flex flex-col items-start gap-2 pt-6">
               <p className="text-[15px] font-medium">You’re caught up on {title}.</p>
               <p className="text-[12.5px] text-muted-foreground">
-                Nothing here is waiting for you. New replies appear on Home as the agent finishes them.
+                Nothing here is waiting for you. New replies appear in the rail as the agent finishes them.
               </p>
               <div className="flex gap-2 pt-2">
                 {onOpenNext ? (
@@ -314,7 +315,7 @@ export default function ReadingSheet({
                   </Button>
                 ) : null}
                 <Button type="button" size="sm" variant="outline" onClick={onClose}>
-                  Back to Home
+                  Back to sessions
                 </Button>
               </div>
             </div>

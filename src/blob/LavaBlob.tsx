@@ -75,8 +75,8 @@ export default function LavaBlob({
         shapeRng,
         LAVA_SHAPES.find((shape) => shape.name === resolved.shapeName)
       ),
-      body: `var(--blob-${index})`,
-      colors: lavaColors(index),
+      body: resolved.color ?? `var(--blob-${index})`,
+      colors: lavaColors(index, resolved.color),
       noiseSeed: Math.floor(motionRng() * 997),
       // A negative delay within one cycle, so a rail of busy lamps never churns in unison.
       delay: -motionRng() * 3.2,

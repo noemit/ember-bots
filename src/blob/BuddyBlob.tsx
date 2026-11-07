@@ -36,7 +36,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
     );
     const baseColor = BUDDY_COLORS[Math.abs(colorIndex) % BUDDY_COLORS.length];
     return {
-      color: groupedColor
+      color: resolved.color ? { ...baseColor, fill: resolved.color } : groupedColor
         ? { ...baseColor, fill: `var(--blob-${Math.abs(colorIndex) % IDENTITY_COLORS.length})` }
         : baseColor,
       shape:

@@ -2,7 +2,7 @@ import * as React from 'react';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import { moodFrom, stateFromMood } from './mood';
 import { hashString, mulberry32, seedIdentity } from './seed';
-import { IDENTITY_COLORS } from './contrast';
+import { contrastRatio, IDENTITY_COLORS } from './contrast';
 import {
   PIP_INK,
   PIP_MOTION,
@@ -100,7 +100,7 @@ export default function PipBlob({
     const passSeconds = shape ? (360 / shape.speed) * 1 : 1;
     return {
       face: pipFaceFor(resolvedMood),
-      fill: `var(--blob-${index})`,
+      fill: resolved.color ?? `var(--blob-${index})`,
       motion: shape,
       // Which direction this particular ball tumbles on its first pass, so two busy agents are
       // thrown differently instead of moving in lockstep.
@@ -152,7 +152,7 @@ export default function PipBlob({
             <g transform={`translate(${placement.x} ${placement.y}) rotate(${placement.rotation})`}>
               <g className="blob-pip-face" transform="scale(0.72)">
                 {face.marks.map((mark, index) => (
-                  <Mark key={index} mark={mark} ink={PIP_INK} />
+                  <Mark key={index} mark={mark} ink={identity?.color && contrastRatio(identity.color, PIP_INK) < 3 ? '#ffffff' : PIP_INK} />
                 ))}
               </g>
             </g>

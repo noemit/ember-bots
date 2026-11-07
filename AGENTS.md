@@ -44,6 +44,24 @@ a keep-running-on-quit mode. On macOS, closing the window is not quitting the ap
 entry point for a standalone backend with an independent lifetime. Connecting to a Tinder-managed
 Kiln does not give Ember ownership of it, and quitting Ember must leave it running.
 
+## Product direction (1.7.0)
+
+- The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
+  (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
+  `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.
+- Home has been removed. Startup restores the workspace or opens a recent chat; an empty install
+  starts a draft on an available Kiln. Unread reading remains accessible from the rail.
+- Blobs are mnemonic devices for chats. Automatic colours are stable per session, independent of
+  project membership and visibility. The appearance picker defaults to one chat and accepts a custom
+  hex colour; the blob and soft background glow must use the same resolved identity. Project/task
+  appearance overrides remain explicit choices.
+- A rail process marker means that chat has programs running on its host, using the same
+  `session.processes` summary as the composer's Processes tray. It is not connection status.
+- Approval actions say Allow and Switch to YOLO mode, alongside Deny. The shared `YoloLabel` is the
+  mode's shield/word treatment. YOLO delegates all tool approvals for that conversation.
+- Adding a provider, by key or sign-in, offers a choice to keep or change the instance's default
+  model. Credentials never select a replacement model implicitly.
+
 ## Commands
 
 - `bun run dev` — build renderer + electron, then launch Electron.
@@ -134,9 +152,9 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   is not open is not hidden somewhere, it is simply in the rail. Closing a column (`minimizeSession`)
   removes it from `openSessions`, so the view falls back to whatever else is open, or to Home.
   `Cmd/Ctrl+1–9` activates that slot in `openSessions`.
-  Home shows existing sessions when nothing is open. If Home has no sessions in the current window,
-  it opens a new-session draft on an available Kiln after the session lists finish loading; finishing
-  or dismissing onboarding opens a draft too. No conversation is created until send. Selection
+  Startup restores the workspace or opens a recent chat. With no sessions it opens a new-session
+  draft on an available Kiln after session lists finish loading; finishing or dismissing onboarding
+  opens a draft too. No conversation is created until send. Selection
   prefers the included Kiln and excludes hidden or unavailable hosts (`src/lib/emptyHome.ts`).
   The transcript poll and `isLoaded` predicate cover the visible columns. Open keys are
   persisted in Ember settings and pruned when their instance or session is archived/gone
@@ -395,52 +413,12 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   on-screen Previous/Next buttons — only rendered when the chat holds more than one image, with an
   `n / m` counter — cross message boundaries; a download link saves. Pure derivation lives in
   `src/lib/gallery.ts`; no second window, no IPC.
-- `src/components/HomeView.tsx` + `HomeSessionCard.tsx` + `HomeLinks.tsx` — the **Home screen**. **There is no rail on Home.**
-  Two columns: one **flat list of sessions**, then the links those sessions shared
-  (`lib/sharedLinks.ts`, from the rows the list already holds). There are **no cards and no section
-  headings**: consecutive sessions alternate a very slight zebra band and nothing else separates them.
-  One row per *session* (blob, title, project · instance · model, an **Unread**/**Read** word, unread
-  count, time), and under it
-  one row per unread *message* — no sender label (everything in a session's rows came from that
-  conversation), cut on a word boundary with an "…" (`excerptText`), a filled dot per message (the
-  dot is only the indicator) and no status words. Rows are capped at ~980px for a readable measure.
-  **A row opens the reading view, not the column** — an excerpt is an index entry, and marking a
-  message read from one would be marking it before reading it. A session you are caught up on is the same row with no dots, no count and no message
-  rows. The order is most unread messages first, then recency (`orderUnreadCards`); `INITIAL_SESSIONS`
-  (6) are drawn and **Show N more sessions** reveals 10 at a time. A row's line reads *messages ·
-  requests · comments · notes* and its link is **Open**. A pending approval or question is a **sticky**
-  row: it is answered, never marked read, so it survives "Mark all as read". The right column's links
-  each carry a context bar — the source session, a quote windowed on the link (`contextAround`) and
-  **Jump to message**, which opens that session at that message (`ChatView`'s token-keyed
-  `focusTarget`; rows carry `data-message-id`/`data-highlighted`). A link from a pending question has
-  no message to land on, so its bar says **Open session**. The activity log moved to a
-  collapsed **Activity** section at the bottom (`ActivityTimeline.tsx`, day-grouped, tool runs
-  collapsed — it replaced `ActivityPanel.tsx` and its Now strip). Home is the default content when
-  nothing is open (and no new-agent draft), and a toggle over open columns: the top-bar Home button,
-  the palette, `Esc`/Back; opening a session or starting a draft exits it. Its header carries **New
-  agent**, since the rail's is gone.
-  **Read state is per message and persisted.** `lib/readState.ts` keeps one mark per session
-  (`settings.readMarks`: `through` = a Hearth entry ordinal, `ids` = out-of-order marks, `readAt` =
-  the timestamp fallback for ordinal-free wires, `comments` = the card's comment tally).
-  `settings.readSince` is the upgrade migration: absent means this launch is the first to understand
-  marks, and everything older counts as read, so Home doesn't open with years of unread. **Opening a
-  session, or reading it on screen, marks nothing** — the only ways a mark moves are the dot on one
-  message and right-click **Mark all as read** (Home cards and `SessionContextMenuContent`, which
-  the rail rows and project-card blobs both use). Marks are pruned with the sessions they belong to.
-  `hooks/useUnreadDigests.ts` prices "could this be unread?" from the session list alone
-  (`lastEntryId` against `through`), then reads once per session that could — an append read since
-  the mark (`loadMessageAppend`), else a 32-message tail, never a full transcript. Digests hold
-  excerpts and counts only. `visibleUnreadItems` filters a digest by the current mark, which is what
-  makes a dot vanish on the click that marked it. One counter lives in `InstanceBar`: unread
-  **messages**, not sessions, not pending requests.
-- `src/components/InstanceBar.tsx` — the top bar: Ember wordmark, search, then **the views as a
-  tab group** — **Home** (with the unread-message count), **Sessions** and **Usage** (a fourth
-  **Directory** tab shipped in 0.81.0 and was removed in 0.82.0: the owner did not want a tab for it,
-  and the names it listed are now registered automatically instead — see the promote note below). Sessions is the
-  workspace and, with nothing open, opens the most recently updated session instead of an empty one.
-  Home and Usage render no rail and no column tab strip. Also here: the view options,
-  instances menu, settings). App passes the error/notice toasts as `banner`, so they render inline
-  next to the search button; both self-dismiss (errors after three minutes).
+- Home and its activity/link/card components were removed in 1.7.0. The rail's unread-message
+  counter opens `ReadingSheet`; conversations retain explicit per-message read controls. Activity
+  milestones remain recorded by main, without a separate activity page.
+- `src/components/InstanceBar.tsx` — the top bar: Ember wordmark, search, **Sessions**, **Usage**
+  and **Scheduled** views, then the instances menu. Sessions opens the latest chat if no column is
+  open. Error/notice toasts render inline next to search. Home is no longer a view or command.
 - `src/components/LeftRail.tsx` — **three widths, one toggle** (`settings.railMode`): **mini** is a
   64px dock of session blobs (tooltip = title + latest message; no search, groups or labels),
   **normal** is the 320px rail, and **wide** is about half the window, where each row shows the latest

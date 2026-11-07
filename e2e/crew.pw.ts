@@ -11,8 +11,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('the rail hides crew workers; the leader shows its crew strip', async ({ page }) => {
-  // Home has no rail: the leader is opened from its card, which is what puts the rail on screen.
-  await page.getByRole('button', { name: 'Crew: auth refactor', exact: true }).click();
+  // The workspace opens directly; the leader is always reachable from its rail row.
+  await page.getByRole('button', { name: /Crew: auth refactor/ }).click();
   const rail = page.locator('aside');
   await expect(rail.getByRole('button', { name: /Crew: auth refactor/ }).first()).toBeVisible();
   // A worker row would start with the worker's own title; the leader's preview mentioning it is fine.
@@ -67,8 +67,8 @@ test('opening a worker from the strip opens a transient column, still out of the
 test('an already promoted worker links to its peer, and the peer shows in the rail', async ({ page }) => {
   // `?promoted` seeds a worker whose `promotedTo` points at its peer fork.
   await page.goto('/?promoted');
-  // Home has no rail: the leader is opened from its card, which is what puts the rail on screen.
-  await page.getByRole('button', { name: 'Crew: auth refactor', exact: true }).first().click();
+  // The workspace opens directly; the leader is always reachable from its rail row.
+  await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
   const rail = page.locator('aside');
   // The peer is an ordinary session, so the rail lists it; the worker stays hidden by kind.
@@ -99,6 +99,7 @@ test('the directory lists every spawned session automatically', async ({ page })
 });
 
 test('the mock promote wire forks a peer, and refuses busy or duplicate promotions', async ({ page }) => {
+  await expect(page.locator('aside')).toBeVisible();
   // The dialog flow below needs the app to wire `onPromote`; this pins the wire contract itself.
   const result = await page.evaluate(async () => {
     const bridge = (window as unknown as {

@@ -327,7 +327,7 @@ test('a parked approval shows a permission card and replying runs the tool', asy
   await page.getByRole('button', { name: /Wire the pi mock/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::12"]');
   await expect(column.getByText('About to delete the stale previews.')).toBeVisible();
-  const allowOnce = column.getByRole('button', { name: 'Allow once' });
+  const allowOnce = column.getByRole('button', { name: 'Allow', exact: true });
   await expect(allowOnce).toBeVisible();
   await allowOnce.click();
   await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('Done. The tool ran and I carried on.');
@@ -447,7 +447,7 @@ test('a scheduled run is an ordinary session, marked with the plan that started 
   // of each task, which hid every session the person was actually working in. A run is a session —
   // it belongs in the list, with a mark saying what started it — and the plans belong in their own
   // section, because a trigger is not a conversation.
-  await page.getByRole('button', { name: 'Crew: auth refactor', exact: true }).click();
+  await page.getByRole('button', { name: /Crew: auth refactor/ }).click();
 
   // The run is in the normal list, and says where it came from.
   const run = page.getByRole('button', { name: /Remote access hardening/ }).first();
@@ -478,18 +478,18 @@ test('a new agent is named from its first message, not given a number', async ({
   await expect(page.locator('aside').getByRole('button', { name: /[A-Z][a-z]+ Mechanic/ }).first()).toBeVisible();
 });
 
-test('minimizing every session shows Home, and Sessions brings one back', async ({ page }) => {
+test('closing every column keeps the rail available, and Sessions reopens a chat', async ({ page }) => {
   await page.getByRole('button', { name: /^Sessions —/ }).click();
   const column = page.locator('main[data-session-key]').first();
   await expect(column).toBeVisible();
   const key = await column.getAttribute('data-session-key');
-  await column.locator('header').getByRole('button', { name: 'Minimize session', exact: true }).click();
+  await column.locator('header').getByRole('button', { name: 'Close this column', exact: true }).click();
 
-  // Nothing is readable, so Home — not an empty "pick a session" pane with a hidden active tab.
-  await expect(page.getByTestId('home-view')).toBeVisible();
+  // The rail remains available when the last column is closed.
+  await expect(page.locator('aside')).toBeVisible();
   await expect(page.locator('main[data-session-key]')).toHaveCount(0);
 
-  // And Sessions is the way back: it restores the minimized tab instead of leaving Home behind.
+  // Sessions reopens the latest chat when nothing is open.
   await page.getByRole('button', { name: /^Sessions —/ }).click();
   await expect(page.locator(`main[data-session-key="${key}"]`)).toBeVisible();
   await expect(page.getByTestId('home-view')).toHaveCount(0);

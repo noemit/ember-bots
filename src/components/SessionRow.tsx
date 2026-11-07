@@ -1,3 +1,4 @@
+import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { motion } from 'motion/react';
 import { ArchiveRestore, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
@@ -277,6 +278,7 @@ const SessionRow = React.memo(function SessionRow({
               {/* Project/task/session identity is resolved once in App so every surface stays aligned,
                   including across instances that reuse session ids. */}
               <Blob style={blobStyle} seed={key} identity={identity} size={compact ? 40 : 55} mood={mood} />
+              <ProcessIndicator session={session} overlay />
               {visibleColumn ? (
                 <span
                   data-column-underline

@@ -82,7 +82,7 @@ export default function AvatarPicker({
     ...draft,
     ...patch,
   });
-  const hasOverride = draft.colorIndex !== undefined || draft.shapeName !== undefined;
+  const hasOverride = draft.color !== undefined || draft.colorIndex !== undefined || draft.shapeName !== undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -127,17 +127,21 @@ export default function AvatarPicker({
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-medium">Preview</span>
               <span className="text-xs text-muted-foreground">
-                Color identifies the project; shape identifies the task or session.
+                Color and shape help you recognize this chat wherever it appears.
               </span>
             </div>
           </div>
 
           <section className="flex flex-col gap-2">
             <span className="text-xs font-medium">Color</span>
+            <label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              Custom color
+              <input type="color" aria-label="Custom agent color" value={draft.color ?? identity.color ?? IDENTITY_COLORS[draft.colorIndex ?? identity.colorIndex ?? 0]} onChange={(event) => setDraft((prev) => ({ ...prev, color: event.target.value }))} className="h-8 w-12 cursor-pointer rounded border bg-transparent" />
+            </label>
             <div className="grid grid-cols-6 gap-2">
               {Array.from({ length: COLOR_COUNT }, (_, colorIndex) => {
-                const selected = draft.colorIndex === colorIndex;
-                const color = blobColor(style, previewIdentity({ colorIndex }));
+                const selected = !draft.color && draft.colorIndex === colorIndex;
+                const color = blobColor(style, previewIdentity({ colorIndex, color: undefined }));
                 return (
                   <button
                     key={colorIndex}
@@ -145,7 +149,7 @@ export default function AvatarPicker({
                     title={`Color ${colorIndex + 1}`}
                     aria-label={`Color ${colorIndex + 1}`}
                     aria-pressed={selected}
-                    onClick={() => setDraft((prev) => ({ ...prev, colorIndex }))}
+                    onClick={() => setDraft((prev) => ({ ...prev, colorIndex, color: undefined }))}
                     className={cn(
                       'flex h-10 items-center justify-center rounded-lg border transition-colors hover:bg-muted',
                       selected && 'border-highlight ring-2 ring-highlight/30'

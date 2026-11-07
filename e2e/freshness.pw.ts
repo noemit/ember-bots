@@ -9,12 +9,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 const hideSecondColumn = async (page: Page) => {
-  await page.locator('main[data-session-key]').nth(1).getByRole('button', { name: 'Minimize session', exact: true }).click();
+  await page.locator('main[data-session-key]').nth(1).getByRole('button', { name: 'Close this column', exact: true }).click();
   await expect(page.locator('main[data-session-key]')).toHaveCount(1);
 };
 
 const restoreSecondColumn = (page: Page) =>
-  page.getByRole('button', { name: 'Restore Performance session 1' }).click();
+  page.locator('aside').getByRole('button', { name: 'Performance session 1', exact: true }).click();
 
 test('switching back to a session that changed while hidden shows the new reply', async ({ page }) => {
   await hideSecondColumn(page);
@@ -44,5 +44,5 @@ test('a background update keeps the cached transcript current without a fetch on
   // From here on, perf-1 transcript reads hang: the reply can only come from the merged cache.
   await page.evaluate(() => { (window as unknown as { freshness: { hang: boolean } }).freshness.hang = true; });
   await restoreSecondColumn(page);
-  await expect(page.getByRole('log', { name: 'Conversation' }).nth(1).getByText('Background reply', { exact: true })).toBeVisible();
+  await expect(page.locator('main[data-session-key="local::perf-1"]').getByRole('log', { name: 'Conversation' }).getByText('Background reply', { exact: true })).toBeVisible();
 });

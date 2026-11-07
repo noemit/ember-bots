@@ -1,3 +1,4 @@
+import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import Blob from '../blob/Blob';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -96,6 +97,7 @@ export function SessionBlob({
       >
         <span className="relative">
           <Blob style={blobStyle} seed={key} identity={identity} size={size} mood={mood} />
+          <ProcessIndicator session={session} overlay />
         </span>
         <span
           data-blob-label

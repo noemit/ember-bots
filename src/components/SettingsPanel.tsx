@@ -836,6 +836,8 @@ export default function SettingsPanel({
                     endpoints={settings.piEndpoints}
                     instances={instances}
                     onProviderChange={onRefreshModels}
+                    instanceDefaults={settings.instanceDefaults}
+                    onDefaultChange={(id, model) => onChange({ instanceDefaults: { ...settings.instanceDefaults, [id]: { ...settings.instanceDefaults[id], model, variant: model?.variant } } })}
                     {...(providerEndpointId ? { initialEndpointId: providerEndpointId } : {})}
                   />
                 </CardContent>

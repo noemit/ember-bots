@@ -1,6 +1,7 @@
+import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, ShieldCheck, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
+import { ArrowUp, Box, CheckCheck, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
 import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
@@ -221,6 +222,7 @@ type Props = {
   onMarkAllRead?: (session: Session) => void;
   /** Set or clear "mark everything read, no notifications" for this session. */
   onQuietChange?: (session: Session, quiet: boolean) => void;
+  notificationsMuted?: boolean;
   /**
    * Extra minutes bought for each session's leftovers, keyed `instanceId::id`.
    *
@@ -476,6 +478,7 @@ function ChatView({
   onMarkMessageRead,
   onMarkAllRead,
   onQuietChange,
+  notificationsMuted = false,
   processExtensions,
   onExtendProcesses,
   onNewSessionInstanceChange,
@@ -1509,7 +1512,7 @@ function ChatView({
    * a `var(--blob-N)` reference, which is why `color-mix` can grade it without knowing the value.
    */
   const cornerTint = session
-    ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, seed)} 30%, transparent), transparent 56%)`
+    ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, identity ?? seed)} 30%, transparent), transparent 56%)`
     : undefined;
 
   return (
@@ -1539,6 +1542,7 @@ function ChatView({
           aria-hidden="true"
           data-corner-tint=""
           className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
+          data-agent-glow
           style={{ backgroundImage: cornerTint }}
         />
       ) : null}
@@ -1673,7 +1677,7 @@ function ChatView({
                 onEditInstructions={session && canEditInstructions ? openInstructions : undefined}
                 // A worker is hidden from Home, so a read mark on it is invisible: offering the
                 // switch there would be a control with no observable effect.
-                quiet={readMark?.quiet === true}
+                quiet={notificationsMuted}
                 onQuietChange={
                   session && onQuietChange && session.kind !== 'worker'
                     ? (quietNext) => onQuietChange(session, quietNext)
@@ -2601,12 +2605,7 @@ function ChatView({
                 // needs, and the word adds its own space when it appears.
                 className="h-7 flex-none gap-1 px-1.5 text-xs data-[state=on]:border-warning/60 data-[state=on]:bg-warning/10 data-[state=on]:text-warning @[490px]:pr-2"
               >
-                <ShieldCheck className="size-3.5 flex-none" />
-                {/* First thing the row gives up: the two mode toggles lose their text but keep
-                    their icon, and `aria-label`/`title` already carry the whole sentence. It goes at
-                    490px, above the side-question button, so the ladder runs in one direction only: once
-                    the text is gone it never comes back as the column narrows. */}
-                <span className="hidden @[490px]:inline">Yolo</span>
+                <YoloLabel labelClassName="hidden @[490px]:inline" />
               </Toggle>
 
               <Toggle

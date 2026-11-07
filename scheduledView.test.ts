@@ -88,3 +88,15 @@ describe('buildScheduledRuns and notification counter', () => {
     expect(deriveNextRunAt(paused, now)).toBeNull();
   });
 });
+
+
+test('muting a scheduled run suppresses its notification without recording it read', () => {
+  const task = makeTask('brief', { state: { lastSessionId: 'run', lastRunAt: 2000 } });
+  const session = makeSession('run', 2000);
+  const marks = { 'pi:local::run': { through: 2 } };
+  const input = { tasks: [task], sessions: [session], bindings: {}, readMarks: marks };
+  expect(countUnseenScheduledRuns(buildScheduledRuns(input))).toBe(1);
+  expect(countUnseenScheduledRuns(buildScheduledRuns({ ...input, mutedSessions: ['pi:local::run'] }))).toBe(0);
+  expect(marks['pi:local::run'].through).toBe(2);
+  expect(countUnseenScheduledRuns(buildScheduledRuns(input))).toBe(1);
+});

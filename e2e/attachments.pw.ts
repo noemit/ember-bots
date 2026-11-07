@@ -27,9 +27,12 @@ test('dropping files anywhere on a column attaches them to that column', async (
   await expect(columns.nth(0).getByRole('button', { name: 'Remove notes.txt' })).toBeVisible();
 
   // The second column is inactive; a drop still lands there, not in the active one.
+  const targetKey = await columns.nth(1).getAttribute('data-session-key');
+  const otherKey = await columns.nth(0).getAttribute('data-session-key');
   await dropOn(page, columns.nth(1).locator('textarea'), 'second.md');
-  await expect(columns.nth(1).getByRole('button', { name: 'Remove second.md' })).toBeVisible();
-  await expect(columns.nth(0).getByRole('button', { name: 'Remove second.md' })).toHaveCount(0);
+  // Activation can move the target column to the front; its identity must retain the file.
+  await expect(page.locator(`main[data-session-key="${targetKey}"]`).getByRole('button', { name: 'Remove second.md' })).toBeVisible();
+  await expect(page.locator(`main[data-session-key="${otherKey}"]`).getByRole('button', { name: 'Remove second.md' })).toHaveCount(0);
 });
 
 test('dragging text (not files) does not show the drop overlay', async ({ page }) => {

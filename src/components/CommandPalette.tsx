@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowRight, House, MessageSquare, Plus, Search } from 'lucide-react';
+import { ArrowRight, MessageSquare, Plus, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Command,
@@ -42,7 +42,6 @@ type Props = {
   onSelectSession: (session: Session) => void;
   onNewAgent: (instanceId: string) => void;
   /** Toggle the activity home; when absent (older remote bridges) the command stays hidden. */
-  onToggleActivity?: () => void;
 };
 
 const stateLabel: Record<BallState, string> = {
@@ -67,7 +66,6 @@ export default function CommandPalette({
   onOpenChange,
   onSelectSession,
   onNewAgent,
-  onToggleActivity,
 }: Props) {
   const [query, setQuery] = React.useState('');
   const searchRef = React.useRef<HTMLInputElement>(null);
@@ -162,30 +160,6 @@ export default function CommandPalette({
 
           <CommandList className="max-h-[420px] overflow-y-auto p-1.5">
             <AnimatePresence>
-              {onToggleActivity ? (
-                <motion.div
-                  key="activity"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={springTransition}
-                >
-                  <CommandGroup heading="Go to">
-                    <CommandItem
-                      value="go-activity-home"
-                      onSelect={() => {
-                        onOpenChange(false);
-                        onToggleActivity();
-                      }}
-                      className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] aria-selected:bg-muted aria-selected:text-foreground"
-                    >
-                      <House className="size-4 flex-none text-highlight" />
-                      <span className="min-w-0 flex-1 truncate">Home — unread messages &amp; recent activity</span>
-                      <ArrowRight className="size-3.5 flex-none" />
-                    </CommandItem>
-                  </CommandGroup>
-                </motion.div>
-              ) : null}
               {agentItems.length > 0 ? (
                 <motion.div
                   key="agents"

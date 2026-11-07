@@ -1,6 +1,6 @@
+import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { springTransition } from '@/lib/animation';
@@ -258,16 +258,14 @@ const WorkerBrick = React.memo(function WorkerBrick({
                 onClick={() => onToggleYolo(worker, false)}
                 className="h-5 flex-none items-center gap-0.5 rounded-sm bg-warning/15 px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-warning uppercase hover:bg-warning/25"
               >
-                <ShieldCheck className="size-2.5 flex-none" aria-hidden="true" />
-                <span className="hidden @[420px]:inline">Yolo</span>
+                <YoloLabel small labelClassName="hidden @[420px]:inline" />
               </Button>
             ) : (
               <span
                 className="flex flex-none items-center gap-0.5 rounded-sm border border-warning/50 px-1 text-[9.5px] leading-4 font-semibold text-warning uppercase"
                 title="YOLO mode is on for this worker"
               >
-                <ShieldCheck className="size-2.5 flex-none" aria-hidden="true" />
-                <span className="hidden @[420px]:inline">Yolo</span>
+                <YoloLabel small labelClassName="hidden @[420px]:inline" />
               </span>
             )
           ) : onToggleYolo ? (
@@ -283,8 +281,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
               onClick={() => onToggleYolo(worker, true)}
               className="h-5 flex-none items-center gap-0.5 rounded-sm px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-muted-foreground uppercase opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/brick:opacity-100"
             >
-              <ShieldCheck className="size-2.5 flex-none" aria-hidden="true" />
-              <span className="hidden @[420px]:inline">Yolo</span>
+              <YoloLabel small labelClassName="hidden @[420px]:inline" />
             </Button>
           ) : null}
         </>

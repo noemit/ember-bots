@@ -12,7 +12,11 @@ import {
 import { cn } from '@/lib/utils';
 import { useStableCallback } from '@/lib/useStableCallback';
 import { piLoadProviders, piRemoveProvider, piSetProviderKey, type PiProviderInfo } from '../piApi';
-import type { Instance, PiEndpoint } from '../types';
+import { DEFAULT_MODEL, modelRefKey } from '../types';
+import ModelPicker from './ModelPicker';
+import { piLoadModels } from '../piApi';
+import type { ModelList } from '../api';
+import type { InstanceDefaults, ModelRef, Instance, PiEndpoint } from '../types';
 import ProviderSignInDialog from '@/components/ProviderSignInDialog';
 
 type Props = {
@@ -31,6 +35,8 @@ type Props = {
    * needs the credential rather than whichever endpoint happens to be first.
    */
   initialEndpointId?: string;
+  instanceDefaults?: Record<string, InstanceDefaults>;
+  onDefaultChange?: (endpointId: string, model: ModelRef | undefined) => void;
 };
 
 const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string> = {
@@ -44,7 +50,7 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
  * `$HEARTH_HOME/auth.json` and is never sent back or rendered. OAuth providers (xAI, OpenAI)
  * sign in on the host with `hearth.sh provider login`, so this panel only manages API keys.
  */
-export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId }: Props) {
+export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange }: Props) {
   const [endpointId, setEndpointId] = React.useState(initialEndpointId ?? endpoints[0]?.id ?? '');
   const [providers, setProviders] = React.useState<PiProviderInfo[] | null>(null);
   const [defaultModel, setDefaultModel] = React.useState<string | null>(null);
@@ -53,6 +59,8 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState<string | null>(null);
   /** The provider whose sign-in dialog is open, if any. */
+  const [confirmation, setConfirmation] = React.useState<{ endpointId: string; providerName: string; catalog: ModelList | null } | null>(null);
+  const [choosingDefault, setChoosingDefault] = React.useState(false);
   const [signIn, setSignIn] = React.useState<PiProviderInfo | null>(null);
 
   React.useEffect(() => {
@@ -92,6 +100,12 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
     void load(endpointId);
   }, [endpointId, load]);
 
+  const confirmDefault = async (id: string, providerName: string) => {
+    setConfirmation({ endpointId: id, providerName, catalog: null });
+    const catalog = await piLoadModels(id).catch(() => null);
+    setConfirmation((current) => current?.endpointId === id ? { ...current, catalog } : current);
+  };
+
   const save = async (provider: PiProviderInfo) => {
     const key = (drafts[provider.id] ?? '').trim();
     if (!key) return;
@@ -110,6 +124,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
     });
     await load(endpointId);
     notifyChanged(endpointId);
+    await confirmDefault(endpointId, provider.name);
   };
 
   const remove = async (provider: PiProviderInfo) => {
@@ -145,7 +160,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Select value={endpointId} onValueChange={setEndpointId}>
+        <Select value={endpointId} onValueChange={(id) => { setEndpointId(id); setConfirmation(null); setChoosingDefault(false); }}>
           <SelectTrigger size="sm" className="min-w-0 flex-1 text-xs" aria-label="ember-harness host">
             <SelectValue placeholder="Select a host" />
           </SelectTrigger>
@@ -172,8 +187,28 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
         </Button>
       </div>
 
-      {defaultModel ? (
-        <p className="text-[11px] text-muted-foreground">Default model: {defaultModel}</p>
+      {defaultModel || instanceDefaults[endpointId]?.model ? (
+        <p className="text-[11px] text-muted-foreground">New chats default to {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : defaultModel}.</p>
+      ) : null}
+      {confirmation?.endpointId === endpointId && onDefaultChange ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-highlight/30 bg-highlight/5 p-3" role="region" aria-label="Confirm instance default">
+          <p className="text-xs">{confirmation.providerName} is connected. Which model should new chats on {endpoints.find((endpoint) => endpoint.id === endpointId)?.label ?? 'this instance'} use?</p>
+          <p className="text-xs text-muted-foreground">Current default: {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : defaultModel ?? 'Server default'}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="xs" variant="secondary" onClick={() => { setConfirmation(null); setChoosingDefault(false); }}>Keep current default</Button>
+            <Button size="xs" variant="outline" disabled={!confirmation.catalog} onClick={() => setChoosingDefault(true)}>Choose default model</Button>
+            {!confirmation.catalog ? <Button size="xs" variant="ghost" onClick={() => void confirmDefault(endpointId, confirmation.providerName)}>Refresh models</Button> : null}
+          </div>
+        </div>
+      ) : null}
+      {confirmation?.catalog && choosingDefault && onDefaultChange ? (
+        <ModelPicker open recentModels={[]} models={confirmation.catalog.models} value={instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : DEFAULT_MODEL} defaultModelId={confirmation.catalog.defaultModelId} onOpenChange={setChoosingDefault} onSelect={(key, variant) => {
+          const model = confirmation.catalog?.models.find((entry) => modelRefKey(entry) === key);
+          if (key !== DEFAULT_MODEL && !model) return;
+          onDefaultChange(confirmation.endpointId, model ? { providerID: model.providerID, modelID: model.modelID, ...(variant ? { variant } : {}) } : undefined);
+          setChoosingDefault(false);
+          setConfirmation(null);
+        }} />
       ) : null}
       {error ? <p className="text-[11.5px] text-destructive">{error}</p> : null}
 
@@ -270,6 +305,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
           onSignedIn={() => {
             void load(endpointId);
             notifyChanged(endpointId);
+            void confirmDefault(endpointId, signIn.name);
           }}
         />
       ) : null}

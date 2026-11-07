@@ -10,6 +10,7 @@ import type { AvatarIdentity, BlobStyle } from '../types';
  */
 export const blobColor = (style: BlobStyle, seedOrIdentity: string | AvatarIdentity): string => {
   const identity = typeof seedOrIdentity === 'string' ? seedIdentity(seedOrIdentity) : seedOrIdentity;
+  if (identity.color) return identity.color;
   switch (style) {
     case 'lava': {
       // LavaBlob draws its colour first from this stream; keep the two in step.

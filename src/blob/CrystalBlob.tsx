@@ -50,8 +50,8 @@ export default function CrystalBlob({
         motionRng,
         CRYSTAL_SHAPES.find((entry) => entry.name === resolved.shapeName)
       ),
-      body: index === undefined ? COLD : `var(--blob-${index})`,
-      glow: `var(--blob-${index})`,
+      body: resolved.color ?? `var(--blob-${index})`,
+      glow: resolved.color ?? `var(--blob-${index})`,
     };
   }, [identity, seed]);
 

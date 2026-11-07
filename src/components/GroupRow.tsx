@@ -1,3 +1,4 @@
+import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { Box, Group as GroupIcon, Plus, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -196,6 +197,7 @@ export default function GroupRow({
                       <span className="min-w-0 flex-1 truncate text-[11.5px] text-foreground">
                         {member.title?.trim() || member.id}
                       </span>
+                      <ProcessIndicator session={member} />
                       {member.needsInput ? (
                         <span
                           className="size-1.5 flex-none rounded-full bg-highlight"

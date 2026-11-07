@@ -245,10 +245,10 @@ export type LavaColors = Record<LavaTone, string> & {
  * colours don't all get the same partner. The halo sits halfway along that turn, deeper and more
  * saturated, so the body reaches the core through a colour instead of through grey.
  */
-export const lavaColors = (colorIndex: number): LavaColors => {
+export const lavaColors = (colorIndex: number, customColor?: string): LavaColors => {
   const count = IDENTITY_COLORS.length;
   const index = ((colorIndex % count) + count) % count;
-  const [lightness, chroma, hue] = hexToOklch(IDENTITY_COLORS[index]);
+  const [lightness, chroma, hue] = hexToOklch(customColor ?? IDENTITY_COLORS[index]);
   const turn = index % 2 === 0 ? 110 : -110;
   return {
     core: oklchToHexColor(0.84, Math.max(chroma, 0.15), hue + turn),

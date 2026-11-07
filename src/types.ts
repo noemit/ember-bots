@@ -189,11 +189,6 @@ export type SessionReadMark = {
   ids?: number[];
   readAt?: number;
   comments?: number;
-  /**
-   * "Mark all messages as read; no notifications needed": a standing policy for this session, not a
-   * mark. The newest message advances `through` on arrival, so it never accumulates a backlog.
-   */
-  quiet?: boolean;
 };
 
 export type SessionRef = {
@@ -245,6 +240,8 @@ export type ReasoningDisplay = 'expanded' | 'collapsed' | 'hidden';
 
 export type AvatarOverride = {
   colorIndex?: number;
+  /** An explicit custom colour, stored as six-digit hex. */
+  color?: string;
   shapeName?: string;
 };
 
@@ -256,6 +253,8 @@ export type AvatarIdentity = {
   shapeSeed: string;
   motionSeed: string;
   colorIndex?: number;
+  /** An explicit custom colour, stored as six-digit hex. */
+  color?: string;
   shapeName?: string;
 };
 
@@ -610,6 +609,8 @@ export type EmberSettings = {
    * launch is that launch.
    */
   readSince?: number;
+  /** Sessions whose unread messages should not raise notification indicators. */
+  mutedSessions?: string[];
   composerDrafts: Record<string, StoredComposerDraft>;
   scheduledSessionBindings: Record<string, string>;
   /** Archive finished scheduled-task runs once they're a day old. */

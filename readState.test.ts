@@ -2,14 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import {
   MAX_OUT_OF_ORDER,
   addComments,
-  advanceQuietMark,
   isMessageRead,
-  isQuietSession,
   markAllRead,
   markRead,
   markTimestampRead,
   pruneReadMarks,
-  withQuiet,
 } from './src/lib/readState';
 
 describe('isMessageRead', () => {
@@ -108,55 +105,10 @@ describe('pruneReadMarks', () => {
  * worth pinning are that it advances and that it never *lowers* a mark — turning it off must not put
  * a backlog back, because those messages were seen.
  */
-describe('quiet sessions', () => {
-  test('are off unless the mark says otherwise', () => {
-    expect(isQuietSession(undefined)).toBe(false);
-    expect(isQuietSession({ through: 5 })).toBe(false);
-    expect(isQuietSession(withQuiet({ through: 5 }, true))).toBe(true);
-  });
 
-  test('advance to the newest message', () => {
-    const mark = withQuiet({ through: 3 }, true);
-    expect(advanceQuietMark(mark, 9).through).toBe(9);
-    // And keep the policy while doing it.
-    expect(isQuietSession(advanceQuietMark(mark, 9))).toBe(true);
-  });
 
-  test('never move backwards', () => {
-    const mark = withQuiet({ through: 9 }, true);
-    expect(advanceQuietMark(mark, 4).through).toBe(9);
-    expect(advanceQuietMark(mark, 9).through).toBe(9);
-  });
-
-  test('do nothing at all for a session that is not quiet', () => {
-    // The mark must not creep forward just because `advanceQuietMark` was called: a normal session
-    // stays unread until someone reads it.
-    const loud = { through: 3 };
-    expect(advanceQuietMark(loud, 9)).toBe(loud);
-  });
-
-  test('turning it off leaves every recorded read in place', () => {
-    const quiet = withQuiet({ through: 12, ids: [14], readAt: 500 }, true);
-    const loud = withQuiet(quiet, false);
-    expect(isQuietSession(loud)).toBe(false);
-    expect(loud.through).toBe(12);
-    expect(loud.ids).toEqual([14]);
-    expect(loud.readAt).toBe(500);
-  });
-
-  test('turning it on claims nothing was just read', () => {
-    // `readAt` is the fallback ordering for a wire without ordinals; stamping it would mark older
-    // messages read on OpenChamber simply by enabling the policy.
-    const mark = withQuiet({ through: 2, readAt: 100 }, true);
-    expect(mark.readAt).toBe(100);
-  });
-
-  test('markRead, markAllRead, and markTimestampRead preserve the quiet policy', () => {
-    const base = withQuiet({ through: 5, readAt: 100 }, true);
-    expect(isQuietSession(markRead(base, 8, [6, 7, 8], 200))).toBe(true);
-    expect(isQuietSession(markAllRead(base, 12, 300))).toBe(true);
-    const stamped = markTimestampRead(base, 500);
-    expect(isQuietSession(stamped)).toBe(true);
-    expect(stamped.readAt).toBe(500);
-  });
+test('explicit timestamp marking moves only the read watermark and retains comment history', () => {
+  const mark = { through: 5, readAt: 100, comments: 3 };
+  expect(markTimestampRead(mark, 500)).toEqual({ through: 5, readAt: 500, comments: 3 });
+  expect(markTimestampRead(mark, 99)).toBe(mark);
 });

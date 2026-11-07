@@ -11,8 +11,6 @@ import type { ViewerImage } from './lib/gallery';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { applyTheme } from './themes';
 import {
-  allocateProjectColors,
-  avatarColorKeys,
   projectForSession,
   projectIdentityKey,
   resolveAvatarIdentity,
@@ -118,14 +116,11 @@ import {
 } from '@/lib/sendDelivery';
 import {
   addComments,
-  advanceQuietMark,
   isMessageRead,
-  isQuietSession,
   markAllRead,
   markRead,
   markTimestampRead,
   pruneReadMarks,
-  withQuiet,
 } from './lib/readState';
 import { composeCommentMessage, type TranscriptComment } from './lib/comments';
 import { deriveSessionName } from './lib/sessionNames';
@@ -133,7 +128,6 @@ import { mayHaveUnread, useUnreadDigests } from './hooks/useUnreadDigests';
 import { unreadItemsFor, visibleUnreadItems } from './lib/unreadDigest';
 import { useEmberSettings } from './hooks/useEmberSettings';
 import { useFeedback } from './hooks/useFeedback';
-import { useActivity } from './hooks/useActivity';
 import { mergePolledQueues, useMessageQueue, type QueueTarget } from './hooks/useMessageQueue';
 import { useProcessReaper } from './hooks/useProcessReaper';
 import { PROCESS_EXTENSION_MS, processKey } from './lib/processExpiry';
@@ -183,7 +177,6 @@ import type {
   QuestionAnswers,
   QuestionRequest,
   Session,
-  SessionReadMark,
   SessionRef,
   StoredComposerDraft,
   NewSessionOptions,
@@ -193,7 +186,6 @@ import type {
 const SettingsPanel = React.lazy(() => import('./components/SettingsPanel'));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard'));
 
-const HomeView = React.lazy(() => import('./components/HomeView'));
 const ReadingSheet = React.lazy(() => import('./components/ReadingSheet'));
 const ModelUsagePanel = React.lazy(() => import('./components/ModelUsagePanel'));
 const ScheduledView = React.lazy(() => import('./components/ScheduledView'));
@@ -268,14 +260,10 @@ const sameIdentity = (a: AvatarIdentity, b: AvatarIdentity): boolean =>
   a.shapeSeed === b.shapeSeed &&
   a.motionSeed === b.motionSeed &&
   a.colorIndex === b.colorIndex &&
+  a.color === b.color &&
   a.shapeName === b.shapeName;
 
 const sameStringRecord = (a: Record<string, string>, b: Record<string, string>): boolean => {
-  const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
-};
-
-const sameNumberRecord = (a: Record<string, number>, b: Record<string, number>): boolean => {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 };
@@ -377,9 +365,6 @@ export default function App() {
   const [availableUpdate, setAvailableUpdate] = React.useState<UpdateCheckResult | null>(null);
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = React.useState<string | null>(null);
 
-  // The activity home: explicit toggle over open columns, or the default view when the
-  // workspace is empty (openSession exits it; a new-agent draft replaces it).
-  const [activityOpen, setActivityOpen] = React.useState(false);
   /**
    * New-agent attempts in flight, or refused and waiting for a decision.
    *
@@ -436,13 +421,6 @@ export default function App() {
   /** The host whose Providers screen is open, when it was opened from a session's model picker. */
   const [providerEndpointId, setProviderEndpointId] = React.useState<string | undefined>(undefined);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
-  /**
-   * A message a column should open on, from a link's context bar on Home. Token-keyed so the same
-   * message can be asked for twice; the column reads it once it renders.
-   */
-  const [pendingJump, setPendingJump] = React.useState<{ key: string; messageId: string; token: number } | null>(
-    null
-  );
   /**
    * The session open in the reading view. Home's rows open it: an excerpt is an index entry, and
    * marking a message read without having read it is backwards, so the mark lives behind this.
@@ -533,32 +511,6 @@ export default function App() {
   // lib/readState. Opening a session does not mark anything; the dot on one message does.
   const readMarks = settings.readMarks;
 
-  /**
-   * A quiet session keeps its mark at the newest message.
-   *
-   * This is the whole of "mark everything read, no notifications": the policy is a line on the read
-   * mark, and the *advance* is what makes it true as the session goes on. Done here rather than in
-   * the transcript because it must happen whether or not the session is open — a scheduled brief
-   * that finishes while the reader is elsewhere should not wake Home up.
-   *
-   * Written in one settings update per pass, and only when a mark would actually move, so a poll
-   * that changes nothing writes nothing.
-   */
-  React.useEffect(() => {
-    if (!settingsLoaded) return;
-    const current = readMarks;
-    let next: Record<string, SessionReadMark> | null = null;
-    for (const session of Object.values(sessionsByInstance).flat()) {
-      const key = sessionKey(session);
-      const mark = current[key];
-      if (!isQuietSession(mark)) continue;
-      const through = session.lastEntryId ?? 0;
-      if (through <= (mark?.through ?? 0)) continue;
-      next ??= { ...current };
-      next[key] = advanceQuietMark(mark, through, Date.now());
-    }
-    if (next) handleSettings({ readMarks: next }, { preserveActionError: true });
-  }, [sessionsByInstance, settingsLoaded, handleSettings, readMarks]);
   // Absent on the first launch that understood marks: everything older than this instant counts as
   // read, so the upgrade doesn't open Home with every message ever written flagged unread.
   const readSince = settings.readSince ?? 0;
@@ -1374,6 +1326,7 @@ export default function App() {
       list.forEach((session) => {
         if (session.archived || session.kind === 'worker') return;
         const key = sessionKey(session);
+        if (settings.mutedSessions?.includes(key)) return;
         const digest = unreadDigests.digests[key];
         if (digest) {
           if (visibleUnreadItems(digest, readMarks[key]).length > 0) keys.add(key);
@@ -1384,15 +1337,9 @@ export default function App() {
       })
     );
     return keys;
-  }, [sessionsByInstance, unreadDigests.digests, readMarks]);
+  }, [sessionsByInstance, unreadDigests.digests, readMarks, settings.mutedSessions]);
 
-  const quietKeys = React.useMemo(() => {
-    const keys = new Set<string>();
-    for (const [key, mark] of Object.entries(readMarks)) {
-      if (isQuietSession(mark)) keys.add(key);
-    }
-    return keys;
-  }, [readMarks]);
+  const quietKeys = React.useMemo(() => new Set(settings.mutedSessions ?? []), [settings.mutedSessions]);
 
   // The top bar's one counter: unread messages, not sessions, and not pending prompts (those are
   // actions to take, not things to read).
@@ -1421,6 +1368,7 @@ export default function App() {
         states,
         failedKeys: failedSessionKeys,
         readMarks,
+        mutedSessions: settings.mutedSessions,
         seenBaselineAt: Math.max(readSince ?? 0, scheduledSeenAt),
         instances,
       }),
@@ -1431,6 +1379,7 @@ export default function App() {
       states,
       failedSessionKeys,
       readMarks,
+      settings.mutedSessions,
       readSince,
       scheduledSeenAt,
       instances,
@@ -1515,25 +1464,6 @@ export default function App() {
   const selectedQueue = selected
     ? (queuesByInstance[selected.instanceId] ?? []).find((queue) => queue.sessionId === selected.sessionId) ?? null
     : null;
-  // Configured projects plus the sessions currently on screen (and the selected one, which the rail
-  // pins even when filtered), so directory-only "projects" draw from the same queue without the
-  // persisted map growing forever. Collapsed to a stable signature so session polls (fresh objects
-  // every few seconds) don't re-run allocation or re-derive every avatar.
-  const avatarColorKeySignature = React.useMemo(() => {
-    const relevant =
-      selectedSession && !sessions.some((session) => sessionKey(session) === sessionKey(selectedSession))
-        ? [...sessions, selectedSession]
-        : sessions;
-    return avatarColorKeys(projectsByInstance, relevant).join('\u0000');
-  }, [projectsByInstance, sessions, selectedSession]);
-  const allocatedProjectColors = React.useMemo(
-    () =>
-      allocateProjectColors(
-        avatarColorKeySignature ? avatarColorKeySignature.split('\u0000') : [],
-        settings.projectColorAssignments
-      ),
-    [avatarColorKeySignature, settings.projectColorAssignments]
-  );
   // Every blob renderer memoizes on its identity object, so hand back the previous reference
   // whenever a session's identity hasn't actually changed; otherwise each 10s poll would
   // re-derive traits for every visible avatar.
@@ -1548,8 +1478,7 @@ export default function App() {
             session,
             projectsByInstance[instanceId] ?? [],
             settings.scheduledSessionBindings,
-            settings.avatarOverrides,
-            allocatedProjectColors
+            settings.avatarOverrides
           );
           const before = previous[key];
           return [key, before && sameIdentity(before, identity) ? before : identity];
@@ -1558,7 +1487,7 @@ export default function App() {
     );
     avatarIdentitiesRef.current = next;
     return next;
-  }, [sessionsByInstance, projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides, allocatedProjectColors]);
+  }, [sessionsByInstance, projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides ]);
   // avatarIdentities keeps stable references, and the fallback is memoized on the key, so this
   // is safe to use directly as an effect dependency.
   const selectedIdentity = React.useMemo(
@@ -1573,10 +1502,9 @@ export default function App() {
         { id: `draft:${instanceId}`, instanceId, directory },
         projectsByInstance[instanceId] ?? [],
         settings.scheduledSessionBindings,
-        settings.avatarOverrides,
-        allocatedProjectColors
+        settings.avatarOverrides
       ),
-    [projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides, allocatedProjectColors]
+    [projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides ]
   );
   const avatarPickerIdentity = avatarPickerSession
     ? avatarIdentities[sessionKey(avatarPickerSession)] ??
@@ -1584,8 +1512,7 @@ export default function App() {
         avatarPickerSession,
         projectsByInstance[avatarPickerSession.instanceId] ?? [],
         settings.scheduledSessionBindings,
-        settings.avatarOverrides,
-        allocatedProjectColors
+        settings.avatarOverrides
       )
     : seedIdentity('');
   const avatarPickerProject = avatarPickerSession
@@ -1598,6 +1525,7 @@ export default function App() {
     : null;
   const avatarPickerScopes = avatarPickerSession
     ? [
+        { key: sessionAvatarKey(avatarPickerSession), kind: 'session' as const, label: 'This session' },
         ...(avatarPickerIdentity.projectKey
           ? [{
               key: avatarPickerIdentity.projectKey,
@@ -1612,7 +1540,6 @@ export default function App() {
               label: `Scheduled task: ${scheduledTaskNames[avatarPickerIdentity.taskKey] ?? 'this task'}`,
             }]
           : []),
-        { key: sessionAvatarKey(avatarPickerSession), kind: 'session' as const, label: 'This session' },
       ]
     : [];
   // Sync the ref every render so the poller always sees the current directory.
@@ -1820,7 +1747,6 @@ export default function App() {
     // The draft is gone; a create still in flight keeps going in the background.
     setDraftPendingId(null);
     // Opening a session exits the activity home, Usage, and Scheduled views.
-    setActivityOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
   }, [saveCurrentLayout, setDraftPendingId]);
@@ -1843,7 +1769,6 @@ export default function App() {
     setOpenSessions(keys);
     setActiveSession(keys[0]);
     setMinimizedSessions(new Set());
-    setActivityOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
   };
@@ -1867,7 +1792,6 @@ export default function App() {
     const ownedKeys = new Set(owned.map(sessionKey));
     const projectKey = projectIdentityKey(instanceId, project.id);
     saveCurrentLayout();
-    setActivityOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
     if (owned.length === 0) {
@@ -1927,7 +1851,6 @@ export default function App() {
     setNewSessionInstanceId(null);
     setNewSessionDirectory(null);
     // Working on a session leaves the activity home.
-    setActivityOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
     setMinimizedSessions((prev) => {
@@ -2003,14 +1926,6 @@ export default function App() {
   const columnKeySet = React.useMemo(() => new Set(columns), [columns]);
   protectedTranscriptKeys.current = columnKeySet;
 
-  // The activity home: shown when explicitly toggled, or when there is nothing to look at — no open
-  // sessions, or every open one minimized (which used to render an empty "pick a session" pane with
-  // the active session pointing at a hidden tab). Opening a session or starting a draft leaves it.
-  const activityVisible =
-    activityOpen || ((openSessions.length === 0 || columns.length === 0) && !newSessionInstanceId);
-  const activity = useActivity(activityVisible, instancesLoaded);
-  const recordActivityEvent = activity.recordEvent;
-
   /**
    * The session list's three widths, in order. One control walks them: mini (a blob dock) → normal
    * (320px) → wide (about half the window) → mini. `Cmd/Ctrl+B` does the same from anywhere, and
@@ -2047,20 +1962,6 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activateSession]);
-
-  // Esc leaves an explicitly-open activity home when sessions wait behind it; the default
-  // (empty workspace) home has nothing to return to, so Esc does nothing there.
-  React.useEffect(() => {
-    if (!activityOpen) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || openSessionsRef.current.length === 0) return;
-      event.preventDefault();
-      setActivityOpen(false);
-    };
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, [activityOpen]);
-
 
   // Persist the workspace after the initial restore. The guarded ref keeps the first render
   // (empty defaults) from clobbering what main just handed back.
@@ -2680,7 +2581,6 @@ export default function App() {
       }
       if (!readySet.has(event.instanceId)) return;
       // Whitelisted milestones carry a bounded summary; those become live activity entries.
-      recordActivityEvent(event);
       // A streamed chunk carries the append itself, so a watching column can draw it without
       // reading the transcript again. Anything this cannot apply falls through to the invalidation
       // below, which is the path every hint took before deltas existed.
@@ -2720,8 +2620,8 @@ export default function App() {
       unsubscribe();
       invalidationQueue.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds; refs carry the rest; recordActivityEvent is a stable callback
-  }, [readyKey, invalidationQueue, recordActivityEvent]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds; refs carry the rest
+  }, [readyKey, invalidationQueue]);
 
   // ---- Polling: the safety net. Instances with a live stream poll slowly; the rest fast. ----
   // Split by liveness so one instance that can't stream (older OpenChamber, flaky tunnel)
@@ -3078,7 +2978,6 @@ export default function App() {
     // Deliberately a fresh draft, even while another one is still being created: the earlier
     // attempt keeps going and reports itself when it lands.
     setDraftPendingId(null);
-    setActivityOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
   }, [showActionError, setDraftPendingId]);
@@ -3089,13 +2988,23 @@ export default function App() {
     if (target) beginNewAgent(target);
   }, [handleSettings, instances, hidden, beginNewAgent]);
 
+  const initialWorkspaceChosen = React.useRef(false);
   const defaultEmptyHomeTarget = settingsLoaded && instancesLoaded
     ? emptyHomeTarget(instances, sessionsByInstance, sessions.length, hidden)
     : null;
   React.useEffect(() => {
-    if (onboardingOpen || !activityVisible || newSessionInstanceId || usageOpen || scheduledOpen || archiveOpen) return;
-    if (defaultEmptyHomeTarget) beginNewAgent(defaultEmptyHomeTarget);
-  }, [onboardingOpen, activityVisible, newSessionInstanceId, usageOpen, scheduledOpen, archiveOpen, defaultEmptyHomeTarget, beginNewAgent]);
+    if (initialWorkspaceChosen.current || !settingsLoaded || !instancesLoaded || onboardingOpen) return;
+    if (columns.length > 0 || newSessionInstanceId) { initialWorkspaceChosen.current = true; return; }
+    if (usageOpen || scheduledOpen || archiveOpen) return;
+    const latest = [...sessions].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))[0];
+    if (latest) {
+      initialWorkspaceChosen.current = true;
+      openSession({ instanceId: latest.instanceId, sessionId: latest.id }, latest);
+    } else if (defaultEmptyHomeTarget) {
+      initialWorkspaceChosen.current = true;
+      beginNewAgent(defaultEmptyHomeTarget);
+    }
+  }, [settingsLoaded, instancesLoaded, onboardingOpen, columns.length, sessions, newSessionInstanceId, usageOpen, scheduledOpen, archiveOpen, defaultEmptyHomeTarget, beginNewAgent, openSession]);
 
   const cancelNewAgent = () => {
     // A failed attempt has nothing on the host, so closing the pane is also letting it go. One that
@@ -3190,7 +3099,6 @@ export default function App() {
     setNewSessionDirectory(pending.options.directory);
     setUsageOpen(false);
     setScheduledOpen(false);
-    setActivityOpen(false);
     setDraftPendingId(id);
   };
 
@@ -3922,7 +3830,7 @@ export default function App() {
       const remainingAfterClose = openSessionsRef.current.filter((entry) => entry !== key);
       // The rail's next session, captured *before* the archive bumps `updated` and resorts it.
       const nextToOpen =
-        wasActive && remainingAfterClose.length === 0 && !activityOpen && !newSessionInstanceId
+        wasActive && remainingAfterClose.length === 0 && !newSessionInstanceId
           ? nextSessionAfterArchive(
               session,
               Object.values(sessionsByInstanceRef.current).flat(),
@@ -4064,7 +3972,7 @@ export default function App() {
         Boolean(activeKey && succeededKeys.has(activeKey)) &&
         openSessionsRef.current.every((entry) => succeededKeys.has(entry));
       const nextToOpen =
-        clearsWorkspace && !activityOpen && !newSessionInstanceId && activeKey
+        clearsWorkspace && !newSessionInstanceId && activeKey
           ? nextSessionAfterArchive(
               succeeded.find((session) => sessionKey(session) === activeKey) ?? succeeded[0],
               Object.values(sessionsByInstanceRef.current).flat(),
@@ -4150,7 +4058,8 @@ export default function App() {
   }, [sweepStaleScheduledRuns, sessionsByInstance, settings.scheduledSessionBindings, settings.autoArchiveScheduledRuns]);
 
   /** From the archive screen: restore, then open the session as a column. */
-  const handleRestoreAndOpen = async (session: Session) => {    await handleArchive(session, false);
+  const handleRestoreAndOpen = async (session: Session) => {
+    await handleArchive(session, false);
     openSession({ instanceId: session.instanceId, sessionId: session.id }, session);
     setArchiveOpen(false);
   };
@@ -4605,16 +4514,6 @@ export default function App() {
     handleSettings({ avatarOverrides: next });
   };
 
-  React.useEffect(() => {
-    if (
-      Object.keys(allocatedProjectColors).length > 0 &&
-      !sameNumberRecord(allocatedProjectColors, settings.projectColorAssignments)
-    ) {
-      handleSettings({ projectColorAssignments: allocatedProjectColors });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSettings is recreated per render; it only needs the compared values
-  }, [allocatedProjectColors, settings.projectColorAssignments]);
-
   // The rail groups sessions into projects. Hearth folders are only for the new-agent folder
   // picker, so keep pi endpoints out of the rail's grouping map (they stay standalone sessions).
   const railProjectsByInstance = React.useMemo(
@@ -4705,7 +4604,6 @@ export default function App() {
    * rail and the tab strip); nothing is open at all (load the most recently updated session).
    */
   const showSessions = () => {
-    setActivityOpen(false);
     setUsageOpen(false);
     setScheduledOpen(false);
     const open = openSessionsRef.current;
@@ -4739,12 +4637,11 @@ export default function App() {
     const text = composeCommentMessage(comments);
     if (!text.trim()) return false;
     const list = modelsByInstance[readingSession.instanceId];
-    const wanted = readingSession.model
-      ? modelRefKey({ providerID: readingSession.model.providerID, modelID: readingSession.model.modelID })
+    const preferred = readingSession.model ?? settings.instanceDefaults[readingSession.instanceId]?.model;
+    const wanted = preferred
+      ? modelRefKey(preferred)
       : list?.defaultModelId ?? null;
-    const model =
-      list?.models.find((entry) => modelRefKey(entry) === wanted) ??
-      list?.models.find((entry) => modelRefKey(entry) === list.defaultModelId);
+    const model = list?.models.find((entry) => modelRefKey(entry) === wanted);
     if (!model) {
       showActionError(
         `No model is loaded for ${instanceLabelOf(readingSession.instanceId)} yet, so Ember can't send from here. Open the conversation and pick one — these comments stay with it.`
@@ -4757,22 +4654,13 @@ export default function App() {
       {
         text,
         model,
-        variant: readingSession.model?.variant,
+        variant: preferred?.variant,
         selectedModelId: modelRefKey(model),
       },
       { retainOnFailure: false }
     );
     if (sent) handleCommentsSent(readingKey, comments.length);
     return sent;
-  };
-
-  /** Open a session and land on a message a link's context bar points at. */
-  const openSessionAtMessage = (key: string, messageId: string) => {
-    const ref = parseSessionKey(key);
-    if (!ref) return;
-    const session = (sessionsByInstance[ref.instanceId] ?? []).find((entry) => entry.id === ref.sessionId) ?? null;
-    openSession(ref, session);
-    setPendingJump({ key, messageId, token: Date.now() });
   };
 
   const handleSaveNote = (key: string, text: string) => {
@@ -4841,22 +4729,13 @@ export default function App() {
     handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
   };
 
-  /**
-   * "Quiet session": everything is marked read as it arrives.
-   *
-   * Stored on the read mark rather than as its own setting, because the two are the same fact — a
-   * quiet session simply keeps its mark at the newest message. Turning it off leaves every recorded
-   * read alone: the messages were seen, and pretending otherwise would put a backlog on Home for
-   * nothing.
-   */
+  /** Muting notifications leaves every explicit read mark intact. */
   const handleQuietChange = (session: Session, quiet: boolean) => {
     const key = sessionKey(session);
-    const current = settingsRef.current.readMarks;
-    const mark = withQuiet(current[key], quiet);
-    handleSettings(
-      { readMarks: { ...current, [key]: quiet ? advanceQuietMark(mark, session.lastEntryId ?? 0) : mark } },
-      { preserveActionError: true }
-    );
+    const muted = new Set(settingsRef.current.mutedSessions ?? []);
+    if (quiet) muted.add(key);
+    else muted.delete(key);
+    handleSettings({ mutedSessions: [...muted] }, { preserveActionError: true });
   };
 
   /** Right-click "Mark all as read": everything the host has, including out-of-order marks. */
@@ -5048,7 +4927,6 @@ export default function App() {
           session={session}
           instance={instance}
           active={key === featuredKey}
-          focusTarget={pendingJump?.key === key ? { messageId: pendingJump.messageId, token: pendingJump.token } : null}
           commentDraftsVersion={commentDraftsVersion}
           instanceMarkerColor={instanceMarkerColor(ref.instanceId, settings.instanceDefaults[ref.instanceId])}
           newSessionInstanceId={null}
@@ -5103,6 +4981,7 @@ export default function App() {
           onMarkMessageRead={handleMarkMessageReadInColumn}
           onMarkAllRead={handleMarkAllRead}
           onQuietChange={handleQuietChange}
+          notificationsMuted={quietKeys.has(sessionKey(session))}
           processExtensions={processExtensions}
           onExtendProcesses={extendProcesses}
           onNewSessionInstanceChange={() => {}}
@@ -5322,29 +5201,20 @@ export default function App() {
             onToggleNavigation={() => setMobileRailOpen((open) => !open)}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onRefresh={() => void refreshInstances()}
-            onToggleActivity={() => {
-              setUsageOpen(false);
-              setScheduledOpen(false);
-              setActivityOpen((open) => !open);
-            }}
-            activityActive={activityVisible && !usageOpen && !scheduledOpen}
             onShowSessions={showSessions}
             onShowUsage={() => {
-              setActivityOpen(false);
               setScheduledOpen(false);
               setUsageOpen(true);
             }}
             usageActive={usageOpen}
             onShowScheduled={() => {
-              setActivityOpen(false);
               setUsageOpen(false);
               setScheduledOpen(true);
               setScheduledSeenAt(Date.now());
             }}
             scheduledActive={scheduledOpen}
             unseenScheduledRuns={unseenScheduledRunsCount}
-            unreadMessages={unreadMessages}
-            hideNavigation={activityVisible || usageOpen || scheduledOpen}
+            hideNavigation={usageOpen || scheduledOpen}
             onOpenSettings={() => {
               setProviderEndpointId(undefined);
               setSettingsView('instances');
@@ -5354,8 +5224,8 @@ export default function App() {
           />
 
           <div className="relative flex min-h-0 flex-1">
-            {/* Home has no rail: it is the reading surface, and its cards are the sessions. */}
-            {!activityVisible && mobileRailOpen ? (
+            {/* The workspace keeps its rail available even when every column is closed. */}
+            {mobileRailOpen ? (
               <button
                 type="button"
                 className="fixed inset-x-0 bottom-0 top-[calc(2.75rem+env(safe-area-inset-top))] z-30 bg-black/35 backdrop-blur-[1px] md:hidden"
@@ -5363,7 +5233,7 @@ export default function App() {
                 aria-label="Close sessions sidebar"
               />
             ) : null}
-            {!activityVisible && !usageOpen && !scheduledOpen ? (
+            {!usageOpen && !scheduledOpen ? (
             <LeftRail
               mode={settings.railMode}
               onCycleMode={cycleRailMode}
@@ -5421,6 +5291,8 @@ export default function App() {
               onArchiveMany={(sessions) => void handleArchiveMany(sessions, true)}
               onCustomizeAppearance={setAvatarPickerSession}
               onMarkAllRead={handleMarkAllRead}
+              unreadMessages={unreadMessages}
+              onReadUnread={() => { const key = [...unreadKeys][0]; if (key) setReadingKey(key); }}
               unreadKeys={unreadKeys}
               quietKeys={quietKeys}
               onQuietChange={handleQuietChange}
@@ -5463,52 +5335,6 @@ export default function App() {
                     <ModelUsagePanel instances={instances} modelsByInstance={modelsByInstance} />
                   </React.Suspense>
                 </div>
-              ) : activityVisible && !newSessionInstanceId ? (
-                <React.Suspense fallback={null}>
-                  <HomeView
-                    sessions={sessions}
-                    everySession={everySession}
-                    digests={unreadDigests.digests}
-                    pending={unreadDigests.pending}
-                    permissions={permissions}
-                    questions={questions}
-                    marks={readMarks}
-                    notes={settings.sessionNotes}
-                    sessionWindowHours={sessionWindowHours}
-                    instances={instances}
-                    projectsByInstance={projectsByInstance}
-                    moods={moods}
-                    avatarIdentities={avatarIdentities}
-                    blobStyle={settings.blobStyle}
-                    showBackButton={openSessions.length > 0}
-                    onClose={showSessions}
-                    onOpenSession={(session) =>
-                      openSession({ instanceId: session.instanceId, sessionId: session.id }, session)
-                    }
-                    onOpenSessionAt={openSessionAtMessage}
-                    onReadItem={(session) => setReadingKey(sessionKey(session))}
-                    onMarkAllRead={handleMarkAllRead}
-                    onQuietChange={handleQuietChange}
-                    onOpenArchive={() => setArchiveOpen(true)}
-                    onNewAgent={(instanceId) => {
-                      const target =
-                        instanceId ??
-                        instances.find((instance) => instance.status === 'ready')?.id ??
-                        instances[0]?.id;
-                      if (!target) return;
-                      beginNewAgent(target);
-                    }}
-                    activity={{
-                      entries: activity.entries,
-                      loading: activity.initialLoading,
-                      error: activity.error,
-                      historyUnavailable: activity.historyUnavailable,
-                      canLoadEarlier: activity.canLoadEarlier,
-                      loadingEarlier: activity.loadingEarlier,
-                      onLoadEarlier: activity.loadEarlier,
-                    }}
-                  />
-                </React.Suspense>
               ) : newSessionInstanceId || columns.length === 0 ? (
                 <ChatView
                   session={null}
@@ -5606,10 +5432,6 @@ export default function App() {
                 beginNewAgent(instanceId);
                 setMobileRailOpen(false);
               }}
-              onToggleActivity={() => {
-                setActivityOpen((open) => !open);
-                setMobileRailOpen(false);
-              }}
             />
           </React.Suspense>
 
@@ -5696,6 +5518,7 @@ export default function App() {
           {onboardingOpen ? (
             <React.Suspense fallback={null}>
               <OnboardingWizard
+                instanceDefaults={settings.instanceDefaults}
                 open={onboardingOpen}
                 startAtWelcome={Boolean(settings.onboardingStartedAt)}
                 state={onboardingState}
@@ -5746,13 +5569,7 @@ export default function App() {
             <React.Suspense fallback={<DialogFallback label="Loading appearance…" />}>
               <AvatarPicker
                 open
-                title={
-                  avatarPickerProject
-                    ? `Project: ${avatarPickerProject.name}`
-                    : avatarPickerFolderName
-                      ? `Folder: ${avatarPickerFolderName}`
-                      : avatarPickerSession.title ?? avatarPickerSession.id
-                }
+                title={avatarPickerSession.title ?? avatarPickerSession.id}
                 style={settings.blobStyle}
                 identity={avatarPickerIdentity}
                 scopes={avatarPickerScopes}
@@ -5814,6 +5631,7 @@ export default function App() {
           onMarkAllRead={() => handleMarkAllRead(readingSession)}
           onOpenColumn={() => {
             setReadingKey(null);
+            setCommentDraftsVersion((version) => version + 1);
             openSession(
               { instanceId: readingSession.instanceId, sessionId: readingSession.id },
               readingSession

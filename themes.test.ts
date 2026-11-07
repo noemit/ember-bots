@@ -242,17 +242,19 @@ describe('blob colours', () => {
     }
   });
 
-  test('groups project colors while keeping ordinary session shapes distinct', () => {
+  test('keeps each chat recognizable with its own stable color across projects and styles', () => {
     const projects: Project[] = [{ id: 'ember', name: 'Ember', path: '/workspace/ember' }];
     const first: Session = { id: 'one', instanceId: 'local', directory: '/workspace/ember' };
     const second: Session = { id: 'two', instanceId: 'local', directory: '/workspace/ember/src' };
     const firstIdentity = resolveAvatarIdentity(first, projects, {}, {});
     const secondIdentity = resolveAvatarIdentity(second, projects, {}, {});
 
-    expect(firstIdentity.colorSeed).toBe(secondIdentity.colorSeed);
+    expect(firstIdentity.colorSeed).not.toBe(secondIdentity.colorSeed);
     expect(firstIdentity.shapeSeed).not.toBe(secondIdentity.shapeSeed);
-    expect(blobColor('crystal', firstIdentity)).toBe(blobColor('crystal', secondIdentity));
-    expect(blobColor('buddy', firstIdentity)).toBe(blobColor('buddy', secondIdentity));
+    expect(resolveAvatarIdentity(first, [], {}, {}).colorIndex).toBe(firstIdentity.colorIndex);
+    expect(resolveAvatarIdentity(first, projects, {}, {}).colorIndex).toBe(firstIdentity.colorIndex);
+    expect(blobColor('crystal', firstIdentity)).not.toBe(blobColor('crystal', secondIdentity));
+    expect(blobColor('buddy', firstIdentity)).not.toBe(blobColor('buddy', secondIdentity));
     expect(blobColor('buddy', firstIdentity)).toBe(blobColor('crystal', firstIdentity));
     const grouped = blobColor('buddy', firstIdentity).match(/^var\(--blob-(\d+)\)$/);
     expect(grouped).not.toBeNull();
@@ -293,4 +295,22 @@ describe('blob colours', () => {
     expect(identity.colorIndex).toBe(2);
     expect(identity.shapeName).toBe('cloud');
   });
+});
+
+
+test('explicit chat colors are the same identity in every blob style and glow', () => {
+  const identity = resolveAvatarIdentity({ id: 'one', instanceId: 'local' }, [], {}, { 'session:local::one': { color: '#d25b87' } });
+  for (const style of ['buddy', 'crystal', 'lava', 'pip'] as const) expect(blobColor(style, identity)).toBe('#d25b87');
+});
+
+
+test('a chat swatch replaces an inherited custom color without changing its shape', () => {
+  const session = { id: 'one', instanceId: 'local', directory: '/work' };
+  const identity = resolveAvatarIdentity(session, [], {}, {
+    'directory:local::/work': { color: '#d25b87', shapeName: 'cloud' },
+    'session:local::one': { colorIndex: 3 },
+  });
+  expect(identity.color).toBeUndefined();
+  expect(identity.colorIndex).toBe(3);
+  expect(identity.shapeName).toBe('cloud');
 });

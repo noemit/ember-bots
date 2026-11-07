@@ -6,6 +6,7 @@ import {
   localInstanceUrl,
   normalizeApiMethod,
   parseAvatarOverrides,
+  parseMutedSessions,
   parseColorAssignments,
   parseComposerDrafts,
   parsePiEndpoints,
@@ -217,4 +218,18 @@ describe('read marks survive the settings round trip', () => {
     expect(parseReadMarks({ 'pi:h::4': { through: 0, quiet: false } })).toEqual({});
     expect(parseReadMarks({ 'pi:h::4': { quiet: 'yes' } })).toEqual({});
   });
+});
+
+
+test('notification migration keeps policy separate from the evidence of reading', () => {
+  const legacy = { 'pi:h::1': { through: 12, ids: [14], quiet: true } };
+  expect(parseMutedSessions(undefined, legacy)).toEqual(['pi:h::1']);
+  expect(parseMutedSessions([], legacy)).toEqual([]);
+  expect(parseMutedSessions(['pi:h::2'], legacy)).toEqual(['pi:h::2']);
+  expect(legacy['pi:h::1'].through).toBe(12);
+});
+
+test('custom avatar colors accept only CSS-safe six-digit hex', () => {
+  expect(parseAvatarOverrides({ chat: { color: '#D25B87' } }).chat.color).toBe('#d25b87');
+  expect(parseAvatarOverrides({ chat: { color: 'url(https://example.com)' } })).toEqual({});
 });

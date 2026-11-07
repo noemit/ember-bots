@@ -73,7 +73,6 @@ export const markRead = (
     ...(kept.length ? { ids: kept } : {}),
     readAt: Math.max(base.readAt ?? 0, at),
     ...(base.comments ? { comments: base.comments } : {}),
-    ...(base.quiet ? { quiet: true } : {}),
   };
 };
 
@@ -106,7 +105,6 @@ export const markAllRead = (
     through: Math.max(base.through, through),
     readAt: Math.max(base.readAt ?? 0, at),
     ...(base.comments ? { comments: base.comments } : {}),
-    ...(base.quiet ? { quiet: true } : {}),
   };
 };
 
@@ -133,44 +131,4 @@ export const pruneReadMarks = (
   // Deterministic, so a settings write that changes nothing is skipped by the caller.
   const bounded = kept.length > limit ? kept.slice(-limit) : kept;
   return Object.fromEntries(bounded);
-};
-
-/**
- * Whether this session wants its messages marked read on arrival.
- *
- * `quiet` means "mark all messages as read; no notifications needed" — the session is one the reader
- * watches without acting, a scheduled brief or a worker whose output they read later. It is a
- * *standing* choice, not a mark: nothing is written per message, and turning it off does not
- * retroactively unread anything (the marks are gone, and re-inventing them would be a lie about what
- * was seen).
- */
-export const isQuietSession = (mark: SessionReadMark | undefined): boolean => mark?.quiet === true;
-
-/**
- * The mark a quiet session keeps as new messages arrive: everything up to `through` read.
- *
- * Called with the newest ordinal the caller can see, so a quiet session quietly advances rather than
- * accumulating a backlog on Home. It never *lowers* a mark, so toggling quiet off and on again
- * cannot unread anything either.
- */
-export const advanceQuietMark = (
-  mark: SessionReadMark | undefined,
-  through: number,
-  at = 0
-): SessionReadMark => {
-  if (!isQuietSession(mark)) return mark ?? EMPTY_READ_MARK;
-  if (through <= (mark?.through ?? 0)) return mark ?? EMPTY_READ_MARK;
-  return { ...markRead(mark, through, [], at), quiet: true };
-};
-
-/**
- * The same mark with the quiet policy set or cleared, leaving every recorded read alone.
- *
- * `readAt` is untouched on purpose: turning quiet off must not make previously-read messages look
- * newly read, and turning it on must not claim anything was read just now.
- */
-export const withQuiet = (mark: SessionReadMark | undefined, quiet: boolean): SessionReadMark => {
-  const base = mark ?? EMPTY_READ_MARK;
-  const { quiet: _dropped, ...rest } = base;
-  return quiet ? { ...rest, quiet: true } : rest;
 };

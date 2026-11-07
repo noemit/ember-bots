@@ -48,11 +48,12 @@ export const isRunUnseen = (input: {
   session: Session | null;
   at: number;
   mark?: SessionReadMark;
+  muted?: boolean;
   seenBaselineAt?: number;
 }): boolean => {
   const { status, session, at, mark, seenBaselineAt = 0 } = input;
   if (status === 'running') return false;
-  if (mark?.quiet) return false;
+  if (input.muted) return false;
   if (at > 0 && seenBaselineAt > 0 && at <= seenBaselineAt) return false;
   if (session?.lastEntryId !== undefined && mark) {
     return session.lastEntryId > mark.through;
@@ -74,6 +75,7 @@ export const buildScheduledRuns = (input: {
   states?: Readonly<Record<string, BallState>>;
   failedKeys?: ReadonlySet<string>;
   readMarks?: Readonly<Record<string, SessionReadMark>>;
+  mutedSessions?: readonly string[];
   seenBaselineAt?: number;
   instances?: readonly Instance[];
 }): ScheduledRunRow[] => {
@@ -84,6 +86,7 @@ export const buildScheduledRuns = (input: {
     states = {},
     failedKeys = new Set<string>(),
     readMarks = {},
+    mutedSessions = [],
     seenBaselineAt = 0,
     instances = [],
   } = input;
@@ -120,6 +123,7 @@ export const buildScheduledRuns = (input: {
         session,
         at,
         mark: readMarks[sKey],
+        muted: mutedSessions.includes(sKey),
         seenBaselineAt,
       }),
     });
@@ -156,6 +160,7 @@ export const buildScheduledRuns = (input: {
         session,
         at,
         mark: sKey ? readMarks[sKey] : undefined,
+        muted: sKey ? mutedSessions.includes(sKey) : false,
         seenBaselineAt,
       }),
     });
