@@ -5018,6 +5018,9 @@ export default function App() {
             // never answer again had no way out of this menu at all.
             onForget={forgetInstance}
             onToggleNavigation={() => setMobileRailOpen((open) => !open)}
+            mobileNavigationOpen={mobileRailOpen}
+            railMode={settings.railMode}
+            onCycleRailMode={cycleRailMode}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onRefresh={() => void refreshInstances()}
             onShowSessions={showSessions}
@@ -5055,7 +5058,6 @@ export default function App() {
             <LeftRail
               onRenameSession={(session, title) => void handleRenameSession(session, title)}
               mode={settings.railMode}
-              onCycleMode={cycleRailMode}
               instances={instances}
               groups={settings.sessionGroups}
               onOpenGroup={openGroup}

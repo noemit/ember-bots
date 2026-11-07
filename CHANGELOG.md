@@ -1,3 +1,8 @@
+## 1.20.6
+
+### Changed
+- The sidebar width control sits beside the app name in the top bar, following the macOS window buttons. The name uses a neutral, bolder treatment, and the rail no longer repeats the control.
+
 ## 1.20.5
 
 ### Fixed

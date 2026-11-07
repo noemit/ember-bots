@@ -457,14 +457,15 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   shortcut and separate reading modal are also removed. Read replies in the conversation with
   Go to new messages and explicit per-message read controls. Activity milestones remain recorded
   by main, without a separate activity page.
-- `src/components/InstanceBar.tsx` — the top bar: Ember wordmark, search, **Sessions**, **Usage**
+- `src/components/InstanceBar.tsx` — the top bar: sidebar-width control followed by the Ember name,
+  beside the native macOS window buttons, then search, **Sessions**, **Usage**
   and **Scheduled** views, then the instances menu. Sessions opens the latest chat if no column is
   open. Error/notice toasts render inline next to search. Home is no longer a view or command.
 - `src/components/LeftRail.tsx` — **three widths, one toggle** (`settings.railMode`): **mini** is a
   64px dock of session blobs (tooltip = title + latest message; no search, groups or labels),
   **normal** is the 272px rail, and **wide** is about half the window, where each row shows the latest
   message over up to three lines (`SessionRow`'s `expanded`) and a project's blob strip spreads into
-  the room. The panel button in the toolbar cycles them and `Cmd/Ctrl+B` does the same from anywhere.
+  the room. The panel button beside the app name in the top bar cycles them and `Cmd/Ctrl+B` does the same from anywhere.
   The rail is a single recency-ordered list from
   `src/lib/projectGroups.ts` (`buildRailEntries`). A configured project with one active session
   renders as a plain `SessionRow` whose title is the project name (a hover `+` starts a new session

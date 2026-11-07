@@ -1,5 +1,23 @@
 import { expect, test } from '@playwright/test';
 
+test('the top-bar sidebar control opens and closes the mobile rail', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const toolbar = page.getByTestId('window-toolbar');
+  const toggle = toolbar.getByRole('button', { name: 'Toggle sessions sidebar', exact: true });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('aside').getByRole('button', { name: 'New agent', exact: true })).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  const control = (await toggle.boundingBox())!;
+  const name = (await toolbar.locator('[data-app-name]').boundingBox())!;
+  expect(control.x + control.width).toBeLessThan(name.x);
+  expect(control.y).toBeLessThan(44);
+});
+
 test('the workspace opens directly without an unread shortcut or reading modal', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('aside')).toBeVisible();

@@ -90,6 +90,24 @@ require(process.env.EMBER_TEST_ENTRY);
     await expect(nativeWindow.getByRole('log', { name: 'Conversation' }).getByText('Native fixture response b', { exact: true })).toBeVisible();
     expect(await nativeWindow.evaluate(() => Boolean(window.ember.capabilities))).toBe(true);
 
+    await test.step('the native top bar keeps its sidebar control beside the name and clear of window buttons', async () => {
+      const toolbar = nativeWindow.getByTestId('window-toolbar');
+      const control = toolbar.getByRole('button', { name: 'Widen the session list', exact: true });
+      const name = toolbar.locator('[data-app-name]');
+      const toggleBox = (await control.boundingBox())!;
+      const nameBox = (await name.boundingBox())!;
+      if (process.platform === 'darwin') expect(toggleBox.x).toBeGreaterThanOrEqual(90);
+      expect(toggleBox.x + toggleBox.width).toBeLessThan(nameBox.x);
+      expect(await control.evaluate(node => getComputedStyle(node).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
+      await nativeWindow.screenshot({ path: '/tmp/ember-native-topbar.png' });
+      await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(720, 600));
+      const instances = (await toolbar.getByRole('button', { name: 'Instances', exact: true }).boundingBox())!;
+      expect(instances.x + instances.width).toBeLessThanOrEqual(720);
+      const mobileControl = (await toolbar.getByRole('button', { name: 'Toggle sessions sidebar', exact: true }).boundingBox())!;
+      if (process.platform === 'darwin') expect(mobileControl.x).toBeGreaterThanOrEqual(90);
+      await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 900));
+    });
+
     await test.step('native IPC saves separate drafts and usage to the isolated home', async () => {
       await nativeWindow.locator('textarea').nth(0).fill('Native draft A');
       await nativeWindow.locator('textarea').nth(1).fill('Native draft B');

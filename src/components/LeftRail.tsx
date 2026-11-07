@@ -10,8 +10,6 @@ import { AnimatePresence, LayoutGroup } from 'motion/react';
 import {
   Box,
   ChevronDown,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   RefreshCw,
   Search,
@@ -78,8 +76,6 @@ type Props = {
   blobStyle: BlobStyle;
   /** The session list's width: a blob dock, the familiar rail, or about half the window. */
   mode: RailMode;
-  /** Walk mini → normal → wide. */
-  onCycleMode: () => void;
   /** Compact session rows: smaller blobs, no preview line. */
   compact: boolean;
   loading: boolean;
@@ -167,7 +163,6 @@ export default function LeftRail({
   blobStyle,
   compact,
   mode,
-  onCycleMode,
   loading,
   startupMessage,
   silentInstances,
@@ -693,6 +688,7 @@ export default function LeftRail({
   return (
     <LayoutGroup id="rail-connection"><AvatarTransitionContext.Provider value={docked && !needle}>
     <aside
+      id="session-sidebar"
       style={{ '--mini-rail-width': `${miniAvatarSize + 24}px` } as React.CSSProperties}
       data-testid="session-rail"
       onPointerDownCapture={() => { focusDock.current = false; }}
@@ -726,21 +722,6 @@ export default function LeftRail({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>New agent</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  onClick={onCycleMode}
-                  aria-label="Show the normal session list"
-                  aria-keyshortcuts="Meta+B Control+B"
-                  className="size-8"
-                >
-                  <PanelLeftOpen className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Back to the normal list (⌘B)</TooltipContent>
             </Tooltip>
           </div>
         ) : null}
@@ -830,24 +811,6 @@ export default function LeftRail({
             <TooltipContent>Archived sessions</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onCycleMode}
-                aria-label={mode === 'normal' ? 'Widen the session list' : 'Collapse the session list'}
-                aria-pressed={mode !== 'normal'}
-                aria-keyshortcuts="Meta+B Control+B"
-                className="hidden w-8 justify-center px-0 md:inline-flex"
-              >
-                {mode === 'wide' ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {mode === 'normal' ? 'Widen the list to read messages (⌘B)' : 'Collapse the list to icons (⌘B)'}
-            </TooltipContent>
-          </Tooltip>
         </div>
         )}
       </div>

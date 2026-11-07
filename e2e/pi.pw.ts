@@ -511,31 +511,42 @@ test('closing every column keeps the rail available, and Sessions reopens a chat
 test('the session list has three widths: mini, normal, wide', async ({ page }) => {
   await page.getByRole('button', { name: /^Sessions —/ }).click();
   const rail = page.locator('aside');
+  const toolbar = page.getByTestId('window-toolbar');
+  const name = toolbar.locator('[data-app-name]');
+  const namePosition = await name.boundingBox();
+  const widen = toolbar.getByRole('button', { name: 'Widen the session list' });
+  await expect(widen).toBeVisible();
+  const controlPosition = (await widen.boundingBox())!;
+  expect(controlPosition.x + controlPosition.width).toBeLessThan(namePosition!.x);
+  expect(Math.abs(controlPosition.y + controlPosition.height / 2 - namePosition!.y - namePosition!.height / 2)).toBeLessThan(1);
+  await expect(rail.getByRole('button', { name: 'Widen the session list' })).toHaveCount(0);
   const width = async () => (await rail.boundingBox())?.width ?? 0;
   // The width animates, so every step is polled rather than measured once.
   await expect.poll(width).toBe(272);
 
   // Wide: about half the window, and the whole reason for it — more of the latest message.
-  await page.getByRole('button', { name: 'Widen the session list' }).click();
+  await widen.click();
   const viewport = page.viewportSize()?.width ?? 0;
   await expect.poll(width).toBeGreaterThan(viewport * 0.4);
   await expect(rail.getByTestId('session-preview').first()).toBeVisible();
 
   // Mini: a blob dock, about the width of one blob column.
-  await page.getByRole('button', { name: 'Collapse the session list' }).click();
+  await toolbar.getByRole('button', { name: 'Collapse the session list' }).click();
   await expect.poll(width).toBeLessThan(80);
   expect(await rail.locator('[data-mini-session]').count()).toBeGreaterThan(0);
   await expect(rail.getByTestId('session-preview')).toHaveCount(0);
 
   // Back to normal, and the keyboard walks the same ring.
-  await page.getByRole('button', { name: 'Show the normal session list' }).click();
+  await toolbar.getByRole('button', { name: 'Show the normal session list' }).click();
   await expect.poll(width).toBe(272);
+  expect(await name.boundingBox()).toEqual(namePosition);
   await page.keyboard.press('ControlOrMeta+b');
   await expect.poll(width).toBeGreaterThan(viewport * 0.4);
   await page.keyboard.press('ControlOrMeta+b');
   await expect.poll(width).toBeLessThan(80);
   await page.keyboard.press('ControlOrMeta+b');
   await expect.poll(width).toBe(272);
+  await page.screenshot({ path: '/tmp/ember-topbar-sidebar.png' });
 });
 
 test('the new-agent folder picker lists Hearth directories', async ({ page }) => {

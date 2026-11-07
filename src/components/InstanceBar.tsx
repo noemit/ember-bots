@@ -1,6 +1,6 @@
 import { scheduledBadgeTitle } from '../lib/scheduledView';
 import * as React from 'react';
-import { ChevronDown, Menu, RefreshCw, Search, Settings } from 'lucide-react';
+import { ChevronDown, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { shortcutLabel } from '@/lib/shortcuts';
 import { readyInstanceCount } from '@/lib/instanceHealth';
@@ -15,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { Instance, InstanceStatus } from '../types';
+import type { Instance, InstanceStatus, RailMode } from '../types';
 
 type Props = {
   instances: Instance[];
@@ -29,6 +29,9 @@ type Props = {
   /** Forget an instance for good — the way out for a host that will never answer again. */
   onForget: (instanceId: string) => void;
   onToggleNavigation: () => void;
+  mobileNavigationOpen: boolean;
+  railMode: RailMode;
+  onCycleRailMode: () => void;
   onOpenCommandPalette: () => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
@@ -116,7 +119,7 @@ const statusDot: Record<InstanceStatus, string> = {
   unsupported: 'bg-muted-foreground/30',
 };
 
-// macOS traffic lights sit inside the inset title bar; leave room for them.
+// macOS traffic lights sit inside the native inset title bar.
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
 export default function InstanceBar({
@@ -128,6 +131,9 @@ export default function InstanceBar({
   onToggle,
   onForget,
   onToggleNavigation,
+  mobileNavigationOpen,
+  railMode,
+  onCycleRailMode,
   onOpenCommandPalette,
   onRefresh,
   onOpenSettings,
@@ -142,27 +148,45 @@ export default function InstanceBar({
   // Same predicate the dropdown's per-row dot and `statusLabel` use: a host in its probe grace
   // period (`status: 'unreachable'`, `attachable: true`) counts as not connected in both places.
   const connected = readyInstanceCount(instances);
+  const nativeTitlebar = isMac && window.ember.capabilities?.dockIcon;
+  const railAction = railMode === 'mini' ? 'Show the normal session list'
+    : railMode === 'normal' ? 'Widen the session list' : 'Collapse the session list';
 
   return (
     <div
+      data-testid="window-toolbar"
       className={cn(
         'safe-top-bar drag-region flex flex-none items-center gap-2 border-b bg-card pr-[max(0.75rem,env(safe-area-inset-right))]',
-        isMac ? 'pl-3 md:pl-[76px]' : 'pl-[max(0.75rem,env(safe-area-inset-left))]'
+        nativeTitlebar ? 'pl-[96px]' : 'pl-[max(0.75rem,env(safe-area-inset-left))]'
       )}
     >
-      {hideNavigation ? null : (
-        <button
-          type="button"
-          onClick={onToggleNavigation}
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
-          aria-label="Toggle sessions sidebar"
-        >
-          <Menu className="size-4" />
-        </button>
-      )}
-      <span className="mr-1 text-[13px] font-semibold tracking-wide text-highlight">
-        {window.ember.appName ?? 'Ember'}
-      </span>
+      <div className="mr-1 flex flex-none items-center gap-2">
+        {hideNavigation ? null : <>
+          <Tooltip><TooltipTrigger asChild><button
+            type="button"
+            onClick={onCycleRailMode}
+            className="hidden size-8 flex-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring md:flex"
+            aria-label={railAction}
+            aria-controls="session-sidebar"
+            aria-keyshortcuts="Meta+B Control+B"
+          >
+            {railMode === 'wide' ? <PanelLeftClose className="size-[18px]" /> : <PanelLeftOpen className="size-[18px]" />}
+          </button></TooltipTrigger><TooltipContent>{shortcutLabel(`${railAction} · Mod+B`)}</TooltipContent></Tooltip>
+          <button
+            type="button"
+            onClick={onToggleNavigation}
+            className="flex size-8 flex-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+            aria-label="Toggle sessions sidebar"
+            aria-controls="session-sidebar"
+            aria-expanded={mobileNavigationOpen}
+          >
+            {mobileNavigationOpen ? <PanelLeftClose className="size-[18px]" /> : <PanelLeftOpen className="size-[18px]" />}
+          </button>
+        </>}
+        <span data-app-name className="whitespace-nowrap text-[14px] font-semibold text-foreground">
+          {window.ember.appName ?? 'Ember'}
+        </span>
+      </div>
       <Tooltip><TooltipTrigger asChild><button
         type="button"
         onClick={onOpenCommandPalette}
@@ -171,8 +195,8 @@ export default function InstanceBar({
         aria-keyshortcuts="Meta+K Control+K"
       >
         <Search className="size-3.5" />
-        <span className="hidden sm:inline">Search</span>
-        <kbd className="hidden rounded bg-background px-1 text-[10px] sm:inline">{shortcutLabel('Mod+K')}</kbd>
+        <span className="hidden lg:inline">Search</span>
+        <kbd className="hidden rounded bg-background px-1 text-[10px] lg:inline">{shortcutLabel('Mod+K')}</kbd>
       </button></TooltipTrigger><TooltipContent>{shortcutLabel('Search sessions and notes · Mod+K')}</TooltipContent></Tooltip>
 
       {banner ? (
