@@ -4,6 +4,7 @@ import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-code
 import { createLoginSupervisor } from '../../src/login';
 import { FileCredentialStore } from '../../src/credentials';
 import type { Credential } from '@earendil-works/pi-ai';
+import { resolve } from 'node:path';
 
 const calls: string[] = [];
 const access = `fixture.${Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'fixture-account' } })).toString('base64url')}.signature`;
@@ -16,7 +17,8 @@ globalThis.fetch = (async (input: string | URL | Request) => {
   throw new Error(`Unexpected network request: ${new URL(url).origin}`);
 }) as typeof fetch;
 const provider = openaiCodexProvider();
-const store = new FileCredentialStore('auth.json');
+// Match Kiln's absolute data path; Bun on Windows cannot recursively mkdir '.'.
+const store = new FileCredentialStore(resolve('auth.json'));
 const supervisor = createLoginSupervisor(() => ({ id: provider.id, oauth: provider.auth.oauth }),
   async (id, credential) => { await store.modify(id, async () => credential as Credential); });
 await supervisor.start(provider.id);

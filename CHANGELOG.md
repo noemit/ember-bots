@@ -1,3 +1,9 @@
+## 1.9.1
+
+### Fixed
+- The compiled OAuth regression uses an absolute credential path, matching Kiln's data directory
+  and avoiding a Bun Windows error when recursively creating `.`.
+
 ## 1.9.0
 
 ### Added
