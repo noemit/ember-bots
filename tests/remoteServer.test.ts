@@ -159,6 +159,10 @@ test('proxies piRequest, eventStatus, and activity endpoints', async () => {
     expect(piData.ok).toBe(true);
     expect(f.writes).toContain('pi:pi:test:/conversations');
 
+    const alignment = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/alignment/connections', init: { method: 'POST' } }, cookie);
+    expect(alignment.status).toBe(403);
+    expect(f.writes).not.toContain('pi:pi:test:/alignment/connections');
+
     // Invalid pi request validation
     expect((await f.request('/remote/pi', 'POST', { endpointId: '', path: '/foo' }, cookie)).status).toBe(400);
     expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: 'no-slash' }, cookie)).status).toBe(400);

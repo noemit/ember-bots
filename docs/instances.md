@@ -98,3 +98,25 @@ streams; disabling or restarting remote access disconnects clients. If remote ac
 start, check that the host has a Tailscale IPv4 address and a configured password, then inspect the
 terminal running Ember for its listening address or error. Two Ember profiles should not enable
 remote access simultaneously: both would use port 57821.
+
+## Align multiple Ember setups
+
+In **Settings → Instances**, open **Align all my instances**, then **Review instances**.
+Each connected Kiln reports the connections and stored API keys it can share. Expand the connection
+list to inspect addresses, then choose **Align now**. Missing connections are added to this Ember
+and shared with the reviewed Kilns. Run the same action in your other Ember apps to import them there.
+Newly discovered hosts are not changed until you review them in another pass.
+
+To share providers too, select **Copy missing API keys from one instance** and choose a source.
+That Kiln sends its stored API keys directly to the other reviewed Kilns at private-network or
+HTTPS addresses. Existing keys, account sign-ins and environment credentials are preserved.
+Subscription sign-ins are not copied; sign in separately on each host. Anyone with access to a
+destination Kiln can use the provider keys copied there.
+
+This is a deliberate one-time action, not ongoing sync. It leaves chats, folders, model defaults
+and local runtimes on their own instances. Loopback addresses are not portable; use a reachable
+Tailscale/private address or HTTPS URL for a host you want to share. The included Kiln can be a
+provider source, but cannot receive keys from another computer through its loopback address.
+Older or offline hosts are reported rather than blocking the rest; update to **Kiln 1.10.0 or later**,
+check their connections, then review again. Alignment is available in the desktop app; remote
+browser clients cannot export connection credentials.

@@ -341,7 +341,7 @@ export class PiClient {
           }));
         await this.request(target.id, '/directory/peers', {
           method: 'PUT',
-          body: { peers },
+          body: { peers, merge: true },
         }).catch(() => null);
       })
     );

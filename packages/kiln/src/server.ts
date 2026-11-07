@@ -1,3 +1,4 @@
+import { importApiKeys, mergePeers, portablePeer, shareApiKeys } from "./alignment";
 import { timingSafeEqual } from "node:crypto";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, statSync } from "node:fs";
@@ -979,6 +980,8 @@ const imagesInEntry = (entry: EntryShape): string => {
  * decides routing — a stale row can only produce a worse sentence, never a wrong answer.
  */
 const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
+  [/^\/alignment$/, ["GET"]],
+  [/^\/alignment\/(connections|import|share)$/, ["POST"]],
   [/^\/health$/, ["GET"]],
   [/^\/admin\/restart$/, ["POST"]],
   [/^\/models$/, ["GET"]],
@@ -1361,6 +1364,53 @@ const server = Bun.serve<{
         // difference between them is what tells someone whether to install a model or start an app.
         return json({ providers, default: defaultAgent.model, ...(localRuntimes ? { localRuntimes } : {}) });
       }
+      // Alignment is explicit and fill-only. OAuth credentials never leave their owner.
+      if (path === "/alignment" && request.method === "GET") {
+        const state = await harness.snapshot(AgentsDoc, context);
+        const credentials = store ? await store.list() : [];
+        return json({
+          apiKeys: credentials.filter(c => c.type === "api_key").map(c => c.providerId),
+          signIns: credentials.filter(c => c.type === "oauth").length,
+          peers: (state?.peers ?? []).filter(p => portablePeer(p)).map(({ id, label, url }) => ({ id, label, url })),
+        });
+      }
+      if (path === "/alignment/connections" && request.method === "POST") {
+        const state = await harness.snapshot(AgentsDoc, context);
+        return json({ peers: (state?.peers ?? []).flatMap(p => { const peer = portablePeer(p); return peer ? [peer] : []; }) });
+      }
+      if (path === "/alignment/import" && request.method === "POST") {
+        const body = await readBody(request);
+        if (!Array.isArray(body.peers) || body.peers.length > 100) return badRequest("Choose up to 100 connections to align.");
+        const peers = body.peers.map(portablePeer);
+        if (peers.some(p => !p)) return badRequest("Use private-network or HTTPS addresses reachable from another computer.");
+        let keys = 0;
+        try {
+          if (Array.isArray(body.keys) && body.keys.length > 0) {
+            if (!store) return badRequest("This Kiln cannot store provider keys. Update it, then try again.");
+            keys = await importApiKeys(store, body.keys);
+          }
+        } catch { return badRequest("The provider list is not valid. Review the source instance and try again."); }
+        let added = 0;
+        let merged: PeerEndpoint[] = [];
+        await harness.commit(async tx => {
+          const doc = await tx.doc(AgentsDoc);
+          merged = mergePeers(doc.peers ?? [], peers as PeerEndpoint[]);
+          added = merged.length - (doc.peers?.length ?? 0);
+          doc.peers = merged;
+        }, context);
+        writePeersMirror(config.home, merged);
+        if (keys) refreshModelCatalog("aligning provider keys");
+        return json({ connections: added, keys });
+      }
+      if (path === "/alignment/share" && request.method === "POST") {
+        if (!store) return badRequest("This Kiln cannot read stored provider keys. Update it, then try again.");
+        const body = await readBody(request);
+        if (!Array.isArray(body.targets) || body.targets.length > 100) return badRequest("Choose up to 100 destination instances.");
+        const targets = body.targets.map(portablePeer);
+        if (targets.some(p => !p)) return badRequest("Use private-network or HTTPS addresses for sharing keys.");
+        const results = await shareApiKeys(store, targets as PeerEndpoint[]);
+        return json({ results });
+      }
       // Copy credentials out of OpenCode's store (once), so Hearth no longer depends on it.
       if (request.method === "POST" && path === "/providers/import") {
         if (!store) return badRequest("no credential store");
@@ -1495,7 +1545,8 @@ const server = Bun.serve<{
           }
           await harness.commit(async (tx) => {
             const doc = await tx.doc(AgentsDoc);
-            doc.peers = peers;
+            doc.peers = body.merge === true ? mergePeers(doc.peers ?? [], peers) : peers;
+            peers.splice(0, peers.length, ...doc.peers);
           }, context);
           writePeersMirror(config.home, peers);
           return json({ ok: true, count: peers.length });

@@ -2563,3 +2563,31 @@ describe("hearth wire", () => {
     expect((await body(duplicate)).error).toContain("already registered");
   }, 30_000);
 });
+
+test('alignment previews contain no secrets and imports are fill-only and merge peers', async () => {
+  const sourceId = 'alignment-wire';
+  const destination = { id: 'alignment-peer', label: 'Alignment peer', url: 'http://100.64.0.25:3002', token: 'alignment-private-peer-token' };
+  try {
+    const unauthorised = await fetch(`${stack.server.url}/alignment`);
+    expect(unauthorised.status).toBe(401);
+    const imported = await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [destination], keys: [{ providerId: sourceId, key: 'alignment-private-key' }] }) });
+    expect(imported.status).toBe(200);
+    expect((await body(imported)).keys).toBe(1);
+    const again = await body(await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [{ ...destination, token: 'replacement' }], keys: [{ providerId: sourceId, key: 'replacement' }] }) }));
+    expect(again).toMatchObject({ connections: 0, keys: 0 });
+    const preview = await (await api('/alignment')).text();
+    expect(preview).toContain(sourceId);
+    expect(preview).not.toContain('alignment-private-key');
+    expect(preview).not.toContain(destination.token);
+    const connections = await body(await api('/alignment/connections', { method: 'POST', body: '{}' }));
+    expect(connections.peers.find((p: { id: string }) => p.id === destination.id).token).toBe(destination.token);
+    const bad = await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [{ ...destination, url: 'http://localhost:3002' }], keys: [] }) });
+    expect(bad.status).toBe(400);
+    await api('/directory/peers', { method: 'PUT', body: JSON.stringify({ merge: true, peers: [{ ...destination, id: 'other', url: 'http://100.64.0.26:3002' }] }) });
+    const merged = await body(await api('/directory/peers'));
+    expect(merged.peers.some((p: { id: string }) => p.id === destination.id)).toBe(true);
+  } finally {
+    await api(`/providers/${sourceId}`, { method: 'DELETE' });
+    await api('/directory/peers', { method: 'PUT', body: JSON.stringify({ peers: [] }) });
+  }
+});

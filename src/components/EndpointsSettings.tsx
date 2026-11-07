@@ -1,4 +1,5 @@
 import * as React from 'react';
+import InstanceAlignment from './InstanceAlignment';
 import { Check, Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -94,6 +95,7 @@ export default function EndpointsSettings({ endpoints, instances, onChange, onRe
 
   return (
     <div className="flex flex-col gap-3">
+      <InstanceAlignment instances={instances} endpoints={endpoints} onSave={commit} />
       {endpoints.length === 0 ? (
         <p className="text-[12px] text-muted-foreground">
           No ember-harness endpoints yet. Add one below — the label and address of a device running

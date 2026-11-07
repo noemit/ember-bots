@@ -1,3 +1,11 @@
+## 1.19.0
+
+### Added
+- Settings → Instances offers “Align all my instances”: review connected Kilns, import missing connections, and optionally copy missing stored API keys from one chosen source. Existing credentials and settings are preserved; subscription sign-ins stay on their original hosts. Requires Kiln 1.10.0.
+
+### Fixed
+- Peer-list updates merge connections instead of erasing peers learned from another Ember setup.
+
 ## 1.18.8
 
 ### Fixed

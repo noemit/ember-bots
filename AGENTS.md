@@ -956,3 +956,17 @@ retain its licence. Lead with human thinking, decisions and steering, show label
 and keep download/first use separate from source development. Verify release assets instead of
 assuming the package version is published. Detailed usage, instance setup and contributor guidance
 live in `docs/usage.md`, `docs/instances.md` and `docs/development.md`.
+
+
+## Instance alignment
+
+`InstanceAlignment.tsx` owns the explicit Settings → Instances review/apply flow. Alignment is
+one-time and fill-only: imported connections preserve existing URLs/tokens; optional provider
+sharing chooses one source and never copies OAuth or environment-only credentials. New Kiln
+`/alignment` routes require the normal bearer authentication. GET previews contain metadata only;
+POST `/alignment/connections` exports portable peer credentials to the desktop, while `/share`
+sends stored API keys directly to reviewed destinations. The remote browser proxy blocks all
+alignment routes. `alignment.ts` owns validation, peer merging and atomic missing-key imports.
+Do not restore destructive peer-list replacement in Ember's automatic push: it sends `merge: true`
+so one Ember setup cannot erase peers learned from another. Plain public HTTP and loopback URLs
+are excluded from explicit sharing; HTTPS/private-network reachability remains the user's choice.
