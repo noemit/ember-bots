@@ -22,6 +22,12 @@ test('unread navigation is passive; message bubbles acknowledge only their own r
   // Click well outside the visible dot: the generous hover/click area is real.
   await bubble.click({ position: { x: 5, y: 22 } });
   await expect(latest.getByRole('button', { name: 'Message marked as read' })).toBeVisible();
+  const confirmation = latest.locator('.message-read-confirmation');
+  await expect(confirmation.locator('svg')).toHaveClass(/lucide-check/);
+  // Visibility assertions alone ignore opacity: verify the check stays painted long enough to see.
+  await page.waitForTimeout(200);
+  expect(await confirmation.evaluate(el => Number(getComputedStyle(el).opacity))).toBeGreaterThan(.95);
+
   await expect(latest.locator('[data-unread-dot]')).toHaveCount(0);
   await expect(latest.locator('[data-read-confirming]')).toHaveCount(0);
   await expect(column.locator('[data-message-id="e91"]').getByRole('button', { name: 'Mark this message as read' })).toBeVisible();
@@ -59,6 +65,10 @@ test('a single unread reply uses its bubble, with reduced-motion confirmation', 
   await expect(column.getByRole('button', { name: 'Mark all as read', exact: true })).toHaveCount(0);
   await column.getByRole('button', { name: 'Mark this message as read' }).click();
   await expect(column.getByRole('button', { name: 'Message marked as read' })).toBeVisible();
+  const confirmation = column.locator('.message-read-confirmation');
+  expect(await confirmation.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  expect(await confirmation.evaluate(el => Number(getComputedStyle(el).opacity))).toBe(1);
+
   await expect(column.locator('[data-read-confirming]')).toHaveCount(0);
   await expect(column.locator('[data-unread-navigation]')).toHaveCount(0);
 });

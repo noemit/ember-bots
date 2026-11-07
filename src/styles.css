@@ -205,3 +205,17 @@ html.motion-paused *::after {
 @media (prefers-reduced-motion: reduce) {
   [data-connection-trace] { animation: none; }
 }
+
+/* Acknowledgement must be visible before it leaves, even if the JS animation driver skips frames. */
+.message-read-confirmation {
+  opacity: 1;
+  animation: message-read-confirm 1.1s ease-in-out both;
+}
+@keyframes message-read-confirm {
+  0%, 45% { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+  58% { opacity: 1; transform: translateY(-1px) scale(1.12) rotate(0); }
+  100% { opacity: 0; transform: translateY(-10px) scale(.5) rotate(160deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-read-confirmation { animation: none; }
+}

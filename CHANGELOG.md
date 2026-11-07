@@ -1,3 +1,8 @@
+## 1.19.1
+
+### Fixed
+- Read acknowledgements hold a visible check before spinning and fading away. Reduced-motion mode shows a static check briefly.
+
 ## 1.19.0
 
 ### Added

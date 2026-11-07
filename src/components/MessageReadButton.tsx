@@ -1,16 +1,16 @@
 import * as React from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { useReducedMotion } from 'motion/react';
 import { Check } from 'lucide-react';
 
 /** A generous hit target around a small unread bubble; acknowledgement stays local to the message. */
 export default function MessageReadButton({ unread, onRead }: { unread: boolean; onRead: () => void }) {
   const reducedMotion = useReducedMotion();
   const [confirming, setConfirming] = React.useState(false);
-  // Retire the hit target even if the animation driver skips its completion callback (for
-  // example after a poll rerenders the row). The visual acknowledgement is deliberately brief.
+  // Keep the check mounted for the full visual sequence while the read mark updates immediately.
+  // CSS owns the motion; this timer also retires the hit target when animations are paused.
   React.useEffect(() => {
     if (!confirming) return;
-    const timer = window.setTimeout(() => setConfirming(false), reducedMotion ? 350 : 750);
+    const timer = window.setTimeout(() => setConfirming(false), reducedMotion ? 650 : 1150);
     return () => window.clearTimeout(timer);
   }, [confirming, reducedMotion]);
   if (!unread && !confirming) return null;
@@ -30,18 +30,11 @@ export default function MessageReadButton({ unread, onRead }: { unread: boolean;
       }}
     >
       {confirming ? (
-        <motion.span
-          key="confirmation"
-          className="flex size-5 items-center justify-center rounded-full bg-highlight text-highlight-foreground"
-          initial={{ opacity: 1, scale: 1, rotate: 0, y: 0 }}
-          animate={reducedMotion
-            ? { opacity: [1, 1, 0] }
-            : { opacity: [1, 1, 0], scale: [1, 1.15, 0.5], rotate: [0, 0, 180], y: [0, 0, -10] }}
-          transition={{ duration: reducedMotion ? 0.3 : 0.7, times: [0, 0.4, 1], ease: 'easeInOut' }}
-          onAnimationComplete={() => setConfirming(false)}
+        <span
+          className="message-read-confirmation flex size-5 items-center justify-center rounded-full bg-highlight text-highlight-foreground"
         >
           <Check className="size-3.5" strokeWidth={3} aria-hidden="true" />
-        </motion.span>
+        </span>
       ) : (
         <span data-unread-dot="" className="size-2.5 rounded-full bg-highlight ring-2 ring-background transition-transform group-hover/read:scale-125 group-focus-visible/read:scale-125" />
       )}
