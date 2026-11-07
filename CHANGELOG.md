@@ -1,3 +1,8 @@
+## 1.19.3
+
+### Added
+- A long-message demo at `?fixture=long-messages` opens two substantial replies with paragraphs, headings, a table and code for inspecting conversation layout.
+
 ## 1.19.2
 
 ### Changed

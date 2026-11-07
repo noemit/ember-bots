@@ -6,6 +6,7 @@
  *
  * The legacy OpenCode mock stays reachable at `?legacy` (see `src/dev/mockBridge.ts`).
  */
+import { longDemoPrompt, longDemoReview, longDemoFollowUp } from './longMessages';
 import { parseAvatarOverrides } from '../../electron/transport';
 import { generateToken } from '../../electron/tokenWords';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
@@ -288,6 +289,17 @@ const fixtureA = makeConversation({
     },
   ],
 });
+
+// A dedicated long-form study keeps the everyday short fixtures and their read-state scenarios intact.
+if (fixtureParam === 'long-messages') {
+  fixtureA.title = 'Long message layout study';
+  fixtureA.entries = [
+    { id: 1, kind: 'pi.user', model: [userMessage(longDemoPrompt, minutes(40))] },
+    { id: 2, kind: 'pi.assistant', model: [assistantMessage(text(longDemoReview), 'stop', minutes(38))] },
+    { id: 3, kind: 'pi.user', model: [userMessage('Walk through the same ideas from the perspective of someone returning after a day away. Keep the explanation detailed so we can compare two long replies.', minutes(37))] },
+    { id: 4, kind: 'pi.assistant', model: [assistantMessage(text(longDemoFollowUp), 'stop', minutes(35))] },
+  ];
+}
 
 const fixtureB = makeConversation({
   id: 11,
@@ -1748,8 +1760,8 @@ let settings: EmberSettings = {
   autoArchiveScheduledRuns: true,
   avatarOverrides: parseAvatarOverrides(storedRead.avatarOverrides),
   projectColorAssignments: {},
-  openSessions: [],
-  activeSession: null,
+  openSessions: fixtureParam === 'long-messages' ? ['pi:hearth::10'] : [],
+  activeSession: fixtureParam === 'long-messages' ? 'pi:hearth::10' : null,
   minimizedSessions: [],
   piEndpoints: firstRunFixture
     ? []
