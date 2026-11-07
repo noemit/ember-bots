@@ -1,17 +1,7 @@
 /**
- * The crew supervisor: report-back for leader + workers.
- *
- * Workers are hidden ownerless conversations; their final message is their report. This module
- * mirrors the scheduler's durable tick pattern: it scans every conversation's crew doc
- * (`hearth.sessions`), moves `starting -> running -> reported|failed`, writes each report back
- * into the leader's crew doc, appends a passive `hearth.crew-report` entry to the leader's
- * transcript, and wakes the leader once the crew is quiescent or the deadline has passed - and
- * again whenever a *new* report arrives after that wake (`wakeKeyOf`). REST/durable state stays the
- * source of truth; the wake only carries a bounded digest, and its requestId makes it idempotent
- * across restarts.
- *
- * It also owns the archive cascade (walk the crew doc and archive workers + grandchildren with
- * one batch, aborting running workers first, never touching peers) so `server.ts` only calls in.
+ * Durable worker settlement and archive lifecycle. New background threads keep outcomes in
+ * SessionsDoc and emit content-free completion references; threadSupervisor owns subscriptions
+ * and foreground-safe continuations. Legacy workers retain report cards and generation digests.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -26,6 +16,8 @@ import {
   type Harness,
   type Storage,
 } from "@earendil-works/pi-durable";
+import { threadTask } from "./threadResults";
+import { resumeThreads } from "./threadSupervisor";
 import { MetaDoc } from "./meta";
 import { ApprovalsDoc, clearPendingApprovals } from "./approvals";
 import { QuestionsDoc, clearPendingQuestions } from "./ask";
@@ -154,7 +146,13 @@ const newestEntry = async (
 ): Promise<EntryRecord | undefined> => {
   const conversation = await harness.conversation(id, context);
   if (!conversation) return undefined;
-  return (await conversation.entries({}, 1, undefined, context)).items[0];
+  let cursor: Cursor | undefined;
+  for (;;) {
+    const page = await conversation.entries({}, cursor === undefined ? 1 : 32, cursor, context);
+    const newest = page.items.find((entry) => entry.kind !== "hearth.thread-result");
+    if (newest || !page.next) return newest;
+    cursor = page.next;
+  }
 };
 
 /** Abort any of `ids` with a run in flight, so an archived crew stops spending. */
@@ -331,7 +329,7 @@ export const tick = async (
     // The cheap signal first: a crew with nobody owing an answer can neither report nor be due a
     // wake, so such a conversation costs this tick exactly one snapshot read.
     const active = Object.entries(snapshot.items).filter(([, entry]) => isActiveWorker(entry));
-    if (active.length === 0) continue;
+    if (active.length === 0 && !Object.values(snapshot.items).some((entry) => entry.delivery === "thread")) continue;
 
     for (const [name, entry] of active) {
       const live = await harness.snapshot(LiveDoc, entry.conversationId, context);
@@ -357,6 +355,10 @@ export const tick = async (
       const answered =
         newest?.kind === "pi.assistant" &&
         (entry.answerFrom === undefined || (newest.id as number) > entry.answerFrom);
+      // A thread can itself be a foreground coordinator. Its nonblocking wait intentionally
+      // ends the run while durable child work continues; that is not a failed worker. A later
+      // substantive final answer can still settle it even if an old suspension flag remains.
+      if (!answered && !live?.runFailure && (await harness.snapshot(SessionsDoc, entry.conversationId, context))?.suspended) continue;
       // A follow-up queued behind this worker's in-flight answer is not answered by that answer: the
       // worker owes one more turn, and reporting the first one would claim the queued task was done
       // (see `rearmWorker`). The wait is bounded by the normal deadline, so a follow-up whose boundary
@@ -398,6 +400,7 @@ export const tick = async (
         // One report per (worker, task): a re-tasked worker's new answer has to be a new report, or
         // the wake key below cannot tell it from the answer the leader has already read.
         requestId: `hearth.crew.report:${record.id}:${name}:${since}`,
+        ...(answered && newest ? { entryId: newest.id as number } : {}),
       };
       /**
        * Whether the leader is shown this one.
@@ -412,7 +415,7 @@ export const tick = async (
       await harness.commit(async (tx) => {
         const doc = await tx.doc(SessionsDoc, record.id);
         const item = doc.items[name];
-        if (!item) return;
+        if (!item || threadTask(item) !== threadTask(entry) || !isActiveWorker(item)) return;
         item.state = status === "ok" ? "reported" : "failed";
         // The queued task's answer has now been settled; the next tick must not re-settle it.
         delete item.followUpAt;
@@ -421,7 +424,12 @@ export const tick = async (
           // A shown report replaces any earlier silent one: `results` should read the answer the
           // leader was actually given, not a success from two tasks ago.
           delete item.silentReport;
-          await tx.appendEntry(record.id, {
+          if (item.delivery === "thread") await tx.appendEntry(record.id, {
+            kind: "hearth.thread-result",
+            data: { at: report.at, resultId: report.requestId, task: threadTask(item), status,
+              conversationId: String(item.conversationId), ...(report.entryId === undefined ? {} : { entryId: report.entryId }) },
+          });
+          if (item.delivery !== "thread") await tx.appendEntry(record.id, {
             kind: "hearth.crew-report",
             data: {
               generation: item.generation,
@@ -445,8 +453,20 @@ export const tick = async (
     // that is exactly the case the deadline exists for; the cost is one extra snapshot read per
     // conversation with an active crew - the read this tick was already paying whenever a worker
     // reported.
-    const fresh = await harness.snapshot(SessionsDoc, record.id, context);
-    if (!fresh) continue;
+    const snapshotAfter = await harness.snapshot(SessionsDoc, record.id, context);
+    if (!snapshotAfter) continue;
+    try {
+      const resumed = await resumeThreads(harness, record.id, snapshotAfter, now, context);
+      actions += resumed;
+      if (resumed) continue;
+    } catch (error) {
+      console.error("[hearth] thread continuation failed:", error instanceof Error ? error.message : error);
+      continue;
+    }
+    // Old workers retain their delivery contract; new threads never enter the report/digest path.
+    const legacyItems = Object.fromEntries(Object.entries(snapshotAfter.items).filter(([, item]) => item.delivery !== "thread"));
+    if (Object.keys(legacyItems).length === 0) continue;
+    const fresh = { ...snapshotAfter, items: legacyItems };
     const generation = fresh.generation;
     const key = wakeKeyOf(fresh, generation);
     // This exact digest was already delivered: a rerun of the tick, a restart, or nothing new. (A

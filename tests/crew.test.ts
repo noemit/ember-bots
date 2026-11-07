@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  threadDescendants,
+  threadShelfStatus,
   blockedWorkersAmong,
   brickStatusSignal,
   blockedWorkersUnder,
@@ -440,4 +442,24 @@ describe('the leader tint on a crew brick', () => {
       }
     }
   });
+});
+
+test('thread source links include unblocked descendants, avoid cycles and isolate hosts', () => {
+  const root = session('1');
+  const child = worker('2', '1');
+  const nested = worker('3', '2');
+  const cycle = worker('1', '3');
+  const unrelated = worker('4', '1', { instanceId: 'elsewhere', lead: { instanceId: 'hearth', sessionId: '1' } });
+  expect(threadDescendants(root, crewByLeader([root, child, nested, cycle, unrelated])).map((entry) => entry.id)).toEqual(['2', '3']);
+});
+
+test('thread shelf counts direct and nested blockers once and keeps running status distinct', () => {
+  const busy = worker('2', '1');
+  const blocked = worker('3', '1', { needsInput: true });
+  const nested = worker('4', '3', { needsInput: true });
+  const status = threadShelfStatus([busy, blocked], [
+    { worker: blocked, title: 'Blocked', depth: 1 },
+    { worker: nested, title: 'Nested', depth: 2 },
+  ], () => 'active');
+  expect(status).toEqual({ total: 3, running: 1, needsHuman: 2, summary: '1 running · 2 needs you' });
 });

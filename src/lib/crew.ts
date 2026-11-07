@@ -37,6 +37,40 @@ export const crewByLeader = (sessions: readonly Session[]): Map<string, Session[
   return groups;
 };
 
+/** Known descendants for source links; cycles and cross-instance ids stay within this graph. */
+export const threadDescendants = (leader: Session, crews: ReadonlyMap<string, readonly Session[]>): Session[] => {
+  const found: Session[] = [];
+  const seen = new Set([sessionKey(leader)]);
+  const stack = [sessionKey(leader)];
+  while (stack.length) {
+    for (const worker of crews.get(stack.pop()!) ?? []) {
+      if (worker.instanceId !== leader.instanceId) continue;
+      const key = sessionKey(worker);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push(worker);
+      stack.push(key);
+    }
+  }
+  return found;
+};
+
+/** The shelf counts a blocked descendant once even when it is also a direct thread. */
+export const threadShelfStatus = (
+  workers: readonly Session[], blocked: readonly BlockedWorker[], stateFor?: (worker: Session) => BallState
+): { total: number; running: number; needsHuman: number; summary?: string } => {
+  const all = new Map([...workers, ...blocked.map((entry) => entry.worker)].map((worker) => [sessionKey(worker), worker]));
+  const blockedKeys = new Set(blocked.map((entry) => sessionKey(entry.worker)));
+  let running = 0;
+  let needsHuman = 0;
+  for (const worker of all.values()) {
+    if (worker.needsInput || stateFor?.(worker) === 'needs-input' || blockedKeys.has(sessionKey(worker))) needsHuman += 1;
+    else if (stateFor?.(worker) === 'active') running += 1;
+  }
+  const summary = [running ? `${running} running` : '', needsHuman ? `${needsHuman} needs you` : ''].filter(Boolean).join(' · ');
+  return { total: all.size, running, needsHuman, summary: summary || undefined };
+};
+
 /**
  * Whether a leader needs input, rolled up **transitively**: its own summary `needsInput`, or any
  * direct or indirect worker's (depth 2+ — a worker that is itself a leader of a sub-crew). The

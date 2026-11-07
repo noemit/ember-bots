@@ -89,6 +89,24 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   can mean a restart or a forgotten failure; never treat a 404 as success. Each dialog attempt owns
   its polling lifetime so an old response cannot replace the current code or result.
 
+## Background threads (1.18.0 / Kiln 1.9.0)
+
+- New Kiln workers default to `delivery: thread` in `hearth.sessions`. A final result stays in the
+  result document and worker transcript; `hearth.thread-result` records only identifiers/status and
+  evidence references. Existing delivery-less entries retain the legacy report contract.
+- `session wait` subscribes to task versions and returns `control.terminate`, releasing the foreground
+  instead of polling. `threadSupervisor.ts` admits an internal metadata notice only after the
+  foreground and human inbox clear; notice submission and receipts are atomic. Failures, stops and
+  blockers are prioritized; a retrieved result cannot trigger a later completion delivery.
+- `session results(name?)` returns bounded outcomes plus source links and records retrieved versions.
+  `session read(name,cursor?,since?)` pages bounded raw evidence and does not consume final results.
+  Retrieval, verification, incorporation and human read marks are separate concepts.
+- The composer shelf says Threads and shows running / needs-you counts. `/threads/<id>` Markdown
+  links resolve through a column-scoped `ThreadLinkContext` to known descendants on the same host;
+  unknown targets render as text. Internal notices and completion events never become visible
+  transcript messages or unread targets. Ultra delegator uses durable continuations and permits
+  small foreground decisions; it does not demand delegation for every action.
+
 ## Workspace connection (1.16.0)
 
 - The rail displays older entries above newer entries and pins the current chat beside the input
@@ -423,7 +441,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   local copy bumps `updated` so a stale in-flight poll can't revert it).
 - `src/components/CrewStrip.tsx` — **coagent crews**. Hearth leaders (the default; a session
   with `delegates`) spawn `kind: "worker"` conversations with `lead`; those workers are hidden
-  from the rail, search, archive screen and palette, and surface only in the shelf's **Crew** tab
+  from the rail, search, archive screen and palette, and surface only in the shelf's **Threads** tab
   above the leader's composer. The strip is **chips and no card**: one wrapping row of filled,
   borderless chips (blob + title + status + needs-input/`auto` badge) with a `role="group"` for
   the accessible boundary. It used to be a bordered card around bordered chips — the "chip in a

@@ -1,3 +1,4 @@
+import { threadDescendants } from './lib/crew';
 import { hasUnreadMessages } from './lib/sessionUnread';
 import { AvatarSizeContext } from './blob/size';
 import * as React from 'react';
@@ -5009,6 +5010,7 @@ export default function App() {
           onArchive={session.kind === 'worker' ? undefined : () => requestArchive(session)}
           onRename={(title) => void handleRenameSession(session, title)}
           crew={crewWorkers.get(key) ?? []}
+          threadTargets={threadDescendants(session, crewWorkers)}
           crewCost={crewCostByKey.get(key)}
           nestedBlocked={blockedCrewByLeader.get(key) ?? []}
           workerState={(worker) => states[sessionKey(worker)] ?? 'unknown'}

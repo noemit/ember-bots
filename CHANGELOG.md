@@ -1,3 +1,18 @@
+## 1.18.0
+
+### Added
+- Background threads store durable outcomes and evidence references without repeating routine crew reports in the main chat. Thread continuations release the foreground, prioritize human input, survive restarts and suppress delivery of results already retrieved. Existing workers retain their legacy delivery policy.
+- Quoted `/threads/<id>` links open the source thread. The composer’s Threads tab shows running and human-input counts; internal notices never become visible messages or read targets.
+
+### Changed
+- Ultra delegator keeps substantial execution in background threads while permitting small foreground inspections and decisions. It subscribes to outcomes instead of polling, and coordinates without routine acknowledgements.
+
+## 1.17.0
+
+### Changed
+- New chats combine the first human prompt's topic with a whimsical character, such as Login Locksmith. Collisions retain the topic; vague prompts retain the seeded character fallback. Names are set once at creation, preserving human renames and blob identities without an extra model call.
+
+
 ## 1.16.0
 
 ### Changed
@@ -9,10 +24,6 @@
   Conversation text defaults to 14px with more open spacing. Settings → General offers sizes
   from 12px to 20px for reading and composing, saved across restarts.
 
-## 1.17.0
-
-### Changed
-- New chats combine the first human prompt's topic with a whimsical character, such as Login Locksmith. Collisions retain the topic; vague prompts retain the seeded character fallback. Names are set once at creation, preserving human renames and blob identities without an extra model call.
 
 ## 1.15.9
 

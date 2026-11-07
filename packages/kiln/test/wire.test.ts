@@ -197,6 +197,18 @@ afterAll(async () => {
 });
 
 describe("hearth wire", () => {
+  test("metadata-only thread completions preserve a stable summary activity timestamp", async () => {
+    const conversation = await body(await api("/conversations", { method: "POST", body: JSON.stringify({ cwd: home }) }));
+    const at = 1234567890000;
+    await stack.harness.commit(async (tx) => {
+      await tx.appendEntry(conversation.id, { kind: "hearth.thread-result", data: { at, resultId: "result-1" } });
+    }, context);
+    for (let index = 0; index < 2; index += 1) {
+      const list = await body(await api("/conversations"));
+      expect(list.conversations.find((entry: any) => entry.id === conversation.id).updatedAt).toBe(at);
+    }
+  });
+
   test("health answers with the token and rejects without it", async () => {
     const anonymous = await fetch(`${stack.server.url}/health`);
     expect(anonymous.status).toBe(401);
@@ -1093,8 +1105,9 @@ describe("hearth wire", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     expect(worker).toBeDefined();
-    // Named by role, not by the brief: no role given, so it is the first Worker.
-    expect(worker.title).toBe("Worker #1");
+    // New threads are named for the outcome rather than a numbered job label.
+    expect(worker.title).toBe("Say hello from the worker.");
+    expect(Object.values((await stack.harness.snapshot(SessionsDoc, parent.id, context))!.items)[0]?.delivery).toBe("thread");
     // Ownerless (Ember hides it by `kind`, not by ownership), with crew membership on the meta doc.
     expect(worker.owner).toBeUndefined();
     expect(worker.kind).toBe("worker");
@@ -1136,9 +1149,9 @@ describe("hearth wire", () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
-          fauxToolCall("session", { action: "spawn", name: "r3", brief: "Third research brief.", role: "Researcher" }),
-          fauxToolCall("session", { action: "spawn", name: "r4", brief: "Fourth research brief.", role: "  Researcher  " }),
-          fauxToolCall("session", { action: "spawn", name: "g1", brief: "Graphics brief.", role: "Graphics" }),
+          fauxToolCall("session", { action: "spawn", name: "r3", brief: "Third research brief.", report: "always", role: "Researcher" }),
+          fauxToolCall("session", { action: "spawn", name: "r4", brief: "Fourth research brief.", report: "always", role: "  Researcher  " }),
+          fauxToolCall("session", { action: "spawn", name: "g1", brief: "Graphics brief.", report: "always", role: "Graphics" }),
         ],
         { stopReason: "toolUse" }
       ),
@@ -1218,7 +1231,7 @@ describe("hearth wire", () => {
       fauxAssistantMessage(
         [
           fauxToolCall("session", { action: "spawn", name: "blank", brief: "Blank role brief.", role: "   " }),
-          fauxToolCall("session", { action: "spawn", name: "helper", brief: "Role-less brief." }),
+          fauxToolCall("session", { action: "spawn", name: "helper", brief: "Role-less brief.", report: "always" }),
           fauxToolCall(
             "session",
             { action: "spawn", name: "named", brief: "Named brief.", role: "Researcher", title: "My Agent" }
@@ -1346,7 +1359,7 @@ describe("hearth wire", () => {
       .flatMap((content: any) => (Array.isArray(content) ? content.map((part: any) => part.text ?? "") : []))
       .join("\n");
     expect(toolText).toContain("worker");
-    expect(toolText).toContain("Worker #1");
+    expect(toolText).toContain("Wait for a follow-up.");
   }, 30_000);
 
   test("the `agents` tool queues to a busy worker of the leader's own crew, and steers into it", async () => {

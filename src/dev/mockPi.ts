@@ -486,7 +486,7 @@ const fixtureG = makeConversation({
     // "Crew report" system card rather than a user bubble.
     {
       id: 92,
-      kind: 'pi.user',
+      kind: new URLSearchParams(window.location.search).has('threads') ? 'hearth.thread-notice' : 'pi.user',
       model: [
         userMessage(
           '[crew] Crew report (generation 2): Parse config finished; Migrate schema needs a decision.',
@@ -499,7 +499,9 @@ const fixtureG = makeConversation({
       kind: 'pi.assistant',
       model: [
         assistantMessage(
-          text('Parse config is done. Migrate schema is blocked on a decision — open its chat to answer.'),
+          text(new URLSearchParams(window.location.search).has('threads')
+            ? '> Config parsing is complete.\n\nSource: [Parse config](/threads/17). Migrate schema needs your decision.'
+            : 'Parse config is done. Migrate schema is blocked on a decision — open its chat to answer.'),
           'stop',
           minutes(3)
         ),

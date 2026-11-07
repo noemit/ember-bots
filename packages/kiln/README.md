@@ -115,27 +115,41 @@ image file (PNG, JPEG, GIF, WebP or BMP), sniffs the format, and returns it as a
 block — the same shape MCP image results use — which pi-ai hands to the model's vision input. Gated
 by approvals like `read`.
 
-**Coagent crews (`session` tool):** a conversation is a **leader** by default (`delegates`; a plain
-chat passes `delegates: false`). `session spawn` (name, brief, role?, title?, cwd?, model?, kind?) starts
-a **worker** — an ownerless conversation marked `kind: "worker"` with a `lead` — by default; pass
-`kind: "peer"` for an independent, addressable sibling. A worker is **named by its role**: Hearth
-composes the title `<Role> #<n>` (default role `Worker`, so `Worker #1`), where `n` is 1 + the
-highest index that role already used in that leader's crew, recorded on the crew entry as
-`role`/`roleIndex`. Crew entries are never removed, so a finished, stopped or archived worker keeps
-its number and nothing is renumbered; the number is derived inside the spawn's commit, which the
-harness serializes, so simultaneous spawns cannot collide. An explicit `title` still wins, and the
-brief remains the worker's first user message. A worker's final message is its **report**;
-a durable supervisor (`src/crew.ts`) writes it into the leader's crew doc (`hearth.sessions`) and
-wakes the leader once per generation with a bounded `[crew] …` digest — and that wake says a crew
-report is an answer, not a request for more workers. Caps: depth 3 (a depth-2 worker's spawn is
-refused and depth 3 has no tool), ≤4 concurrent workers, 10 spawns/minute, **no new crew for 10
-minutes after a wake**, and **≤20 workers asked for per conversation per hour**; the
-`hearth-spawn-guard` extension enforces all of it in a `beforeTool` hook, and `delegates: false`
-means the conversation cannot spawn at all. A worker copies its
-leader's auto-accept at spawn. `list`/`status`/`message`/`stop` manage the crew;
-`results`/`wait` read reports and wait for quiescence. Archiving a leader cascades to its workers
-under one `archiveBatch`, stopping running workers first; peers are never cascaded. A standing
-`crew` prompt section tells every agent the tool exists and when to use it.
+**Background threads (`session` tool):** conversations may delegate by default. A worker is an
+ownerless conversation with `kind: "worker"` and `lead`; a peer (`kind: "peer"`) is a separate,
+visible chat. Give each thread a concrete outcome `title` and a self-contained `brief`; absent a
+title, its brief's first line supplies one. Identity survives follow-up work and renames.
+
+New spawns default to `report: "thread"`. The supervisor records a versioned outcome and its final
+assistant-entry reference in `hearth.sessions`, and appends one content-free `hearth.thread-result`
+event. It does **not** copy the report into the leader's transcript. `results(name?)` retrieves up
+to three bounded outcomes (8,000 characters each), including `/threads/<conversationId>` source
+links; it records which result versions were retrieved, independently of verification,
+incorporation, and human read marks. `read(name, cursor?, since?)` returns status and up to 12
+entries with bounded evidence; `cursor` pages history and `since` reads new evidence oldest first.
+Raw evidence reads do not mark an outcome retrieved.
+
+A thread can itself coordinate nested threads: its durable suspended state prevents an intentionally
+released run from being reported as a failure to its parent.
+
+`wait(name?)` registers a durable subscription to current thread task versions and ends the tool
+round without another model request when it is the round's only control. It does not poll for ten
+minutes. Once the foreground run and human inbox are clear, the supervisor coalesces available
+outcome identifiers into an internal `hearth.thread-notice` continuation. Submission and delivery
+receipts share a transaction. Already-retrieved results do not wake again. Failures, stopped
+threads and human-input blockers are actionable without a subscription; blockers never authorize
+the leader to answer or approve for the human. A subscribed task still running beyond the
+15-minute crew deadline produces one status notice. The agent can coordinate silently and quote
+selected findings rather than acknowledge each completion.
+
+Existing entries without a delivery field retain legacy `always` behavior. Explicit `report:
+"always"` and `"on-failure"` retain report-card delivery and role-based numbered titles; a legacy
+crew's `wait` still waits for quiescence. Depth, burst, post-wake and hourly loop guards remain.
+Worker concurrency is unlimited by default, with `HEARTH_MAX_ACTIVE_WORKERS` as an optional ceiling.
+There is no host-wide model slot that a background wait holds; provider rate limits and latency
+still apply. `list`, `status`, `message` and `stop` manage threads, and delegation may be disabled
+without preventing inspection of earlier work. Archiving a leader still cascades to its workers,
+never peers.
 
 Clients render the crew from the conversation summaries: `kind`, `lead`, `delegates` and
 `needsInput` are on `/conversations`, so a hidden worker never needs a fetch of its own. Workers

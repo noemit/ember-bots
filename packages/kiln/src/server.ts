@@ -417,10 +417,14 @@ const inboxTextOf = (item: {
   return "";
 };
 
-const entryTimestamp = (entry: { readonly model?: readonly { readonly timestamp?: number }[] }): number | undefined => {  const stamps = (entry.model ?? [])
+const entryTimestamp = (entry: { readonly model?: readonly { readonly timestamp?: number }[]; readonly data?: unknown }): number | undefined => {
+  const stamps = (entry.model ?? [])
     .map((message) => message.timestamp)
     .filter((stamp): stamp is number => typeof stamp === 'number' && Number.isFinite(stamp));
-  return stamps.length > 0 ? Math.max(...stamps) : undefined;
+  if (stamps.length > 0) return Math.max(...stamps);
+  // Metadata-only thread completions carry a host timestamp without contributing model text.
+  const at = entry.data && typeof entry.data === 'object' ? (entry.data as { at?: unknown }).at : undefined;
+  return typeof at === 'number' && Number.isFinite(at) ? at : undefined;
 };
 
 /**

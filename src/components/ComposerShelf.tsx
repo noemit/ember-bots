@@ -12,6 +12,8 @@ export type ShelfSection = {
   /** What the tab says: "Queue", "For later", "Crew", "Processes". */
   label: string;
   count: number;
+  /** Optional compact status in place of the total. */
+  summary?: string;
   /** Something in here is waiting on the human (a worker needing input, a failed row). */
   alert?: boolean;
   /** The rows, rendered only while this section is the open one. */
@@ -91,7 +93,7 @@ const ComposerShelf = ({ sections, active, onActiveChange, open, onOpenChange }:
                 )}
               >
                 {section.label}
-                <span className="text-[10.5px] font-normal tabular-nums text-muted-foreground">{section.count}</span>
+                <span className="text-[10.5px] font-normal tabular-nums text-muted-foreground">{section.summary ?? section.count}</span>
                 {section.alert ? (
                   <span aria-hidden="true" className="size-1.5 rounded-full bg-highlight" />
                 ) : null}

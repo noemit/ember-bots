@@ -19,9 +19,8 @@ import { ApprovalsDoc } from "./approvals";
 import { QuestionsDoc } from "./ask";
 import { MetaDoc } from "./meta";
 import {
-  crewMessageRequestId,
+  submitCrewMessage,
   findCrewTarget,
-  rearmWorker,
   SessionsDoc,
   type CrewEntry,
 } from "./sessions";
@@ -721,26 +720,8 @@ export const createAgentsTool = (home: string) =>
         const queued = followUp === true;
         const handle = await api.conversation(crewTarget.entry.conversationId, context);
         if (!handle) return reply(`Session ${label} is gone.`, crewTarget.entry.conversationId);
-        await handle.submit(
-          {
-            type: "input",
-            content: message,
-            whenBusy: queued ? "followUp" : "steer",
-            // The same id the `session` tool uses, so a rerun of either tool cannot post twice.
-            requestId: crewMessageRequestId(
-              api.conversationId,
-              crewTarget.key,
-              crewTarget.entry.spawnedAt,
-              api.taskId
-            ),
-          },
-          context
-        );
-        await api.commit(
-          (tx) => rearmWorker(tx, api.conversationId, crewTarget.key, crewTarget.entry.conversationId, now),
-          context
-        );
-        await chargeBudget();
+        const sent = await submitCrewMessage(api, handle, crewTarget.key, crewTarget.entry, message, queued, context);
+        if (sent) await chargeBudget();
         return reply(`${queued ? "Queued for" : "Sent to"} ${label}.`, crewTarget.entry.conversationId);
       }
 

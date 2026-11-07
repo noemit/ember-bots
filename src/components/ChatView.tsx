@@ -1,3 +1,5 @@
+import { threadShelfStatus } from '../lib/crew';
+import { ThreadLinkContext } from './threadLinkContext';
 import { useComposerConnection } from './workspaceConnection';
 import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
@@ -296,6 +298,8 @@ type Props = {
   active?: boolean;
   /** A leader's crew workers; empty or absent for everyone else (they are hidden from the rail). */
   crew?: Session[];
+  /** Known descendants for inline source links, including unblocked nested threads. */
+  threadTargets?: Session[];
   /**
    * What this session has cost, its crew included (`lib/crewCost`). Absent where there is nothing to
    * add up — a draft, or a caller that has not loaded the siblings — and then the badge falls back to
@@ -518,6 +522,7 @@ function ChatView({
   crewCost,
   nestedBlocked,
   workerState,
+  threadTargets,
   workerAutoAccept,
   onOpenWorker,
   workerPeer,
@@ -1061,8 +1066,8 @@ function ChatView({
    * Whether the crew is waiting on the human: a worker that asked a question, or one further down
    * the delegation chain that is blocked. It is what puts the dot on the shelf's Crew tab.
    */
-  const crewNeedsInput =
-    (nestedBlocked?.length ?? 0) > 0 || crew.some((worker) => worker.needsInput);
+  const threadStatus = threadShelfStatus(crew, nestedBlocked ?? [], workerState);
+  const crewNeedsInput = threadStatus.needsHuman > 0;
   /**
    * New things bring their own section forward — a queued message opens Queue, a saved note opens
    * For later — but they do not unfold a shelf the person folded. A crew that is now blocked is the
@@ -1446,6 +1451,8 @@ function ChatView({
     pendingSendLabels?: { retry?: string; discard?: string };
     /** The draft has no crew, pins or scrub rail; a session passes the column's own. */
     crew?: Session[];
+  /** Known descendants for inline source links, including unblocked nested threads. */
+  threadTargets?: Session[];
     workerState?: (worker: Session) => BallState;
     showAvatars?: boolean;
     showActivityRail?: boolean;
@@ -1514,7 +1521,20 @@ function ChatView({
     ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, identity ?? seed)} 10%, transparent), transparent 56%)`
     : undefined;
 
+  const threadLinks = React.useMemo(() => {
+    const targets = new Map((threadTargets ?? [...crew, ...(nestedBlocked ?? []).map((entry) => entry.worker)])
+      .map((worker) => [worker.id, worker]));
+    return {
+      has: (id: string) => Boolean(onOpenWorker) && targets.has(id),
+      open: (id: string) => {
+        const worker = targets.get(id);
+        if (worker) onOpenWorker?.(worker);
+      },
+    };
+  }, [threadTargets, crew, nestedBlocked, onOpenWorker]);
+
   return (
+    <ThreadLinkContext.Provider value={threadLinks}>
     <main
       ref={columnRef}
       className="relative flex min-w-0 flex-1 overflow-hidden"
@@ -2089,8 +2109,9 @@ function ChatView({
                     ? [
                         {
                           id: 'crew' as const,
-                          label: 'Crew',
-                          count: crew.length + (nestedBlocked?.length ?? 0),
+                          label: 'Threads',
+                          summary: threadStatus.summary,
+                          count: threadStatus.total,
                           alert: crewNeedsInput,
                           content: (
                             <CrewStrip
@@ -2900,6 +2921,7 @@ function ChatView({
         </div>
       ) : null}
     </main>
+    </ThreadLinkContext.Provider>
   );
 }
 

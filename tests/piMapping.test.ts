@@ -955,3 +955,11 @@ describe('entryOrdinal', () => {
     expect(entryOrdinal(LIVE_MESSAGE_ID)).toBeNull();
   });
 });
+
+test('internal thread completion and continuation entries are not human messages or read targets', () => {
+  const messages = piEntriesToMessages([
+    { id: 1, kind: 'hearth.thread-result', data: {} },
+    { id: 2, kind: 'hearth.thread-notice', model: [{ role: 'user', content: '[threads] Outcomes available', timestamp: 1000 }] },
+  ]);
+  expect(messages).toEqual([]);
+});

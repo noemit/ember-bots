@@ -1,3 +1,4 @@
+import { ThreadLinkContext, threadIdFromLink, type ThreadLinks } from './threadLinkContext';
 import * as React from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -68,7 +69,7 @@ export const codeSource = (node: Element | undefined): string => {
   return code ? collect(code) : '';
 };
 
-const buildComponents = (viewer: ImageViewerApi | null): Components => ({
+const buildComponents = (viewer: ImageViewerApi | null, openThread: ThreadLinks | null): Components => ({
   // A fenced block gets its own Copy, positioned against the block rather than the message, so a
   // block scrolled sideways does not carry its button off-screen. The control is always visible:
   // unlike a message's footer there is nothing else on a code block to press, and hiding the only
@@ -81,16 +82,27 @@ const buildComponents = (viewer: ImageViewerApi | null): Components => ({
       </div>
     </div>
   ),
-  a: ({ node: _node, children, ...props }) => (
-    <a
+  a: ({ node: _node, children, ...props }) => {
+    const threadId = threadIdFromLink(props.href);
+    if (threadId !== null && !openThread?.has(threadId)) {
+      return <span title="Open the parent chat’s Threads tab to find this source.">{children}</span>;
+    }
+    return <a
       {...props}
-      onClick={openLink}
+      onClick={(event) => {
+        const id = threadIdFromLink(props.href);
+        if (id !== null) {
+          event.preventDefault();
+          event.stopPropagation();
+          openThread?.open(id);
+        } else openLink(event);
+      }}
       title={props.href}
       className="cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current"
     >
       {children}
-    </a>
-  ),
+    </a>;
+  },
   // Images from the model are untrusted; no width/height hints, just bounded. A renderable image
   // opens in the lightbox (there is no message gallery for prose, so it opens on its own).
   img: ({ node: _node, alt, src, ...props }) => {
@@ -129,7 +141,8 @@ type Props = {
 /** Assistant prose. GitHub-flavoured markdown, raw HTML is never rendered. */
 function Markdown({ text, className }: Props) {
   const viewer = useImageViewer();
-  const components = React.useMemo(() => buildComponents(viewer), [viewer]);
+  const openThread = React.useContext(ThreadLinkContext);
+  const components = React.useMemo(() => buildComponents(viewer, openThread), [viewer, openThread]);
   return (
     <div
       className={cn(

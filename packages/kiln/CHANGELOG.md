@@ -1,3 +1,14 @@
+## 1.9.0
+
+### Added
+- Default thread delivery stores a versioned result and evidence-entry reference with one metadata-only completion event. Results are retrieved separately from verification and human read marks.
+- `session read(name,cursor?,since?)` pages bounded evidence; `results(name?)` returns bounded outcomes with source links. `wait(name?)` persists task subscriptions and releases the foreground tool round.
+- Selective continuations batch outcome identifiers, prioritize failures/blockers, wait behind foreground human input and persist delivery receipts in the same transaction as submission. Retrieved results do not trigger another delivery. Nested coordinators can suspend without being reported as failed, and partially answered blocker groups do not repeat earlier requests.
+
+### Changed
+- New threads use concrete outcome titles and quiet coordination instructions. Existing workers without a delivery policy retain legacy reports, role titles and blocking waits; explicit legacy modes remain supported.
+- Crew message admission and reassignment now share a replay-safe transaction, so a fast reply cannot race the transcript watermark or tool replay create a new task version.
+
 ## 1.8.0
 
 ### Fixed

@@ -107,3 +107,15 @@ frontier model falling into it.
 - `bun run check` before every commit; commit and push `main`.
 - **Versioning:** every shipped change bumps `package.json` `version` per `VERSIONING.md`
   (semver), and `/health` reports it. Record it in `CHANGELOG.md`.
+
+## Background thread delivery
+
+New `session spawn` calls use `report: "thread"`; absent persisted delivery still means legacy
+`always`. Keep that compatibility boundary. `threadResults.ts` owns task versions, retrieval receipts
+and completion eligibility; `threadSupervisor.ts` owns selective resumptions. Submission plus receipts
+must remain one transaction, and admission must recheck foreground/inbox state and current result
+versions. Never equate retrieved with verified, incorporated or human-read. `session wait` registers
+thread subscriptions and releases the tool round; legacy crews keep the blocking wait contract.
+Only metadata goes in `hearth.thread-result` and `hearth.thread-notice`; result prose stays in the
+worker/result document. Failures and human blockers remain actionable without a subscription. The
+leader must never answer or approve on the human's behalf merely because a thread is blocked.
