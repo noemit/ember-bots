@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Blob from './src/blob/Blob';
-import { MOSAIC_SHAPES, mosaicGeometry } from './src/blob/mosaic';
+import { MOSAIC_SHAPES, mosaicActivityPixels, mosaicGeometry } from './src/blob/mosaic';
 import { seedIdentity } from './src/blob/seed';
 import { blobColor } from './src/blob/color';
 import { BLOB_STYLES, migrateBlobStyle } from './electron/transport';
@@ -37,6 +37,21 @@ test('custom colour drives both the pixels and the surrounding identity colour',
   expect(html).toContain('#15a5ba');
   expect(html).toContain('crispEdges');
   expect(html).not.toContain('<filter');
+});
+
+test('working pixels fit the canvas on both sides without replacing the character', () => {
+  for (const shape of MOSAIC_SHAPES) for (let i = 0; i < 10; i++) {
+    const { cells } = mosaicGeometry({ ...seedIdentity(`pixels-${i}`), shapeName: shape.name });
+    const pixels = mosaicActivityPixels(cells);
+    expect(new Set(pixels.map(pixel => pixel.side)).size).toBe(2);
+    expect(pixels.length).toBeLessThanOrEqual(16);
+    expect(new Set(pixels.map(pixel => `${pixel.x}:${pixel.y}`)).size).toBe(pixels.length);
+    for (const pixel of pixels) {
+      expect(pixel.x * 7 + 8).toBeGreaterThanOrEqual(0);
+      expect((pixel.x + 1) * 7 + 8).toBeLessThanOrEqual(100);
+      expect(cells.some(cell => cell.x === pixel.x && cell.y === pixel.y)).toBe(false);
+    }
+  }
 });
 
 test('Mosaic preserves explicit unread and decision indicators without relying on motion', () => {

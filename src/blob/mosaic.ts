@@ -24,6 +24,23 @@ export function mosaicGeometry(identity: AvatarIdentity) {
   return { name: shape.name, cells, eyeY: 6, lookRight: rng() > 0.5 };
 }
 
+/** Side pixels follow the silhouette, on its own grid, with room for a second outward beat. */
+export function mosaicActivityPixels(cells: readonly { x: number; y: number }[]) {
+  return [3, 5, 8, 10].flatMap((y, row) => {
+    const xs = cells.filter(cell => cell.y === y).map(cell => cell.x);
+    if (!xs.length) return [];
+    return ([-1, 1] as const).flatMap(side => {
+      const edge = side === -1 ? Math.min(...xs) : Math.max(...xs);
+      return [1, 2].flatMap(distance => {
+        const x = edge + side * distance;
+        const pixelY = y - (distance === 2 ? 1 : 0);
+        if (x < -1 || x > 12 || cells.some(cell => cell.x === x && cell.y === pixelY)) return [];
+        return [{ x, y: pixelY, side, distance, delay: row * 0.23 + (side === 1 ? 0.65 : 0) + (distance - 1) * 0.16 }];
+      });
+    });
+  });
+}
+
 /** Broad colour ribbons with small tile-to-tile shifts, like translucent stacked paper. */
 export function mosaicTileColor(base: string, band: number, y: number, seed: string): string {
   const accents = ['#ff683b', '#ffc84b', '#f29cdb', '#6554ed', '#36bac8', '#75b77c'];

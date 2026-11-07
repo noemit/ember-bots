@@ -3,13 +3,73 @@
   height: 100%;
   transform-origin: 50% 92%;
 }
-.blob-scribble[data-mood='busy'] .scribble-dance {
-  animation: scribble-waddle 0.9s ease-in-out infinite;
+.blob-scribble .scribble-turn,
+.blob-scribble .scribble-head,
+.blob-scribble .scribble-face,
+.blob-scribble .scribble-foot,
+.blob-scribble .scribble-scratch,
+.blob-scribble .scribble-fingers { transform-box: view-box; }
+.blob-scribble .scribble-turn { transform-origin: 50px 48px; }
+.blob-scribble .scribble-head { transform-origin: 50px 62px; }
+.blob-scribble .scribble-foot { transform-origin: 50px 63px; }
+.blob-scribble .scribble-scratch { opacity: 0; transform-origin: 66px 55px; }
+.blob-scribble .scribble-fingers { transform-origin: 75px 25px; }
+
+/* One shared twelve-second timeline: scratch, turn, stretch. Quiet holds let each gesture
+   read at rail size; the seeded offset keeps a busy rail from moving in unison. */
+.blob-scribble[data-mood='busy'] :is(.scribble-dance, .scribble-turn, .scribble-head, .scribble-face, .scribble-foot, .scribble-scratch, .scribble-fingers) {
+  animation-duration: 12s;
+  animation-delay: var(--scribble-delay, 0s);
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
 }
-@keyframes scribble-waddle {
-  0%, 100% { transform: rotate(-4deg); }
-  50% { transform: rotate(4deg) translateY(-2%); }
+.blob-scribble[data-mood='busy'] .scribble-dance { animation-name: scribble-stretch; }
+.blob-scribble[data-mood='busy'] .scribble-head { animation-name: scribble-head-tilt; }
+.blob-scribble[data-mood='busy'] .scribble-scratch { animation-name: scribble-scratch; }
+.blob-scribble[data-mood='busy'] .scribble-fingers { animation-name: scribble-fingers; }
+.blob-scribble[data-mood='busy'] .scribble-turn { animation-name: scribble-turn; }
+.blob-scribble[data-mood='busy'] .scribble-face { animation-name: scribble-face; }
+.blob-scribble[data-mood='busy'] .scribble-foot-left { animation-name: scribble-step-left; }
+.blob-scribble[data-mood='busy'] .scribble-foot-right { animation-name: scribble-step-right; }
+@keyframes scribble-head-tilt {
+  0%, 4%, 31%, 70%, 97%, 100% { transform: rotate(0); }
+  10%, 24% { transform: rotate(-9deg); }
+  77%, 81% { transform: rotate(6deg); }
+  87%, 91% { transform: rotate(-5deg); }
+}
+@keyframes scribble-scratch {
+  0%, 5%, 31%, 100% { opacity: 0; transform: translateY(7px) rotate(12deg); }
+  10%, 15%, 21%, 27% { opacity: 1; transform: translateY(0) rotate(-3deg); }
+  12%, 18%, 24% { opacity: 1; transform: translateY(-1px) rotate(3deg); }
+}
+@keyframes scribble-fingers {
+  0%, 10%, 16%, 22%, 28%, 100% { transform: rotate(0); }
+  13%, 19%, 25% { transform: rotate(-18deg); }
+}
+@keyframes scribble-turn {
+  0%, 37%, 64%, 100% { transform: scaleX(1); }
+  43% { transform: scaleX(0.12); }
+  48%, 54% { transform: scaleX(-1); }
+  59% { transform: scaleX(-0.12); }
+}
+@keyframes scribble-face {
+  0%, 41%, 62%, 100% { opacity: 1; }
+  44%, 58% { opacity: 0; }
+}
+@keyframes scribble-step-left {
+  0%, 37%, 45%, 56%, 64%, 100% { transform: translate(0, 0) rotate(0); }
+  41%, 60% { transform: translate(2px, -3px) rotate(7deg); }
+}
+@keyframes scribble-step-right {
+  0%, 41%, 49%, 60%, 68%, 100% { transform: translate(0, 0) rotate(0); }
+  45%, 64% { transform: translate(-2px, -3px) rotate(-7deg); }
+}
+@keyframes scribble-stretch {
+  0%, 70%, 96%, 100% { transform: translateY(0) scale(1); }
+  75% { transform: translateY(1%) scale(1.03, 0.97); }
+  81%, 86% { transform: translateY(-2%) scale(0.98, 1.04); }
+  92% { transform: translateY(0) scale(1.01, 0.99); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .blob-scribble .scribble-dance { animation: none !important; }
+  .blob-scribble * { animation: none !important; }
 }

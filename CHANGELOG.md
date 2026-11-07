@@ -1,3 +1,16 @@
+## 1.15.0
+
+### Changed
+- Scribble's working animation cycles through a head scratch, a turn and a small stretch, with
+  coordinated feet and eyes, quiet holds, and different starting phases for each chat.
+- Mosaic stays anchored while grid-aligned pixels appear and disappear along both sides.
+  Both styles stay still when idle and respect reduced-motion preferences.
+
+### Added
+- A local blob review gallery (`bun run dev:blobs`) uses the app's five renderers in all eight states.
+  Includes enlarged working previews, Scribble gesture shortcuts, size/theme/colour controls,
+  pause and reduced-motion previews. It runs independently of chats and account settings.
+
 ## 1.14.5
 
 ### Fixed

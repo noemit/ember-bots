@@ -101,6 +101,10 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 
 ## Commands
 
+- `bun run dev:blobs` — standalone blob review at `http://127.0.0.1:5181/blob-gallery.html`.
+  Uses the production React renderers for all styles/states without a bridge or account data.
+  Gesture previews reset CSS animation phases; do not detach them into script-controlled animations
+  that could survive reduced-motion settings. `blob-gallery.html` is dev-only, outside the app build.
 - `bun run dev` — build renderer + electron, then launch Electron.
 - `EMBER_DATA_DIR=<dir> bun run dev` — run this build side-by-side with the daily Ember as
   **Ember Canary**: it keeps its own settings, model-stats and activity log under that directory
