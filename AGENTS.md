@@ -515,7 +515,9 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   `bunx --bun shadcn@latest add <name>`.
 - `src/blob/` — session avatars. `Blob.tsx` switches between `BuddyBlob` (flat, soft creatures),
   `CrystalBlob` (faceted stones that light up), `MosaicBlob` (seeded pixel silhouettes with colour ribbons and square eyes) and
-  `LavaBlob` (grainy lava-lamp goo, below). Stored Pip selections migrate to Mosaic.
+  `LavaBlob` (grainy lava-lamp goo, below) and `ScribbleBlob` (seeded pen strokes, tiny legs and
+  dark-outlined eyes). Scribble uses bounded SVG paths without filters; idle stays still.
+  Stored Pip selections migrate to Mosaic.
   Gem, Critter and Glyph were removed, and stored
   settings that still name them fall back to the default. Renderers memoize on the `identity`
   object, so App hands back the previous reference when nothing changed. Buddy pupils track the

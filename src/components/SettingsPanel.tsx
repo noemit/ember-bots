@@ -81,6 +81,7 @@ const BLOB_STYLES: Array<{ id: BlobStyle; name: string; hint: string }> = [
   { id: 'crystal', name: 'Crystal', hint: 'Faceted stones that glow' },
   { id: 'mosaic', name: 'Mosaic', hint: 'Pixel characters with colourful ribbons and curious eyes' },
   { id: 'lava', name: 'Lava', hint: 'Grainy goo that drips while it works' },
+  { id: 'scribble', name: 'Scribble', hint: 'Scratchy little creatures with bright, curious eyes' },
 ];
 
 /**
@@ -655,7 +656,7 @@ export default function SettingsPanel({
                       </button>)}
                     </div>
                   </fieldset>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {BLOB_STYLES.map((option) => {
                       const selected = option.id === settings.blobStyle;
                       return (

@@ -234,7 +234,7 @@ export type MessagesStatus = 'loading' | 'error' | 'ready';
 
 export type BlobSize = 'standard' | 'large' | 'extra-large';
 
-export type BlobStyle = 'buddy' | 'crystal' | 'mosaic' | 'lava';
+export type BlobStyle = 'buddy' | 'crystal' | 'mosaic' | 'lava' | 'scribble';
 
 /** Width the session list can take: a blob dock, the familiar rail, or about half the window. */
 export type RailMode = 'mini' | 'normal' | 'wide';

@@ -3,6 +3,7 @@ import BuddyBlob from './BuddyBlob';
 import CrystalBlob from './CrystalBlob';
 import MosaicBlob from './MosaicBlob';
 import LavaBlob from './LavaBlob';
+import ScribbleBlob from './ScribbleBlob';
 import { moodFrom, stateFromMood } from './mood';
 import { seedIdentity } from './seed';
 import type { AvatarIdentity, BallMood, BallState, BlobStyle } from '../types';
@@ -34,6 +35,8 @@ export default function Blob({ style, ...rest }: Props) {
       <BuddyBlob {...props} />
     ) : style === 'mosaic' ? (
       <MosaicBlob {...props} />
+    ) : style === 'scribble' ? (
+      <ScribbleBlob {...props} />
     ) : style === 'lava' ? (
       <LavaBlob {...props} />
     ) : (

@@ -11,6 +11,7 @@ type BlobComponent = React.ComponentType<{
 }>;
 
 const loadBlobComponent = async (style: BlobStyle): Promise<BlobComponent> => {
+  if (style === 'scribble') return (await import('./ScribbleBlob')).default;
   if (style === 'mosaic') return (await import('./MosaicBlob')).default;
   if (style === 'lava') return (await import('./LavaBlob')).default;
   if (style === 'crystal') return (await import('./CrystalBlob')).default;
@@ -98,7 +99,7 @@ export const renderDockIcon = async (
   // Blobs show state through motion, which a still image loses. Buddy draws its own badge for
   // input/question/error paint their own badge, so only the rest need a corner marker.
   const hasOwnBadge =
-    style === 'buddy' || style === 'lava' || style === 'mosaic'
+    style === 'buddy' || style === 'lava' || style === 'mosaic' || style === 'scribble'
       ? mood === 'input' || mood === 'question' || mood === 'error'
       : mood === 'error';
   // An unknown status gets no marker at all: the dot means "something is waiting for you", and the

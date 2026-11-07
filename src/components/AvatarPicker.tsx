@@ -4,6 +4,7 @@ import { blobColor } from '../blob/color';
 import { IDENTITY_COLORS } from '../blob/contrast';
 import { CRYSTAL_SHAPES } from '../blob/crystal';
 import { BUDDY_SHAPES } from '../blob/buddy';
+import { SCRIBBLE_SHAPES } from '../blob/scribble';
 import { MOSAIC_SHAPES } from '../blob/mosaic';
 import { LAVA_SHAPES } from '../blob/lava';
 import { cn } from '@/lib/utils';
@@ -59,7 +60,9 @@ export default function AvatarPicker({
         ? BUDDY_SHAPES.map((shape) => shape.name)
         : style === 'lava'
           ? LAVA_SHAPES.map((shape) => shape.name)
-          : MOSAIC_SHAPES.map((shape) => shape.name);
+          : style === 'scribble'
+            ? SCRIBBLE_SHAPES.map((shape) => shape.name)
+            : MOSAIC_SHAPES.map((shape) => shape.name);
 
   const firstScopeKey = scopes[0]?.key ?? '';
   const scopeKind = scopes.find((scope) => scope.key === scopeKey)?.kind ?? 'session';

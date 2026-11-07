@@ -31,7 +31,7 @@ test('every style rasterises its body and overlay as a valid dock image', async 
     const { renderDockIcon } = await import(/* @vite-ignore */ source);
     const identity = { sessionKey: 'demo', colorSeed: 'demo', shapeSeed: 'demo', motionSeed: 'demo', color: '#ff8648' };
     const results = [];
-    for (const style of ['buddy', 'crystal', 'mosaic', 'lava']) results.push(await renderDockIcon(style, identity, 'question'));
+    for (const style of ['buddy', 'crystal', 'mosaic', 'lava', 'scribble']) results.push(await renderDockIcon(style, identity, 'question'));
     return results;
   });
   for (const image of images) expect(image).toMatch(/^data:image\/png;base64,/);

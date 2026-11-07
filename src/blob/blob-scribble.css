@@ -1,0 +1,15 @@
+.blob-scribble .scribble-dance {
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 92%;
+}
+.blob-scribble[data-mood='busy'] .scribble-dance {
+  animation: scribble-waddle 0.9s ease-in-out infinite;
+}
+@keyframes scribble-waddle {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg) translateY(-2%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blob-scribble .scribble-dance { animation: none !important; }
+}

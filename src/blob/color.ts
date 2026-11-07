@@ -12,6 +12,10 @@ export const blobColor = (style: BlobStyle, seedOrIdentity: string | AvatarIdent
   const identity = typeof seedOrIdentity === 'string' ? seedIdentity(seedOrIdentity) : seedOrIdentity;
   if (identity.color) return identity.color;
   switch (style) {
+    case 'scribble': {
+      const index = identity.colorIndex ?? hashString(`scribble:${identity.colorSeed}`) % IDENTITY_COLORS.length;
+      return `var(--blob-${Math.abs(index) % IDENTITY_COLORS.length})`;
+    }
     case 'mosaic': {
       const index = identity.colorIndex ?? hashString(`mosaic:${identity.colorSeed}`) % IDENTITY_COLORS.length;
       return `var(--blob-${Math.abs(index) % IDENTITY_COLORS.length})`;

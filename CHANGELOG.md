@@ -1,3 +1,10 @@
+## 1.12.0
+
+### Added
+- Scribble avatars: seeded, scratchy creatures with tiny feet, six silhouettes and uneven white eyes
+  outlined in dark ink. Supports custom colours, all avatar sizes and shared status indicators.
+- Scribble keeps still when idle and waddles while working, with reduced-motion support.
+
 ## 1.11.1
 
 ### Removed

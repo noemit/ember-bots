@@ -463,9 +463,9 @@ export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvata
  */
 export type BlobSize = 'standard' | 'large' | 'extra-large';
 
-export type BlobStyle = 'buddy' | 'crystal' | 'mosaic' | 'lava';
+export type BlobStyle = 'buddy' | 'crystal' | 'mosaic' | 'lava' | 'scribble';
 
-export const BLOB_STYLES: BlobStyle[] = ['buddy', 'crystal', 'mosaic', 'lava'];
+export const BLOB_STYLES: BlobStyle[] = ['buddy', 'crystal', 'mosaic', 'lava', 'scribble'];
 export const isBlobStyle = (value: unknown): value is BlobStyle =>
   typeof value === 'string' && (BLOB_STYLES as string[]).includes(value);
 
