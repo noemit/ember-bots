@@ -27,6 +27,10 @@ test('Mosaic identities are stable, varied, and keep eyes inside every silhouett
       for (const y of [chosen.eyeY, chosen.eyeY - 1]) for (const x of [3, 4, 6, 7]) {
         expect(chosen.cells.some(cell => cell.x === x && cell.y === y)).toBe(true);
       }
+      // The taller error eyes still fit inside every silhouette.
+      for (const y of [6, 7]) for (const x of [3, 4, 6, 7]) {
+        expect(chosen.cells.some(cell => cell.x === x && cell.y === y)).toBe(true);
+      }
       expect(chosen.cells.length).toBeLessThan(130);
     }
   }
@@ -67,6 +71,12 @@ test('Mosaic preserves explicit unread and decision indicators without relying o
 
 test('Mosaic replaces both pupils with crosses when a turn fails', () => {
   const failed = renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="error" />);
-  expect(failed.match(/class="mosaic-error-eye"/g)).toHaveLength(2);
+  const eyes = [...failed.matchAll(/<g class="mosaic-error-eye"[^>]*>(.*?)<\/g>/g)];
+  expect(eyes).toHaveLength(2);
+  for (const [, eye] of eyes) {
+    expect(eye.match(/<rect /g)).toHaveLength(5);
+    expect(eye.match(/width="0.5" height="0.5"/g)).toHaveLength(5);
+    expect(eye).not.toContain('<path');
+  }
   expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="idle" />)).not.toContain('mosaic-error-eye');
 });

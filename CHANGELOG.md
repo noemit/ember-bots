@@ -1,3 +1,9 @@
+## 1.15.5
+
+### Fixed
+- Mosaic’s error eyes are now blocky crosses made from square pixels,
+  replacing the thin diagonal strokes. The larger eyes remain inside every silhouette.
+
 ## 1.15.4
 
 ### Added

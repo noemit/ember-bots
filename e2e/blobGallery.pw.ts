@@ -93,6 +93,7 @@ test('thinking is distinct for every style, and a turning Scribble keeps its vol
   }
   expect(new Set(signatures).size).toBe(5);
   await expect(page.locator('[data-style="mosaic"][data-state="error"] .mosaic-error-eye')).toHaveCount(2);
+  await expect(page.locator('[data-style="mosaic"][data-state="error"] .mosaic-error-eye rect')).toHaveCount(10);
   const crystal = page.locator('[data-style="crystal"][data-state="busy"]');
   await expect(crystal.locator('circle.blob-heat')).toHaveCount(0);
   expect(Number(await crystal.locator('.blob-heat').evaluate(node => getComputedStyle(node).opacity))).toBeLessThan(.3);

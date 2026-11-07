@@ -36,9 +36,11 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
             style={{ animationDelay: `${art.delay - delay}s`, animationName: distance === 1 ? 'mosaic-pixel-near' : 'mosaic-pixel-far' }} />) : null}
           <g className="mosaic-eyes">{[3, 6].map(x => <g key={x}>
             <g className="mosaic-eye-open">
-              <rect x={x} y={art.eyeY} width={2} height={1} fill="#fffdf5" />
-              {mood === 'error' ? <path className="mosaic-error-eye" d={`M${x + .25} ${art.eyeY + .1}l1.5 .8m0 -.8l-1.5 .8`}
-                stroke="#14111a" strokeWidth={.28} fill="none" shapeRendering="geometricPrecision" />
+              <rect x={x} y={art.eyeY} width={2} height={mood === 'error' ? 2 : 1} fill="#fffdf5" />
+              {mood === 'error' ? <g className="mosaic-error-eye" fill="#14111a">
+                {[[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]].map(([dx, dy]) =>
+                  <rect key={`${dx}:${dy}`} x={x + .25 + dx * .5} y={art.eyeY + .25 + dy * .5} width={.5} height={.5} />)}
+              </g>
                 : <g className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={art.eyeY} width={1} height={1} fill="#14111a" /></g>}
             </g>
             <rect className="mosaic-eye-closed" x={x} y={art.eyeY + .4} width={2} height={.2} fill="#14111a" opacity={0} />
