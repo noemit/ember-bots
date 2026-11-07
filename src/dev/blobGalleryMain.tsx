@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import Blob from '../blob/Blob';
-import { seedIdentity } from '../blob/seed';
+import { galleryExamples } from './blobGalleryExamples';
 import { applyTheme, THEMES } from '../themes';
 import { useMotionPause } from '../lib/useMotionPause';
-import type { BallMood, BlobStyle } from '../types';
+import type { AvatarIdentity, BallMood, BlobStyle } from '../types';
 import '../styles.css';
 import './blobGallery.css';
 
@@ -38,19 +38,26 @@ function BlobGallery() {
   const [preview, setPreview] = React.useState<{ phase: number; revision: number } | null>(null);
   useMotionPause();
   React.useLayoutEffect(() => { applyTheme(theme); }, [theme]);
-  const identity = React.useMemo(() => ({ ...seedIdentity(seed), ...(custom ? { color } : {}) }), [seed, color, custom]);
+  const examples = React.useMemo(() => Object.fromEntries(styles.map(({ id }) =>
+    [id, galleryExamples(id, seed, custom ? color : undefined)]
+  )) as Record<BlobStyle, AvatarIdentity[]>, [seed, color, custom]);
   // Restart with a CSS phase offset: previewing must not detach animations from CSS, which would
   // let them survive a later reduced-motion choice. All app renderers stay unchanged.
   const jump = (phase: number) => setPreview(previous => ({ phase, revision: (previous?.revision ?? 0) + 1 }));
-  const renderBlob = (style: BlobStyle, mood: BallMood, previewSize = size) =>
-    <Blob key={style === 'scribble' && mood === 'busy' ? preview?.revision ?? 0 : 0} style={style} mood={mood} seed={seed} identity={identity} size={previewSize} interactive={false} />;
+  const renderBlob = (style: BlobStyle, mood: BallMood, previewSize = size, example = 0) =>
+    <Blob key={style === 'scribble' && mood === 'busy' ? preview?.revision ?? 0 : 0} style={style} mood={mood} seed={seed} identity={examples[style][example]} size={previewSize} interactive={false} />;
+  const renderExamples = (style: BlobStyle, mood: BallMood, previewSize = size) =>
+    examples[style].map((identity, index) => <div key={index} className="gallery-example" data-example={index + 1} data-shape={identity.shapeName}>
+      {renderBlob(style, mood, previewSize, index)}
+      <span className="gallery-example-label">Example {index + 1}</span>
+    </div>);
 
   return <div className="blob-gallery" data-paused={paused} data-reduced={reduced} data-scribble-preview={Boolean(preview)}
     style={preview ? { '--gallery-scribble-delay': `-${preview.phase}s` } as React.CSSProperties : undefined}>
     <header className="gallery-intro">
       <p className="gallery-eyebrow">EMBER / CREATURE STUDIES</p>
       <h1>A little more character.</h1>
-      <p>Five styles. Every state. Watch them at chat size, or get closer and tell me what feels right.</p>
+      <p>Five styles, three characters each. Compare the same characters in every state, at chat size or up close.</p>
     </header>
     <section className="gallery-controls" aria-label="Preview controls">
       <label>Theme<select aria-label="Theme" value={theme} onChange={e => setTheme(e.target.value)}>{THEMES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -63,7 +70,7 @@ function BlobGallery() {
 
     <section className="gallery-spotlights" aria-label="New working animations">
       <article className="gallery-spotlight">
-        <div className="gallery-stage" data-preview="scribble">{renderBlob('scribble', 'busy', 160)}<div className="gallery-rail-sample">{renderBlob('scribble', 'busy', 55)}<span>Rail size</span></div></div>
+        <div className="gallery-stage" data-preview="scribble"><div className="gallery-example-strip">{renderExamples('scribble', 'busy', 112)}</div><div className="gallery-rail-sample">{[0, 1, 2].map(index => <React.Fragment key={index}>{renderBlob('scribble', 'busy', 55, index)}</React.Fragment>)}<span>Rail size</span></div></div>
         <div><p className="gallery-eyebrow">01 / SCRIBBLE IN MOTION</p><h2>A moment to think.</h2><p>Wires shift while it looks left, looks right, or turns away. The raised hand belongs to questions now.</p>
           <div className="gallery-gestures" aria-label="Preview Scribble gestures">
             <button onClick={() => jump(2)}>Look left</button><button onClick={() => jump(6)}>Look right</button><button onClick={() => jump(10)}>Turn around</button><button onClick={() => jump(14.4)}>Little stretch</button>
@@ -71,7 +78,7 @@ function BlobGallery() {
         </div>
       </article>
       <article className="gallery-spotlight">
-        <div className="gallery-stage" data-preview="mosaic">{renderBlob('mosaic', 'busy', 160)}<div className="gallery-rail-sample">{renderBlob('mosaic', 'busy', 55)}<span>Rail size</span></div></div>
+        <div className="gallery-stage" data-preview="mosaic"><div className="gallery-example-strip">{renderExamples('mosaic', 'busy', 112)}</div><div className="gallery-rail-sample">{[0, 1, 2].map(index => <React.Fragment key={index}>{renderBlob('mosaic', 'busy', 55, index)}</React.Fragment>)}<span>Rail size</span></div></div>
         <div><p className="gallery-eyebrow">02 / MOSAIC IN MOTION</p><h2>Thinking in pixels.</h2><p>Tiles pop into place on the left and right, then disappear. The eyes glance between tasks and blink now and then while the edges get to work.</p></div>
       </article>
     </section>
@@ -80,7 +87,7 @@ function BlobGallery() {
       <h2>Five ways to think.</h2>
       <p>Each character works through an idea in its own way.</p>
       <div className="gallery-thinking-grid">{styles.map(style => <figure key={style.id}>
-        {renderBlob(style.id, 'thinking', 120)}<figcaption>{style.name}</figcaption>
+        <div className="gallery-example-strip">{renderExamples(style.id, 'thinking', 72)}</div><figcaption>{style.name}</figcaption>
       </figure>)}</div>
     </section>
 
@@ -90,13 +97,13 @@ function BlobGallery() {
         <div className="gallery-style-heading"><h3>{style.name}</h3><p>{style.description}</p></div>
         <div className="gallery-scroll"><div className="gallery-mood-grid">
           {moods.map(mood => <figure key={mood.id} className="gallery-state" data-style={style.id} data-state={mood.id}>
-            <div className="gallery-state-art">{renderBlob(style.id, mood.id)}</div>
             <figcaption><strong>{mood.name}</strong><span>{mood.description}</span></figcaption>
+            <div className="gallery-state-art">{renderExamples(style.id, mood.id)}</div>
           </figure>)}
         </div></div>
       </section>)}
     </section>
-    <footer className="gallery-footer">For feedback, name the style and state — for example, “Scribble · Working · looking left.” Change the character name to try another silhouette.</footer>
+    <footer className="gallery-footer">For feedback, name the style, state and example — for example, “Lava · Working · 2.” Change Character to explore three more variations.</footer>
   </div>;
 }
 

@@ -17,6 +17,7 @@ import {
   lavaGeometry,
   lavaGrainFrequency,
   lavaRimWidth,
+  lavaTiming,
 } from '../src/blob/lava';
 import { seedIdentity, mulberry32 } from '../src/blob/seed';
 import { BLOB_STYLES, isBlobStyle } from '../electron/transport';
@@ -66,8 +67,8 @@ describe('Lava shapes', () => {
         cx: bud.cx + ux * LAVA_BUD_TRAVEL,
         cy: bud.cy + uy * LAVA_BUD_TRAVEL,
       };
-      // The CSS bends the throw off that line at the peak (--lava-wx/-wy), so the droplet is checked
-      // where it actually goes, not only where the straight throw would take it.
+      // Check a sideways offset as well as the detached resting pose: the independent current
+      // carries the bead off its outward line.
       const drifting = {
         cx: outward.cx + -uy * LAVA_BUD_TRAVEL * 0.45 * 0.7,
         cy: outward.cy + ux * LAVA_BUD_TRAVEL * 0.45 * 0.7,
@@ -132,18 +133,10 @@ describe('Lava shapes', () => {
     expect(geometry.bodies.length).toBe(3);
 
     const html = renderToStaticMarkup(<LavaBlob seed="x" mood="busy" />);
-    // The middle lobe drifts on its own period, set from its position in the stack...
-    const periods = [...new Set([...html.matchAll(/--slosh-dur:\s*([\d.]+)s/g)].map((m) => m[1]))];
-    expect(periods).toHaveLength(1);
-    // ...while the rise, the swelling body, the pool and the glow each run on theirs. Busy is the sum
-    // of four animations on four clocks, which is what makes it read as churn rather than a loop.
-    const busyDurations = [...css.matchAll(/data-motion='split'\][^{]*\{[^}]*animation: [\w-]+ ([\d.]+)s/g)]
-      .map((match) => match[1]);
-    expect(busyDurations.length).toBeGreaterThanOrEqual(4);
-    expect(new Set(busyDurations).size).toBe(busyDurations.length);
-    for (const part of ['blob-lava-rise', 'blob-lava-core', 'blob-lava-bud', 'blob-lava-pools', 'blob-lava-glow']) {
-      expect(css).toContain(`data-motion='split'] .${part} {`);
-    }
+    const clocks = Object.values(lavaTiming(mulberry32(7)));
+    expect(new Set(clocks.map(clock => clock.duration)).size).toBe(clocks.length);
+    expect(new Set(clocks.map(clock => clock.delay / clock.duration)).size).toBe(clocks.length);
+    expect(html).toContain('--lobe-duration:');
     // The body does not merely breathe: it squashes, so its two axes move in opposite directions.
     const coreStart = css.indexOf('@keyframes lava-core');
     const core = css.slice(coreStart, css.indexOf('@keyframes', coreStart + 1));
@@ -157,6 +150,25 @@ describe('Lava shapes', () => {
     expect(slosh).toBeDefined();
     expect(Math.hypot(slosh!.dx, slosh!.dy)).toBeGreaterThan(1.5);
     expect(lobe.r).toBeGreaterThan(0);
+  });
+
+  test('motion seeds change the rhythms without short loops or synchronised starts', () => {
+    const schedules = new Set<string>();
+    for (let seed = 0; seed < 200; seed++) {
+      const timing = lavaTiming(mulberry32(seed));
+      expect(timing).toEqual(lavaTiming(mulberry32(seed)));
+      for (const clock of Object.values(timing)) {
+        expect(clock.duration).toBeGreaterThan(10);
+        expect(clock.duration).toBeLessThan(45);
+        expect(clock.delay).toBeLessThanOrEqual(0);
+        expect(clock.delay).toBeGreaterThanOrEqual(-clock.duration);
+      }
+      // The sideways current must keep changing after the same split phase comes around again.
+      const cycles = timing.bud.duration / timing.flow.duration;
+      expect(Math.abs(cycles - Math.round(cycles))).toBeGreaterThan(.001);
+      schedules.add(JSON.stringify(timing));
+    }
+    expect(schedules.size).toBe(200);
   });
 
   test('a two-lobe shape still moves: the body swells even with nothing to drift', () => {
@@ -254,7 +266,7 @@ describe('Lava moods', () => {
     // `animation-delay: inherit` would read the immediate parent <g>, which has none: every lamp in
     // the rail would split in unison.
     expect(css).not.toContain('animation-delay: inherit');
-    expect(markup('busy')).toMatch(/--lava-delay:-?\d/);
+    expect(markup('busy')).toMatch(/--lava-bud-delay:-?\d/);
   });
 });
 

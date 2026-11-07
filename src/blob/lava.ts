@@ -137,7 +137,7 @@ export type LavaGeometry = {
   bodies: LavaBody[];
   /** Direction the bud pinches off in, already scaled by {@link LAVA_BUD_TRAVEL}. */
   budTravel: { dx: number; dy: number };
-  /** Sideways drift at the peak, so a thrown droplet does not travel on a rail. */
+  /** Sideways current, composed with outward motion on an independent clock. */
   budDrift: { dx: number; dy: number };
   /** Centre of the main lobe; the main lobe's pools swirl about it. */
   swirlCentre: { x: number; y: number };
@@ -151,9 +151,22 @@ export type LavaGeometry = {
 export const LAVA_SLOSH = 3.8;
 /** The most any lobe may drift, which is what keeps a working blob inside its box (see the tests). */
 export const LAVA_SLOSH_MAX = 4.2;
-/** How long one drift takes, and how much longer each further lobe takes, so they never sync. */
-export const LAVA_SLOSH_PERIOD = 3;
-export const LAVA_SLOSH_STAGGER = 0.7;
+/** Independent, seeded clocks: separation never repeats with the same sideways current or colour. */
+export const lavaTiming = (rng: () => number) => {
+  const clock = (minimum: number, spread: number) => {
+    const duration = Number((minimum + rng() * spread).toFixed(3));
+    return { duration, delay: Number((-rng() * duration).toFixed(3)) };
+  };
+  return {
+    core: clock(17, 9),
+    bud: clock(29, 12),
+    slosh: clock(19, 8),
+    flow: clock(11, 7),
+    rise: clock(23, 13),
+    pools: clock(21, 10),
+    glow: clock(27, 11),
+  };
+};
 
 /**
  * Places a shape for one identity: rotated by the seed, mirrored on a coin flip, and given its pools.

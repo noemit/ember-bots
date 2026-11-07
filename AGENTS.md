@@ -139,6 +139,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 
 - `bun run dev:blobs` — standalone blob review at `http://127.0.0.1:5181/blob-gallery.html`.
   Uses the production React renderers for all styles/states without a bridge or account data.
+  Three seeded examples per style keep distinct shapes and colours consistent across states;
+  `blobGalleryExamples.ts` owns their identities. Custom colour applies to all three.
   Gesture previews reset CSS animation phases; do not detach them into script-controlled animations
   that could survive reduced-motion settings. `blob-gallery.html` is dev-only, outside the app build.
 - `bun run dev` — build renderer + electron, then launch Electron.
@@ -635,13 +637,15 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   no pool reaches a rim. Grain frequency and rim width scale with the rendered size so both stay near a
   CSS pixel; body grain is omitted below 64px. The rim mixes the body with its deep hue through
   `--lava-rim`, using translucent ink on both themes; standalone dock SVGs fall back to that deep hue.
-  Staggering uses `--lava-delay`, not
+  Staggering uses the seeded `--lava-<part>-delay` properties, not
   `animation-delay: inherit` — the animated groups sit two levels below the element carrying it.
 - **Lava is a liquid in every active state**: busy, thinking, approval and question all separate
   and reform. Body, middle lobes, bud, pools and glow run on independent periods; `--lobe-delay`
-  offsets each lobe while keeping its body and colour in phase. `lava-split` gathers inward,
-  stretches a neck, releases a bead, curves sideways and returns by a different path. `lava-slosh`
-  gives middle lobes a small convection loop. The main body squashes/stretches while the whole goo
+  offsets each lobe while keeping its body and colour in phase. `lavaTiming` seeds independent
+  durations and phases for the body, bud, currents and pools. `lava-split` alternates partial pulls
+  with full separations; `lava-flow` adds sideways translation on a separate clock, so the bead
+  takes a different path on successive splits. `lava-slosh` gives middle lobes uneven inward/outward
+  drift. The main body squashes/stretches while the whole goo
   drifts in translation, without rocking as one solid shape. Approval/question use slower cycles
   and keep their badges stationary; no orbit. Idle, unread, unknown and error remain still.
   Reduced motion removes every animation and keeps badges; busy retains its detached static bud.

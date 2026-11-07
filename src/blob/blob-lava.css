@@ -1,12 +1,12 @@
 /*
- * Lava (LavaBlob.tsx). The goo filter melts whatever is inside it, so the motion is just circles
- * moving: lobes drifting apart and together, the bud thrown off and reabsorbed, the colour churning
- * inside. All of it is transforms on SVG children, which repaint the one blob each frame; idle,
- * unread and error draw no animation at all, so a rail of resting lamps costs nothing.
- *
- * Working has to *look* like working at rail size, where a slow single motion reads as a still
- * picture: busy runs three at once, on three different clocks.
+ * Lava is the sum of independent currents. Long, uneven sequences include small pulls that melt
+ * back before a bead separates; a second clock carries it sideways, so successive departures
+ * take different paths. CSS owns every timeline: hiding the app pauses it, reduced motion stops it,
+ * and resting lamps have no animations or per-frame JavaScript work.
  */
+.blob-lava { --lava-pace: 1; }
+.blob-lava[data-motion='swirl'] { --lava-pace: 1.25; }
+.blob-lava[data-motion='wait'] { --lava-pace: 1.7; }
 
 .blob-lava .blob-lava-bud,
 .blob-lava .blob-lava-lobe,
@@ -17,170 +17,107 @@
   transform-box: view-box;
 }
 
-/* Active lobes move independently; the goo filter creates the thinning and reforming necks. */
-.blob-lava[data-motion='split'] .blob-lava-lobe {
-  animation: lava-slosh var(--slosh-dur, 3.4s) ease-in-out infinite;
-  animation-delay: var(--lava-delay, 0s);
+/* The shape and its colour share each transform and phase, keeping pools inside their lobe. */
+.blob-lava:not([data-motion='still']) .blob-lava-core {
+  animation: lava-core calc(var(--lava-core-duration) * var(--lava-pace)) ease-in-out infinite;
+  animation-delay: calc(var(--lava-core-delay) * var(--lava-pace));
 }
-
-/* Convection carries the whole liquid gently while its parts travel in different directions. */
-.blob-lava[data-motion='split'] .blob-lava-rise {
-  animation: lava-rise 6.2s ease-in-out infinite;
-  animation-delay: var(--lava-delay, 0s);
+.blob-lava:not([data-motion='still']) .blob-lava-rise {
+  animation: lava-rise calc(var(--lava-rise-duration) * var(--lava-pace)) ease-in-out infinite;
+  animation-delay: calc(var(--lava-rise-delay) * var(--lava-pace));
 }
-
-/* The main body and its pools share a transform, so colour stays inside the deforming lobe. */
-.blob-lava[data-motion='split'] .blob-lava-core {
-  animation: lava-core 4.2s ease-in-out infinite alternate;
-  animation-delay: var(--lava-delay, 0s);
+.blob-lava:not([data-motion='still']) :is(.blob-lava-lobe, .blob-lava-bud) {
+  animation:
+    lava-slosh calc(var(--lobe-duration) * var(--lava-pace)) ease-in-out infinite,
+    lava-flow calc(var(--lava-flow-duration) * var(--lava-pace)) ease-in-out infinite;
+  animation-delay:
+    calc(var(--lobe-delay) * var(--lava-pace)),
+    calc(var(--lava-flow-delay) * var(--lava-pace));
 }
-
-/*
- * The bud's resting place while busy is *away* from the body, so a still frame — and reduced
- * motion — still shows a droplet that has come off, which no other mood draws. The throw runs a
- * little off the outward line (--lava-wx/-wy), so it arcs instead of sliding.
- */
+.blob-lava:not([data-motion='still']) .blob-lava-bud {
+  animation-name: lava-split, lava-flow;
+}
+/* A still working lamp retains its detached droplet. */
 .blob-lava[data-motion='split'] .blob-lava-bud {
   transform: translate(var(--lava-dx, 0), var(--lava-dy, 0)) scale(0.8);
-  animation: lava-split 4.6s cubic-bezier(0.45, 0, 0.4, 1) infinite;
-  animation-delay: var(--lava-delay, 0s);
 }
 
-/* The pool churns one way and the glow the other, so colour moves against colour inside the body. */
-.blob-lava[data-motion='split'] .blob-lava-pools {
-  animation: lava-swirl 3.8s linear infinite;
-  animation-delay: var(--lava-delay, 0s);
+/* Colour meanders and occasionally reverses, rather than turning like a pair of clock hands. */
+.blob-lava:not([data-motion='still']) .blob-lava-pools {
+  animation: lava-pool calc(var(--lava-pools-duration) * var(--lava-pace)) ease-in-out infinite;
+  animation-delay: calc(var(--lava-pools-delay) * var(--lava-pace));
+}
+.blob-lava:not([data-motion='still']) .blob-lava-glow {
+  animation: lava-pool calc(var(--lava-glow-duration) * var(--lava-pace)) ease-in-out infinite reverse;
+  animation-delay: calc(var(--lava-glow-delay) * var(--lava-pace));
 }
 
-.blob-lava[data-motion='split'] .blob-lava-glow {
-  animation: lava-swirl 5.6s linear infinite reverse;
-  animation-delay: var(--lava-delay, 0s);
+/* Unequal stretches and lulls: there is no single inhale/exhale beat. */
+@keyframes lava-core {
+  0%, 100% { transform: scale(.97, 1.03); }
+  11% { transform: scale(.88, 1.12); }
+  23% { transform: scale(1.06, .95); }
+  39% { transform: scale(.94, 1.07); }
+  48% { transform: scale(.9, 1.1); }
+  67% { transform: scale(1.14, .86); }
+  79% { transform: scale(1.02, .98); }
+  91% { transform: scale(1.08, .93); }
 }
 
-/* Thinking changes the material: gather into a dense lump, soften, stretch, then melt back.
-   Bodies and their pools share each transform so the colour stays inside the moving material. */
-.blob-lava[data-motion='swirl'] .blob-lava-core {
-  animation: lava-phase-core 4.6s ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='swirl'] .blob-lava-lobe {
-  animation: lava-slosh calc(var(--slosh-dur, 3.4s) * 1.8) ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='swirl'] .blob-lava-bud {
-  animation: lava-split 6.7s ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='swirl'] .blob-lava-rise {
-  transform-origin: 50px 50px;
-  animation: lava-phase-drift 8.9s ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='swirl'] .blob-lava-pools {
-  transform: rotate(-24deg);
-  animation: lava-thought 7.1s ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='swirl'] .blob-lava-glow {
-  animation: lava-swirl 9.3s linear infinite reverse;
-  animation-delay: var(--lava-delay);
-}
-@keyframes lava-phase-core {
-  0%, 100% { transform: scale(1.04, .96); }
-  26% { transform: scale(.86, 1.16); }
-  58% { transform: scale(1.14, .86); }
-  80% { transform: scale(.96, 1.08); }
-}
-/* Decisions wait in the same liquid, with slower independent cycles. The badge stays still;
-   the material never rocks like a solid object or borrows Crystal's orbit. */
-.blob-lava[data-motion='wait'] .blob-lava-core {
-  animation: lava-phase-core 9.2s ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='wait'] .blob-lava-lobe {
-  animation: lava-slosh calc(var(--slosh-dur, 3.4s) * 2.3) ease-in-out infinite;
-}
-.blob-lava[data-motion='wait'] .blob-lava-bud {
-  animation: lava-split 8.6s ease-in-out infinite;
-}
-.blob-lava[data-mood='question'] .blob-lava-bud { animation-duration: 7.6s; }
-.blob-lava[data-motion='wait'] .blob-lava-rise {
-  animation: lava-phase-drift 11.8s ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='wait'] .blob-lava-pools {
-  animation: lava-thought 10.7s ease-in-out infinite;
-  animation-delay: var(--lava-delay);
-}
-.blob-lava[data-motion='wait'] .blob-lava-glow {
-  animation: lava-swirl 13.3s linear infinite reverse;
-  animation-delay: var(--lava-delay);
-}
-/* Keep each lobe and its colour locked together, but out of phase with neighbouring lobes. */
-.blob-lava:not([data-motion='still']) :is(.blob-lava-lobe, .blob-lava-bud) {
-  animation-delay: var(--lobe-delay, var(--lava-delay));
-}
-@keyframes lava-phase-drift {
-  0%, 100% { transform: translate(0, 1px); }
-  32% { transform: translate(2px, -3px); }
-  68% { transform: translate(-2px, -1px); }
-}
-
-/*
- * Out, hang, fall back, melt. The bud swells as it gathers itself, is thrown along the outward line
- * (bending off it at the peak, --lava-wx/-wy), hangs free for a beat, then drops back into the body
- * and is absorbed — with a small overshoot inward, because goo does not simply stop.
- */
+/* A small pull subsides, a bead escapes, then another pull lingers before melting inward. */
 @keyframes lava-split {
-  0%, 100% { transform: translate(calc(var(--lava-dx) * -.3), calc(var(--lava-dy) * -.3)) scale(1.08, .94); }
-  /* Gather into the body, stretch a neck, then release a bead into the surrounding space. */
-  18% { transform: translate(calc(var(--lava-dx) * .2 - var(--lava-wx) * .45), calc(var(--lava-dy) * .2 - var(--lava-wy) * .45)) scale(.96, 1.08); }
-  42% { transform: translate(calc(var(--lava-dx) * 1.2 + var(--lava-wx) * .7), calc(var(--lava-dy) * 1.2 + var(--lava-wy) * .7)) scale(.72); }
-  61% { transform: translate(calc(var(--lava-dx) * 1.1 - var(--lava-wx) * .8), calc(var(--lava-dy) * 1.1 - var(--lava-wy) * .8)) scale(.74); }
-  /* A different return path and a soft landing, rather than retracing a straight throw. */
-  82% { transform: translate(calc(var(--lava-dx) * .25 - var(--lava-wx) * .65), calc(var(--lava-dy) * .25 - var(--lava-wy) * .65)) scale(1.04, .96); }
+  0%, 100% { transform: translate(calc(var(--lava-dx) * -.3), calc(var(--lava-dy) * -.3)) scale(1.06, .96); }
+  9% { transform: translate(calc(var(--lava-dx) * .4), calc(var(--lava-dy) * .4)) scale(.93, 1.04); }
+  17% { transform: translate(calc(var(--lava-dx) * -.15), calc(var(--lava-dy) * -.15)) scale(1.03, .97); }
+  29% { transform: translate(calc(var(--lava-dx) * 1.2), calc(var(--lava-dy) * 1.2)) scale(.72); }
+  37% { transform: translate(calc(var(--lava-dx) * 1.05), calc(var(--lava-dy) * 1.05)) scale(.76); }
+  49% { transform: translate(calc(var(--lava-dx) * -.4), calc(var(--lava-dy) * -.4)) scale(1.08, .94); }
+  61% { transform: translate(calc(var(--lava-dx) * .2), calc(var(--lava-dy) * .2)) scale(.98, 1.02); }
+  68% { transform: translate(calc(var(--lava-dx) * .1), calc(var(--lava-dy) * .1)) scale(1.02, .98); }
+  83% { transform: translate(calc(var(--lava-dx) * 1.1), calc(var(--lava-dy) * 1.1)) scale(.74); }
+  91% { transform: translate(calc(var(--lava-dx) * .7), calc(var(--lava-dy) * .7)) scale(.87, .93); }
 }
 
-/* Each middle lobe follows a small convection loop instead of sliding on a straight rail. */
+/* Individual translate composes with the split/slosh transform on a separate clock. */
+@keyframes lava-flow {
+  0%, 100% { translate: calc(var(--flow-x) * -.6) calc(var(--flow-y) * -.6); }
+  19% { translate: calc(var(--flow-x) * .9) calc(var(--flow-y) * .9); }
+  43% { translate: calc(var(--flow-x) * .15) calc(var(--flow-y) * .15); }
+  58% { translate: calc(var(--flow-x) * .65) calc(var(--flow-y) * .65); }
+  81% { translate: calc(var(--flow-x) * -1) calc(var(--flow-y) * -1); }
+}
+
 @keyframes lava-slosh {
   0%, 100% { transform: translate(calc(var(--slosh-dx) * -.5), calc(var(--slosh-dy) * -.5)) scale(1.04, .97); }
-  32% { transform: translate(calc(var(--slosh-dx) * 1.4 - var(--slosh-dy) * .7), calc(var(--slosh-dy) * 1.4 + var(--slosh-dx) * .7)) scale(.93, 1.06); }
-  70% { transform: translate(calc(var(--slosh-dx) * .3 + var(--slosh-dy) * .8), calc(var(--slosh-dy) * .3 - var(--slosh-dx) * .8)) scale(1.06, .94); }
+  14% { transform: translate(calc(var(--slosh-dx) * .9), calc(var(--slosh-dy) * .9)) scale(.94, 1.05); }
+  31% { transform: translate(calc(var(--slosh-dx) * .2), calc(var(--slosh-dy) * .2)) scale(1.02, .98); }
+  46% { transform: translate(calc(var(--slosh-dx) * 1.35), calc(var(--slosh-dy) * 1.35)) scale(.93, 1.06); }
+  63% { transform: translate(calc(var(--slosh-dx) * -.3), calc(var(--slosh-dy) * -.3)) scale(1.06, .94); }
+  87% { transform: translate(calc(var(--slosh-dx) * .45), calc(var(--slosh-dy) * .45)) scale(.98, 1.03); }
 }
 
 @keyframes lava-rise {
-  0%, 100% { transform: translate(0, 2px); }
-  30% { transform: translate(2px, -3px); }
-  65% { transform: translate(-2px, -1px); }
+  0%, 100% { transform: translate(-1px, 1px); }
+  17% { transform: translate(1.5px, -2.5px); }
+  29% { transform: translate(.5px, -1px); }
+  51% { transform: translate(-2px, -2px); }
+  73% { transform: translate(1px, 2px); }
+  88% { transform: translate(2px, -.5px); }
 }
 
-/* The anchor trades width for height as the other lobes leave and melt back into it. */
-@keyframes lava-core {
-  0%, 100% { transform: scale(.96, 1.04); }
-  28% { transform: scale(.88, 1.12); }
-  62% { transform: scale(1.12, .88); }
-  84% { transform: scale(1.04, .97); }
-}
-
-/* Circulating colour gathers and releases with the melting silhouette. */
-@keyframes lava-thought {
-  0% { transform: rotate(-24deg) scale(.94); }
-  40% { transform: rotate(135deg) scale(1.06); }
-  75% { transform: rotate(270deg) scale(.98); }
-  100% { transform: rotate(336deg) scale(.94); }
-}
-@keyframes lava-swirl {
-  to {
-    transform: rotate(360deg);
-  }
+/* The pool's maximum scale keeps even the outer halo safely inside its own lobe. */
+@keyframes lava-pool {
+  0%, 100% { transform: rotate(-24deg) scale(.96); }
+  13% { transform: rotate(38deg) scale(1.04); }
+  32% { transform: rotate(16deg) scale(.93); }
+  47% { transform: rotate(125deg) scale(1.06); }
+  62% { transform: rotate(98deg) scale(.98); }
+  81% { transform: rotate(195deg) scale(1.02); }
+  92% { transform: rotate(55deg) scale(.94); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /*
-   * Keep the information, drop the movement: the droplet stays where busy put it (detached), and the
-   * body's churn freezes mid-pull. Nothing here resets a `transform`, because the poses above are the
-   * still frame.
-   */
+  /* Keep the static detached bud and decision badges; stop both deformation and sideways flow. */
   .blob-lava .blob-lava-bud,
   .blob-lava .blob-lava-lobe,
   .blob-lava .blob-lava-core,

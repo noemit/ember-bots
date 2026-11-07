@@ -1,3 +1,9 @@
+## 1.19.2
+
+### Changed
+- Lava drifts through uneven stretches and partial separations on independent, seeded rhythms. Sideways currents change the droplet’s path between splits, and colour pools meander instead of spinning steadily.
+- The blob gallery shows three distinct examples of each style in every state, with matching characters across states and in the larger previews.
+
 ## 1.19.1
 
 ### Fixed

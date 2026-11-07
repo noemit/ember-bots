@@ -5,12 +5,11 @@ import {
   LAVA_GOO,
   LAVA_MOTION,
   LAVA_SHAPES,
-  LAVA_SLOSH_PERIOD,
-  LAVA_SLOSH_STAGGER,
   lavaColors,
   lavaGeometry,
   lavaGrainFrequency,
   lavaRimWidth,
+  lavaTiming,
   type LavaBody,
 } from './lava';
 import { MoodBadge } from './overlays';
@@ -59,7 +58,7 @@ export default function LavaBlob({
   // Filter ids must be unique per instance; useId contains colons, which are illegal in url().
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
 
-  const { geometry, body, colors, noiseSeed, delay } = React.useMemo(() => {
+  const { geometry, body, colors, noiseSeed, timing } = React.useMemo(() => {
     const resolved = identity ?? seedIdentity(seed);
     const colorRng = mulberry32(hashString(`lava:${resolved.colorSeed}`));
     const shapeRng = mulberry32(hashString(`lava:${resolved.shapeSeed}`));
@@ -76,8 +75,7 @@ export default function LavaBlob({
       body: resolved.color ?? `var(--blob-${index})`,
       colors: lavaColors(index, resolved.color),
       noiseSeed: Math.floor(motionRng() * 997),
-      // A negative delay within one cycle, so a rail of busy lamps never churns in unison.
-      delay: -motionRng() * 3.2,
+      timing: lavaTiming(motionRng),
     };
   }, [identity, seed]);
 
@@ -105,12 +103,19 @@ export default function LavaBlob({
    * is the only thing that decides when it happens.
    */
   const lobeStyle = (entry: LavaBody, index: number): React.CSSProperties => {
-    const style: Record<string, string> = { transformOrigin: at(entry.lobe), '--lobe-delay': `${(delay - index * .93).toFixed(2)}s` };
+    const clock = index === budIndex ? timing.bud : timing.slosh;
+    const style: Record<string, string> = {
+      transformOrigin: at(entry.lobe),
+      '--lobe-duration': `${clock.duration}s`,
+      '--lobe-delay': `${clock.delay}s`,
+      '--flow-x': `${geometry.budDrift.dx.toFixed(2)}px`,
+      '--flow-y': `${geometry.budDrift.dy.toFixed(2)}px`,
+    };
     if (index > 0 && index < budIndex && entry.slosh) {
       style['--slosh-dx'] = `${entry.slosh.dx.toFixed(2)}px`;
       style['--slosh-dy'] = `${entry.slosh.dy.toFixed(2)}px`;
-      // Each further lobe drifts on its own clock, so the body never pulses as one.
-      style['--slosh-dur'] = `${(LAVA_SLOSH_PERIOD + index * LAVA_SLOSH_STAGGER).toFixed(2)}s`;
+      style['--flow-x'] = `${(-entry.slosh.dy * .4).toFixed(2)}px`;
+      style['--flow-y'] = `${(entry.slosh.dx * .4).toFixed(2)}px`;
     }
     return style as React.CSSProperties;
   };
@@ -131,13 +136,14 @@ export default function LavaBlob({
       style={{
         width: size,
         height: size,
-        animationDelay: `${delay.toFixed(2)}s`,
-        // The goo's own animations sit below this, where `inherit` would only see their own group.
-        ['--lava-delay' as string]: `${delay.toFixed(2)}s`,
+        // CSS owns the timelines, including pause and reduced motion. The body and its pools read
+        // the same clocks; the other parts start at independent phases instead of sharing a beat.
+        ...Object.fromEntries(Object.entries(timing).flatMap(([part, clock]) => [
+          [`--lava-${part}-duration`, `${clock.duration}s`],
+          [`--lava-${part}-delay`, `${clock.delay}s`],
+        ])),
         ['--lava-dx' as string]: `${geometry.budTravel.dx.toFixed(2)}px`,
         ['--lava-dy' as string]: `${geometry.budTravel.dy.toFixed(2)}px`,
-        ['--lava-wx' as string]: `${geometry.budDrift.dx.toFixed(2)}px`,
-        ['--lava-wy' as string]: `${geometry.budDrift.dy.toFixed(2)}px`,
         // A cold lamp's rim goes grey with its body rather than keeping the hue it lost.
         ['--lava-rim' as string]: cold ? COLD_DEEP : `color-mix(in srgb, ${body} 60%, ${colors.deep})`,
       }}
