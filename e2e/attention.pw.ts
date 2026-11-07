@@ -120,3 +120,22 @@ test('provider sign-in also offers the default decision after the credential lan
   await signIn.getByRole('button', { name: 'Close', exact: true }).first().click();
   await expect(page.getByRole('region', { name: 'Confirm instance default' })).toContainText('xAI');
 });
+
+test('rail hover actions have an opaque surface separating them from the text', async ({ page }) => {
+  await page.goto('/');
+  const row = page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ });
+  const before = (await row.boundingBox())!.height;
+  await row.hover();
+  const root = row.locator('..');
+  const actions = root.locator('[data-rail-actions]');
+  await expect(actions).toHaveCSS('opacity', '1');
+  const paint = await actions.evaluate(el => ({ background: getComputedStyle(el).backgroundColor, shadow: getComputedStyle(el).boxShadow }));
+  expect(paint.background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(paint.background).not.toMatch(/rgba\([^)]*,\s*0(?:\.\d+)?\)/);
+  expect(paint.shadow).not.toBe('none');
+  const title = await root.locator('[data-session-title]').boundingBox();
+  const controls = await actions.boundingBox();
+  expect(title!.x + title!.width).toBeLessThanOrEqual(controls!.x);
+  expect((await row.boundingBox())!.height).toBeCloseTo(before, 0);
+  await page.screenshot({ path: '/tmp/ember-rail-action-surface.png' });
+});

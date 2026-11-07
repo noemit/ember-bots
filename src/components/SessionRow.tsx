@@ -252,6 +252,8 @@ const SessionRow = React.memo(function SessionRow({
   const archiveLabel = archived ? 'Restore session' : 'Archive session';
   const archiveBusyLabel = archived ? 'Restoring…' : 'Archiving…';
   const ArchiveIcon = archived ? ArchiveRestore : Trash2;
+  const actionsAlwaysVisible = Boolean(archiving || scheduledRunning || onArchiveMany);
+  const actionSpace = 26 * (1 + Number(Boolean(onNewAgent)) + Number(Boolean(scheduledTask)) + Number(Boolean(onArchiveMany))) + 8;
 
   return (
     <motion.div
@@ -261,6 +263,7 @@ const SessionRow = React.memo(function SessionRow({
       exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
       transition={spring}
       className="group relative"
+      style={{ '--rail-action-space': `${actionSpace}px` } as React.CSSProperties}
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -295,6 +298,7 @@ const SessionRow = React.memo(function SessionRow({
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <div data-rail-heading="" className={cn('flex min-w-0 flex-col gap-0.5', actionsAlwaysVisible ? 'pr-[var(--rail-action-space)]' : 'group-hover:pr-[var(--rail-action-space)] group-focus-within:pr-[var(--rail-action-space)]')}>
               {topMeta ? (
                 <span className="flex min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">
                   {topMeta}
@@ -319,6 +323,7 @@ const SessionRow = React.memo(function SessionRow({
                   </Tooltip>
                 ) : null}
                 <span
+                  data-session-title=""
                   className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground"
                   style={markerColor === undefined ? undefined : {
                     textDecoration: 'underline',
@@ -331,8 +336,9 @@ const SessionRow = React.memo(function SessionRow({
                 </span>
                 <RelativeTime
                   timestamp={session.updated}
-                  className="flex-none text-[10.5px] tabular-nums text-muted-foreground transition-opacity group-focus-within:opacity-0 group-hover:opacity-0"
+                  className={cn('flex-none text-[10.5px] tabular-nums text-muted-foreground group-focus-within:hidden group-hover:hidden', actionsAlwaysVisible && 'hidden')}
                 />
+              </div>
               </div>
               {compact && !expanded ? null : preview === undefined && !previewSettled ? (
                 // Startup: the session list has landed but the preview has not been warmed yet. A
@@ -400,9 +406,10 @@ const SessionRow = React.memo(function SessionRow({
       </ContextMenu>
 
       <div
+        data-rail-actions=""
         className={cn(
-          'absolute top-1.5 right-2 flex items-center gap-0.5 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
-          archiving || scheduledRunning || onArchiveMany ? 'opacity-100' : 'opacity-0'
+          'absolute top-1.5 right-2 z-20 flex items-center gap-0.5 rounded-md border bg-card p-0.5 shadow-sm transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
+          actionsAlwaysVisible ? 'opacity-100' : 'opacity-0'
         )}
       >
         {onArchiveMany ? <ProjectCleanupMenu name={title} sessions={[session]} moods={{ [key]: mood }} onArchiveMany={onArchiveMany} /> : null}

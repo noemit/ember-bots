@@ -1,3 +1,8 @@
+## 1.20.2
+
+### Fixed
+- Rail hover actions sit on an opaque, bordered surface and reserve space beside the title, so their icons no longer blend into or cover session text.
+
 ## 1.20.1
 
 ### Changed
