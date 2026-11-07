@@ -39,6 +39,8 @@
   animation: mosaic-thinking-peek 10.8s steps(1, end) infinite;
   animation-delay: var(--mosaic-eye-delay);
 }
+/* Nearby pointer input owns the pupils; blinking and the surrounding activity continue. */
+.blob-mosaic[data-pupil-tracking] .mosaic-pupil { animation: none; }
 @keyframes mosaic-working-gaze {
   0%, 34%, 76%, 100% { transform: translateX(0); }
   16%, 58% { transform: translateX(var(--mosaic-gaze-step)); }

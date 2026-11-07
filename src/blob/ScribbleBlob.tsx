@@ -18,7 +18,7 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
     const resolved = identity ?? seedIdentity(seed);
     return { ...scribbleGeometry(resolved), color: blobColor('scribble', resolved), delay: -(hashString(resolved.motionSeed) % 16000) / 1000 };
   }, [identity, seed]);
-  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), 2);
+  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), 3.2);
   const dark = `color-mix(in srgb, ${art.color} 65%, #211925)`;
   return <div ref={wrapper} className="blob blob-scribble" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size, '--scribble-delay': `${art.delay}s` } as React.CSSProperties}>
     <div className="scribble-dance">
@@ -52,7 +52,7 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
               <g transform={`rotate(${art.eyeTilt} 50 44)`}>
                 {[{ x: 42, y: 42, radius: 7.7, ref: left }, { x: 59, y: 46, radius: 5.9, ref: right }].map(eye => <g key={eye.x} transform={`translate(${eye.x} ${eye.y})`}>
                   <ellipse data-scribble-eye rx={eye.radius} ry={eye.radius * 1.08} fill="#fffdf5" stroke="#29212f" strokeWidth={1.8} />
-                  <g ref={eye.ref} transform={mood === 'thinking' ? 'translate(0 0)' : undefined}>
+                  <g ref={eye.ref} className="scribble-pupil" transform={mood === 'thinking' ? 'translate(0 0)' : undefined}>
                     {mood === 'error' ? <path d="M-2 -2L2 2M2 -2L-2 2" fill="none" stroke="#211925" strokeWidth={1.6} /> : <circle r={1.7} fill="#211925" />}
                   </g>
                 </g>)}

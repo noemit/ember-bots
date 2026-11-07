@@ -3,13 +3,17 @@ import { seedIdentity, hashString } from './seed';
 import { blobColor } from './color';
 import { mosaicActivityPixels, mosaicGeometry, mosaicTileColor } from './mosaic';
 import { MoodBadge } from './overlays';
+import { usePupilTracking } from './usePupilTracking';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
 import './blob-mosaic.css';
 
 type Props = { seed: string; identity?: AvatarIdentity; size?: number; mood?: BallMood; state?: BallState; interactive?: boolean };
 
-export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }: Props) {
+export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', interactive = true }: Props) {
+  const wrapper = React.useRef<HTMLDivElement>(null);
+  const left = React.useRef<SVGGElement>(null);
+  const right = React.useRef<SVGGElement>(null);
   const art = React.useMemo(() => {
     const resolved = identity ?? seedIdentity(seed);
     const base = blobColor('mosaic', resolved);
@@ -20,7 +24,12 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
       delay: -(hashString(resolved.motionSeed) % 2400) / 1000,
       eyeDelay: -(hashString(`mosaic-eyes:${resolved.motionSeed}`) % 10800) / 1000 };
   }, [identity, seed]);
-  return <div className="blob blob-mosaic" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size,
+  // Each eye is two cells wide and one high: a pupil can change columns, never leave its row.
+  const mapPupilOffset = React.useCallback((x: number): [number, number] =>
+    [Math.round(x + .5) - (art.lookRight ? 1 : 0), 0], [art.lookRight]);
+  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), .5,
+    mapPupilOffset);
+  return <div ref={wrapper} className="blob blob-mosaic" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size,
     '--mosaic-eye-delay': `${art.eyeDelay}s`, '--mosaic-gaze-step': art.lookRight ? '-1px' : '1px',
   } as React.CSSProperties}>
     <div className="mosaic-step" style={{ animationDelay: `${art.delay}s` }}>
@@ -41,7 +50,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
                 {[[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]].map(([dx, dy]) =>
                   <rect key={`${dx}:${dy}`} x={x + dx} y={y + dy} width={1} height={1} />)}
               </g>
-                : <g className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={y} width={1} height={1} fill="#14111a" /></g>}
+                : <g ref={x === 3 ? left : right} className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={y} width={1} height={1} fill="#14111a" /></g>}
             </g>
             <rect className="mosaic-eye-closed" x={x} y={y} width={2} height={1} fill="#14111a" opacity={0} />
           </g>)}</g>

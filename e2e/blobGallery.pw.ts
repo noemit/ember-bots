@@ -1,5 +1,64 @@
 import { expect, test } from '@playwright/test';
 
+test('Mosaic and Scribble follow nearby pointers, stay inside their eyes, and release their gaze', async ({ page }) => {
+  await page.goto('/blob-gallery.html');
+  await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
+  for (const style of ['mosaic', 'scribble']) {
+    let captured = false;
+    for (const mood of ['idle', 'busy']) {
+      for (const blob of await page.locator(`[data-style="${style}"][data-state="${mood}"] .blob`).all()) {
+        await blob.scrollIntoViewIfNeeded();
+        const box = (await blob.boundingBox())!;
+        const pupils = blob.locator(`.${style}-pupil`);
+        for (const side of [-1, 1]) {
+          await page.mouse.move(box.x + box.width / 2 + side * 70, box.y + box.height / 2 - 25);
+          await expect(blob).toHaveAttribute('data-pupil-tracking', 'true');
+          await expect.poll(() => pupils.evaluateAll(nodes => nodes.every(node => {
+            const pupil = node.querySelector('rect, circle')!.getBoundingClientRect();
+            const eye = node.parentElement!.querySelector('rect, ellipse')!.getBoundingClientRect();
+            return pupil.left >= eye.left - .1 && pupil.right <= eye.right + .1 &&
+              pupil.top >= eye.top - .1 && pupil.bottom <= eye.bottom + .1;
+          }))).toBe(true);
+          const gaze = await pupils.evaluateAll((nodes, direction) => nodes.map(node => {
+            const matrix = (node as SVGGElement).transform.baseVal.consolidate()!.matrix;
+            if (node.classList.contains('scribble-pupil')) return matrix.e * direction > 0 && matrix.f < 0;
+            const pupil = node.querySelector('rect')!;
+            const eye = node.parentElement!.querySelector('rect')!;
+            const column = Number(pupil.getAttribute('x')) + matrix.e - Number(eye.getAttribute('x'));
+            return column === (direction < 0 ? 0 : 1) && matrix.f === 0 && getComputedStyle(node).animationName === 'none';
+          }), side);
+          expect(gaze).toEqual([true, true]);
+          if (side === 1 && !captured) {
+            await page.locator(`.gallery-style:has([data-style="${style}"])`).screenshot({ path: `/tmp/ember-${style}-tracking.png` });
+            captured = true;
+          }
+        }
+        await page.mouse.move(1590, 0);
+        await expect(blob).not.toHaveAttribute('data-pupil-tracking');
+        for (const pupil of await pupils.all()) await expect(pupil).not.toHaveAttribute('transform');
+        if (style === 'mosaic' && mood === 'busy') await expect(pupils.first()).toHaveCSS('animation-name', 'mosaic-working-gaze');
+      }
+    }
+    for (const mood of ['thinking', 'unknown', 'error']) {
+      const blob = page.locator(`[data-style="${style}"][data-state="${mood}"] .blob`).first();
+      await blob.hover();
+      await expect(blob).not.toHaveAttribute('data-pupil-tracking');
+    }
+  }
+  // Keyboard toggles leave the pointer in place, exercising cleanup when interaction is disabled.
+  const buddy = page.locator('[data-style="buddy"][data-state="idle"] .blob').first();
+  await buddy.hover();
+  await expect(buddy).toHaveAttribute('data-pupil-tracking', 'true');
+  await page.getByRole('button', { name: 'Pause animations', exact: true }).focus();
+  await page.keyboard.press('Space');
+  await expect(buddy).not.toHaveAttribute('data-pupil-tracking');
+  for (const pupil of await buddy.locator('.blob-pupil').all()) await expect(pupil).not.toHaveAttribute('transform');
+  await page.getByRole('button', { name: 'Play animations', exact: true }).click();
+  await page.getByLabel('Reduced motion', { exact: true }).check();
+  await buddy.hover();
+  await expect(buddy).not.toHaveAttribute('data-pupil-tracking');
+});
+
 test('notification circles align with question badges and Clay uses readable, distinct status colours', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/blob-gallery.html');

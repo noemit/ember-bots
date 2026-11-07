@@ -553,8 +553,12 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   Stored Pip selections migrate to Mosaic.
   Gem, Critter and Glyph were removed, and stored
   settings that still name them fall back to the default. Renderers memoize on the `identity`
-  object, so App hands back the previous reference when nothing changed. Buddy pupils track the
-  cursor only while it's within `NEAR_RADIUS` (`usePupilTracking.ts`), and active Buddy blobs do
+  object, so App hands back the previous reference when nothing changed. Buddy, Scribble and Mosaic
+  pupils share nearby-cursor tracking (`NEAR_RADIUS` in `usePupilTracking.ts`). Mosaic changes only
+  whole-cell columns, yielding its automatic working gaze while tracking but keeping blinks.
+  Thinking, error and unknown states do not track. Pointer exit, blur and disabling interaction
+  restore the normal gaze; the gallery enables tracking except while paused or in reduced motion.
+  Active Buddy blobs do
   squash-and-stretch hops with a per-blob occasional somersault (`blob-hop`/`blob-flip` in
   `blob.css`); the eyes counter-scale 75% of the hop so they mostly keep their shape
   (`blob-hop-eyes`). Those two wrappers are **DOM elements, not SVG `<g>`s** — Chromium composites

@@ -41,13 +41,16 @@ const RECT_TTL_MS = 500;
 /**
  * Moves pupils toward the cursor, but only when it's nearby: within `NEAR_RADIUS` the pull ramps
  * up smoothly and past it the pupils settle back to centre. `reach` is the max offset in viewBox
- * units. The blob's page box is cached so a long session list doesn't force layout on every move.
+ * units. `mapOffset` can constrain that movement to a style's eye geometry. The wrapper's tracking
+ * attribute lets an autonomous gaze yield while the cursor is near. The page box is cached so a
+ * long session list doesn't force layout on every move.
  */
 export const usePupilTracking = (
   wrapperRef: React.RefObject<HTMLElement | null>,
   pupilRefs: Array<React.RefObject<SVGElement | null>>,
   enabled: boolean,
-  reach = 5
+  reach = 5,
+  mapOffset?: (x: number, y: number) => [number, number]
 ): void => {
   const pupils = React.useRef(pupilRefs);
   pupils.current = pupilRefs;
@@ -71,7 +74,11 @@ export const usePupilTracking = (
 
   React.useEffect(() => {
     if (!enabled) return;
-    return subscribe((clientX, clientY) => {
+    const reset = () => {
+      wrapperRef.current?.removeAttribute('data-pupil-tracking');
+      pupils.current.forEach(ref => ref.current?.removeAttribute('transform'));
+    };
+    const unsubscribe = subscribe((clientX, clientY) => {
       let cached = rectRef.current;
       if (!cached || performance.now() - cached.at > RECT_TTL_MS) {
         const rect = wrapperRef.current?.getBoundingClientRect();
@@ -83,11 +90,26 @@ export const usePupilTracking = (
       const dy = clientY - (cached.rect.top + cached.rect.height / 2);
       const distance = Math.hypot(dx, dy) || 1;
       const near = distance < NEAR_RADIUS ? 1 - distance / NEAR_RADIUS : 0;
+      if (!near) {
+        reset();
+        return;
+      }
       const pull = near * near * (3 - 2 * near);
-      const x = ((dx / distance) * reach * pull).toFixed(2);
-      const y = ((dy / distance) * reach * pull).toFixed(2);
-      const transform = `translate(${x} ${y})`;
+      const x = (dx / distance) * reach * pull;
+      const y = (dy / distance) * reach * pull;
+      const [offsetX, offsetY] = mapOffset?.(x, y) ?? [x, y];
+      wrapperRef.current?.setAttribute('data-pupil-tracking', 'true');
+      const transform = `translate(${offsetX.toFixed(2)} ${offsetY.toFixed(2)})`;
       pupils.current.forEach((ref) => ref.current?.setAttribute('transform', transform));
     });
-  }, [enabled, reach, wrapperRef]);
+    // Reset on disable as well as pointer exit, so unavailable/error states cannot retain a glance.
+    window.addEventListener('blur', reset);
+    document.documentElement.addEventListener('mouseleave', reset);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('blur', reset);
+      document.documentElement.removeEventListener('mouseleave', reset);
+      reset();
+    };
+  }, [enabled, reach, wrapperRef, mapOffset]);
 };

@@ -18,6 +18,7 @@
 .blob-scribble .scribble-foot { transform-origin: 50px 63px; }
 .blob-scribble .scribble-wave { opacity: 0; transform-origin: 34px 55px; }
 .blob-scribble .scribble-fingers { transform-origin: 75px 25px; }
+.blob-scribble .scribble-pupil { transition: transform 90ms linear; }
 
 /* One shared sixteen-second timeline: look left, look right, turn away, stretch. Quiet holds let each gesture
    read at rail size; the seeded offset keeps a busy rail from moving in unison. */
@@ -109,4 +110,5 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .blob-scribble * { animation: none !important; }
+  .blob-scribble .scribble-pupil { transition: none; }
 }

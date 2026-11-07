@@ -1,3 +1,11 @@
+## 1.20.0
+
+### Added
+- Mosaic eyes follow a nearby mouse in whole-pixel steps while keeping their blinks. Scribble has a more visible pupil range, and the blob gallery now enables cursor tracking for all three styles with eyes.
+
+### Fixed
+- Pupils return to their normal gaze when the pointer leaves the window or tracking is disabled.
+
 ## 1.19.8
 
 ### Removed
