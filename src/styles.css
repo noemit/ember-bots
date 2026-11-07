@@ -225,3 +225,22 @@ html.motion-paused *::after {
 @media (prefers-reduced-motion: reduce) {
   .message-read-confirmation { animation: none; }
 }
+
+.message-jump-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--highlight) 10%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--highlight) 30%, transparent);
+  animation: message-jump-fade 5s linear both;
+}
+@keyframes message-jump-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* A gradual colour fade has no spatial motion and keeps the destination understandable. */
+  .message-jump-highlight { animation-duration: 5s !important; }
+}

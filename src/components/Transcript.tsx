@@ -1444,6 +1444,7 @@ const renderBlock = (
 type MessageRowProps = {
   message: ChatMessage;
   highlighted: boolean;
+  highlightRequest: number;
   showMetadata: boolean;
   hideToolCalls: boolean;
   reasoningDisplay: ReasoningDisplay;
@@ -1670,6 +1671,7 @@ const DeliveryRow = ({
 const MessageRow = React.memo(function MessageRow({
   message,
   highlighted,
+  highlightRequest,
   showMetadata,
   hideToolCalls,
   reasoningDisplay,
@@ -1754,10 +1756,10 @@ const MessageRow = React.memo(function MessageRow({
       data-message-id={message.id}
       data-highlighted={highlighted ? 'true' : undefined}
       className={cn(
-        'group/message relative mx-auto flex w-full max-w-[760px] flex-col gap-1.5 rounded-xl px-5 transition-[background-color,box-shadow] duration-150 sm:px-7',
-        highlighted && 'bg-highlight/10 ring-2 ring-highlight/30'
+        'group/message relative isolate mx-auto flex w-full max-w-[760px] flex-col gap-1.5 rounded-xl px-5 sm:px-7'
       )}
     >
+      {highlighted ? <span key={highlightRequest} aria-hidden="true" className="message-jump-highlight" /> : null}
       <div
         className={cn(
           'flex min-w-0 flex-1 flex-col gap-1.5',
@@ -1901,6 +1903,7 @@ function Transcript({
   const itemsCountRef = React.useRef(0);
   const virtualizedRef = React.useRef(false);
   const [highlightedMessageId, setHighlightedMessageId] = React.useState<string | null>(null);
+  const [highlightRequest, setHighlightRequest] = React.useState(0);
   const previousPendingCountRef = React.useRef(0);
   const expansion = React.useRef(new Map<string, boolean>());
   const [find, setFind] = React.useState<string | null>(null);
@@ -2008,19 +2011,27 @@ function Transcript({
   const findMatches = React.useMemo(() => find?.trim() ? items.flatMap(({ message }, index) =>
     `${message.text}\n${message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('\n')}`.toLowerCase().includes(find.toLowerCase()) ? [index] : []
   ) : [], [find, items]);
-  const jumpToIndex = useStableCallback((index: number) => {
+  const jumpToIndex = useStableCallback((index: number, align: 'start' | 'center' = 'center') => {
     if (!items[index]) return;
     followRef.current = false;
     setFollowing(false);
     setHighlightedMessageId(items[index].message.id);
+    setHighlightRequest(request => request + 1);
+    const positionMessage = () => {
+      const message = messageRefs.current.get(items[index].message.id);
+      const scroller = scrollRef.current;
+      if (align === 'start' && message && scroller) {
+        scroller.scrollTop += message.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 28;
+      } else message?.scrollIntoView({ block: 'center' });
+    };
     if (virtualized) {
-      virtualizer.scrollToIndex(index, { align: 'center' });
+      virtualizer.scrollToIndex(index, { align });
       window.requestAnimationFrame(() => {
-        virtualizer.scrollToIndex(index, { align: 'center' });
-        messageRefs.current.get(items[index].message.id)?.scrollIntoView({ block: 'center' });
+        virtualizer.scrollToIndex(index, { align });
+        positionMessage();
       });
     } else {
-      messageRefs.current.get(items[index].message.id)?.scrollIntoView({ block: 'center' });
+      positionMessage();
     }
   });
   const findSignature = findMatches.join(',');
@@ -2080,9 +2091,12 @@ function Transcript({
   React.useEffect(() => {
     if (!focusMessageId || focusRequest === 0) return;
     focusById(focusMessageId);
-    const timer = window.setTimeout(() => setHighlightedMessageId(null), 1800);
-    return () => window.clearTimeout(timer);
   }, [focusMessageId, focusRequest, focusById, items.length]);
+  React.useEffect(() => {
+    if (!highlightedMessageId) return;
+    const timer = window.setTimeout(() => setHighlightedMessageId(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [highlightedMessageId, highlightRequest]);
 
   // A session opens on its latest turn, once — and switching sessions in the same column opens the
   // new one the same way, with following re-armed (this conversation starts at its end).
@@ -2319,7 +2333,7 @@ function Transcript({
             size="sm"
             variant="ghost"
             className="text-highlight"
-            onClick={() => jumpToIndex(unreadIndices[unreadIndices.length - 1])}
+            onClick={() => jumpToIndex(unreadIndices[unreadIndices.length - 1], 'start')}
             title="Go to the newest unread reply without marking it as read"
           >
             <ArrowDown aria-hidden="true" />
@@ -2407,7 +2421,7 @@ function Transcript({
         onPointerDown={() => { pointerDown.current = true; noteUserScroll(); }}
         onPointerUp={() => { pointerDown.current = false; noteUserScroll(); }}
         onPointerCancel={() => { pointerDown.current = false; }}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4">
+        className="min-h-0 flex-1 overflow-y-auto px-3 pt-7 pb-3 sm:px-5 sm:pb-4">
         <div
           ref={contentRef}
           data-conversation=""
@@ -2429,6 +2443,7 @@ function Transcript({
                 key={message.id}
                 message={message}
                 highlighted={highlightedMessageId === message.id}
+                highlightRequest={highlightRequest}
                 showMetadata={isAssistantTurnEnd(messages, index, turnPending)}
                 hideToolCalls={hideToolCalls}
                 reasoningDisplay={reasoningDisplay}

@@ -1,3 +1,8 @@
+## 1.19.5
+
+### Fixed
+- Go to new messages aligns the start of the reply with 28px of reading space above it. The destination highlight fades over five seconds and restarts on another jump.
+
 ## 1.19.4
 
 ### Fixed
