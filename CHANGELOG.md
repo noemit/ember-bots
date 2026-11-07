@@ -1,3 +1,8 @@
+## 1.19.7
+
+### Changed
+- Hovering or focusing a message’s unread indicator shows a “Mark as read” tooltip to its right.
+
 ## 1.19.6
 
 ### Fixed

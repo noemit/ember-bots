@@ -16,12 +16,17 @@ test('unread navigation is passive; message bubbles acknowledge only their own r
   await page.screenshot({ path: '/tmp/ember-unread-navigation.png' });
 
   const bubble = latest.getByRole('button', { name: 'Mark this message as read', exact: true });
+  await bubble.hover();
+  const tooltip = page.getByRole('tooltip', { name: 'Mark as read', exact: true });
+  await expect(tooltip).toBeVisible();
+  await expect(page.locator('[data-slot="tooltip-content"]').filter({ hasText: 'Mark as read' }).first()).toHaveAttribute('data-side', 'right');
   const bounds = await bubble.boundingBox();
   expect(bounds?.width).toBeGreaterThanOrEqual(44);
   expect(bounds?.height).toBeGreaterThanOrEqual(44);
   // Click well outside the visible dot: the generous hover/click area is real.
   await bubble.click({ position: { x: 5, y: 22 } });
   await expect(latest.getByRole('button', { name: 'Message marked as read' })).toBeVisible();
+  await expect(tooltip).toHaveCount(0);
   const confirmation = latest.locator('.message-read-confirmation');
   await expect(confirmation.locator('svg')).toHaveClass(/lucide-check/);
   // Visibility assertions alone ignore opacity: verify the check stays painted long enough to see.
