@@ -1,3 +1,10 @@
+## 1.15.8
+
+### Fixed
+- Mosaic’s error eyes use the same full-size pixels as its body. Larger X eyes fit each
+  silhouette, including mirrored shapes. Blinks also use whole cells; all Mosaic details now
+  follow a single pixel grid.
+
 ## 1.15.7
 
 ### Changed

@@ -25,7 +25,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
   } as React.CSSProperties}>
     <div className="mosaic-step" style={{ animationDelay: `${art.delay}s` }}>
       <svg viewBox="0 0 100 100" width={size} height={size}>
-        <g transform="translate(8 1) scale(7)" shapeRendering="crispEdges">
+        <g data-mosaic-grid transform="translate(8 1) scale(7)" shapeRendering="crispEdges">
           {art.tiles.map(({ x, y, fill }) => <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={fill} />)}
           {mood === 'thinking' ? art.tiles.map(({ x, y }) => <rect key={`thought:${x}:${y}`}
             className="mosaic-thought" x={x} y={y} width={1} height={1} fill="#fffdf5" opacity={0}
@@ -34,22 +34,22 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
             key={`${side}:${x}:${y}`} className="mosaic-pixel" data-side={side === -1 ? 'left' : 'right'}
             x={x} y={y} width={1} height={1} fill={fill}
             style={{ animationDelay: `${art.delay - delay}s`, animationName: distance === 1 ? 'mosaic-pixel-near' : 'mosaic-pixel-far' }} />) : null}
-          <g className="mosaic-eyes">{[3, 6].map(x => <g key={x}>
+          <g className="mosaic-eyes">{(mood === 'error' ? art.errorEyes : [3, 6].map(x => ({ x, y: art.eyeY }))).map(({ x, y }) => <g key={x}>
             <g className="mosaic-eye-open">
-              <rect x={x} y={art.eyeY} width={2} height={mood === 'error' ? 2 : 1} fill="#fffdf5" />
+              <rect x={x} y={y} width={mood === 'error' ? 3 : 2} height={mood === 'error' ? 3 : 1} fill="#fffdf5" />
               {mood === 'error' ? <g className="mosaic-error-eye" fill="#14111a">
                 {[[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]].map(([dx, dy]) =>
-                  <rect key={`${dx}:${dy}`} x={x + .25 + dx * .5} y={art.eyeY + .25 + dy * .5} width={.5} height={.5} />)}
+                  <rect key={`${dx}:${dy}`} x={x + dx} y={y + dy} width={1} height={1} />)}
               </g>
-                : <g className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={art.eyeY} width={1} height={1} fill="#14111a" /></g>}
+                : <g className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={y} width={1} height={1} fill="#14111a" /></g>}
             </g>
-            <rect className="mosaic-eye-closed" x={x} y={art.eyeY + .4} width={2} height={.2} fill="#14111a" opacity={0} />
+            <rect className="mosaic-eye-closed" x={x} y={y} width={2} height={1} fill="#14111a" opacity={0} />
           </g>)}</g>
         </g>
       </svg>
     </div>
     <svg className="blob-overlay" viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
-      <MoodBadge mood={mood} />
+      <MoodBadge mood={mood} inset={mood === 'error' ? -4 : 0} />
     </svg>
   </div>;
 }

@@ -552,7 +552,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   Thinking is style-specific: Buddy leans/squashes/rises and glances, Scribble wires twitch,
   Mosaic lights stepped tiles, Lava gathers/stretches/melts, and Crystal glints through facets.
   Only Crystal uses the orbit ring; Lava keeps decision badges without an orbit. No shared thinking ring. Reduced motion disables
-  all of them; idle remains still. Mosaic error eyes are three-by-three pixel crosses made from square rects, without diagonal strokes. Its working/thinking eyes
+  all of them; idle remains still. Mosaic uses one shared pixel grid: all drawing coordinates and dimensions are whole cells, including eyes and blinks; never subdivide cells for finer details. Error eyes are three-by-three crosses of full-size cells, positioned inside each silhouette, without diagonal strokes. Its working/thinking eyes
   use whole-cell glances and occasional blinks, with longer upward looks while thinking;
   seeded CSS phases keep chats out of sync, and reduced motion leaves the eyes open.
   Stored Pip selections migrate to Mosaic.

@@ -1,7 +1,9 @@
 import { hashString, mulberry32 } from './seed';
 import type { AvatarIdentity } from '../types';
 
-// Twelve-cell canvases keep the eyes readable at 24px. Every row is a solid run;
+// One unit is one pixel. Every detail uses integer coordinates and whole-cell dimensions;
+// never subdivide cells to squeeze a feature in. Twelve-cell canvases keep eyes readable at 24px.
+// Every row is a solid run;
 // the notches, antennae and feet belong to the silhouette, not random pixel noise.
 export const MOSAIC_SHAPES = [
   { name: 'tuft', rows: [[5,7],[4,8],[3,9],[2,9],[2,10],[1,10],[2,10],[2,10],[2,9],[3,9],[3,8],[3,7]] },
@@ -21,7 +23,15 @@ export function mosaicGeometry(identity: AvatarIdentity) {
     const x = mirrored ? 11 - (start + i) : start + i;
     return { x, y: y + 1, band: diagonal ? (x + Math.floor(y / 2)) % 12 : x };
   }));
-  return { name: shape.name, cells, eyeY: 6, lookRight: rng() > 0.5 };
+  const eyeY = 6;
+  // Two three-cell X eyes need seven columns including their gap. Centre that span inside
+  // the intersection of all three face rows, so narrow/mirrored bodies keep full-size pixels.
+  const errorY = eyeY - 1;
+  const faceRows = [errorY, errorY + 1, errorY + 2].map(y => cells.filter(cell => cell.y === y).map(cell => cell.x));
+  const left = Math.max(...faceRows.map(xs => Math.min(...xs)));
+  const right = Math.min(...faceRows.map(xs => Math.max(...xs)));
+  const errorX = Math.floor((left + right - 6) / 2);
+  return { name: shape.name, cells, eyeY, errorEyes: [{ x: errorX, y: errorY }, { x: errorX + 4, y: errorY }], lookRight: rng() > 0.5 };
 }
 
 /** Side pixels follow the silhouette, on its own grid, with room for a second outward beat. */
