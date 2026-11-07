@@ -619,19 +619,14 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   `--lava-rim`, using translucent ink on both themes; standalone dock SVGs fall back to that deep hue.
   Staggering uses `--lava-delay`, not
   `animation-delay: inherit` — the animated groups sit two levels below the element carrying it.
-- **Lava's working state is four motions at once**, because one slow motion reads as a still picture
-  at rail size (owner: "the active state needs more movement"). While busy: the whole goo **rises and
-  rocks** (`lava-rise`, ±2.4 units and ±5°, the outer wrapper inside the filter), the main lobe
-  **swells and squashes** (`lava-core`, non-uniform, so its two axes move against each other), any
-  middle lobe **drifts toward and away** from the body along its own vector (`lava-slosh`, its own
-  period per lobe, so necks thicken and thin), and the bud is **thrown** off and reabsorbed
-  (`lava-split`, bent off the outward line by `--lava-wx/-wy` so it arcs). The pool turns while the
-  glow turns the other way. Measured on a 55px busy blob, the silhouette changes 3.3% of its area per
-  140ms, against 1.1% before, and sways 6px sideways against 0.5px. Idle, unread and error still draw
-  no animation at all; thinking continuously changes the material’s shape while
-  pools and lobes move together; two-lobe shapes (`drop`, `cell`) have no middle lobe, so the swell is
-  their body movement. Busy's still frame — reduced motion, a paused window, the dock icon — is the
-  detached droplet, which no other mood draws.
+- **Lava is a liquid in every active state**: busy, thinking, approval and question all separate
+  and reform. Body, middle lobes, bud, pools and glow run on independent periods; `--lobe-delay`
+  offsets each lobe while keeping its body and colour in phase. `lava-split` gathers inward,
+  stretches a neck, releases a bead, curves sideways and returns by a different path. `lava-slosh`
+  gives middle lobes a small convection loop. The main body squashes/stretches while the whole goo
+  drifts in translation, without rocking as one solid shape. Approval/question use slower cycles
+  and keep their badges stationary; no orbit. Idle, unread, unknown and error remain still.
+  Reduced motion removes every animation and keeps badges; busy retains its detached static bud.
 - **A blob's cost**: one goo filter per blob, and a busy blob re-evaluates it every frame. With 4 busy
   55px blobs an idle Ember holds 60fps at 2× DPI (same as before the extra motion, because dropping
   the pool blur paid for the transforms); a pathological page of 32 busy blobs at 2× runs ~46fps and

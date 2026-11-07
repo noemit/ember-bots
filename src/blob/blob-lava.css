@@ -17,33 +17,19 @@
   transform-box: view-box;
 }
 
-/*
- * Busy: the body itself churns. Each middle lobe drifts along the line through it, toward the body
- * and back out, so the necks between lobes thicken and thin — the silhouette changes shape, which is
- * the thing a still droplet alone never did. Lobe 1 pulls in while lobe 2 swells out, and each has
- * its own period, so the body never pulses as one piece.
- */
+/* Active lobes move independently; the goo filter creates the thinning and reforming necks. */
 .blob-lava[data-motion='split'] .blob-lava-lobe {
-  animation: lava-slosh var(--slosh-dur, 3.4s) ease-in-out infinite alternate;
+  animation: lava-slosh var(--slosh-dur, 3.4s) ease-in-out infinite;
   animation-delay: var(--lava-delay, 0s);
 }
 
-/*
- * The whole goo drifts: a lamp's lump rises and settles rather than sitting in one place, and that
- * slow vertical float is the motion the style was missing. It is the outer of the three busy tracks,
- * so the rise, the swell and the lobes' drift all happen on the same blob at once.
- */
+/* Convection carries the whole liquid gently while its parts travel in different directions. */
 .blob-lava[data-motion='split'] .blob-lava-rise {
-  animation: lava-rise 6.2s ease-in-out infinite alternate;
+  animation: lava-rise 6.2s ease-in-out infinite;
   animation-delay: var(--lava-delay, 0s);
 }
 
-/*
- * And the body breathes: the main lobe swells a little and settles, which moves the necks between it
- * and every other lobe. That is also the whole of the movement for a two-lobe shape (drop, cell),
- * which has no middle lobe to drift. Two `blob-lava-core` groups (the main body and its pools) carry
- * the same animation from the same origin, so the goo never comes apart.
- */
+/* The main body and its pools share a transform, so colour stays inside the deforming lobe. */
 .blob-lava[data-motion='split'] .blob-lava-core {
   animation: lava-core 4.2s ease-in-out infinite alternate;
   animation-delay: var(--lava-delay, 0s);
@@ -56,7 +42,7 @@
  */
 .blob-lava[data-motion='split'] .blob-lava-bud {
   transform: translate(var(--lava-dx, 0), var(--lava-dy, 0)) scale(0.8);
-  animation: lava-split 2.6s cubic-bezier(0.45, 0, 0.4, 1) infinite;
+  animation: lava-split 4.6s cubic-bezier(0.45, 0, 0.4, 1) infinite;
   animation-delay: var(--lava-delay, 0s);
 }
 
@@ -78,25 +64,25 @@
   animation-delay: var(--lava-delay);
 }
 .blob-lava[data-motion='swirl'] .blob-lava-lobe {
-  animation: lava-phase-lobe 4.6s ease-in-out infinite;
+  animation: lava-slosh calc(var(--slosh-dur, 3.4s) * 1.8) ease-in-out infinite;
   animation-delay: var(--lava-delay);
 }
 .blob-lava[data-motion='swirl'] .blob-lava-bud {
-  animation: lava-phase-bud 4.6s ease-in-out infinite;
+  animation: lava-split 6.7s ease-in-out infinite;
   animation-delay: var(--lava-delay);
 }
 .blob-lava[data-motion='swirl'] .blob-lava-rise {
   transform-origin: 50px 50px;
-  animation: lava-phase-drift 6.2s ease-in-out infinite;
+  animation: lava-phase-drift 8.9s ease-in-out infinite;
   animation-delay: var(--lava-delay);
 }
 .blob-lava[data-motion='swirl'] .blob-lava-pools {
   transform: rotate(-24deg);
-  animation: lava-thought 4.6s ease-in-out infinite;
+  animation: lava-thought 7.1s ease-in-out infinite;
   animation-delay: var(--lava-delay);
 }
 .blob-lava[data-motion='swirl'] .blob-lava-glow {
-  animation: lava-swirl 5.4s linear infinite reverse;
+  animation: lava-swirl 9.3s linear infinite reverse;
   animation-delay: var(--lava-delay);
 }
 @keyframes lava-phase-core {
@@ -105,24 +91,39 @@
   58% { transform: scale(1.14, .86); }
   80% { transform: scale(.96, 1.08); }
 }
-@keyframes lava-phase-lobe {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  26% { transform: translate(var(--slosh-dx), var(--slosh-dy)) scale(.93, 1.08); }
-  58% { transform: translate(calc(var(--slosh-dx) * -.7), calc(var(--slosh-dy) * -.7)) scale(1.08, .92); }
+/* Decisions wait in the same liquid, with slower independent cycles. The badge stays still;
+   the material never rocks like a solid object or borrows Crystal's orbit. */
+.blob-lava[data-motion='wait'] .blob-lava-core {
+  animation: lava-phase-core 9.2s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
 }
-@keyframes lava-phase-bud {
-  0%, 100% { transform: translate(calc(var(--lava-dx) * -.35), calc(var(--lava-dy) * -.35)) scale(1.06); }
-  35% { transform: translate(calc(var(--lava-dx) * .4), calc(var(--lava-dy) * .4)) scale(.95); }
-  72% { transform: translate(calc(var(--lava-dx) * .15), calc(var(--lava-dy) * .15)) scale(1.15); }
+.blob-lava[data-motion='wait'] .blob-lava-lobe {
+  animation: lava-slosh calc(var(--slosh-dur, 3.4s) * 2.3) ease-in-out infinite;
+}
+.blob-lava[data-motion='wait'] .blob-lava-bud {
+  animation: lava-split 8.6s ease-in-out infinite;
+}
+.blob-lava[data-mood='question'] .blob-lava-bud { animation-duration: 7.6s; }
+.blob-lava[data-motion='wait'] .blob-lava-rise {
+  animation: lava-phase-drift 11.8s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
+}
+.blob-lava[data-motion='wait'] .blob-lava-pools {
+  animation: lava-thought 10.7s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
+}
+.blob-lava[data-motion='wait'] .blob-lava-glow {
+  animation: lava-swirl 13.3s linear infinite reverse;
+  animation-delay: var(--lava-delay);
+}
+/* Keep each lobe and its colour locked together, but out of phase with neighbouring lobes. */
+.blob-lava:not([data-motion='still']) :is(.blob-lava-lobe, .blob-lava-bud) {
+  animation-delay: var(--lobe-delay, var(--lava-delay));
 }
 @keyframes lava-phase-drift {
-  0%, 100% { transform: rotate(-8deg) translateY(1px); }
-  50% { transform: rotate(8deg) translateY(-2px); }
-}
-/* Waiting on you: the colour barely sways; the badge carries the ask. */
-.blob-lava[data-motion='wait'] .blob-lava-pools {
-  animation: lava-sway 4.8s ease-in-out infinite alternate;
-  animation-delay: var(--lava-delay, 0s);
+  0%, 100% { transform: translate(0, 1px); }
+  32% { transform: translate(2px, -3px); }
+  68% { transform: translate(-2px, -1px); }
 }
 
 /*
@@ -131,69 +132,34 @@
  * and is absorbed — with a small overshoot inward, because goo does not simply stop.
  */
 @keyframes lava-split {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  22% {
-    transform: translate(calc(var(--lava-dx, 0) * 0.62), calc(var(--lava-dy, 0) * 0.62)) scale(0.97);
-  }
-  /* LAVA_BUD_SHRINK: the droplet is this small when it hangs free. */
-  46% {
-    transform: translate(
-        calc(var(--lava-dx, 0) + var(--lava-wx, 0) * 0.7),
-        calc(var(--lava-dy, 0) + var(--lava-wy, 0) * 0.7)
-      )
-      scale(0.83);
-  }
-  66% {
-    transform: translate(var(--lava-dx, 0), var(--lava-dy, 0)) scale(0.8);
-  }
-  88% {
-    transform: translate(calc(var(--lava-dx, 0) * -0.1), calc(var(--lava-dy, 0) * -0.1)) scale(1.05);
-  }
+  0%, 100% { transform: translate(calc(var(--lava-dx) * -.3), calc(var(--lava-dy) * -.3)) scale(1.08, .94); }
+  /* Gather into the body, stretch a neck, then release a bead into the surrounding space. */
+  18% { transform: translate(calc(var(--lava-dx) * .2 - var(--lava-wx) * .45), calc(var(--lava-dy) * .2 - var(--lava-wy) * .45)) scale(.96, 1.08); }
+  42% { transform: translate(calc(var(--lava-dx) * 1.2 + var(--lava-wx) * .7), calc(var(--lava-dy) * 1.2 + var(--lava-wy) * .7)) scale(.72); }
+  61% { transform: translate(calc(var(--lava-dx) * 1.1 - var(--lava-wx) * .8), calc(var(--lava-dy) * 1.1 - var(--lava-wy) * .8)) scale(.74); }
+  /* A different return path and a soft landing, rather than retracing a straight throw. */
+  82% { transform: translate(calc(var(--lava-dx) * .25 - var(--lava-wx) * .65), calc(var(--lava-dy) * .25 - var(--lava-wy) * .65)) scale(1.04, .96); }
 }
 
-/* Toward and away, along the vector the lobe sits on. Distances come from the geometry seed. */
+/* Each middle lobe follows a small convection loop instead of sliding on a straight rail. */
 @keyframes lava-slosh {
-  from {
-    transform: translate(0, 0);
-  }
-  to {
-    transform: translate(var(--slosh-dx, 0), var(--slosh-dy, 0));
-  }
+  0%, 100% { transform: translate(calc(var(--slosh-dx) * -.5), calc(var(--slosh-dy) * -.5)) scale(1.04, .97); }
+  32% { transform: translate(calc(var(--slosh-dx) * 1.4 - var(--slosh-dy) * .7), calc(var(--slosh-dy) * 1.4 + var(--slosh-dx) * .7)) scale(.93, 1.06); }
+  70% { transform: translate(calc(var(--slosh-dx) * .3 + var(--slosh-dy) * .8), calc(var(--slosh-dy) * .3 - var(--slosh-dx) * .8)) scale(1.06, .94); }
 }
 
-/*
- * A lamp's lump drifting up the glass and settling again — 2.4 units of travel in the 100 box — and
- * turning as it goes, the way convection rolls a real blob. The rock is what carries at rail size: a
- * 2px float is nearly invisible on a 30px avatar, but a 5 degree lean moves the silhouette's edges by
- * a couple of pixels, which is what Buddy's hop gets from its 17% squash and this had none of.
- */
 @keyframes lava-rise {
-  from {
-    transform: translateY(2.4px) rotate(-5deg);
-  }
-  to {
-    transform: translateY(-2.4px) rotate(5deg);
-  }
+  0%, 100% { transform: translate(0, 2px); }
+  30% { transform: translate(2px, -3px); }
+  65% { transform: translate(-2px, -1px); }
 }
 
-/*
- * Swell and squash together, not a clean circle breathing: the goo rises at one end as it settles at
- * the other, which is what a lamp's lump actually does. Both poses stay inside the box the shape was
- * drawn to (see the bounds test).
- */
+/* The anchor trades width for height as the other lobes leave and melt back into it. */
 @keyframes lava-core {
-  0% {
-    transform: scale(0.99, 0.998);
-  }
-  55% {
-    transform: scale(1.038, 0.978);
-  }
-  100% {
-    transform: scale(0.992, 1.028);
-  }
+  0%, 100% { transform: scale(.96, 1.04); }
+  28% { transform: scale(.88, 1.12); }
+  62% { transform: scale(1.12, .88); }
+  84% { transform: scale(1.04, .97); }
 }
 
 /* Circulating colour gathers and releases with the melting silhouette. */
@@ -206,15 +172,6 @@
 @keyframes lava-swirl {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes lava-sway {
-  from {
-    transform: rotate(-24deg);
-  }
-  to {
-    transform: rotate(24deg);
   }
 }
 

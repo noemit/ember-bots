@@ -1,3 +1,10 @@
+## 1.15.9
+
+### Changed
+- Lava’s approval and question states now separate and reform as liquid, with a calmer pace than
+  working. Active states use curved droplet paths, independently phased lobes and stronger body
+  deformation instead of rocking as one solid shape. Decision badges stay still.
+
 ## 1.15.8
 
 ### Fixed

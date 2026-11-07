@@ -264,7 +264,7 @@ export const lavaColors = (colorIndex: number, customColor?: string): LavaColors
  *
  * - `swirl` — the body gathers, stretches and melts as its pools circulate (thinking).
  * - `split` — the bud pinches off and rejoins while the pools churn (busy: the lamp is on).
- * - `wait`  — the bud stays put and the pools barely drift (input, question: waiting, not working).
+ * - `wait`  — slower liquid separation and reunion, with a stationary decision badge (input, question).
  */
 export type LavaMotion = 'still' | 'swirl' | 'split' | 'wait';
 

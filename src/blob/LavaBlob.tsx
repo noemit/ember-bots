@@ -105,7 +105,7 @@ export default function LavaBlob({
    * is the only thing that decides when it happens.
    */
   const lobeStyle = (entry: LavaBody, index: number): React.CSSProperties => {
-    const style: Record<string, string> = { transformOrigin: at(entry.lobe) };
+    const style: Record<string, string> = { transformOrigin: at(entry.lobe), '--lobe-delay': `${(delay - index * .93).toFixed(2)}s` };
     if (index > 0 && index < budIndex && entry.slosh) {
       style['--slosh-dx'] = `${entry.slosh.dx.toFixed(2)}px`;
       style['--slosh-dy'] = `${entry.slosh.dy.toFixed(2)}px`;
