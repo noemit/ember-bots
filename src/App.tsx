@@ -127,10 +127,9 @@ import {
   markTimestampRead,
   pruneSessionReadMarks,
 } from './lib/readState';
-import { composeCommentMessage, type TranscriptComment } from './lib/comments';
 import { deriveSessionName } from './lib/sessionNames';
 import { useUnreadDigests } from './hooks/useUnreadDigests';
-import { isUnreadEligible, unreadItemsFor, visibleUnreadItems } from './lib/unreadDigest';
+import { isUnreadEligible, visibleUnreadItems } from './lib/unreadDigest';
 import { useEmberSettings } from './hooks/useEmberSettings';
 import { useFeedback } from './hooks/useFeedback';
 import { mergePolledQueues, useMessageQueue, type QueueTarget } from './hooks/useMessageQueue';
@@ -191,7 +190,6 @@ import type {
 const SettingsPanel = React.lazy(() => import('./components/SettingsPanel'));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard'));
 
-const ReadingSheet = React.lazy(() => import('./components/ReadingSheet'));
 const ModelUsagePanel = React.lazy(() => import('./components/ModelUsagePanel'));
 const ScheduledView = React.lazy(() => import('./components/ScheduledView'));
 const AvatarPicker = React.lazy(() => import('./components/AvatarPicker'));
@@ -424,24 +422,6 @@ export default function App() {
   /** The host whose Providers screen is open, when it was opened from a session's model picker. */
   const [providerEndpointId, setProviderEndpointId] = React.useState<string | undefined>(undefined);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
-  /**
-   * The session open in the reading view. Home's rows open it: an excerpt is an index entry, and
-   * marking a message read without having read it is backwards, so the mark lives behind this.
-   */
-  const [readingKey, setReadingKey] = React.useState<string | null>(null);
-  const [readingLoad, setReadingLoad] = React.useState<{
-    key: string;
-    messages: ChatMessage[];
-    loading: boolean;
-    error: string | null;
-  }>({ key: '', messages: [], loading: false, error: null });
-  // Bumped when the sheet asks for the same session again (e.g. after a failed read).
-  const [readingAttempt, setReadingAttempt] = React.useState(0);
-  /**
-   * Bumped when the reading view closes with comment drafts. A column that is already mounted kept
-   * its own copy, so it re-reads the shared per-session memory instead of showing an empty tray.
-   */
-  const [commentDraftsVersion, setCommentDraftsVersion] = React.useState(0);
   const [archiveConfirmKey, setArchiveConfirmKey] = React.useState<string | null>(null);
   /** The crew worker the Promote-to-peer dialog is open for; null when closed. */
   const [promoteTarget, setPromoteTarget] = React.useState<Session | null>(null);
@@ -1329,16 +1309,6 @@ export default function App() {
 
   const quietKeys = React.useMemo(() => new Set(settings.mutedSessions ?? []), [settings.mutedSessions]);
 
-  // The top bar's one counter: unread messages, not sessions, and not pending prompts (those are
-  // actions to take, not things to read).
-  const unreadMessages = React.useMemo(() => {
-    let total = 0;
-    Object.entries(unreadDigests.digests).forEach(([key, digest]) => {
-      if (unreadKeys.has(key)) total += visibleUnreadItems(digest, readMarks[key]).length;
-    });
-    return total;
-  }, [unreadDigests.digests, unreadKeys, readMarks]);
-
   const failedSessionKeys = React.useMemo(() => {
     const keys = new Set<string>();
     Object.entries(summaries).forEach(([key, summary]) => {
@@ -1379,39 +1349,6 @@ export default function App() {
     () => countUnseenScheduledRuns(scheduledRuns),
     [scheduledRuns]
   );
-
-  // The reading view's inputs. Its queue is the same construction Home draws, so a row and the
-  // sheet can never disagree about what is unread.
-  const readingSession = readingKey
-    ? everySession.find((session) => sessionKey(session) === readingKey) ?? null
-    : null;
-  const readingItems = React.useMemo(() => {
-    if (!readingSession || !readingKey) return [];
-    return unreadItemsFor({
-      digest: unreadDigests.digests[readingKey],
-      mark: readMarks[readingKey],
-      permissions: permissions.filter(
-        (request) =>
-          request.instanceId === readingSession.instanceId && request.sessionId === readingSession.id
-      ),
-      questions: questions.filter(
-        (request) =>
-          request.instanceId === readingSession.instanceId && request.sessionId === readingSession.id
-      ),
-      at: readingSession.updated ?? 0,
-    });
-  }, [readingSession, readingKey, unreadDigests.digests, readMarks, permissions, questions]);
-  // "Read the next session": the most recently active other session with anything unread.
-  const nextUnreadSession = React.useMemo(() => {
-    if (!readingKey) return null;
-    return (
-      [...unreadKeys]
-        .filter((key) => key !== readingKey)
-        .map((key) => everySession.find((session) => sessionKey(session) === key))
-        .filter((session): session is Session => Boolean(session))
-        .sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))[0] ?? null
-    );
-  }, [readingKey, unreadKeys, everySession]);
 
   const moods = React.useMemo(() => {
     const map: Record<string, BallMood> = {};
@@ -4536,48 +4473,6 @@ export default function App() {
   };
 
   /**
-   * Load a session's messages for the reading view: one bounded read, never the whole transcript.
-   *
-   * An append read since the mark gives exactly the unread tail; a wire without ordinals falls back
-   * to a 32-message tail, which is all the reader needs for the queue it was opened on.
-   */
-  React.useEffect(() => {
-    if (!readingKey) return;
-    const ref = parseSessionKey(readingKey);
-    if (!ref) return;
-    const session = (sessionsByInstance[ref.instanceId] ?? []).find((entry) => entry.id === ref.sessionId);
-    const through = settingsRef.current.readMarks[readingKey]?.through ?? 0;
-    setReadingLoad({ key: readingKey, messages: [], loading: true, error: null });
-    let cancelled = false;
-    void (async () => {
-      try {
-        // One entry *before* the mark rides along when the wire allows it, so the reader can show
-        // the sentence you left off on as context above the first unread message.
-        const page = await loadMessageAppend(ref.instanceId, ref.sessionId, Math.max(0, through - 1));
-        const messages = page.supported
-          ? page.messages
-          : await loadMessageTail(ref.instanceId, ref.sessionId, session?.directory, 32);
-        if (cancelled) return;
-        setReadingLoad({ key: readingKey, messages, loading: false, error: null });
-      } catch (cause) {
-        if (cancelled) return;
-        setReadingLoad({
-          key: readingKey,
-          messages: [],
-          loading: false,
-          error: cause instanceof Error ? cause.message : String(cause),
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Deliberately keyed on the session and the retry only: marking a message inside the sheet must
-    // not re-read the messages it was just showing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reason: re-reading on every mark would flicker
-  }, [readingKey, readingAttempt]);
-
-  /**
    * The Sessions tab: the workspace, with the rail and its columns. With nothing open there is
    * nothing to show, so it opens the most recently updated session ("load up the top session").
    */
@@ -4610,44 +4505,6 @@ export default function App() {
     if (target) activateSession(target);
   };
 
-  /**
-   * Send the reading view's comment set to *that* session — not to whatever column is selected.
-   *
-   * The model is resolved from the session's own last model (else the instance default) because a
-   * send needs a concrete one; with none loaded the send is refused with a reason rather than
-   * guessing. A false answer leaves the drafts in the sheet.
-   */
-  const sendReadingComments = async (comments: TranscriptComment[]): Promise<boolean> => {
-    if (!readingSession || !readingKey) return false;
-    const text = composeCommentMessage(comments);
-    if (!text.trim()) return false;
-    const list = modelsByInstance[readingSession.instanceId];
-    const preferred = readingSession.model ?? settings.instanceDefaults[readingSession.instanceId]?.model;
-    const wanted = preferred
-      ? modelRefKey(preferred)
-      : list?.defaultModelId ?? null;
-    const model = list?.models.find((entry) => modelRefKey(entry) === wanted);
-    if (!model) {
-      showActionError(
-        `No model is loaded for ${instanceLabelOf(readingSession.instanceId)} yet, so Ember can't send from here. Open the conversation and pick one — these comments stay with it.`
-      );
-      return false;
-    }
-    const sent = await sendTo(
-      { instanceId: readingSession.instanceId, sessionId: readingSession.id },
-      readingSession.directory,
-      {
-        text,
-        model,
-        variant: preferred?.variant,
-        selectedModelId: modelRefKey(model),
-      },
-      { retainOnFailure: false }
-    );
-    if (sent) handleCommentsSent(readingKey, comments.length);
-    return sent;
-  };
-
   const handleSaveNote = (key: string, text: string) => {
     if (!key) return;
     const clean = text.trim().slice(0, 20_000);
@@ -4657,33 +4514,7 @@ export default function App() {
     handleSettings({ sessionNotes: { ...current, [key]: notes } });
   };
 
-  /**
-   * Mark one unread message read. The dot on a Home row is the only caller: opening a session, or
-   * reading it on screen, deliberately does not move the mark.
-   *
-   * Compaction needs the ordinals still unread *below* this one, or marking the third of five would
-   * silently mark the first two; the digest holds exactly those.
-   */
-  const handleMarkMessageRead = (session: Session, item: { ordinal: number | null }) => {
-    if (item.ordinal === null) return;
-    const key = sessionKey(session);
-    const current = settingsRef.current.readMarks[key];
-    const unread = visibleUnreadItems(unreadDigests.digests[key], current)
-      .map((entry) => entry.ordinal)
-      .filter((ordinal): ordinal is number => ordinal !== null);
-    const next = markRead(current, item.ordinal, unread, Date.now());
-    if (next === current) return;
-    handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
-  };
-
-  /**
-   * The column's own read controls.
-   *
-   * `handleMarkMessageRead` was written for Home's dot and is keyed on a session plus an ordinal;
-   * a message in the transcript carries its ordinal in its id, and falls back to the loaded
-   * transcript's unread ordinals (or timestamp for OpenChamber) when `unreadDigests` hasn't fetched
-   * a digest for this session yet.
-   */
+  /** Explicit per-message acknowledgement; opening or scrolling never marks a reply read. */
   const handleMarkMessageReadInColumn = (session: Session, message: ChatMessage) => {
     if (!isUnreadEligible(message)) return;
     const key = sessionKey(session);
@@ -4913,7 +4744,6 @@ export default function App() {
           session={session}
           instance={instance}
           active={key === featuredKey}
-          commentDraftsVersion={commentDraftsVersion}
           instanceMarkerColor={instanceMarkerColor(ref.instanceId, settings.instanceDefaults[ref.instanceId])}
           newSessionInstanceId={null}
           newSessionPrefill={null}
@@ -5279,8 +5109,6 @@ export default function App() {
               onArchiveMany={(sessions) => void handleArchiveMany(sessions, true)}
               onCustomizeAppearance={setAvatarPickerSession}
               onMarkAllRead={handleMarkAllRead}
-              unreadMessages={unreadMessages}
-              onReadUnread={() => { const key = [...unreadKeys][0]; if (key) setReadingKey(key); }}
               unreadKeys={unreadKeys}
               quietKeys={quietKeys}
               onQuietChange={handleQuietChange}
@@ -5602,53 +5430,6 @@ export default function App() {
       </TooltipProvider>
     </WorkspaceConnection>
     </MotionConfig>
-    {readingSession && readingKey ? (
-      <React.Suspense fallback={null}>
-        <ReadingSheet
-          session={readingSession}
-          items={readingItems}
-          messages={readingLoad.key === readingKey ? readingLoad.messages : []}
-          loading={readingLoad.key !== readingKey || readingLoad.loading}
-          error={readingLoad.key === readingKey ? readingLoad.error : null}
-          mood={moods[readingKey] ?? 'unknown'}
-          identity={avatarIdentities[readingKey]}
-          blobStyle={settings.blobStyle}
-          projectName={
-            projectForSession(readingSession, projectsByInstance[readingSession.instanceId] ?? [])?.name
-          }
-          instanceLabel={instanceLabelOf(readingSession.instanceId)}
-          commentsKey={readingKey}
-          onClose={() => {
-            setReadingKey(null);
-            setCommentDraftsVersion((version) => version + 1);
-          }}
-          onRetry={() => setReadingAttempt((attempt) => attempt + 1)}
-          // A note is app-level state: no model, no send, and the column's For Later card reads it.
-          onSaveNote={(text) => handleSaveNote(readingKey, text)}
-          onSendComments={sendReadingComments}
-          onMarkRead={(item) => handleMarkMessageRead(readingSession, item)}
-          onMarkAllRead={() => handleMarkAllRead(readingSession)}
-          onOpenColumn={() => {
-            setReadingKey(null);
-            setCommentDraftsVersion((version) => version + 1);
-            openSession(
-              { instanceId: readingSession.instanceId, sessionId: readingSession.id },
-              readingSession
-            );
-          }}
-          onOpenNext={
-            nextUnreadSession
-              ? () => setReadingKey(sessionKey(nextUnreadSession))
-              : undefined
-          }
-          nextLabel={
-            nextUnreadSession
-              ? `Read ${nextUnreadSession.title?.trim() || instanceLabelOf(nextUnreadSession.instanceId)}`
-              : undefined
-          }
-        />
-      </React.Suspense>
-    ) : null}
     {imageViewer ? (
       <React.Suspense fallback={null}>
         <ImageViewer

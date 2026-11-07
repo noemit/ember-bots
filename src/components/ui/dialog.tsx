@@ -51,16 +51,13 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
-  overlayClassName,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
-  /** The scrim behind the sheet: the reading view blurs Home rather than blacking it out. */
-  overlayClassName?: string
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay className={overlayClassName} />
+      <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(

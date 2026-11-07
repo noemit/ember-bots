@@ -36,7 +36,7 @@ type Props = {
    * component extended and the timer did not would be a promise the app breaks ten minutes later.
    */
   extensionMs?: number;
-  /** Add the clock button's extension. Omitted where nothing can extend (the reading view). */
+  /** Add the clock button’s extension when this surface supports extending a process. */
   onExtend?: () => void;
   /** Now, so a countdown can tick without every row re-reading the clock. */
   now?: number;

@@ -337,32 +337,6 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   list, and a Test probe through `piRequest`. Values are user config in `settings.piEndpoints`
   — never code — so the feature is safe for a public repo; main resolves a just-added endpoint
   on demand so a probe works before the next instance sync.
-- `src/components/ReadingSheet.tsx` + `SheetMessage.tsx` — the **reading view**: one session's unread
-  messages, whole, in a dialog over a blurred Home (`DialogContent`'s `overlayClassName` is what blurs
-  it). It grows with the message up to `max-h-[min(88vh,900px)]`, so a one-line reply gets a small
-  sheet rather than an empty 900px box, and it is `min(94vw,1100px)` wide with the prose at a 780px
-  measure (`sm:max-w-none` is required — the dialog primitive's `sm:max-w-lg` otherwise keeps it
-  512px). `SheetMessage` renders one message the way a reader needs it —
-  Markdown prose (the same renderer as the transcript), reasoning folded, one line per tool with its
-  output behind a disclosure, images in the shared viewer — and no virtualizer, footer or pin
-  affordances. The header says where you are ("1 of 4 unread"), **Mark all read** clears the session
-  and **Mark read** marks the message you just read and moves to the next; `j`/`k` move, `x`/Enter
-  mark, Esc closes. Nothing is marked on open or on render. A pending approval or question is a card
-  that hands over to the conversation (`Open conversation`), because it is answered, not read. A
-  session with nothing left says **You're caught up on …** and offers the next unread session. The
-  messages come from `loadMessageAppend` since one entry before the mark (else a 32-message tail),
-  loaded once per open — never on every mark, and never a full transcript.
-  **Comments can be drafted here** (selection → the same `SelectionCommentBar`; a tray under the
-  message). Drafts are written to
-  `commentMemory` under the session's composer key, the same entry the conversation's tray reads, so
-  closing the view hands them over unsent; `commentDraftsVersion` makes an already-mounted column
-  re-read them. **Sending from here** is the tray's **Send N comments**: `sendReadingComments` resolves
-  the target from `readingSession` (never the selected column) and the model from the session's own last
-  model, else the instance default; with no model loaded it refuses with a reason and the drafts stay,
-  and a failed send keeps them too. **Notes** can be
-  parked here too (`Note` in the footer → a one-line field → the session's `For Later` card, via the
-  app-level `handleSaveNote`), which needs no model and no send. **Open conversation** is an icon in
-  the sheet's header, so the footer stays one line.
 - `src/components/ChatView.tsx` — the transcript shell and composer. Text, model, reasoning variant,
   attachments, and reply context are kept per session; the one-line textarea grows to a
   capped height and failed sends restore the draft. Draft text and model choices persist
@@ -479,9 +453,10 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   on-screen Previous/Next buttons — only rendered when the chat holds more than one image, with an
   `n / m` counter — cross message boundaries; a download link saves. Pure derivation lives in
   `src/lib/gallery.ts`; no second window, no IPC.
-- Home and its activity/link/card components were removed in 1.7.0. The rail's unread-message
-  counter opens `ReadingSheet`; conversations retain explicit per-message read controls. Activity
-  milestones remain recorded by main, without a separate activity page.
+- Home and its activity/link/card components were removed in 1.7.0. The rail's unread-count
+  shortcut and separate reading modal are also removed. Read replies in the conversation with
+  Go to new messages and explicit per-message read controls. Activity milestones remain recorded
+  by main, without a separate activity page.
 - `src/components/InstanceBar.tsx` — the top bar: Ember wordmark, search, **Sessions**, **Usage**
   and **Scheduled** views, then the instances menu. Sessions opens the latest chat if no column is
   open. Error/notice toasts render inline next to search. Home is no longer a view or command.

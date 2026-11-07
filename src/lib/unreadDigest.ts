@@ -176,21 +176,6 @@ export const visibleUnreadItems = (
 ): UnreadItem[] =>
   (digest?.items ?? []).filter((item) => item.sticky || !isMessageRead(mark, item.ordinal, item.at));
 
-/**
- * A session's whole unread queue, in reading order: pending approvals/questions first (they are the
- * things that cannot wait), then the unread messages.
- */
-export const unreadItemsFor = (options: {
-  digest: UnreadDigest | undefined;
-  mark: SessionReadMark | undefined;
-  permissions: readonly PermissionRequest[];
-  questions: readonly QuestionRequest[];
-  at: number;
-}): UnreadItem[] => [
-  ...promptItems(options.permissions, options.questions, options.at),
-  ...visibleUnreadItems(options.digest, options.mark),
-];
-
 /** Unread first: most unread messages wins, then the most recent activity. */
 export const orderUnreadCards = <T extends { count: number; updated: number }>(cards: readonly T[]): T[] =>
   [...cards].sort((a, b) => b.count - a.count || b.updated - a.updated);

@@ -1,25 +1,14 @@
 import { expect, test } from '@playwright/test';
 
-test('the workspace opens directly, with unread reading in the rail', async ({ page }) => {
+test('the workspace opens directly without an unread shortcut or reading modal', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('aside')).toBeVisible();
   await expect(page.locator('main[data-session-key]')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Home —/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Read unread messages' })).toBeVisible();
-  const marks = await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks));
-  await page.getByRole('button', { name: 'Read unread messages' }).click();
-  const sheet = page.getByRole('dialog');
-  await expect(sheet).toContainText('unread');
-  expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
-  // Reader navigation still works while a control is focused.
-  await sheet.getByRole('button', { name: 'Open conversation', exact: true }).press('j');
-  await expect(sheet).toContainText(/2\s*of\s*2\s*unread/);
-  await sheet.getByRole('button', { name: 'Open conversation', exact: true }).press('k');
-  await expect(sheet).toContainText(/1\s*of\s*2\s*unread/);
-  // Enter on a focused button must activate that button, not mark the message read.
-  await sheet.getByRole('button', { name: 'Open conversation', exact: true }).press('Enter');
-  await expect(sheet).toHaveCount(0);
-  expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
+  await expect(page.getByRole('button', { name: 'Read unread messages' })).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
+  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: /Go to new messages/ })).toBeVisible();
 });
 
 test('muting a chat keeps its read history intact and survives reload', async ({ page }) => {
@@ -131,51 +120,3 @@ test('provider sign-in also offers the default decision after the credential lan
   await signIn.getByRole('button', { name: 'Close', exact: true }).first().click();
   await expect(page.getByRole('region', { name: 'Confirm instance default' })).toContainText('xAI');
 });
-
-for (const send of [false, true]) {
-  test(`comments drafted in the rail reader ${send ? 'send to that chat' : 'return to its composer unsent'}`, async ({ page }) => {
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Read unread messages' }).click();
-    const sheet = page.getByRole('dialog');
-    await expect(sheet.getByText(/1 of \d+ unread/)).toBeVisible();
-    expect((await sheet.boundingBox())?.width ?? 0).toBeGreaterThan(900);
-    const bar = page.getByRole('toolbar', { name: 'Comment on the selection' });
-    const selectInReader = () => page.evaluate(() => {
-        const region = document.querySelector('[data-testid="reading-region"]');
-        if (!region) throw new Error('Reader has not loaded');
-        const walker = document.createTreeWalker(region, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          if ((walker.currentNode.nodeValue ?? '').trim().length <= 40) continue;
-          const range = document.createRange();
-          range.selectNodeContents(walker.currentNode);
-          const selection = window.getSelection();
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-          return;
-        }
-        throw new Error('Message has not loaded');
-      });
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      await selectInReader();
-      if (await bar.isVisible()) break;
-      await page.waitForTimeout(250);
-    }
-    await expect(bar).toBeVisible();
-    await bar.getByRole('button', { name: 'Comment on the selected text' }).click();
-    await bar.getByRole('textbox').fill('Keep this plan feedback attached to its chat.');
-    await bar.getByRole('button', { name: 'Add this comment' }).click();
-    if (send) {
-      await sheet.getByRole('button', { name: 'Send 1 comment' }).click();
-      await expect(page.getByTestId('sheet-comments')).toHaveCount(0);
-    }
-    await sheet.getByRole('button', { name: 'Open conversation', exact: true }).click();
-    const column = page.locator('main[data-session-key="pi:hearth::16"]');
-    await expect(column).toBeVisible();
-    if (send) {
-      await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('Keep this plan feedback attached to its chat.');
-    } else {
-      await expect(column.getByRole('button', { name: 'Send 1 comment' })).toBeVisible();
-      await expect(column.getByRole('log', { name: 'Conversation' })).not.toContainText('Keep this plan feedback attached to its chat.');
-    }
-  });
-}

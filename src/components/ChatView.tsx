@@ -198,12 +198,7 @@ type Props = {
    * request for the same message still count, so clicking the same link twice works.
    */
   focusTarget?: { messageId: string; token: number } | null;
-  /**
-   * Bumped when another surface (the reading view) wrote comment drafts for this session's key.
-   * The column re-reads the shared memory rather than showing a tray that is missing them.
-   */
-  commentDraftsVersion?: number;
-  /** A comment set was sent: Home's card counts it. Optional so the draft composer can omit it. */
+  /** Notify the workspace after sending a comment set. */
   onCommentsSent?: (count: number) => void;
   onViewChange: (patch: ViewSettingsPatch) => void;
   /** Read a session's standing instructions (Hearth only; resolves `supported: false` elsewhere). */
@@ -476,7 +471,6 @@ function ChatView({
   onDiscardPendingSend,
   onSaveNote,
   focusTarget,
-  commentDraftsVersion,
   onCommentsSent,
   onDeleteNote,
   onBypassChange,
@@ -1112,16 +1106,6 @@ function ChatView({
     commentsKeyRef.current = composerKey;
     setComments(composerKey ? commentMemory.get(composerKey) ?? [] : []);
   }, [composerKey]);
-
-  // Drafts can also arrive from the reading view while this column stays mounted: same key, same
-  // memory, so re-reading is all it takes. Keyed on the version, never on our own list.
-  const draftsVersionRef = React.useRef(commentDraftsVersion ?? 0);
-  React.useEffect(() => {
-    if (!composerKey) return;
-    if (draftsVersionRef.current === (commentDraftsVersion ?? 0)) return;
-    draftsVersionRef.current = commentDraftsVersion ?? 0;
-    setComments(commentMemory.get(composerKey) ?? []);
-  }, [composerKey, commentDraftsVersion]);
 
   React.useEffect(() => {
     const owner = commentsOwnerRef.current;

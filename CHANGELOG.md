@@ -1,3 +1,8 @@
+## 1.19.8
+
+### Removed
+- Removed the rail’s unread-message count shortcut and its separate reading modal, including the modal-only loading, commenting and navigation code. Conversation read controls remain available.
+
 ## 1.19.7
 
 ### Changed
