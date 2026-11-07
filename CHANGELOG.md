@@ -1,3 +1,9 @@
+## 1.18.2
+
+### Changed
+- Reworked the README around human review and steering, a labelled screenshot, verified release downloads and first use. Detailed usage, connections and contributor guidance now live in linked docs. Source setup installs the harness dependencies explicitly.
+- Added the repository-scoped README Atlas skill, pinned to upstream commit `18f60638764ce36910d5977c1cea4c47dce9990d`, with its MIT licence and reference files.
+
 ## 1.18.1
 
 ### Changed

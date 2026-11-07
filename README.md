@@ -1,256 +1,155 @@
 # Ember
 
-everything below this line was written by an LLM and not proofread. I'll do it later. -em
+**The human thinks, decides and steers.**
 
-**A calm control room for your agents.**
+Ember is a desktop workspace for building with AI agents. Follow their work, give specific feedback,
+and decide what happens next, with chats from your computers and projects in one window.
 
-Ember is a desktop client for **Ember Harness** (Kiln / Hearth, Ember's own durable agent harness)
-and for **OpenChamber** instances. It brings sessions from your connected
-instances into one window, grouped by project, so you can follow several agents without constantly
-switching clients.
+[Download](#downloads--quick-install) · [First use](#first-use) · [Build from source](#run-from-source) · [Contribute](docs/development.md#contributing)
 
-It is not an agent harness: the instance owns execution, queues, permissions, and session history.
-Ember makes that work easier to see and interact with. Both host kinds are named the same way
-everywhere in the app: **ember-harness** and **openchamber**.
+![Ember showing a quoted finding, a draft comment on that finding, background threads, and a human direction ready in the composer.](docs/images/workspace.png)
 
-## Downloads & Quick Install (v1.5.3)
+*Current development UI, running locally with sample conversations. The comment and message are
+unsent: the person decides when to send them. Published releases may show an earlier interface.*
 
-Prebuilt **macOS** (signed & notarized) and **Linux** releases are available on [**GitHub Releases (`v1.5.3`)**](https://github.com/noemit/ember-bots/releases/tag/v1.5.3):
+## Downloads & quick install
 
-| Platform | Desktop App | Standalone CLI (`tinder` / `ember` / `kiln`) |
-| --- | --- | --- |
-| **macOS (Apple Silicon)** | [`Ember-1.5.3-arm64.dmg`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/Ember-1.5.3-arm64.dmg) · [`Ember-1.5.3-arm64-mac.zip`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/Ember-1.5.3-arm64-mac.zip) *(Signed & Notarized)* | [`tinder-macos-arm64`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/tinder-macos-arm64) |
-| **Linux (x64)** | [`Ember-1.5.3.AppImage`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/Ember-1.5.3.AppImage) · [`ember-1.5.3.tar.gz`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/ember-1.5.3.tar.gz) | [`tinder-linux-x64`](https://github.com/noemit/ember-bots/releases/download/v1.5.3/tinder-linux-x64) |
-| **Windows (x64)** | Installer and checksums in the [Windows executable workflow](https://github.com/noemit/ember-bots/actions/workflows/windows.yml) → latest successful run → `ember-windows-x64` artifact | `tinder-cli.exe` in the same artifact |
+Get the desktop app from [GitHub Releases](https://github.com/noemit/ember-bots/releases/latest).
+The latest published release checked for this README is **v1.6.9**; the source tree contains newer
+work. [Build from source](#run-from-source) to try the current development version.
 
-Ember is the GUI and can connect to multiple Kilns. It **ships with a default local Kiln**, so launching the desktop app starts a backend for you — no terminal, no clone, no token to paste. Its data lives in `~/.ember`, and it appears as **This computer**.
+| Platform | Download |
+| --- | --- |
+| macOS, Apple Silicon | [Ember DMG](https://github.com/noemit/ember-bots/releases/latest) — open it and move Ember to Applications |
+| Linux, x64 | [AppImage or tar archive](https://github.com/noemit/ember-bots/releases/latest) |
+| Windows, x64 | [Windows workflow](https://github.com/noemit/ember-bots/actions/workflows/windows.yml) — open a successful run and download and extract `ember-windows-x64`, then run the installer inside |
 
-The bundled Kiln shares Ember's lifetime: **quitting Ember stops its Kiln**, including any active agent work. Conversation history stays on disk. On macOS, closing the window leaves Ember running; use Quit to stop both.
+On Linux, give the downloaded AppImage execute permission in its file properties, then launch it.
 
-For a Kiln that runs independently of the GUI, use **Tinder** to start a standalone backend. Ember connects to a Tinder-managed Kiln without taking ownership of it: quitting Ember leaves that backend running. You can connect additional local or remote Kilns in Settings → Instances.
+The desktop app includes **Kiln**, Ember’s agent harness. It starts when Ember starts; you do not
+need to clone a repository, run a server, or paste a local connection token to get started.
+Model access comes from the provider account you connect.
 
-### Setting up Kiln (`ember-harness`) with Tinder CLI
+## First use
 
-For a **headless machine** — a server you reach over SSH or Tailscale — the compiled Tinder download includes Kiln. It needs neither the desktop app nor Bun. Keep the executable in a permanent location before configuring a service: the service records its absolute path.
+1. **Open Ember.** Its included Kiln appears as **This computer**.
+2. **Connect a provider.** Follow setup to sign in to a supported provider or add an API key, then
+   confirm the default model. You can change this later in **Settings → Providers**.
+3. **Choose your workspace.** Pick the folder where your projects or work already live. Choose a
+   project inside it, or work directly in that folder.
+4. **Start a chat.** Choose **New agent**, confirm the project and model, and send a prompt. For
+   example: “Inspect this project and propose a plan before making changes.”
+5. **Review and steer.** Read the response, select a passage to comment on, or send your next
+   direction. Comments stay in a draft until you send them.
 
-```sh
-# Run a standalone Kiln in this terminal; Ctrl+C stops it
-./tinder serve
-
-# Or write a systemd / launchd service configuration
-./tinder setup --headless
-# Then run the enable/load command Tinder prints to start the service
-
-# Check Kiln status or print connection URL + bearer token for Ember Desktop
-./tinder status
-./tinder token
-```
-
-A standalone service keeps running when Ember quits. Stop it with its service manager; a foreground
-`tinder serve` stops with Ctrl+C. To run a second Kiln on the same computer, give it a separate data
-home and port, for example `./tinder serve --home ~/.ember-server --port 3003`, then add its URL and
-token in Ember. Use the same `--home` and `--port` with `tinder token` and `tinder status`.
+Quitting Ember stops its included Kiln and active agent work; conversation history stays on disk.
+On macOS, closing the window leaves the app running. For work that should continue after Ember
+quits, use a [standalone Kiln](docs/instances.md#standalone-kiln-with-tinder).
 
 ## What it does
 
-- **One workspace, multiple instances.** Browse recent sessions across local, remote, and reachable SSH-backed instances. Healthy instances load without waiting for slow ones.
-- **Project-focused columns and tabs.** Open a project together, or open an individual session. Up to eight sessions can be open, with columns adapting to the available width and overflow becoming tabs.
-- **Visible agent state.** Buddy and Crystal avatars distinguish working, thinking, waiting for input, failed, and unread sessions. Customize appearances by project, task, or session.
-- **Reliable composing.** Per-session drafts, attachments (paperclip, drag-and-drop onto a column, or paste), reply context, server-owned follow-up queues, and project notes. Explicit model choices survive sending and clearing text; unavailable choices are shown rather than silently replaced.
-- **Long conversations without the clutter.** Virtualized transcripts, inline search, pinned messages, expandable tool output, and configurable reasoning display. A context meter can compact a session, and the handoff action can fork it into a new session.
-- **Look closer at images.** Click any image in a chat — a tool result, an attachment, or one in prose — to open it full-window with cursor-anchored zoom, drag-to-pan, next/previous through the message's images, and a save link.
-- **Useful cleanup and discovery.** Session/note search, archived-session restoration, project cleanup menus with Undo, and actions for existing scheduled tasks.
-- **Watchable crews.** When a leader delegates, its workers appear in a strip above the composer — bouncing while they work, flagged when one needs your decision (which also surfaces on the leader). Click a worker to open it as a transient column; workers stay out of the rail. Promote a useful worker to an **addressable peer** from its header, and it gets a name other agents can hand work to.
-- **Named agents.** Each host exposes a per-host agent directory; a pinned peer (like a "harness improver") is visible to every agent on that host and can be handed a brief by name.
-- **Personal model experience.** The existing model picker shows observed usage statistics and your Helpful / Not helpful ratings—not an automatic leaderboard or model router.
-- **Optional browser access over Tailscale.** Use the same app remotely while Ember runs on your desktop.
+- **Recognize a chat at a glance.** Each chat has a stable creature, colour and name. Blobs are
+  mnemonic devices: they help you find the conversation you remember. Their movement shows work,
+  thinking, questions and errors. Appearance and size are adjustable when you want more control.
+- **Keep track of what you’ve read.** A read mark records your acknowledgement. Opening a chat does
+  not mark its messages read. **Go to new messages** finds unread replies; individual bubbles and
+  **Mark all as read** let you clear them deliberately. Tool steps need no read receipt.
+- **Give feedback on the exact passage.** Select part of a plan or response, add a comment, and
+  collect several comments before sending them together. The agent gets the quoted text with
+  your feedback.
+- **Follow background work without repeated reports.** In the current source, new Kiln threads
+  store their outcomes without copying routine reports into the main chat. A **Threads** tray
+  shows progress and requests for your input. Source links in quoted findings open the worker’s
+  conversation. **Ultra delegator** keeps substantial execution in background threads while
+  leaving the foreground available for direction. This requires Kiln **1.9.0 or later**; existing
+  workers retain their earlier delivery policy.
+- **Reveal detail when you need it.** Tool output and thinking can stay folded. Queued messages,
+  notes, threads and running processes live in trays above the composer. Drafts stay with their
+  chats; optional split view shows conversations side by side.
 
-Some operations depend on the APIs available on the connected instance's version. An ember-harness instance supports the full surface; an openchamber instance supports what its
-version offers. Private Relay instances are not currently supported.
+## Using the workspace
+
+Other chats sit in the rail, with newer activity toward the bottom. The active chat’s creature
+sits beside the composer. Select another chat to bring its identity into that corner; double-click
+its name there to rename it. A chat you minimize stays available in the rail.
+
+Use the composer to send, queue a follow-up, attach an image, or save a thought for later. Change
+conversation text size in **Settings → General**. Display controls let you reveal reasoning,
+tools and message details as needed.
+
+[Keyboard controls and local data](docs/usage.md) · [Connections and remote access](docs/instances.md)
 
 ## Run from source
 
-### Requirements
-
-- **Node.js 22.12 or newer.**
-- **Bun**, using the version declared in [package.json](package.json) (`bun@1.4.2`).
-- Additional Kiln or OpenChamber instances are optional; the build includes a local Kiln.
-- A graphical desktop environment for Electron.
-
-Desktop behavior, packaging, and native integration tests are verified on **macOS** (Developer ID signed, hardened runtime, Apple notarized & stapled) and **Linux** (`AppImage` and `.tar.gz`).
-
-From a checkout of this repository:
+You need **Node.js 22.12+**, **Bun 1.4.2** (pinned in [package.json](package.json)), and a graphical
+desktop environment for Electron.
 
 ```sh
+git clone https://github.com/noemit/ember-bots.git
+cd ember-bots
 bun install
+bun install --cwd packages/kiln
 bun run dev
 ```
 
-`dev` builds Kiln, the renderer and Electron code, then launches the app with its local Kiln. Use `EMBER_DATA_DIR=/tmp/ember-onboarding bun run dev` for an isolated onboarding profile. It gets its own Kiln port, data and Chromium profile, so it can run beside the daily app. Quitting it stops only its own Kiln.
+This builds Kiln and the desktop app, then launches Ember with its own local Kiln. You should see
+setup or your existing workspace. `dev` builds and launches; it is not a hot-reload command.
 
-It is not a desktop hot-reload/watch command.
-
-### Connecting to Ember Harness / Hearth
-
-On first launch, if no endpoints are configured yet and a local token exists at `~/.ember/ember.token` or `~/.hearth/hearth.token` (or under `EMBER_HOME` / `HEARTH_HOME`), Ember automatically seeds the local endpoint (`http://127.0.0.1:3002`). You can also add, edit, or test local and remote harness endpoints in **Settings → Instances**.
-
-### Connecting to OpenChamber
-
-Ember reads instance configuration from:
-
-```text
-~/.config/openchamber/settings.json
-```
-
-Configure and connect instances in OpenChamber first. Ember discovers their persisted HTTP endpoints and probes them; it does not create SSH tunnels or manage provider credentials independently.
-
-For a non-default OpenChamber data directory:
+For an isolated development profile alongside your daily app:
 
 ```sh
-OPENCHAMBER_DATA_DIR="/path/to/openchamber" bun run dev
+EMBER_DATA_DIR=/tmp/ember-canary bun run dev
 ```
 
-This changes the location of OpenChamber's `settings.json`, not Ember's own settings directory.
-
-### Try the UI without OpenChamber
+For a browser-only preview with synthetic sessions:
 
 ```sh
 bun run dev:web
 ```
 
-Open `http://localhost:5179`. This runs Vite with a **mock bridge and synthetic sessions**. It does not connect to your real instances. Use this mode for UI development and browser testing, not as a substitute for authenticated remote access.
+Open `http://localhost:5179`. This preview uses a mock bridge and does not connect to your real
+instances. See [development and verification](docs/development.md) for checks, packaging and
+architecture.
 
-## Using the workspace
+## Optional setups
 
-The current chat sits at the bottom of the rail, beside the composer. Other chats run from older
-above to newer below; clicking one moves its creature into that corner. Agent replies sit directly
-on the conversation surface, while your own messages keep a subtle bubble. Adjust conversation
-text in **Settings → General → Conversation text** (12–20px; 14px by default).
+<details>
+<summary>Other computers, standalone Kiln, OpenChamber and browser access</summary>
 
-- Click a **project title** to open its sessions together; click a **session avatar** to open just that session. Each avatar carries the session title underneath, truncated with an em-dash.
-- **Double-click the current chat’s name beside the composer** to rename it. On mobile, use its header title.
-- Click **New agent** or a project's **+** to prepare a draft. Choose the instance, folder, and model; the first send creates the session.
-- **Minimize** keeps a session as a tab. **×** archives it in OpenChamber and offers Undo; archiving a session that is working, has queued messages, or is waiting for input asks for one confirmation first (it never sends a stop command). Every sidebar blob whose session is on screen gets a small underline — one per open column.
-- Use the project's **ellipsis menu** to archive inactive or older sessions. Cleanup excludes sessions known to be working or waiting for input.
-- **Scheduled-task runs archive themselves** a day after they finish (Settings → Sessions → "Auto-archive scheduled runs"). They stay reachable from the scheduled view, and runs that are still working or open are never touched.
-- Messages sent while a session is busy go into its **OpenChamber queue**. Notes are different: they stay parked until you explicitly send them or bring them back into the composer.
-- Model selection is per session. If a chosen model or reasoning level is absent from the loaded catalogue, Ember keeps the choice and draft, explains the problem, and blocks composer submission. Refresh the catalogue or explicitly choose a replacement. **Server default** is an intentional selection, not a silent fallback.
-- Permission requests and agent questions appear in the conversation. **YOLO** enables permission auto-approval; on supported OpenChamber instances, that policy remains active even while Ember is closed.
+Ember can connect to additional Kilns in **Settings → Instances**, and can discover HTTP endpoints
+already configured in OpenChamber. Ember owns its included Kiln’s lifetime; connecting to another
+Kiln does not give it ownership of that process.
 
-### Keyboard controls
+- [Run Kiln independently with Tinder](docs/instances.md#standalone-kiln-with-tinder).
+- [Connect another local or remote Kiln](docs/instances.md#connecting-another-kiln).
+- [Connect OpenChamber](docs/instances.md#connecting-openchamber).
+- [Use Ember from a browser over Tailscale](docs/instances.md#remote-access).
 
-Use `Cmd` on macOS and `Ctrl` elsewhere. Shortcuts also appear in tooltips on the relevant actions.
+Available operations depend on the connected host and its version. Private Relay instances are
+not currently supported.
 
-| Shortcut | Action |
-| --- | --- |
-| `Cmd/Ctrl+K` | Search sessions and notes, or start a new agent |
-| `Cmd/Ctrl+1–8` | Activate the corresponding open session, restoring it if minimized |
-| `Cmd/Ctrl+F` within a column | Find in the conversation, including offscreen history |
-| `Enter` | Send, or queue a follow-up while the session is busy |
-| `Shift+Enter` | Insert a new line |
-| `Option/Alt+Enter` | Send now instead of queueing while the session is busy |
-| `Cmd/Ctrl+Enter` | Save composer text as a note in an existing session |
-| `Up` in an empty composer | Recall the last message you sent |
-
-## Remote access
-
-Remote access is disabled by default.
-
-1. Make sure Tailscale is connected on the desktop host and the device you want to use.
-2. Open Ember's settings, switch to **General**, and set a remote-access password.
-3. Enable **Allow access over Tailscale**.
-4. Open the address printed in the desktop terminal: `http://<tailscale-ip>:57821`.
-5. Sign in with the password you set. Keep Ember running on the host.
-
-The production server binds to the detected Tailscale IPv4 address, not all network interfaces. It serves HTTP within the Tailnet, stores the password as a hash, and uses an HttpOnly, SameSite=Strict session cookie. Do not expose this listener through public port forwarding.
-
-Remote clients use the desktop host's settings and model-experience store. Logout closes existing event streams; expired sessions cannot continue receiving event hints. Disabling or restarting remote access disconnects existing HTTP clients.
-
-## Local data and model experience
-
-| Location | Purpose |
-| --- | --- |
-| `~/.config/openchamber/settings.json` | OpenChamber instance discovery; read by Ember |
-| `~/.ember/settings.json` | Appearance, workspace layout, drafts/model choices, notes, pins, and remote-access settings |
-| `~/.ember/model-stats.json` | Observed model-call metadata and personal ratings |
-| `~/.ember/hearth.sqlite` | The local harness's conversations, when Ember runs its own agent server |
-| `~/.ember/hearth.token` | That harness's bearer token (mode 0600) |
-
-Everything Ember owns lives in `~/.ember`: deleting that directory is a clean reset. An install from
-before 1.4 kept its settings in `~/.config/ember`; those are moved across once, on the next launch.
-
-Draft text and model choices persist across launches. Attachments and reply context remain in memory. Treat the settings file as private: it can contain draft text and notes.
-
-Model scorecards use metadata from messages Ember already receives. They do not crawl entire histories or run extra model evaluations. The store retains up to **10,000 observations from the last 90 days**, without transcript text or tool payloads. You can clear observations and ratings in **Settings → General → Model experience**.
-
-Interpret these statistics as personal observations, not a benchmark: coverage is limited to sessions seen by Ember, missing costs remain unknown, and reported call durations can include tool or waiting time. Ratings describe your assessment of a reply, not an inferred quality score.
+</details>
 
 ## Development and verification
 
-The stack is Electron, React, TypeScript, Vite, Tailwind CSS, and Radix UI, with TanStack Virtual for long transcripts.
+[Contributor guide](docs/development.md) · [Kiln wire contract](packages/kiln/README.md) · [Changelog](CHANGELOG.md)
 
-| Command | Purpose |
-| --- | --- |
-| `bun run dev` | Build and launch Electron |
-| `bun run dev:web` | Run the renderer with mock data under Vite |
-| `bun run build` | Build the renderer into `dist/` and Electron code into `dist-electron/` |
-| `bun run typecheck` | Check renderer and Electron TypeScript projects |
-| `bun run lint` | Run ESLint |
-| `bun run test` | Run Bun unit/regression tests |
-| `bun run check` | Run typecheck, lint, and unit tests |
-| `bun run test:e2e` | Run Playwright browser regressions against the mock UI |
-| `bun run test:native` | Build, then test real Electron IPC and authenticated remote access with isolated fixtures |
-| `bun run buddy-arena` | Run the Buddy avatar development playground |
-
-Install the test browser before running the Playwright suites:
-
-```sh
-bunx --no-install playwright install chromium
-```
-
-Before submitting changes:
-
-```sh
-bun run check
-bun run build
-```
-
-Also run `bun run test:e2e` for UI changes and `bun run test:native` for Electron, persistence, or remote-access changes. The native suite requires a GUI-capable environment and isolates its home directory, browser profile, settings, and upstream instance. It does not operate on real sessions or validate real Tailnet routing.
-
-### Project layout
-
-```text
-electron/        Native process, preload bridge, SSE transport, remote server, persistence
-src/App.tsx      Workspace state and cross-instance coordination
-src/components/ UI, composers, transcripts, model picker, and settings
-src/hooks/      Polling, settings persistence, feedback, and queue handlers
-src/lib/        Reconciliation, caching, model selection, search/workspace helpers
-src/blob/       Avatars, moods, palettes, animation, and dock rendering
-src/dev/        Browser-only mock bridge and test fixtures
-e2e/            Browser and native integration tests
-tests/          Bun unit and regression tests
-sketches/       Standalone HTML design studies (sample data, outside the app build)
-```
-
-SSE events are invalidation hints; REST responses remain authoritative. Requests are coalesced, streaming updates use bounded message tails, and periodic full reads repair history. Transcript caching has a byte budget, but visible conversations and pending sends are protected, so it is not a hard limit on total process memory.
-
-See [AGENTS.md](AGENTS.md) for detailed architecture, invariants, and repository conventions.
+The contributor guide covers local checks, browser and native testing, packaging, and how the
+renderer, desktop process and harness fit together. Repository invariants live in [AGENTS.md](AGENTS.md).
 
 ## Troubleshooting
 
-- **No instances appear:** confirm OpenChamber has saved its instance configuration and that Ember is looking in the correct data directory. Then use **Instances → Reprobe instances**.
-- **An SSH instance is unsupported or unreachable:** connect it in OpenChamber first. Ember needs a persisted, reachable HTTP endpoint; it does not establish the tunnel itself.
-- **A model is unavailable:** use **Refresh models** in the warning, or open the model picker and choose an available model. Your existing choice is not silently replaced.
-- **The browser shows demo sessions:** `dev:web` intentionally uses mock data. Real browser access comes from the desktop app's remote server.
-- **Remote access does not start:** ensure a Tailscale IPv4 address is available and a password is configured. Check the terminal running Ember for the listening address or an error.
+- **This computer is not answering:** open **Settings → Instances** to inspect the local Kiln’s
+  status, then use **Instances → Reprobe instances** after it is available again.
+- **Your model is unavailable:** use **Refresh models** or choose an available model in the picker.
+  Your draft and explicit choice are kept until you decide what to use.
+- **The browser shows sample chats:** `dev:web` is the UI preview. For your real chats, use the
+  desktop app or enable its [remote access](docs/instances.md#remote-access).
 
 ## License
 
-[MIT License](LICENSE), copyright Noemi Titarenco.
+[MIT](LICENSE), copyright Noemi Titarenco. The vendored [README Atlas skill](.agents/skills/readme-atlas/LICENSE)
+has its own MIT copyright notice.
 
-### Building Windows installers
-
-On Windows, install Bun and Node.js, run `bun install` in this repository and in `packages/kiln`,
-then run `bun run dist:win`. The installer appears under `release/`. `bun run dist:cli` builds
-standalone Tinder. The Windows executable workflow runs these builds on a Windows runner and
-launches the packaged app with a fresh profile to verify its bundled Kiln starts and stops with Ember.
+> Documentation note: this README was drafted with AI assistance and has not yet been proofread
+> by the maintainer.

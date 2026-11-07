@@ -948,3 +948,12 @@ activity log's content and rides the same `EmberEvent` hint. Streaming chatter n
   by older builds still load; the field is dropped on read.
 - At this baseline `bun.lock` is tracked, despite the older note above; dependency changes include its
   generated updates along with `package.json`.
+
+## README editing
+
+Use [README Atlas](.agents/skills/readme-atlas/SKILL.md) for README work. The complete vendored
+skill is pinned to `chromoany/readme-atlas` commit `18f60638764ce36910d5977c1cea4c47dce9990d`;
+retain its licence. Lead with human thinking, decisions and steering, show labelled real UI imagery,
+and keep download/first use separate from source development. Verify release assets instead of
+assuming the package version is published. Detailed usage, instance setup and contributor guidance
+live in `docs/usage.md`, `docs/instances.md` and `docs/development.md`.
