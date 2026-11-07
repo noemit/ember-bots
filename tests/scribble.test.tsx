@@ -15,6 +15,7 @@ test('Scribble keeps a stable, bounded drawing with distinct silhouettes', () =>
       expect(scribbleGeometry(identity)).toEqual(art);
       expect(art.name).toBe(shape.name);
       expect(art.strokes.length).toBeLessThanOrEqual(130);
+      expect(new Set(art.strokes.map(stroke => stroke.tip))).toEqual(new Set(['sharp', 'round', 'bent']));
       for (const stroke of art.strokes) {
         const coordinates = stroke.path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
         expect(coordinates.every(n => Number.isFinite(n) && n >= 0 && n <= 100)).toBe(true);
@@ -38,10 +39,10 @@ test('pale and dark custom colours keep the same clearly outlined eyes', () => {
   }
 });
 
-test('Scribble carries the shared static decision, unread and thinking indicators', () => {
+test('Scribble keeps decisions and unread indicators while thinking belongs to the creature', () => {
   for (const mood of ['input', 'question', 'error'] as const) {
     expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood={mood} />)).toContain('blob-badge');
   }
-  expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="thinking" />)).toContain('blob-arc');
+  expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="thinking" />)).not.toContain('blob-arc');
   expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="unread" />)).toContain('bg-highlight');
 });

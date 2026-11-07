@@ -15,6 +15,13 @@
   0%, 30%, 58%, 100% { opacity: 0; }
   40%, 50% { opacity: 0.75; }
 }
+.blob-mosaic .mosaic-thought { animation: mosaic-thought 3s steps(1, end) infinite; }
+@keyframes mosaic-thought {
+  0%, 40%, 100% { opacity: 0; }
+  12%, 24% { opacity: .48; }
+  32% { opacity: .18; }
+}
 @media (prefers-reduced-motion: reduce) {
+  .blob-mosaic .mosaic-thought { animation: none !important; opacity: .12; }
   .blob-mosaic .mosaic-pixel { animation: none !important; opacity: 0.45; }
 }

@@ -3,7 +3,7 @@ import { hashString, mulberry32, seedIdentity } from './seed';
 import { IDENTITY_COLORS } from './contrast';
 import { BUDDY_COLORS, BUDDY_SHAPES } from './buddy';
 import { usePupilTracking } from './usePupilTracking';
-import { MoodBadge, ThinkingArc } from './overlays';
+import { MoodBadge } from './overlays';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
 
@@ -54,7 +54,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
   const isError = mood === 'error';
   // A blob with no host answer does not follow the pointer: tracking reads as "awake and watching",
   // which is exactly the claim an unknown status cannot make.
-  usePupilTracking(wrapperRef, [leftPupil, rightPupil], interactive && !isError && mood !== 'unknown', 5.5);
+  usePupilTracking(wrapperRef, [leftPupil, rightPupil], interactive && !isError && mood !== 'unknown' && mood !== 'thinking', 5.5);
 
   const renderEye = (offsetX: number, pupilRef: React.RefObject<SVGGElement | null>) => (
     <g transform={`translate(${shape.eyeX + offsetX} ${shape.eyeY}) scale(${shape.eyeScale})`}>
@@ -65,10 +65,10 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
           <line x1={-5.5} y1={5.5} x2={5.5} y2={-5.5} />
         </g>
       ) : (
-        <g ref={pupilRef} className="blob-pupil">
+        <g className="buddy-gaze"><g ref={pupilRef} className="blob-pupil" transform={mood === 'thinking' ? 'translate(0 0)' : undefined}>
           <circle r={6.5} fill={color.ink} />
           <circle cx={-2.2} cy={-2.4} r={2} fill="#ffffff" />
-        </g>
+        </g></g>
       )}
     </g>
   );
@@ -83,7 +83,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
     >
       {/* The hop/flip wrappers are DOM elements rather than SVG <g>s: Chromium can composite a
           transform on a DOM node but not on an SVG child, and Buddy's idle breathe runs on every
-          visible session in the rail. The arc and badges sit in their own overlay so they hold
+          visible session in the rail. Decision badges sit in their own overlay so they hold
           still while the body hops. */}
       <div className="blob-hop" style={{ animationDelay: `${wobbleDelay}s` }}>
         <div
@@ -109,7 +109,6 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
         height={size}
         style={{ overflow: 'visible' }}
       >
-        {mood === 'thinking' ? <ThinkingArc /> : null}
         <MoodBadge mood={mood} />
       </svg>
     </div>

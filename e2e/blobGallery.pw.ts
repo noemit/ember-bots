@@ -63,3 +63,42 @@ test('Mosaic pixels change on both sides while the body stays anchored, with a s
   const scribble = page.locator('[data-preview="scribble"] > .blob');
   expect(await scribble.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
 });
+
+
+test('thinking is distinct for every style, and a turning Scribble keeps its volume', async ({ page }) => {
+  await page.goto('/blob-gallery.html');
+  await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
+  const scribble = page.locator('[data-preview="scribble"] > .blob');
+  const samples = await scribble.evaluate(node => {
+    const widths: number[] = [];
+    const wirePoses = new Set<string>();
+    for (let step = 0; step <= 24; step++) {
+      (node as HTMLElement).style.setProperty('--scribble-delay', `-${step / 2}s`);
+      widths.push(node.querySelector('.scribble-head')!.getBoundingClientRect().width);
+      wirePoses.add([...node.querySelectorAll('.scribble-wire')].map(wire => getComputedStyle(wire).transform).join('|'));
+    }
+    return { ratio: Math.min(...widths) / Math.max(...widths), poses: wirePoses.size };
+  });
+  expect(samples.ratio).toBeGreaterThan(.75);
+  expect(samples.poses).toBeGreaterThan(3);
+  const thinking = page.locator('.gallery-thinking');
+  await expect(thinking.locator('.blob-arc')).toHaveCount(0);
+  const signatures: string[] = [];
+  for (const style of ['buddy', 'scribble', 'mosaic', 'lava', 'crystal']) {
+    const blob = thinking.locator(`.blob-${style}`);
+    const animation = await blob.evaluate(node => [...node.querySelectorAll('*')]
+      .map(child => getComputedStyle(child).animationName).filter(name => name !== 'none').sort().join(','));
+    expect(animation.length).toBeGreaterThan(0);
+    signatures.push(animation);
+  }
+  expect(new Set(signatures).size).toBe(5);
+  await expect(page.locator('[data-style="mosaic"][data-state="error"] .mosaic-error-eye')).toHaveCount(2);
+  const crystal = page.locator('[data-style="crystal"][data-state="busy"]');
+  await expect(crystal.locator('circle.blob-heat')).toHaveCount(0);
+  expect(Number(await crystal.locator('.blob-heat').evaluate(node => getComputedStyle(node).opacity))).toBeLessThan(.3);
+  await page.screenshot({ path: '/tmp/ember-blob-revision-light.png', fullPage: true });
+  await page.getByLabel('Theme', { exact: true }).selectOption('graphite');
+  await page.screenshot({ path: '/tmp/ember-blob-revision-dark.png', fullPage: true });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await page.locator('.blob').evaluateAll(nodes => nodes.flatMap(node => node.getAnimations({ subtree: true })).length)).toBe(0);
+});

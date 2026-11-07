@@ -12,22 +12,6 @@ export const accentFor = (mood: BallMood): string => {
   return 'var(--highlight)';
 };
 
-/** Thinking: a soft single arc, loading-style. Animated by `.blob-arc` in blob.css. */
-export const ThinkingArc = ({ radius = 48 }: { radius?: number }) => (
-  <circle
-    className="blob-arc"
-    cx={50}
-    cy={50}
-    r={radius}
-    fill="none"
-    stroke="var(--highlight)"
-    strokeWidth={3}
-    strokeDasharray={radius * 1.33}
-    strokeLinecap="round"
-    opacity={0.9}
-  />
-);
-
 /**
  * The lock / question / warning badge in the top-right corner. `scale` lets a style with a smaller
  * body (a crystal is wider than Buddy's dome) pull the badge in toward the shape.

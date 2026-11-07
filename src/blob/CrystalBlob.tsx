@@ -2,7 +2,7 @@ import * as React from 'react';
 import { hashString, mulberry32, seedIdentity } from './seed';
 import { IDENTITY_COLORS } from './contrast';
 import { CRYSTAL_SHAPES, crystalGeometry } from './crystal';
-import { MoodBadge, ThinkingArc } from './overlays';
+import { MoodBadge } from './overlays';
 import { OrbitRing } from './OrbitRing';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
@@ -21,9 +21,10 @@ const COLD = 'var(--muted-foreground)';
 
 /**
  * Crystal — a faceted lump of the session's colour. Mood is heat, and heat is the only thing the
- * style draws beyond the lump itself: inert when idle, roaring when busy, amber when it wants you,
+ * style draws beyond the lump itself: inert when idle, gently warm when busy, amber when it wants you,
  * cold grey when the turn failed. Every mood sets the halo statically, so the state still reads in
- * a still frame and under `prefers-reduced-motion`, where only the pulse is dropped.
+ * a still frame and under `prefers-reduced-motion`. Thinking travels through the facets; the
+ * faint heat follows the silhouette.
  */
 export default function CrystalBlob({
   seed,
@@ -71,10 +72,9 @@ export default function CrystalBlob({
     >
       <svg viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
         <defs>
-          <radialGradient id={`${uid}-heat`}>
-            <stop offset="0.68" stopColor={heat} stopOpacity="0.9" />
-            <stop offset="1" stopColor={heat} stopOpacity="0" />
-          </radialGradient>
+          <filter id={`${uid}-heat`} x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation={3} />
+          </filter>
           <clipPath id={`${uid}-lump`}>
             <path d={geometry.body} />
           </clipPath>
@@ -82,7 +82,8 @@ export default function CrystalBlob({
 
         {state === 'needs-input' ? <OrbitRing.Back cx={50} cy={50} r={46} /> : null}
 
-        <circle className="blob-heat" cx={50} cy={50} r={48} fill={`url(#${uid}-heat)`} />
+        <g className="blob-heat" opacity={0}><path d={geometry.body} fill={heat} stroke={heat} strokeWidth={5}
+          filter={`url(#${uid}-heat)`} transform={`rotate(${geometry.tilt} 50 50)`} /></g>
 
         <g className="blob-body" transform={`rotate(${geometry.tilt} 50 50)`}>
           <path d={geometry.body} fill={ink} />
@@ -92,6 +93,8 @@ export default function CrystalBlob({
             {geometry.facets.map((facet, index) => (
               <path
                 key={index}
+                className={facet.kind === 'shade' ? undefined : 'crystal-glint'}
+                style={{ animationDelay: `${geometry.heatDelay - index * .38}s` }}
                 d={facet.d}
                 fill={facet.kind === 'shade' ? '#000000' : '#ffffff'}
                 opacity={facet.kind === 'lit' ? 0.2 : facet.kind === 'shade' ? 0.18 : 0.1}
@@ -100,7 +103,6 @@ export default function CrystalBlob({
           </g>
         </g>
 
-        {mood === 'thinking' ? <ThinkingArc radius={52} /> : null}
         <MoodBadge mood={mood} inset={-2} />
         {state === 'needs-input' ? <OrbitRing.Front cx={50} cy={50} r={46} /> : null}
       </svg>

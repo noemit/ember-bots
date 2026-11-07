@@ -59,5 +59,11 @@ test('Mosaic preserves explicit unread and decision indicators without relying o
     expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood={mood} />)).toContain('blob-badge');
   }
   expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="unread" />)).toContain('bg-highlight');
-  expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="thinking" />)).toContain('blob-arc');
+  expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="thinking" />)).toContain('mosaic-thought');
+});
+
+test('Mosaic replaces both pupils with crosses when a turn fails', () => {
+  const failed = renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="error" />);
+  expect(failed.match(/class="mosaic-error-eye"/g)).toHaveLength(2);
+  expect(renderToStaticMarkup(<Blob style="mosaic" seed="chat" mood="idle" />)).not.toContain('mosaic-error-eye');
 });

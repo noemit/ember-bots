@@ -231,8 +231,9 @@ describe('Lava moods', () => {
     expect(css).toMatch(
       /\[data-motion='split'\] \.blob-lava-bud \{[^}]*transform: translate\(var\(--lava-dx[^}]*scale\(/
     );
-    // Thinking draws the shared arc; the asks and the failure draw the shared badges.
-    expect(markup('thinking')).toContain('blob-arc');
+    // Thinking keeps its interior colour pools; decisions and failures keep shared badges.
+    expect(markup('thinking')).not.toContain('blob-arc');
+    expect(markup('thinking')).toContain('blob-lava-pools');
     for (const mood of ['input', 'question', 'error'] as const) expect(markup(mood)).toContain('blob-badge');
     expect(markup('idle')).not.toContain('blob-badge');
     // Error drains the colour inside the filter, so a standalone copy (the dock icon) shows it too.
@@ -272,11 +273,10 @@ describe('Lava drawing', () => {
     expect(new Set(ids).size).toBe(8);
   });
 
-  test('the ink falls back to near-black where no theme CSS reaches (the dock icon)', () => {
-    expect(markup('idle')).toMatch(/flood-color:var\(--lava-ink, ?#16130f\)/);
-    // A dark theme swaps it for the blob's own deep hue, set per blob.
-    expect(css).toMatch(/\.dark \.blob-lava \{[^}]*--lava-ink: var\(--lava-deep/);
-    expect(markup('idle')).toMatch(/--lava-deep:#[0-9a-f]{6}/i);
+  test('the translucent rim uses the body hue even without theme CSS', () => {
+    expect(markup('idle')).toMatch(/flood-color:var\(--lava-rim, ?#[0-9a-f]{6}\)/i);
+    expect(markup('idle')).toContain('flood-opacity="0.68"');
+    expect(markup('idle')).not.toContain('#16130f');
   });
 
   test('grain and rim hold their on-screen size across avatar sizes', () => {
@@ -285,8 +285,8 @@ describe('Lava drawing', () => {
       expect(lavaGrainFrequency(size)).toBeGreaterThan(0);
       expect(lavaGrainFrequency(size * 2)).toBeGreaterThanOrEqual(lavaGrainFrequency(size));
       // The rim never thins to a hairline nor swallows a small blob.
-      expect(lavaRimWidth(size)).toBeGreaterThanOrEqual(1.5);
-      expect(lavaRimWidth(size)).toBeLessThanOrEqual(3.2);
+      expect(lavaRimWidth(size)).toBeGreaterThanOrEqual(0.8);
+      expect(lavaRimWidth(size)).toBeLessThanOrEqual(1.8);
     }
     // Body grain is left out at rail sizes, where a speck is a pixel of dirt.
     expect(markup('idle', 'seed', 55)).not.toContain('darkSpecks');

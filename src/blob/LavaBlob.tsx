@@ -3,7 +3,6 @@ import { hashString, mulberry32, seedIdentity } from './seed';
 import { IDENTITY_COLORS } from './contrast';
 import {
   LAVA_GOO,
-  LAVA_INK,
   LAVA_MOTION,
   LAVA_SHAPES,
   LAVA_SLOSH_PERIOD,
@@ -14,7 +13,7 @@ import {
   lavaRimWidth,
   type LavaBody,
 } from './lava';
-import { MoodBadge, ThinkingArc } from './overlays';
+import { MoodBadge } from './overlays';
 import { OrbitRing } from './OrbitRing';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
@@ -46,7 +45,7 @@ const TONES = ['halo', 'core', 'glow'] as const;
  * and while busy the whole body works — it rises and settles, swells and squashes, any middle lobe
  * pulls in and out, a droplet is thrown off and reabsorbed, and the glow turns against the pool. Each
  * working mood also sets something *static* (the droplet's resting place is already detached, the
- * shared thinking arc and badges), so the state still reads in a still frame, on the dock icon and
+ * interior pools and decision badges), so the state still reads in a still frame, on the dock icon and
  * under `prefers-reduced-motion`.
  */
 export default function LavaBlob({
@@ -141,7 +140,7 @@ export default function LavaBlob({
         ['--lava-wx' as string]: `${geometry.budDrift.dx.toFixed(2)}px`,
         ['--lava-wy' as string]: `${geometry.budDrift.dy.toFixed(2)}px`,
         // A cold lamp's rim goes grey with its body rather than keeping the hue it lost.
-        ['--lava-deep' as string]: cold ? COLD_DEEP : colors.deep,
+        ['--lava-rim' as string]: cold ? COLD_DEEP : `color-mix(in srgb, ${body} 60%, ${colors.deep})`,
       }}
     >
       <svg viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
@@ -192,18 +191,18 @@ export default function LavaBlob({
               values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0"
               result="grain"
             />
-            {/* Ink comes from CSS so a dark theme can swap it for the deep hue (blob-lava.css). The
-                fallback is what a standalone copy (the dock icon) draws. */}
-            <feFlood style={{ floodColor: `var(--lava-ink, ${LAVA_INK})` }} result="ink" />
+            {/* A translucent shade of the body gives the rim definition on light and dark surfaces.
+                Standalone SVGs use the same hue family without requiring theme CSS. */}
+            <feFlood style={{ floodColor: `var(--lava-rim, ${cold ? COLD_DEEP : colors.deep})` }} floodOpacity={0.68} result="ink" />
 
             {/* The inner ramp: strongest at the edge, fading inward, deepest in the necks (a concave
                 spot sees more outside, so its blurred alpha is lower). */}
             <feGaussianBlur in="goo" stdDeviation={4} result="gooSoft" />
             <feComposite in="goo" in2="gooSoft" operator="out" result="ramp" />
             {/* The body's own colour, multiplied by itself: the deeper, more saturated tone the
-                reference passes through on the way from the body to the black rim. */}
+                body passes through on the way to the translucent rim. */}
             <feBlend in="goo" in2="goo" mode="multiply" result="deep" />
-            <feComposite in="ramp" in2="ramp" operator="arithmetic" k2={2.4} result="deepMask" />
+            <feComposite in="ramp" in2="ramp" operator="arithmetic" k2={1.4} result="deepMask" />
             <feComposite in="deep" in2="deepMask" operator="in" result="deepRim" />
             {/* Stipple the ramp against the grain, so the ink breaks up as it reaches inward. */}
             <feComposite in="ramp" in2="grain" operator="arithmetic" k2={12} k3={-8} k4={1.1} result="stipple" />
@@ -306,7 +305,6 @@ export default function LavaBlob({
           </g>
         </g>
 
-        {mood === 'thinking' ? <ThinkingArc radius={50} /> : null}
         <MoodBadge mood={mood} inset={-2} />
         {state === 'needs-input' ? <OrbitRing.Front cx={50} cy={50} r={44} /> : null}
       </svg>

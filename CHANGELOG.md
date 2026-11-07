@@ -1,3 +1,15 @@
+## 1.15.2
+
+### Changed
+- Scribble turns as a solid tangle with independently moving wire bundles, mixed sharp/round/bent
+  tips and crossing strands, instead of flattening sideways.
+- Thinking belongs to each creature: Buddy looks up and tilts, Scribble’s wires twitch, Mosaic’s
+  tiles light in stepped patterns, Lava’s inner colours circulate, and Crystal’s facets glint.
+  Removed the shared thinking ring; decision badges and reduced-motion support remain.
+- Mosaic’s error face has crossed eyes. Lava’s outline is thinner, translucent and body-coloured;
+  Crystal’s quieter glow follows its irregular silhouette instead of a circle.
+- The blob gallery includes an enlarged comparison of all five thinking animations.
+
 ## 1.15.1
 
 ### Changed

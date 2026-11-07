@@ -8,15 +8,6 @@
  * picture: busy runs three at once, on three different clocks.
  */
 
-.blob-lava {
-  --lava-ink: #16130f;
-}
-
-/* Near-black ink vanishes into a dark surface; a deep shade of the body's own hue still reads. */
-.dark .blob-lava {
-  --lava-ink: var(--lava-deep, #16130f);
-}
-
 .blob-lava .blob-lava-bud,
 .blob-lava .blob-lava-lobe,
 .blob-lava .blob-lava-core,
@@ -85,12 +76,13 @@
  * eye reads at rail size — while the colour churns, and the glow counter-turns more slowly still.
  */
 .blob-lava[data-motion='swirl'] .blob-lava-pools {
-  animation: lava-swirl 9s linear infinite;
+  transform: rotate(-24deg);
+  animation: lava-thought 7s ease-in-out infinite;
   animation-delay: var(--lava-delay, 0s);
 }
 
 .blob-lava[data-motion='swirl'] .blob-lava-glow {
-  animation: lava-swirl 13s linear infinite reverse;
+  animation: lava-swirl 11s linear infinite reverse;
   animation-delay: var(--lava-delay, 0s);
 }
 
@@ -171,6 +163,13 @@
   }
 }
 
+/* Circulating colour gathers and releases inside an anchored silhouette. */
+@keyframes lava-thought {
+  0% { transform: rotate(-24deg) scale(.94); }
+  40% { transform: rotate(135deg) scale(1.06); }
+  75% { transform: rotate(270deg) scale(.98); }
+  100% { transform: rotate(336deg) scale(.94); }
+}
 @keyframes lava-swirl {
   to {
     transform: rotate(360deg);

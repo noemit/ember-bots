@@ -8,7 +8,10 @@
 .blob-scribble .scribble-face,
 .blob-scribble .scribble-foot,
 .blob-scribble .scribble-scratch,
+.blob-scribble .scribble-knots,
+.blob-scribble .scribble-wire,
 .blob-scribble .scribble-fingers { transform-box: view-box; }
+.blob-scribble :is(.scribble-wire, .scribble-knots) { transform-origin: 50px 43px; }
 .blob-scribble .scribble-turn { transform-origin: 50px 48px; }
 .blob-scribble .scribble-head { transform-origin: 50px 62px; }
 .blob-scribble .scribble-foot { transform-origin: 50px 63px; }
@@ -17,7 +20,7 @@
 
 /* One shared twelve-second timeline: scratch, turn, stretch. Quiet holds let each gesture
    read at rail size; the seeded offset keeps a busy rail from moving in unison. */
-.blob-scribble[data-mood='busy'] :is(.scribble-dance, .scribble-turn, .scribble-head, .scribble-face, .scribble-foot, .scribble-scratch, .scribble-fingers) {
+.blob-scribble[data-mood='busy'] :is(.scribble-dance, .scribble-turn, .scribble-head, .scribble-face, .scribble-foot, .scribble-scratch, .scribble-fingers, .scribble-wire, .scribble-knots) {
   animation-duration: 12s;
   animation-delay: var(--scribble-delay, 0s);
   animation-timing-function: ease-in-out;
@@ -27,7 +30,8 @@
 .blob-scribble[data-mood='busy'] .scribble-head { animation-name: scribble-head-tilt; }
 .blob-scribble[data-mood='busy'] .scribble-scratch { animation-name: scribble-scratch; }
 .blob-scribble[data-mood='busy'] .scribble-fingers { animation-name: scribble-fingers; }
-.blob-scribble[data-mood='busy'] .scribble-turn { animation-name: scribble-turn; }
+.blob-scribble[data-mood='busy'] .scribble-knots { animation-name: scribble-wire-turn; --wire-angle: 35deg; }
+.blob-scribble[data-mood='busy'] .scribble-wire { animation-name: scribble-wire-turn; }
 .blob-scribble[data-mood='busy'] .scribble-face { animation-name: scribble-face; }
 .blob-scribble[data-mood='busy'] .scribble-foot-left { animation-name: scribble-step-left; }
 .blob-scribble[data-mood='busy'] .scribble-foot-right { animation-name: scribble-step-right; }
@@ -46,15 +50,36 @@
   0%, 10%, 16%, 22%, 28%, 100% { transform: rotate(0); }
   13%, 19%, 25% { transform: rotate(-18deg); }
 }
-@keyframes scribble-turn {
-  0%, 37%, 64%, 100% { transform: scaleX(1); }
-  43% { transform: scaleX(0.12); }
-  48%, 54% { transform: scaleX(-1); }
-  59% { transform: scaleX(-0.12); }
+/* Wires slide around a solid core. No edge-on squash: this is a volume, not a flat drawing. */
+@keyframes scribble-wire-turn {
+  0%, 37%, 66%, 100% { transform: rotate(0) scale(1); }
+  44% { transform: rotate(var(--wire-angle)) scale(.88, 1.04); }
+  51% { transform: rotate(calc(var(--wire-angle) * -1)) scale(1.04, .92); }
+  58% { transform: rotate(calc(var(--wire-angle) * .6)) scale(.94, 1.02); }
 }
 @keyframes scribble-face {
-  0%, 41%, 62%, 100% { opacity: 1; }
-  44%, 58% { opacity: 0; }
+  0%, 37%, 66%, 100% { opacity: 1; transform: translateX(0); }
+  43% { opacity: .8; transform: translateX(9px); }
+  47%, 55% { opacity: 0; transform: translateX(11px); }
+  56% { opacity: 0; transform: translateX(-11px); }
+  61% { opacity: .8; transform: translateX(-7px); }
+}
+.blob-scribble[data-mood='thinking'] .scribble-wire {
+  animation: scribble-wire-think 3.8s ease-in-out infinite;
+  animation-delay: var(--wire-think-delay);
+}
+.blob-scribble[data-mood='thinking'] .scribble-face {
+  transform: translate(-2px, -3px);
+  animation: scribble-ponder 5.6s ease-in-out infinite;
+}
+@keyframes scribble-wire-think {
+  0%, 30%, 65%, 100% { transform: rotate(0); }
+  39%, 51% { transform: rotate(calc(var(--wire-angle) * .36)); }
+  44%, 56% { transform: rotate(calc(var(--wire-angle) * -.15)); }
+}
+@keyframes scribble-ponder {
+  0%, 35%, 100% { transform: translate(-2px, -3px); }
+  50%, 80% { transform: translate(3px, -2px); }
 }
 @keyframes scribble-step-left {
   0%, 37%, 45%, 56%, 64%, 100% { transform: translate(0, 0) rotate(0); }

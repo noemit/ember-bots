@@ -9,7 +9,7 @@ import '../styles.css';
 import './blobGallery.css';
 
 const styles: { id: BlobStyle; name: string; description: string }[] = [
-  { id: 'scribble', name: 'Scribble', description: 'A little ink creature with a lot on its mind.' },
+  { id: 'scribble', name: 'Scribble', description: 'A restless tangle of wires, needles and loops.' },
   { id: 'mosaic', name: 'Mosaic', description: 'Colourful tiles, with a little activity at the edges.' },
   { id: 'buddy', name: 'Buddy', description: 'The original round companion.' },
   { id: 'lava', name: 'Lava', description: 'Soft shapes and flowing colour.' },
@@ -64,7 +64,7 @@ function BlobGallery() {
     <section className="gallery-spotlights" aria-label="New working animations">
       <article className="gallery-spotlight">
         <div className="gallery-stage" data-preview="scribble">{renderBlob('scribble', 'busy', 160)}<div className="gallery-rail-sample">{renderBlob('scribble', 'busy', 55)}<span>Rail size</span></div></div>
-        <div><p className="gallery-eyebrow">01 / SCRIBBLE IN MOTION</p><h2>A moment to think.</h2><p>A head scratch, a curious turn, a little stretch. Three gestures in a relaxed twelve-second loop.</p>
+        <div><p className="gallery-eyebrow">01 / SCRIBBLE IN MOTION</p><h2>A moment to think.</h2><p>A head scratch, wires turning around a solid core, a little stretch. A tangle with volume, even when it turns away.</p>
           <div className="gallery-gestures" aria-label="Preview Scribble gestures">
             <button onClick={() => jump(1.6)}>Head scratch</button><button onClick={() => jump(5.8)}>Turn around</button><button onClick={() => jump(9.8)}>Little stretch</button>
           </div>
@@ -74,6 +74,14 @@ function BlobGallery() {
         <div className="gallery-stage" data-preview="mosaic">{renderBlob('mosaic', 'busy', 160)}<div className="gallery-rail-sample">{renderBlob('mosaic', 'busy', 55)}<span>Rail size</span></div></div>
         <div><p className="gallery-eyebrow">02 / MOSAIC IN MOTION</p><h2>Thinking in pixels.</h2><p>Tiles pop into place on the left and right, then disappear. The face stays steady while the edges get to work.</p></div>
       </article>
+    </section>
+
+    <section className="gallery-thinking" aria-label="Thinking animations">
+      <h2>Five ways to think.</h2>
+      <p>Each character works through an idea in its own way.</p>
+      <div className="gallery-thinking-grid">{styles.map(style => <figure key={style.id}>
+        {renderBlob(style.id, 'thinking', 120)}<figcaption>{style.name}</figcaption>
+      </figure>)}</div>
     </section>
 
     <section className="gallery-states" aria-label="All blob styles and states">

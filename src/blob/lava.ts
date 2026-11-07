@@ -288,10 +288,9 @@ export const lavaGrainFrequency = (size: number): number =>
   Math.round(Math.min(4, Math.max(0.15, (size / 100) * 0.7)) * 1000) / 1000;
 
 /**
- * Width of the solid ink band, in viewBox units, for a rendered size. A fixed width is a hairline at
- * rail sizes (1.5 units is under a pixel at 55px) and a slab on the dock icon; the reference's rim is
- * a confident line at every scale, so hold it near 1.4 CSS pixels, within limits that keep a tiny
- * blob from being all rim.
+ * Width of the translucent, body-coloured rim, in viewBox units, for a rendered size. A fixed width is a hairline at
+ * rail sizes and a slab on the dock icon; hold it near 0.85 CSS pixels, within limits that
+ * keep a tiny blob from being all rim.
  */
 export const lavaRimWidth = (size: number): number =>
-  Math.round(Math.min(3.2, Math.max(1.5, 140 / Math.max(size, 1))) * 100) / 100;
+  Math.round(Math.min(1.8, Math.max(0.8, 85 / Math.max(size, 1))) * 100) / 100;

@@ -21,18 +21,28 @@ export function scribbleGeometry(identity: AvatarIdentity) {
     50 + Math.cos(angle) * radius * shape.width,
     43 + Math.sin(angle) * radius * shape.height,
   );
-  const strokes: { path: string; width: number; shade: boolean }[] = [];
+  const strokes: { path: string; width: number; shade: boolean; tip: 'sharp' | 'round' | 'bent' }[] = [];
   for (let i = 0; i < shape.rays; i++) {
     const angle = i / shape.rays * Math.PI * 2 + (rng() - 0.5) * 0.24;
     const reach = 27 + rng() * 13;
-    const loop = rng() < shape.loops;
+    // Every silhouette mixes needles, loops and elbows; the seed varies their arrangement.
+    const roll = rng();
+    const tip = i % 3 === 0 ? 'sharp' : i % 3 === 1 ? 'round' : 'bent';
+    const loop = roll < shape.loops;
     // A loose bundle of pen passes, with thin frayed strands around the heavier stroke.
     for (let strand = 0; strand < 5; strand++) {
       const a = angle + (rng() - 0.5) * 0.2;
       const r = reach - rng() * 4;
       const spread = loop ? 0.12 + rng() * 0.12 : 0.025;
+      const start = at(a - 0.18, 10);
+      const end = at(a + 0.13, 10 + rng() * 7);
+      const path = tip === 'sharp'
+        ? `M${start} Q${at(a - 0.05, r * 0.65)} ${at(a, r + 2)} L${at(a + 0.035, r * 0.6)} L${end}`
+        : tip === 'bent'
+          ? `M${start} L${at(a - 0.08, r * 0.8)} L${at(a + 0.04, r)} Q${at(a + 0.17, r * 0.8)} ${end}`
+          : `M${at(a - 0.18, 10)} Q${at(a - spread, r * 0.85)} ${at(a - spread * 0.4, r)} Q${at(a + spread, r + 2)} ${at(a + spread, r * 0.75)} L${end}`;
       strokes.push({
-        path: `M${at(a - 0.18, 10)} Q${at(a - spread, r * 0.85)} ${at(a - spread * 0.4, r)} Q${at(a + spread, r + 2)} ${at(a + spread, r * 0.75)} L${at(a + 0.13, 10 + rng() * 7)}`,
+        path, tip,
         width: strand === 0 ? 1.2 + rng() * 1.1 : 0.2 + rng() * 0.65,
         shade: strand === 4,
       });
@@ -42,5 +52,10 @@ export function scribbleGeometry(identity: AvatarIdentity) {
     const a = i / 20 * Math.PI * 2;
     return `${i ? 'L' : 'M'}${at(a, 16 + rng() * 4)}`;
   }).join(' ') + 'Z';
-  return { name: shape.name, core, strokes, eyeTilt: (rng() - 0.5) * 14, legLean: (rng() - 0.5) * 5 };
+  // Crossing strands keep the back of the creature a tangle too, rather than a flat filled disc.
+  const knots = Array.from({ length: 9 }, (_, i) => {
+    const a = i / 9 * Math.PI * 2;
+    return `M${at(a, 18)} C${at(a + 1.1, 23)} ${at(a + 2.4, 13)} ${at(a + Math.PI, 18)}`;
+  });
+  return { name: shape.name, core, strokes, knots, eyeTilt: (rng() - 0.5) * 14, legLean: (rng() - 0.5) * 5 };
 }

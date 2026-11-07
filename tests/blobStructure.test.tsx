@@ -5,7 +5,7 @@ import Blob from '../src/blob/Blob';
 /**
  * The blob layers, pinned. Buddy's hop/flip wrappers are DOM elements so a transform on them can be
  * composited (Chromium will not composite an SVG child), which means the things that must *not* move
- * with the body — the thinking arc and the mood badges — have to live in their own overlay layer.
+ * with the body — the mood badges — have to live in their own overlay layer.
  */
 const layers = (html: string) => {
   const hopStart = html.indexOf('blob-hop');
@@ -16,10 +16,10 @@ const layers = (html: string) => {
 };
 
 describe('blob layers', () => {
-  test('the thinking arc is drawn in the overlay, never inside the moving wrappers', () => {
-    const { moving, overlay } = layers(renderToStaticMarkup(<Blob style="buddy" seed="seed" mood="thinking" />));
-    expect(overlay).toContain('blob-arc');
-    expect(moving).not.toContain('blob-arc');
+  test('thinking belongs to each creature, without the generic loading ring', () => {
+    for (const style of ['buddy', 'scribble', 'mosaic', 'lava', 'crystal'] as const) {
+      expect(renderToStaticMarkup(<Blob style={style} seed="seed" mood="thinking" />)).not.toContain('blob-arc');
+    }
   });
 
   test('mood badges stay out of the moving wrappers too', () => {

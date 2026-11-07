@@ -41,7 +41,7 @@
   transform-origin: 50% 50%;
 }
 
-/* Everything a style draws that must *not* move with the body (thinking arc, mood badges). */
+/* Decision badges stay separate from the moving body. */
 .blob .blob-overlay {
   position: absolute;
   inset: 0;
@@ -52,15 +52,22 @@
   transition: transform 90ms linear;
 }
 
-/*
- * Thinking gets the slow, barely-there breathe. Idle deliberately does not animate at all: motion
- * is how the rail says a session is *doing* something, and a rail of quietly breathing blobs cost
- * ~12% of a core on the main thread for decoration (measured; a promoted transform on an element
- * containing an SVG is not composited away). Crystal has always been still when idle — now both
- * styles agree.
- */
+/* Buddy considers an idea: head cocked, gaze up, then a glance to the other side. */
 .blob-buddy[data-mood='thinking'] .blob-hop {
-  animation: blob-breathe 4.2s ease-in-out infinite;
+  transform: rotate(-6deg);
+  animation: buddy-ponder 5.6s ease-in-out infinite;
+}
+.blob-buddy[data-mood='thinking'] .buddy-gaze {
+  transform: translate(-2px, -4px);
+  animation: buddy-gaze 5.6s ease-in-out infinite;
+}
+@keyframes buddy-ponder {
+  0%, 35%, 100% { transform: rotate(-6deg) translateY(-1%); }
+  50%, 80% { transform: rotate(5deg) translateY(1%); }
+}
+@keyframes buddy-gaze {
+  0%, 35%, 100% { transform: translate(-2px, -4px); }
+  50%, 80% { transform: translate(3px, -3px); }
 }
 
 /* Busy: big squash-and-stretch hops, with an occasional somersault layered on top. */
@@ -92,84 +99,29 @@
   animation: blob-wobble 1.6s ease-in-out infinite;
 }
 
-/*
- * Crystal (CrystalBlob.tsx). Every mood changes the halo's colour and strength *statically* first, so
- * the state survives a still frame and `prefers-reduced-motion`; the keyframes only add a pulse.
- * The halo is the only thing that animates (opacity/transform only).
- */
+/* Crystal's faint heat follows its own irregular silhouette; thinking travels through facets. */
 .blob-crystal .blob-heat {
   transform-box: view-box;
   transform-origin: 50% 50%;
-  /* Dark by default: an idle crystal is inert. Heat means the session is *doing* something, which is
-     what makes a glowing blob in the rail worth a second look. */
   opacity: 0;
 }
-
-/* Idle: no heat at all — only the lump's own slow breathe. The arc (thinking) reads the glow. */
-.blob-crystal[data-mood='idle'] .blob-heat,
-.blob-crystal[data-mood='unread'] .blob-heat {
-  opacity: 0;
+.blob-crystal[data-mood='thinking'] .blob-heat { opacity: .12; }
+.blob-crystal[data-mood='thinking'] .crystal-glint {
+  animation: crystal-glint 4.8s ease-in-out infinite;
 }
-
-/* Thinking keeps a steady glow and borrows the shared spinner arc for the "working" read. */
-.blob-crystal[data-mood='thinking'] .blob-heat {
-  opacity: 0.45;
-  animation: blob-breathe 4.2s ease-in-out infinite;
+@keyframes crystal-glint {
+  0%, 65%, 100% { opacity: .12; }
+  25%, 38% { opacity: .64; }
 }
-
-/* Busy: roaring. Brightest static state, plus a fast swell with a flicker on top — a swell alone
-   reads as a pulse, the flicker is what makes it a fire. */
 .blob-crystal[data-mood='busy'] .blob-heat {
-  opacity: 0.9;
-  animation: blob-crystal-swell 1.7s ease-in-out infinite, blob-crystal-flicker 0.9s ease-in-out infinite;
+  opacity: .24;
+  animation: blob-crystal-swell 3.4s ease-in-out infinite;
 }
-
-/* Waiting on you: amber, one step quicker than busy so it reads as an ask, not work. */
-.blob-crystal[data-mood='input'] .blob-heat {
-  opacity: 0.72;
-  animation: blob-crystal-swell 1.4s ease-in-out infinite;
-}
-
-/* A question glows steadily: unlike work, it will wait as long as you need. */
-.blob-crystal[data-mood='question'] .blob-heat {
-  opacity: 0.45;
-}
-
-/* Error: the fire is out — grey lump, no halo, no motion. */
-.blob-crystal[data-mood='error'] .blob-heat {
-  opacity: 0;
-}
-
+.blob-crystal[data-mood='input'] .blob-heat { opacity: .24; }
+.blob-crystal[data-mood='question'] .blob-heat { opacity: .16; }
 @keyframes blob-crystal-swell {
-  0%,
-  100% {
-    transform: scale(0.94);
-    opacity: 0.55;
-  }
-  50% {
-    transform: scale(1.06);
-    opacity: 1;
-  }
-}
-
-@keyframes blob-crystal-flicker {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  40% {
-    opacity: 1;
-  }
-  70% {
-    opacity: 0.75;
-  }
-}
-
-/* Thinking: a soft single arc, loading-style. */
-.blob .blob-arc {
-  transform-box: view-box;
-  transform-origin: 50% 50%;
-  animation: blob-spin 4s linear infinite;
+  0%, 100% { transform: scale(1.02, 1.04) rotate(-3deg); opacity: .16; }
+  50% { transform: scale(1.09, 1.02) rotate(3deg); opacity: .28; }
 }
 
 .blob[data-state='needs-input'] {
@@ -380,15 +332,16 @@
   .blob .blob-eyes,
   .blob .blob-hop,
   .blob .blob-flip,
-  .blob .blob-arc,
+  .blob .buddy-gaze,
+  .blob .crystal-glint,
   .blob .blob-orbit,
   .blob .blob-heat {
     animation: none !important;
   }
 
-  /* Busy keeps its roaring static glow, so "working" is still legible without the swell. */
+  /* Keep the same restrained heat when motion is reduced. */
   .blob-crystal[data-mood='busy'] .blob-heat {
-    opacity: 0.82;
+    opacity: 0.24;
     transform: none;
   }
 

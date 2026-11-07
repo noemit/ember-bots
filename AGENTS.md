@@ -545,6 +545,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   `CrystalBlob` (faceted stones that light up), `MosaicBlob` (seeded pixel silhouettes with colour ribbons and square eyes) and
   `LavaBlob` (grainy lava-lamp goo, below) and `ScribbleBlob` (seeded pen strokes, tiny legs and
   dark-outlined eyes). Scribble uses bounded SVG paths without filters; idle stays still.
+  Scribble turns through independent wire-bundle angles around a solid core, never an edge-on
+  flattening. Every silhouette mixes sharp, round and bent tips; crossing strands texture the back.
+  Thinking is style-specific: Buddy gaze/tilt, Scribble wire twitches, Mosaic stepped tile light,
+  Lava circulating pools and Crystal facet glints. No shared thinking ring. Reduced motion disables
+  all of them; idle remains still. Mosaic error eyes are crosses.
   Stored Pip selections migrate to Mosaic.
   Gem, Critter and Glyph were removed, and stored
   settings that still name them fall back to the default. Renderers memoize on the `identity`
@@ -554,18 +559,18 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   `blob.css`); the eyes counter-scale 75% of the hop so they mostly keep their shape
   (`blob-hop-eyes`). Those two wrappers are **DOM elements, not SVG `<g>`s** — Chromium composites
   a transform on a DOM node but not on an SVG child — so everything that must not move with the
-  body (the thinking arc, the mood badges) lives in its own `.blob-overlay` layer. Idle draws no
+  body (the mood badges) lives in its own `.blob-overlay` layer. Idle draws no
   animation at all: motion is reserved for a session that is working, waiting or failed, so a rail
   of idle blobs is static (and costs nothing). `lib/useMotionPause.ts` pauses every animation via
   `animation-play-state` — progress survives — whenever the document is hidden. Crystal draws its volume as white/black *facet planes* clipped to the
   silhouette (`coalGeometry`… now `crystalGeometry` in `blob/crystal.ts`), so shading works on every
   palette entry in both themes with no colour maths; its heat halo is the mood channel — dark when
-  idle, roaring when busy, amber when it wants you, cold grey when the turn failed — and each mood
+  idle, gently warm when busy, amber when it wants you, cold grey when the turn failed — and each mood
   sets that halo *statically* first, so the state survives a still frame and reduced motion (only the
-  swell/flicker is dropped). The `?`/lock/`!` badge and the thinking arc are shared by both styles
+  swell is dropped). The `?`/lock/`!` decision badges are shared by styles
   (`blob/overlays.tsx`). Visuals key off
-  a `BallMood` (`blob/mood.ts`): `busy` = hop+flip (Buddy) / roaring halo (Crystal), `thinking` =
-  breathe + a soft arc, `input` =
+  a `BallMood` (`blob/mood.ts`): `busy` = hop+flip (Buddy) / subtle silhouette-shaped halo (Crystal),
+  `thinking` = each style’s own movement, `input` =
   wobble + padlock badge, `question` = tilt + "?" badge, `error` = wobble + warning triangle,
   `unread` = a highlight dot. App derives the mood from the ball state plus the prompt kind
   (permission vs question), whether the last assistant turn is reasoning (`isThinkingMessages`), and
@@ -595,8 +600,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   close pairs apart, rather than per-colour clamping that collapses them onto one lightness.
   **Lava** (`LavaBlob.tsx` + `lava.ts` + `blob-lava.css`; `tests/lava.test.tsx`) is risograph-style goo:
   two or three circles run through one SVG "goo" filter (blur, then a hard alpha threshold), so they
-  melt into a single body with necks and no path is ever stored. The same filter stipples a dark ink
-  rim against `feTurbulence` grain, deepens the body's own hue just inside it, and bleeds a little
+  melt into a single body with necks and no path is ever stored. The same filter stipples a
+  translucent, body-coloured rim against `feTurbulence` grain, deepens the body's own hue just inside it, and bleeds a little
   grain into the paper. Inside sit pools — a two-tone `halo` around a lighter `core`, ~110° of hue
   away, plus a soft `glow` — drawn as soft-edged **radial gradients** rather than a second blurred
   group, because a pool belongs to its lobe and has to travel with it while an SVG filter per lobe
@@ -605,9 +610,9 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   the surface. The **last lobe is the bud**. `tests/lava.test.tsx` pins the geometry this depends on — every
   shape fits at any turn, the bud overlaps at rest and clears the goo's bridging distance at the peak,
   no pool reaches a rim. Grain frequency and rim width scale with the rendered size so both stay near a
-  CSS pixel; body grain is omitted below 64px. Dark themes swap the ink for a deep shade of the body
-  hue (`--lava-ink` / `--lava-deep`), because near-black vanishes into a dark surface; the dock icon,
-  which never sees that CSS, falls back to near-black. Staggering uses `--lava-delay`, not
+  CSS pixel; body grain is omitted below 64px. The rim mixes the body with its deep hue through
+  `--lava-rim`, using translucent ink on both themes; standalone dock SVGs fall back to that deep hue.
+  Staggering uses `--lava-delay`, not
   `animation-delay: inherit` — the animated groups sit two levels below the element carrying it.
 - **Lava's working state is four motions at once**, because one slow motion reads as a still picture
   at rail size (owner: "the active state needs more movement"). While busy: the whole goo **rises and

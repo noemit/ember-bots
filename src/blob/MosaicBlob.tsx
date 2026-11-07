@@ -2,7 +2,7 @@ import * as React from 'react';
 import { seedIdentity, hashString } from './seed';
 import { blobColor } from './color';
 import { mosaicActivityPixels, mosaicGeometry, mosaicTileColor } from './mosaic';
-import { MoodBadge, ThinkingArc } from './overlays';
+import { MoodBadge } from './overlays';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
 import './blob-mosaic.css';
@@ -24,19 +24,23 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
       <svg viewBox="0 0 100 100" width={size} height={size}>
         <g transform="translate(8 1) scale(7)" shapeRendering="crispEdges">
           {art.tiles.map(({ x, y, fill }) => <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={fill} />)}
+          {mood === 'thinking' ? art.tiles.map(({ x, y }) => <rect key={`thought:${x}:${y}`}
+            className="mosaic-thought" x={x} y={y} width={1} height={1} fill="#fffdf5" opacity={0}
+            style={{ animationDelay: `${art.delay - (x + y % 3) * .18}s` }} />) : null}
           {mood === 'busy' ? art.pixels.map(({ x, y, fill, side, distance, delay }) => <rect
             key={`${side}:${x}:${y}`} className="mosaic-pixel" data-side={side === -1 ? 'left' : 'right'}
             x={x} y={y} width={1} height={1} fill={fill}
             style={{ animationDelay: `${art.delay - delay}s`, animationName: distance === 1 ? 'mosaic-pixel-near' : 'mosaic-pixel-far' }} />) : null}
           {[3, 6].map(x => <g key={x}>
             <rect x={x} y={art.eyeY} width={2} height={1} fill="#fffdf5" />
-            <rect x={x + (art.lookRight ? 1 : 0)} y={art.eyeY} width={1} height={1} fill="#14111a" />
+            {mood === 'error' ? <path className="mosaic-error-eye" d={`M${x + .25} ${art.eyeY + .1}l1.5 .8m0 -.8l-1.5 .8`}
+              stroke="#14111a" strokeWidth={.28} fill="none" shapeRendering="geometricPrecision" />
+              : <rect x={x + (art.lookRight ? 1 : 0)} y={art.eyeY} width={1} height={1} fill="#14111a" />}
           </g>)}
         </g>
       </svg>
     </div>
     <svg className="blob-overlay" viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
-      {mood === 'thinking' ? <ThinkingArc /> : null}
       <MoodBadge mood={mood} />
     </svg>
   </div>;

@@ -50,3 +50,10 @@
   .gallery-stage > .blob { zoom: .8; }
   .gallery-section-heading { align-items: flex-start; flex-direction: column; }
 }
+
+.gallery-thinking { padding: 24px 0; border-top: 1px solid var(--border); }
+.gallery-thinking h2 { font-size: 28px; letter-spacing: -.025em; }
+.gallery-thinking > p { color: var(--muted-foreground); font-size: 13px; margin-top: 8px; }
+.gallery-thinking-grid { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 24px; padding: 24px 0 8px; }
+.gallery-thinking-grid figure { text-align: center; }
+.gallery-thinking-grid figcaption { font-size: 12px; margin-top: 12px; }
