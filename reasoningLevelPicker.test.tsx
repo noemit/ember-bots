@@ -36,6 +36,15 @@ describe('the word', () => {
 });
 
 describe('the control', () => {
+  test('an unchanged host setting names the effective level instead of claiming Default', () => {
+    for (const level of ['off', 'high']) {
+      const html = renderToStaticMarkup(
+        <ReasoningLevelPicker levels={['off', 'low', 'high']} value="" currentLevel={level} onChange={() => {}} />
+      );
+      expect(html).toContain(`aria-label="Reasoning level: ${level === 'off' ? 'Off' : 'High'}"`);
+      expect(html).not.toContain('Reasoning level: Default');
+    }
+  });
   const render = (value: string) =>
     renderToStaticMarkup(
       <TooltipProvider>

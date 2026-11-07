@@ -1,19 +1,4 @@
-/**
- * The two copy controls: a message as Markdown, and a fenced code block's own source.
- *
- * What these pin is the shape the owner asked for, because both are layout as much as logic:
- *
- *   - **Copy sits above the pin**, in the message's hover gutter, and the footer is only the
- *     metadata line — a message with no model, cost, duration or pin draws no footer at all, yet
- *     still offers Copy.
- *   - **A code block copies its raw source**, indentation and all, not the rendered text: pasting a
- *     hand-selected block into a note is what this replaces, so the fence's contents have to survive
- *     byte for byte.
- *
- * Rendered with `renderToStaticMarkup` because there is no DOM in the test runner: the button's
- * behaviour (clipboard, ticking, failure) lives in `lib/clipboard` and the state machine is shared,
- * so what is worth asserting here is which controls exist and what they are labelled.
- */
+/** Copy shortcuts preserve Markdown and disappear with metadata only at the footer. */
 import { describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -61,15 +46,17 @@ describe('the message footer', () => {
     );
     expect(markup).toContain('$0.04');
     expect(markup).toContain('2m');
-    // The copy control is not on this line any more: the footer is metadata only.
+    // A message without copyable parts offers no empty copy action.
     expect(markup).not.toContain('aria-label="Copy"');
   });
 
-  test('there is no pin, and no Reply chip: messages cannot be pinned any more', () => {
-    // The pin button and the reply-to-pinned chip went together; the footer is metadata only.
-    const markup = footerMarkup(message({ model: { providerID: 'hearth', modelID: 'big-window' } }), true);
-    expect(markup).not.toContain('Reply');
+  test('a copyable reply offers footer shortcuts without restoring message pins', () => {
+    const m = message({ parts: [{ type: 'text', text: 'Here is the thing.' }] });
+    const markup = renderToStaticMarkup(<MessageFooter message={m} showMetadata onReply={() => {}} />);
+    expect(markup).toContain('aria-label="Copy message"');
+    expect(markup).toContain('aria-label="Reply to this message"');
     expect(markup).not.toContain('Pin this message');
+    expect(footerMarkup(m, false)).toBe('');
   });
 });
 

@@ -24,6 +24,8 @@ import { cn } from '@/lib/utils';
 type Props = {
   levels: readonly string[];
   value: string;
+  /** An unchanged Kiln setting keeps this level; it does not restore a provider default. */
+  currentLevel?: string;
   onChange: (level: string) => void;
 };
 
@@ -35,9 +37,9 @@ export const reasoningLevelWord = (levels: readonly string[], value: string): st
   return match.charAt(0).toUpperCase() + match.slice(1);
 };
 
-export default function ReasoningLevelPicker({ levels, value, onChange }: Props) {
+export default function ReasoningLevelPicker({ levels, value, currentLevel, onChange }: Props) {
   const [open, setOpen] = React.useState(false);
-  const word = reasoningLevelWord(levels, value);
+  const word = reasoningLevelWord(levels, value || currentLevel || '');
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -72,7 +74,7 @@ export default function ReasoningLevelPicker({ levels, value, onChange }: Props)
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
           >
-            Default
+            {currentLevel ? `Keep ${reasoningLevelWord(levels, currentLevel)}` : 'Default'}
           </button>
           {levels.map((level) => {
             const selected = level === value;

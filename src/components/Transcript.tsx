@@ -17,6 +17,7 @@ import {
   Loader2,
   Megaphone,
   MessageCircleQuestion,
+  Reply,
   ShieldAlert,
   Wrench,
   Zap,
@@ -145,6 +146,8 @@ type Props = {
   onMarkRead?: (message: ChatMessage) => void;
   /** Mark the entire session read, including older unloaded messages. */
   onMarkAllRead?: () => void;
+  /** Quote this message in the composer's existing reply context. */
+  onReply?: (message: ChatMessage) => void;
   /** The per-turn footer metadata (model, duration, tokens, cost, time). */
   showMessageDetails: boolean;
   /** The session blob beside the latest turn. */
@@ -1152,13 +1155,7 @@ export const isAssistantTurnEnd = (
   return index < messages.length - 1 || !turnPending;
 };
 
-/**
- * Copy one message as Markdown, in the message's hover gutter above the pin.
- *
- * Both controls live in the same right-hand gutter so a row has one place to look: copy first,
- * pin under it. What it copies is the message's own Markdown source (`lib/messageMarkdown`), which
- * is what a paste into a note wants — not the rendered prose, which flattens code fences.
- */
+/** The original gutter shortcut stays available independently of the details row. */
 const CopyAsMarkdown = ({ message }: { message: ChatMessage }) => (
   <CopyButton text={() => messageMarkdown(message)} done="Copied as Markdown" />
 );
@@ -1167,6 +1164,7 @@ export const MessageFooter = ({
   message,
   showMetadata,
   showCost = true,
+  onReply,
 }: {
   message: ChatMessage;
   showMetadata: boolean;
@@ -1175,6 +1173,7 @@ export const MessageFooter = ({
    * from the model's rate rather than a ledger — see `hostReportsCost`.
    */
   showCost?: boolean;
+  onReply?: (message: ChatMessage) => void;
 }) => {
   const duration =
     showMetadata &&
@@ -1189,20 +1188,20 @@ export const MessageFooter = ({
   const tps = showMetadata ? tokensPerSecond(message) : null;
   const cost = showMetadata && showCost && message.cost !== undefined ? message.cost : null;
   const received = showMetadata ? message.completedAt ?? message.createdAt : undefined;
-  // Copy is not metadata: it lives in the hover gutter, so this line exists only to carry what it
-  // actually draws. A message with details off shows no footer at all rather than a bare rule.
+  // Details off still hides this row; the original copy shortcut remains on the message.
   if (!model && !duration && !cache && tps === null && cost === null && received === undefined) {
     return null;
   }
 
   return (
     <div
+      data-message-footer=""
       className={cn(
-        'flex max-w-[85%] items-center gap-2 px-1 text-[10.5px] text-muted-foreground',
+        'group/footer flex max-w-[85%] flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-[10.5px] text-muted-foreground',
         message.role === 'user' ? 'self-end' : 'self-start'
       )}
     >
-      {model ? <span className="min-w-0 truncate">{model}</span> : null}
+      {model ? <span className="min-w-0 truncate" title="Model and thinking level recorded for this reply">{model}</span> : null}
       {duration ? <span className="flex-none">· {duration}</span> : null}
       {cache && tokens ? (
         <span
@@ -1220,6 +1219,22 @@ export const MessageFooter = ({
       ) : null}
       {cost !== null ? <span className="flex-none">{`· ${formatCost(cost)}`}</span> : null}
       {received !== undefined ? <ReceivedTime timestamp={received} /> : null}
+      {hasMarkdownToCopy(message) ? (
+        <span data-footer-actions="" className="inline-flex flex-none items-center gap-0.5 opacity-0 transition-opacity group-hover/footer:opacity-100 group-focus-within/footer:opacity-100 [@media(hover:none)]:opacity-100">
+          <CopyButton text={() => messageMarkdown(message)} label="Copy message" done="Copied as Markdown" alwaysVisible />
+          {onReply ? (
+            <button
+              type="button"
+              aria-label="Reply to this message"
+              title="Reply to this message"
+              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onReply(message)}
+            >
+              <Reply className="size-3" aria-hidden="true" />
+            </button>
+          ) : null}
+        </span>
+      ) : null}
     </div>
   );
 };
@@ -1440,6 +1455,7 @@ type MessageRowProps = {
   showCost: boolean;
   unread?: boolean;
   onMarkRead?: (message: ChatMessage) => void;
+  onReply?: (message: ChatMessage) => void;
   showMessageDetails: boolean;
   /** Render the session's blob tucked beside this message. */
   showBuddy: boolean;
@@ -1663,6 +1679,7 @@ const MessageRow = React.memo(function MessageRow({
   showCost,
   unread = false,
   onMarkRead,
+  onReply,
   showMessageDetails,
   showBuddy,
   streaming,
@@ -1783,7 +1800,7 @@ const MessageRow = React.memo(function MessageRow({
           onDiscard={onDiscardPendingSend}
           labels={pendingSendLabels}
         />
-        <MessageFooter message={message} showMetadata={showMetadata && showMessageDetails} showCost={showCost} />
+        <MessageFooter message={message} showMetadata={showMetadata && showMessageDetails} showCost={showCost} onReply={onReply} />
       </div>
       {showBuddy ? (
         // One anchor for the whole message, whichever block is last: the row's own bottom-right
@@ -1848,6 +1865,7 @@ function Transcript({
   readMark,
   onMarkRead,
   onMarkAllRead,
+  onReply,
   showMessageDetails,
   showAvatars,
   crew = [],
@@ -2416,6 +2434,7 @@ function Transcript({
                 showCost={showCost}
                 unread={unreadIds.has(message.id)}
                 onMarkRead={onMarkRead ? markMessageRead : undefined}
+                onReply={onReply}
                 showMessageDetails={showMessageDetails}
                 showBuddy={showAvatars && !turnPending && message.id === lastAssistantId}
                 streaming={turnPending && index === items.length - 1}

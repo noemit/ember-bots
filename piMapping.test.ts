@@ -90,6 +90,16 @@ describe('a running call, with its output patched from the live slot', () => {
 });
 
 describe('conversation → session', () => {
+  test('an unset Kiln thinking setting resolves to off without inventing levels for old replies', () => {
+    const session = piConversationToSession('hearth', {
+      id: 42, model: { provider: 'deepseek', modelId: 'deepseek-flash' },
+    });
+    expect(session.model?.variant).toBe('off');
+    const [historical] = piEntriesToMessages([
+      { id: 1, kind: 'pi.assistant', model: [assistant([{ type: 'text', text: 'An older reply.' }])] },
+    ]);
+    expect(historical.model?.variant).toBeUndefined();
+  });
   test('maps ids, cwd, model, title, archive and task ownership', () => {
     const session = piConversationToSession('hearth', {
       id: 42,

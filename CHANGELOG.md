@@ -1,3 +1,15 @@
+## 1.14.0
+
+### Added
+- Copy and Reply shortcuts at the end of each message-details row, revealed on row hover or
+  keyboard focus and always available on touch devices. The original copy shortcut stays.
+- Reply adds the chosen message as composer context, keeps the draft and focuses the input.
+
+### Fixed
+- Existing Kiln chats show their effective thinking level: an unset host setting means Off.
+  Leaving the setting unchanged shows “Keep Off” (or its current level), rather than suggesting
+  a provider default. Historical reply labels continue to use the level recorded for that turn.
+
 ## 1.13.0
 
 ### Changed

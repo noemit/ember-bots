@@ -112,7 +112,9 @@ export const piConversationToSession = (
   archived: conversation.archived,
   cost: conversation.cost,
   model: conversation.model
-    ? { providerID: conversation.model.provider, modelID: conversation.model.modelId, variant: conversation.thinkingLevel }
+    // Kiln resolves an unset conversation thinking level to off (pi-durable's agent resolver).
+    // This describes the current configuration only; historical messages use their own metadata.
+    ? { providerID: conversation.model.provider, modelID: conversation.model.modelId, variant: conversation.thinkingLevel ?? REASONING_OFF }
     : undefined,
   // Task-owned conversations are Hearth's subagents; forks are standalone.
   parentId: conversation.owner ? String(conversation.owner.conversationId) : undefined,

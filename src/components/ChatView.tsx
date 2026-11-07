@@ -1391,6 +1391,14 @@ function ChatView({
 
   const stablePermission = useStableCallback(onPermission);
   const stableQuestion = useStableCallback(onQuestion);
+  const replyToMessage = useStableCallback((message: ChatMessage) => {
+    onActivate?.();
+    setReplyContext(message);
+    if (composerKey) {
+      updateComposerDraft(composerKey, { text, modelId, variant, attachments, replyContext: message });
+    }
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  });
 
   const jumpToMessage = (messageId: string) => {
     setFocusMessageId(messageId);
@@ -1472,6 +1480,7 @@ function ChatView({
         {...(readMark ? { readMark } : {})}
         {...(onMarkMessageRead && session ? { onMarkRead: (message: ChatMessage) => onMarkMessageRead(session, message) } : {})}
         {...(onMarkAllRead && session ? { onMarkAllRead: () => onMarkAllRead(session) } : {})}
+        onReply={session ? replyToMessage : undefined}
         showMessageDetails={view.showMessageDetails}
         showAvatars={pane.showAvatars ?? view.showAvatars}
         crew={pane.crew ?? crew}
@@ -2496,6 +2505,7 @@ function ChatView({
                 <ReasoningLevelPicker
                   levels={reasoningLevels}
                   value={reasoningValue}
+                  currentLevel={instance?.kind === 'pi' && session ? session.model?.variant : undefined}
                   onChange={(next) => {
                     setVariant(next);
                     updateComposerChoices({ variant: next });

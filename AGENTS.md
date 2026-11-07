@@ -52,6 +52,10 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   Kiln's suggested workspace is only a starting point; explicit `scope=computer` directory requests
   let the human browse existing work elsewhere. Path entry and New folder are revealed on demand.
   Folder creation never overwrites an existing folder or creates a missing parent tree.
+- Message details end in Copy and Reply shortcuts, revealed by footer hover or keyboard focus and
+  visible on touch devices. Reply attaches that message to the existing composer draft and focuses it;
+  the original gutter Copy remains. Kiln's unset conversation thinking level resolves to Off, and an
+  unchanged reasoning choice says “Keep <level>”. Historical footers use the turn's recorded level.
 - The composer has no generic “Next” reply suggestions; the human supplies the next direction.
 - The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
   (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
