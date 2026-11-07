@@ -1,3 +1,8 @@
+## 1.14.5
+
+### Fixed
+- Added 3px below the agent identity beside the composer so the name has more breathing room.
+
 ## 1.14.4
 
 ### Fixed

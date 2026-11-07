@@ -11,7 +11,7 @@ export default function ComposerIdentity({ name, seed, identity, style, mood }: 
   mood: BallMood;
 }) {
   const size = useAvatarSize(32);
-  return <div data-composer-identity className="flex min-w-0 items-center gap-2 px-3 pt-2">
+  return <div data-composer-identity className="flex min-w-0 items-center gap-2 px-3 pt-2 pb-[3px]">
     <Blob style={style} seed={seed} identity={identity} size={size} mood={mood} interactive={false} />
     <span className="min-w-0 truncate text-xs font-medium text-foreground" title={name}>{name}</span>
   </div>;
