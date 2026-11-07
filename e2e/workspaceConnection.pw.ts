@@ -13,6 +13,10 @@ test('the active identity joins the composer, replies are unboxed, and chat draf
   await expect(page.locator(dock)).toContainText('Habit onboarding QA');
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
   await expect(column.locator('[data-composer-identity]')).toHaveCount(0);
+  const context = page.locator(`${dock} [data-composer-context]`);
+  await expect(context).toContainText('habit');
+  await expect(context).toContainText('ember-harness (mock)');
+
   const reply = column.locator('.conversation-prose').filter({ hasText: 'step counter shows' });
   await expect(reply).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(reply).toHaveCSS('font-size', '14px');
@@ -30,6 +34,8 @@ test('the active identity joins the composer, replies are unboxed, and chat draf
   await assertAligned();
   await page.getByRole('button', { name: /Remote access hardening/ }).first().click();
   await expect(page.locator(dock)).toContainText('Remote access hardening');
+  await expect(context).toContainText('channels');
+  await expect(context).not.toContainText('habit');
   await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
   await expect(column.locator('textarea')).toHaveValue(/A thought held for Habit/);
   // Interrupt another handover; the final selection must own both composer and identity.

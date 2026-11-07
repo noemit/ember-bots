@@ -1,3 +1,8 @@
+## 1.20.1
+
+### Changed
+- The active agent beside the composer shows the same project/folder and instance metadata as rail agents, while retaining its background and spacing.
+
 ## 1.20.0
 
 ### Added

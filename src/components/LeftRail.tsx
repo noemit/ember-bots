@@ -963,13 +963,14 @@ export default function LeftRail({
       {docked && selectedSession ? (
         <div data-active-chat={selectedKey} aria-label={`Current chat: ${selectedSession.title?.trim() || selectedSession.id}`} className="connection-band relative flex-none border-t" style={{ height: composerConnection.metrics?.height ?? 128 }}>
           <ContextMenu><ContextMenuTrigger asChild>
-            <div ref={dockElement} role="button" tabIndex={0} aria-label={selectedSession.title?.trim() || selectedSession.id} data-selected="true" aria-current="true" data-mini-session={mode === 'mini' ? selectedKey : undefined}
+            <div ref={dockElement} role="button" tabIndex={0} aria-label={selectedSession.title?.trim() || selectedSession.id} data-selected="true" aria-current="true" title={[selectedSession.title, folderNameOf(selectedSession), instanceLabelOf(selectedSession)].filter(Boolean).join(' · ')} data-mini-session={mode === 'mini' ? selectedKey : undefined}
               onClick={event => { if (!(event.target instanceof Element && event.target.closest('input'))) selectSession(selectedSession); }}
               onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(selectedSession); } }}
               className="absolute inset-x-0 translate-y-1/2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" style={{ bottom: composerConnection.metrics?.centre ?? 64 }}>
               <motion.div key={selectedKey} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .35 }}>
                 <ComposerIdentity docked compact={mode === 'mini'} name={selectedSession.title?.trim() || selectedSession.id}
                   seed={sessionKey(selectedSession)} identity={avatarIdentities[sessionKey(selectedSession)]}
+                  topMeta={topMetaFor(selectedSession)}
                   style={blobStyle} mood={moods[sessionKey(selectedSession)] ?? 'unknown'} directory={selectedSession.directory}
                   onRename={title => onRenameSession(selectedSession, title)} avatarOverlay={<ProcessIndicator session={selectedSession} overlay />} />
               </motion.div>
