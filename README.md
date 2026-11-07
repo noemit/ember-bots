@@ -26,6 +26,12 @@ work. [Build from source](#run-from-source) to try the current development versi
 
 On Linux, give the downloaded AppImage execute permission in its file properties, then launch it.
 
+**Windows signing warning:** Windows builds are currently unsigned. Microsoft Defender SmartScreen
+may show “Windows protected your PC” or an unknown publisher. If you downloaded the installer from
+the workflow above and trust this build, choose **More info → Run anyway** when offered.
+Your organisation’s policy or Smart App Control may block installation without that option.
+See [Microsoft’s explanation of signing and SmartScreen](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation).
+
 The desktop app includes **Kiln**, Ember’s agent harness. It starts when Ember starts; you do not
 need to clone a repository, run a server, or paste a local connection token to get started.
 Model access comes from the provider account you connect.

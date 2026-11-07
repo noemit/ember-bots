@@ -1,3 +1,8 @@
+## 1.18.5
+
+### Changed
+- Documented unsigned Windows installer warnings beside the download instructions.
+
 ## 1.18.4
 
 ### Changed
