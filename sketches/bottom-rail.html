@@ -9,6 +9,14 @@
     :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #292a26; background: #f4f3ee; font-synthesis: none; }
     body { margin: 0; padding: 32px 40px; }
     button, textarea { font: inherit; }
+    .study-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: end; }
+    .motion-control { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6c6f63; white-space: nowrap; }
+    .motion-control input { accent-color: #367f70; }
+    .travel-portrait { position: fixed; margin: 0; pointer-events: none; z-index: 10; transform-origin: top left; }
+    .connection-wash { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
+    .active-identity, .composer-wrap { z-index: 1; }
+    .composer-wrap { position: relative; }
+    .handover-trace { position: absolute; left: 28px; right: 24px; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--agent) 25%, var(--agent) 75%, transparent); transform-origin: left; pointer-events: none; opacity: 0; }
     button { cursor: pointer; color: inherit; }
     button:focus-visible, textarea:focus-visible { outline: 2px solid #367f70; outline-offset: 4px; }
     .page { max-width: 1420px; margin: auto; }
@@ -81,7 +89,7 @@
 <div class="page">
   <header class="intro">
     <div><div class="eyebrow">Ember / layout study 01</div><h1>The rail meets the conversation.</h1><p>Newest toward the bottom. Your current chat flows straight into where you steer it.</p></div>
-    <span class="prototype-label">Interactive sketch · sample chats</span>
+    <div class="study-controls"><label class="motion-control"><input id="slow-motion" type="checkbox">Slow motion</label><span class="prototype-label">Interactive sketch · sample chats</span></div>
   </header>
   <div class="app" id="app">
     <header class="topbar"><div class="brand"><span class="ember-mark"></span>ember</div><div class="top-context"><span><i class="online"></i>Local Kiln</span><button class="quiet-button" id="reset">Reset sketch ↺</button></div></header>
@@ -96,7 +104,8 @@
       <div class="conversation-body" id="messages"></div>
     </main>
     <footer class="connection" aria-label="Active chat and composer">
-      <div class="active-identity" id="identity"></div>
+      <span class="handover-trace" id="handover-trace" aria-hidden="true"></span>
+      <div class="active-identity" id="identity" tabindex="-1"></div>
       <div class="composer-wrap"><form class="composer" id="composer">
         <textarea aria-label="Message the selected chat" id="draft" rows="2"></textarea>
         <div class="composer-tools"><div class="model"><span aria-hidden="true">＋</span><span>DeepSeek Flash</span><span>Thinking · medium</span></div><button class="send" id="send" type="submit" aria-label="Send sample message" disabled>↑</button></div>
@@ -105,10 +114,10 @@
   </div>
   <section class="notes" aria-label="Design considerations">
     <div><strong>01 / One continuous edge</strong><p>The selected blob, name and colour become the left edge of the composer. No repeated title or second avatar above the input.</p></div>
-    <div><strong>02 / A stable place to type</strong><p>The active chat stays anchored here. Other chats run oldest to newest above it. Click one to try the handover; drafts stay with their chat.</p></div>
+    <div><strong>02 / A stable place to type</strong><p>The active chat stays anchored here. Other chats run oldest to newest above it. Click one: its creature moves down while the previous one returns to the rail. The conversation follows; drafts stay with their chat.</p></div>
     <div><strong>03 / The tradeoff to try</strong><p>This pins the active chat, so the order isn’t strictly chronological. I’d keep it anchored rather than let background activity move your composer.</p></div>
   </section>
-  <p class="status" id="status" role="status">Click any creature to try the connection. Everything here stays in this sample page.</p>
+  <p class="status" id="status" role="status">Click a creature to follow it into the composer. Try Slow motion to look closer. Everything stays in this sample page.</p>
 </div>
 <script>
   const initial = [
@@ -148,12 +157,88 @@
     $('draft').placeholder = `Steer ${chat.name}…`;
     $('send').disabled = !$('draft').value.trim();
   }
+  // This standalone study uses FLIP: remember positions, render the final layout, then
+  // move visual copies between those positions. The actual controls stay usable throughout.
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const motions = new Set(), cleanups = new Set();
+  const duration = () => $('slow-motion').checked ? 1500 : 680;
+  function animate(node, frames, options = {}) {
+    const animation = node.animate(frames, { duration: duration(), easing: 'cubic-bezier(.22, 1, .36, 1)', ...options });
+    motions.add(animation);
+    animation.finished.catch(() => {}).finally(() => motions.delete(animation));
+    return animation;
+  }
+  function settleMotion() {
+    for (const animation of motions) animation.cancel();
+    motions.clear();
+    for (const cleanup of cleanups) cleanup();
+    cleanups.clear();
+  }
+  function visible(node) {
+    const rect = node.getBoundingClientRect(), list = $('chat-list').getBoundingClientRect();
+    return !node.closest('.chat-list') || (rect.top >= list.top && rect.bottom <= list.bottom);
+  }
+  function capture(node) {
+    return node && visible(node) ? { rect: node.getBoundingClientRect(), copy: node.cloneNode(true) } : null;
+  }
+  function travel(before, target, delay = 0, lane = -22) {
+    if (!before || !target || !visible(target)) return;
+    const after = target.getBoundingClientRect(), from = before.rect, copy = before.copy;
+    copy.classList.add('travel-portrait');
+    Object.assign(copy.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px` });
+    document.body.append(copy);
+    target.style.visibility = 'hidden';
+    const cleanup = () => { copy.remove(); target.style.visibility = ''; cleanups.delete(cleanup); };
+    cleanups.add(cleanup);
+    const animation = animate(copy, [
+      { transform: 'translate(0, 0) scale(1)' },
+      { transform: `translate(${(after.left - from.left) / 2 + lane}px, ${(after.top - from.top) / 2}px) scale(${(1 + after.width / from.width) / 2}, ${(1 + after.height / from.height) / 2})`, offset: .5 },
+      { transform: `translate(${after.left - from.left}px, ${after.top - from.top}px) scale(${after.width / from.width}, ${after.height / from.height})` },
+    ], { delay, fill: 'both' });
+    animation.finished.catch(() => {}).finally(() => { cleanup(); animation.cancel(); });
+  }
+  function selectChat(id) {
+    settleMotion();
+    drafts.set(active, $('draft').value);
+    const previous = active;
+    const fromRail = capture(document.querySelector(`[data-id="${id}"] .portrait`));
+    const fromComposer = capture($('identity').querySelector('.portrait'));
+    const rowRects = new Map([...document.querySelectorAll('.chat-row')].map(row => [row.dataset.id, row.getBoundingClientRect()]));
+    const connection = document.querySelector('.connection');
+    const oldBackground = getComputedStyle(connection).backgroundImage;
+    active = id;
+    render();
+    $('conversation').scrollTop = 0;
+    if (reducedMotion.matches) return;
+    const time = duration();
+    for (const row of document.querySelectorAll('.chat-row')) {
+      const before = rowRects.get(row.dataset.id), after = row.getBoundingClientRect();
+      if (before) animate(row, [{ transform: `translateY(${before.top - after.top}px)` }, { transform: 'translateY(0)' }]);
+      else animate(row.querySelector('.copy'), [{ opacity: 0 }, { opacity: 1 }], { delay: time * .3, duration: time * .5, fill: 'backwards' });
+    }
+    travel(fromComposer, document.querySelector(`[data-id="${previous}"] .portrait`));
+    const nextPortrait = $('identity').querySelector('.portrait');
+    if (fromRail) travel(fromRail, nextPortrait, time * .08, 38);
+    else animate(nextPortrait, [{ opacity: 0, transform: 'translateY(16px) scale(.7)' }, { opacity: 1, transform: 'translateY(0) scale(1)' }]);
+    animate($('identity').querySelector('.identity-text'), [{ opacity: 0, transform: 'translateY(7px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: time * .5, delay: time * .35, fill: 'backwards' });
+    animate($('messages'), [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: time * .65, delay: time * .2, fill: 'backwards' });
+    const wash = document.createElement('span');
+    wash.className = 'connection-wash'; wash.setAttribute('aria-hidden', 'true'); wash.style.backgroundImage = oldBackground;
+    connection.prepend(wash);
+    const cleanup = () => { wash.remove(); cleanups.delete(cleanup); }; cleanups.add(cleanup);
+    animate(wash, [{ opacity: 1 }, { opacity: 0 }], { delay: time * .25, fill: 'backwards' }).finished.catch(() => {}).finally(cleanup);
+    animate($('handover-trace'), [{ opacity: 0, transform: 'scaleX(0)' }, { opacity: .5, transform: 'scaleX(.55)', offset: .5 }, { opacity: 0, transform: 'scaleX(1)' }], { delay: time * .45, duration: time * .8 });
+  }
+  reducedMotion.addEventListener('change', settleMotion);
+  window.addEventListener('resize', settleMotion);
+  window.addEventListener('scroll', settleMotion, { passive: true });
+  $('chat-list').addEventListener('scroll', settleMotion, { passive: true });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) settleMotion(); });
   $('chat-list').addEventListener('click', event => {
     const row = event.target.closest('[data-id]');
     if (!row) return;
-    drafts.set(active, $('draft').value);
-    active = row.dataset.id;
-    render();
+    selectChat(row.dataset.id);
+    $('identity').focus({ preventScroll: true });
     $('status').textContent = 'The active chat is anchored at the bottom; its colour continues into the composer. Opening it does not mark its messages read.';
   });
   $('draft').addEventListener('input', () => { drafts.set(active, $('draft').value); $('send').disabled = !$('draft').value.trim(); });
@@ -161,7 +246,12 @@
     event.preventDefault();
     const text = $('draft').value.trim();
     if (!text) return;
-    sent.set(active, [...(sent.get(active) || []), text]); drafts.delete(active); render();
+    settleMotion();
+    sent.set(active, [...(sent.get(active) || []), text]); drafts.delete(active);
+    const message = document.createElement('p');
+    message.className = 'user-message'; message.style.marginTop = '25px'; message.textContent = text;
+    $('messages').append(message); $('draft').value = ''; $('send').disabled = true;
+    if (!reducedMotion.matches) animate(message, [{ opacity: 0, transform: 'translateY(18px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: duration() * .55 });
     $('conversation').scrollTop = $('conversation').scrollHeight;
     $('draft').focus(); $('status').textContent = 'Sample message added locally. This sketch does not contact an agent.';
   });
@@ -169,9 +259,9 @@
     drafts.set(active, $('draft').value);
     const id = `draft-${chats.length}`;
     chats.push({id, name:'New conversation', topic:'Choose your next direction', color:'#7d8b63', style:'wire', age:'now', project:'ember', prompt:'', heading:'What are you thinking about?', reply:'Your next conversation starts at the same quiet corner.'});
-    active=id; render(); $('draft').focus(); $('status').textContent='A new sample chat, anchored to the composer.';
+    selectChat(id); $('draft').focus({ preventScroll: true }); $('status').textContent='A new sample chat, anchored to the composer.';
   });
-  $('reset').addEventListener('click', () => { chats=structuredClone(initial);active='pixel';drafts.clear();sent.clear();render();$('status').textContent='Sketch reset. Click any creature to try the connection.'; });
+  $('reset').addEventListener('click', () => { settleMotion(); chats=structuredClone(initial);active='pixel';drafts.clear();sent.clear();render();$('status').textContent='Sketch reset. Click any creature to try the connection.'; });
   render();
 </script>
 </body>

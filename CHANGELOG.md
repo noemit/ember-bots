@@ -1,3 +1,10 @@
+## 1.15.7
+
+### Changed
+- The bottom-rail layout study now animates creatures between the rail and composer, slides
+  neighbouring chats into place, and reveals the new conversation with its colour. A slow-motion
+  control makes the handover easier to review; reduced motion uses an immediate switch.
+
 ## 1.15.6
 
 ### Changed
