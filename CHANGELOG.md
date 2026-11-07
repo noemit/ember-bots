@@ -1,3 +1,10 @@
+## 1.15.1
+
+### Changed
+- Moved Ember’s 126 unit and regression test files from the repository root into `tests/`,
+  updating imports, source-file checks, lint configuration and Windows CI. Existing test
+  commands still run both Ember and Kiln suites.
+
 ## 1.15.0
 
 ### Changed

@@ -32,7 +32,7 @@ What good copy does here:
 When you change copy, look at where it renders, not just the string. And write a test for the
 *qualities* (names the actor, offers a next step, no jargon) rather than the exact wording, so the
 sentence can be improved later without the test becoming a rubber stamp — see the `error copy` block
-in `transcriptStatus.test.ts`.
+in `tests/transcriptStatus.test.ts`.
 
 # Ember
 
@@ -94,7 +94,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 - `scripts/build-binaries.mjs` builds Kiln and standalone Tinder with platform-correct executable
   names. Windows resources must contain `kiln.exe`; the launcher resolves that exact name.
 - `models.ts` registers `registerBunOAuthFlows()` before creating providers. Keep this registration:
-  SDK variable imports cannot load OAuth modules from standalone binaries. `packagedOAuth.test.ts`
+  SDK variable imports cannot load OAuth modules from standalone binaries. `tests/packagedOAuth.test.ts`
   compiles and runs a complete offline device-code exchange from an empty directory.
 - `.github/workflows/windows.yml` builds installer artifacts and runs `playwright.packaged.config.ts`
   against the packaged executable, with a fresh profile and its own bundled Kiln.
@@ -132,6 +132,10 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 
 ## Layout
 
+- `tests/` — Ember’s Bun unit and regression tests. Keep new app tests here, not at the root.
+  Run one with `bun test ./tests/<name>.test.ts`; `bun run test` discovers these and Kiln’s
+  package-local tests. Browser/native tests remain in `e2e/`.
+
 - `electron/` — main process (reads OpenChamber hosts, probes health, proxies API calls, stores
   Ember settings in `~/.ember/settings.json`) and the preload bridge. OpenChamber's
   `settings.json` is consulted on every proxied request, so it's cached by mtime
@@ -146,7 +150,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   every send, 0.74.2). Renderer code must therefore generate ids with `randomId()`
   (`src/lib/randomId.ts`, which falls back to `crypto.getRandomValues`) and copy with
   `copyText()` (`src/lib/clipboard.ts`, `execCommand` fallback) — never those two globals
-  directly. `randomId.test.ts` scans `src/` to keep it that way. A durable activity log
+  directly. `tests/randomId.test.ts` scans `src/` to keep it that way. A durable activity log
   (`electron/activity.ts`, fed by `describeEvent` in `electron/eventStream.ts`) records whitelisted
   milestone events — bounded, single-line summaries only — as JSONL in
   `~/.ember/activity/activity-YYYY-MM-DD.jsonl` (mode 0600, buffered flush + flush-on-quit,
@@ -234,29 +238,29 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   show 90+ distinct nouns (measured), while a lone session still lands on the message's own noun. A
   `taken` hit never returns a duplicate, and only an exhausted set numbers a name. The
   folder and project are **seed only** and never supply a word (that is how `Hearth Gardener` used
-  to happen). Unit-tested in `sessionNames.test.ts`; sent as `title` on `POST /conversations` so the
+  to happen). Unit-tested in `tests/sessionNames.test.ts`; sent as `title` on `POST /conversations` so the
   name is the conversation's, not Ember's), `useStableCallback` (pin a prop's identity for `React.memo` children),
   `messageSignature` (digest-based change detection for polls), `invalidation` (event → resource
   mapping and the coalescing `InvalidationQueue`), `projectGroups` (`buildRailEntries` grouping +
   `blobStripLayout`), `bulkArchive` (bulk-archive target selection), `workspace`, `clipboard`,
   `activityView` (pure derivations for the Home screen: live/history merge, day grouping with
   collapsed tool runs, entry → session links), `readState` (per-message marks: `through`/`ids`/`readAt`,
-  compaction, prune; unit-tested in `readState.test.ts`), `unreadDigest` (a card's rows: eligibility,
+  compaction, prune; unit-tested in `tests/readState.test.ts`), `unreadDigest` (a card's rows: eligibility,
   excerpts cut with "…", sticky prompts, "most unread first" ordering; unit-tested in
-  `unreadDigest.test.ts`), `sharedLinks` (link kind/title/de-dup for Home's right column), `piMapping` (Hearth wire → Ember
-  shapes; unit-tested in `piMapping.test.ts`), `endpoints` (Hearth endpoint id derivation,
+  `tests/unreadDigest.test.ts`), `sharedLinks` (link kind/title/de-dup for Home's right column), `piMapping` (Hearth wire → Ember
+  shapes; unit-tested in `tests/piMapping.test.ts`), `endpoints` (Hearth endpoint id derivation,
   URL normalization/validation, upsert/remove, token masking; unit-tested in
-  `endpoints.test.ts`), `pendingCreate` (the draft's messages and notes, held while its session is
-  created; pure transitions, unit-tested in `pendingCreate.test.ts`), `newSessionFailure` (why a
+  `tests/endpoints.test.ts`), `pendingCreate` (the draft's messages and notes, held while its session is
+  created; pure transitions, unit-tested in `tests/pendingCreate.test.ts`), `newSessionFailure` (why a
   create failed, in a sentence that names the host and the next step; unit-tested), `crew` (coagent
   helpers: `isWorker`, `crewByLeader`, transitive
   `leaderNeedsInput`, `crewDepth` and `blockedWorkersUnder`/`blockedWorkersAmong` (which workers are
   blocked at any depth), `workerStateLabel`, `promotionNameFor`, and the `[crew] …` report parser;
-  unit-tested in `crew.test.ts`), `gallery` (renderable-image detection, a message's image gallery,
-  and the zoom math; unit-tested in `gallery.test.ts`), `activityLabel` (the live activity line's
-  wording; unit-tested in `activityLabel.test.ts`), and `sessionStatus` (the transient
+  unit-tested in `tests/crew.test.ts`), `gallery` (renderable-image detection, a message's image gallery,
+  and the zoom math; unit-tested in `tests/gallery.test.ts`), `activityLabel` (the live activity line's
+  wording; unit-tested in `tests/activityLabel.test.ts`), and `sessionStatus` (the transient
   activity status line's derivation: working / waiting on crew / needs your reply / nothing;
-  unit-tested in `sessionStatus.test.ts`).
+  unit-tested in `tests/sessionStatus.test.ts`).
 - `electron/eventStream.ts` — SSE client for the two per-instance streams (see Data freshness).
   It parses frames, keeps only `{ instanceId, type, sessionId?, directory? }`, and reconnects with
   jittered backoff; main fans hints out to windows (`ember:event`) and to `/remote/events`.
@@ -589,7 +593,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   rainbow. `applyTheme` emits `--blob-0..21` after `blob/contrast.ts` adjusts the
   whole palette together — clamping each colour to ≥3:1 against the theme's panel/elev/bg while pushing
   close pairs apart, rather than per-colour clamping that collapses them onto one lightness.
-  **Lava** (`LavaBlob.tsx` + `lava.ts` + `blob-lava.css`; `lava.test.tsx`) is risograph-style goo:
+  **Lava** (`LavaBlob.tsx` + `lava.ts` + `blob-lava.css`; `tests/lava.test.tsx`) is risograph-style goo:
   two or three circles run through one SVG "goo" filter (blur, then a hard alpha threshold), so they
   melt into a single body with necks and no path is ever stored. The same filter stipples a dark ink
   rim against `feTurbulence` grain, deepens the body's own hue just inside it, and bleeds a little
@@ -598,7 +602,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   group, because a pool belongs to its lobe and has to travel with it while an SVG filter per lobe
   would repaint the blob again; being inside an opaque body they only blend colour, so the goo's
   alpha threshold never sees them. Accents come from the *base* palette entry, since they never touch
-  the surface. The **last lobe is the bud**. `lava.test.tsx` pins the geometry this depends on — every
+  the surface. The **last lobe is the bud**. `tests/lava.test.tsx` pins the geometry this depends on — every
   shape fits at any turn, the bud overlaps at rest and clears the goo's bridging distance at the peak,
   no pool reaches a rim. Grain frequency and rim width scale with the rendered size so both stay near a
   CSS pixel; body grain is omitted below 64px. Dark themes swap the ink for a deep shade of the body
@@ -689,7 +693,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   successful send clears the tray; a failure keeps every row and surfaces the app's error banner,
   which is why the tray sends with `retainOnFailure: false`. `shortenQuote` keeps a long
   selection to its first line or roughly 200 characters plus an ellipsis. The pure half is
-  `src/lib/comments.ts`, unit-tested in `comments.test.ts`; `e2e/comments.pw.ts` covers the scene.
+  `src/lib/comments.ts`, unit-tested in `tests/comments.test.ts`; `e2e/comments.pw.ts` covers the scene.
 - `src/components/ComposerShelf.tsx` + `TrayRow.tsx` + `TrayItemDialog.tsx` — **the tray above
   the composer is one shelf**, not three stacked cards: one line of tabs (`Queue 3 · For later 2 ·
   Crew 3`, each with its count, a dot when that tray wants the human), the open tray's rows under

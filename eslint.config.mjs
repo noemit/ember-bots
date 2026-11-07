@@ -34,7 +34,7 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-unused-vars': unusedVars },
   },
   {
-    files: ['*.test.ts', 'vite.config.mts', 'eslint.config.mjs'],
+    files: ['tests/**/*.{ts,tsx}', 'vite.config.mts', 'eslint.config.mjs'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   }
 );
