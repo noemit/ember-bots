@@ -165,8 +165,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 
 - When a requested task is complete and its checks pass, commit the intended files and push `main`.
   If checks cannot run or need a live/manual pass, say so before pushing.
-- **Versioning:** every shipped change bumps `package.json` `version` per `VERSIONING.md` (semver)
-  and adds a `CHANGELOG.md` entry.
+- **Versioning:** bump `package.json` and add a `CHANGELOG.md` entry once when preparing a release,
+  per `VERSIONING.md`. Ordinary commits and pushes do not bump versions or create numbered changelog entries.
 
 ## Layout
 

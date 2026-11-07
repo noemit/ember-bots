@@ -105,8 +105,9 @@ frontier model falling into it.
 - Reads never enable scheduling: after a reopen, `src/index.ts` must `resume()` and make
   a progress call (`waitForIdle`) before recovered work runs. Keep that in `index.ts`.
 - `bun run check` before every commit; commit and push `main`.
-- **Versioning:** every shipped change bumps `package.json` `version` per `VERSIONING.md`
-  (semver), and `/health` reports it. Record it in `CHANGELOG.md`.
+- **Versioning:** bump `package.json` and record a `CHANGELOG.md` entry once when preparing a Kiln
+  release, per `VERSIONING.md`; `/health` reports that version. Ordinary commits and pushes do not
+  bump versions or create numbered changelog entries.
 
 ## Background thread delivery
 

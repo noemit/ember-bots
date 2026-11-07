@@ -1,26 +1,35 @@
 # Versioning
 
-Ember ships **semantic versions**. The version lives in `package.json` (`version`).
+Ember uses semantic versions. The release version lives in `package.json` (`version`).
+Commits and pushes are development work; they are not releases.
 
 ## Scheme (semver)
 
-- **MINOR** `0.x.0` — a new feature (a new surface, a new backend capability wired into the UI).
-- **PATCH** `0.0.x` — a fix: bug/perf/docs/tests with no new surface.
-- **BREAKING** — while pre-1.0, a breaking change also bumps the **minor** and is called out as
-  `BREAKING` in the changelog. Bump **major** only once we commit to a frozen 1.0.
+- **PATCH** — backwards-compatible fixes, with no new features.
+- **MINOR** — backwards-compatible features.
+- **MAJOR** — breaking changes after 1.0. Before 1.0, breaking changes bump the minor.
 
-Rules:
+Choose one bump for the complete batch since the last public release. Use the highest level
+required by that batch, rather than counting commits or individual features.
 
-- Bump exactly one level per shipped change; when unsure, take the higher level.
-- Every release gets a `CHANGELOG.md` entry (`Added` / `Changed` / `Fixed` / `BREAKING`).
+## Development
 
-## Workflow (per change)
+- Commit and push completed work without changing the version.
+- Optional changelog notes go under `Unreleased`, not a new numbered entry per commit.
+- A local build or test package does not require a release version bump.
 
-1. Read the diff and pick the level.
-2. Bump `version` in `package.json`.
-3. Add a `CHANGELOG.md` entry.
-4. `bun run check` (and `test:e2e` / `test:native` when the change warrants).
-5. Commit as `feat|fix: … (0.x.y)`.
+## Release workflow
 
-Ember and Hearth version independently; a Hearth wire change usually bumps Ember too. The
-Instances menu shows each Hearth's reported version.
+1. Review all changes since the last public release and choose the next semantic version.
+2. Bump `version` in `package.json` once for the release.
+3. Consolidate the batch into one dated `CHANGELOG.md` entry (`Added` / `Changed` / `Fixed` /
+   `BREAKING`). Move any `Unreleased` notes into that entry.
+4. Run `bun run check` and relevant end-to-end or native checks.
+5. Commit the release preparation, then build every platform from that same commit.
+6. Publish the matching tag and release only when publication is authorized.
+
+Do not reuse or lower a version already published. Release tags and packaged application versions
+must agree. These rules do not retroactively rename existing releases.
+
+Ember and Kiln version independently. Only bump Kiln when preparing its release; a wire change
+only requires a new Ember version when Ember is also being released.
