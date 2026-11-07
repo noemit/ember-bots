@@ -75,15 +75,20 @@ export default function CrystalBlob({
           <filter id={`${uid}-heat`} x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur stdDeviation={3} />
           </filter>
-          <linearGradient id={`${uid}-reflection`} x1="0" y1="0" x2="1" y2=".4">
+          <linearGradient id={`${uid}-reflection`} x1="0" y1="0" x2="1" y2=".2">
             <stop offset="0" stopColor="white" stopOpacity="0" />
-            <stop offset=".48" stopColor="white" stopOpacity=".04" />
-            <stop offset=".55" stopColor="white" stopOpacity=".5" />
-            <stop offset=".64" stopColor="white" stopOpacity="0" />
+            <stop offset=".35" stopColor="white" stopOpacity=".06" />
+            <stop offset=".5" stopColor="white" stopOpacity=".7" />
+            <stop offset=".62" stopColor="white" stopOpacity="0" />
           </linearGradient>
           <clipPath id={`${uid}-lump`}>
             <path d={geometry.body} />
           </clipPath>
+          {mood === 'busy' ? geometry.facets.map((facet, index) => (
+            <clipPath key={index} id={`${uid}-facet-${index}`}>
+              <path d={facet.d} />
+            </clipPath>
+          )) : null}
         </defs>
 
         {state === 'needs-input' ? <OrbitRing.Back cx={50} cy={50} r={46} /> : null}
@@ -108,11 +113,16 @@ export default function CrystalBlob({
             ))}
             {mood === 'busy' ? <g className="crystal-working-light">
               {geometry.facets.map((facet, index) => (
-                <path key={index} className="crystal-working-facet" d={facet.d} fill="white"
-                  style={{ animationDelay: `${geometry.heatDelay - index * 1.6}s` }} />
+                <g key={index} clipPath={`url(#${uid}-facet-${index})`}
+                  opacity={facet.kind === 'lit' ? 1 : facet.kind === 'soft' ? .65 : .35}
+                  style={{ '--crystal-facet-delay': `${geometry.heatDelay + (facet.kind === 'lit' ? 0 : facet.kind === 'soft' ? .65 : 1.3)}s` } as React.CSSProperties}>
+                  <path className="crystal-working-facet" d={facet.d} fill="white" opacity={0} />
+                  <g transform={facet.reflectionTransform}>
+                    <rect className="crystal-reflection-sweep" x={-100} y={-100} width={100} height={200}
+                      fill={`url(#${uid}-reflection)`} opacity={0} />
+                  </g>
+                </g>
               ))}
-              <rect className="crystal-reflection-sweep" x={-90} y={0} width={100} height={100}
-                fill={`url(#${uid}-reflection)`} style={{ animationDelay: `${geometry.heatDelay}s` }} />
             </g> : null}
           </g>
           {mood === 'busy' ? <g fill="white" stroke={ink} strokeWidth={.35}>

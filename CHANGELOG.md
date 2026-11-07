@@ -1,3 +1,8 @@
+## 1.18.8
+
+### Fixed
+- Crystal’s working highlight follows each facet’s angle and stops at its edges, with softer reflections on shaded faces.
+
 ## 1.18.7
 
 ### Changed

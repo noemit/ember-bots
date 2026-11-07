@@ -17,7 +17,12 @@ export type CrystalGeometry = {
    * palette entry and both themes. `lit` catches the light, `shade` turns away, `soft` is the
    * in-between plane that stops a two-tone split reading as a flat sticker.
    */
-  facets: Array<{ d: string; kind: 'lit' | 'shade' | 'soft' }>;
+  facets: Array<{
+    d: string;
+    kind: 'lit' | 'shade' | 'soft';
+    /** Maps a 100-unit reflection plane along the rim and inward toward this facet's anchor. */
+    reflectionTransform: string;
+  }>;
   tilt: number;
   /** Negative, per-blob animation delay so a rail of crystals never glows in unison. */
   heatDelay: number;
@@ -107,12 +112,21 @@ export const crystalGeometry = (
     const before = neighbour(index, -1);
     const after = neighbour(index, 1);
     const vertex = points[index];
-    return (
-      `M${before[0].toFixed(2)} ${before[1].toFixed(2)} ` +
-      `L${vertex[0].toFixed(2)} ${vertex[1].toFixed(2)} ` +
-      `L${after[0].toFixed(2)} ${after[1].toFixed(2)} ` +
-      `L${anchorX.toFixed(2)} ${anchorY.toFixed(2)} Z`
-    );
+    return {
+      d: `M${before[0].toFixed(2)} ${before[1].toFixed(2)} ` +
+        `L${vertex[0].toFixed(2)} ${vertex[1].toFixed(2)} ` +
+        `L${after[0].toFixed(2)} ${after[1].toFixed(2)} ` +
+        `L${anchorX.toFixed(2)} ${anchorY.toFixed(2)} Z`,
+      // The same local light bends and narrows differently on every cut. Derive the basis from
+      // the actual face so reflections follow all six archetypes and their seeded variations.
+      reflectionTransform: `matrix(${[
+        (after[0] - before[0]) / 100,
+        (after[1] - before[1]) / 100,
+        (anchorX - (before[0] + after[0]) / 2) / 100,
+        (anchorY - (before[1] + after[1]) / 2) / 100,
+        before[0], before[1],
+      ].join(' ')})`,
+    };
   };
 
   // Three planes converging near the middle: the height of the lump catches the light, its base
@@ -120,9 +134,9 @@ export const crystalGeometry = (
   // Anchors sit off-centre so the planes meet along short edges rather than at one point.
   const sideIndex = (highest + (shapeRng() < 0.5 ? 1 : sides - 1)) % sides;
   const facets: CrystalGeometry['facets'] = [
-    { d: facet(highest, 44, 46), kind: 'lit' },
-    { d: facet(lowest, 56, 54), kind: 'shade' },
-    { d: facet(sideIndex, points[sideIndex][0] < 50 ? 53 : 47, 50), kind: 'soft' },
+    { ...facet(highest, 44, 46), kind: 'lit' },
+    { ...facet(lowest, 56, 54), kind: 'shade' },
+    { ...facet(sideIndex, points[sideIndex][0] < 50 ? 53 : 47, 50), kind: 'soft' },
   ];
 
   return {

@@ -133,8 +133,17 @@
 .blob-crystal[data-mood='busy'] .blob-body {
   animation: crystal-working-loop 7.2s ease-in-out infinite;
 }
-.crystal-working-facet { opacity: 0; animation: crystal-working-facet 7.2s ease-in-out infinite; }
-.crystal-reflection-sweep { animation: crystal-reflection-sweep 7.2s ease-in-out infinite; }
+.crystal-working-facet {
+  opacity: 0;
+  animation: crystal-working-facet 7.2s ease-in-out infinite;
+  animation-delay: var(--crystal-facet-delay);
+}
+/* Each sweep lives in its facet's coordinate system and stops at that face's cut edges. */
+.crystal-reflection-sweep {
+  opacity: 0;
+  animation: crystal-reflection-sweep 7.2s ease-in-out infinite;
+  animation-delay: var(--crystal-facet-delay);
+}
 .crystal-sparkle {
   opacity: 0;
   transform-box: fill-box;
@@ -149,13 +158,13 @@
 }
 @keyframes crystal-working-facet {
   0%, 60%, 100% { opacity: 0; }
-  28% { opacity: .32; }
-  42% { opacity: .1; }
+  28% { opacity: .18; }
+  42% { opacity: .06; }
 }
 @keyframes crystal-reflection-sweep {
   0%, 12% { translate: 0 0; opacity: 0; }
-  25%, 65% { opacity: .65; }
-  85%, 100% { translate: 180px 0; opacity: 0; }
+  25%, 65% { opacity: .8; }
+  85%, 100% { translate: 200px 0; opacity: 0; }
 }
 @keyframes crystal-sparkle {
   0%, 18%, 48%, 100% { opacity: 0; scale: .35; }
