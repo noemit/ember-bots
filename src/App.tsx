@@ -5556,6 +5556,13 @@ export default function App() {
                 open
                 title={avatarPickerSession.title ?? avatarPickerSession.id}
                 style={settings.blobStyle}
+                theme={settings.theme}
+                resolvePreview={(scopeKey, override) => resolveAvatarIdentity(
+                  avatarPickerSession,
+                  projectsByInstance[avatarPickerSession.instanceId] ?? [],
+                  settings.scheduledSessionBindings,
+                  { ...settings.avatarOverrides, [scopeKey]: override }
+                )}
                 identity={avatarPickerIdentity}
                 scopes={avatarPickerScopes}
                 overrides={settings.avatarOverrides}

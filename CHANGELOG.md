@@ -1,3 +1,14 @@
+## 1.14.3
+
+### Fixed
+- All 27 colour swatches can be saved: desktop validation previously rejected the last five.
+  The picker and validator now share one palette, with stable persisted indices.
+- Appearance colours and shapes survive desktop validation without empty traits erasing inherited
+  choices. The picker now previews the same scope-resolution rules used after Save.
+- Switching between custom colours and swatches keeps the colour input, preview and saved avatar
+  consistent, including theme-adjusted swatches and Lava's secondary colours.
+- Editing a shared colour explains when a chat's separate override takes precedence.
+
 ## 1.14.2
 
 ### Fixed

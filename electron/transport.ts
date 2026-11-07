@@ -1,8 +1,7 @@
+import { AVATAR_COLOR_COUNT } from './avatarPalette';
+
 const API_METHODS = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']);const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 const DEFAULT_LOCAL_PORT = 57123;
-
-/** Mirrors AVATAR_COLOR_COUNT in src/blob/contrast.ts (the two tsconfig roots can't share it). */
-const AVATAR_COLOR_COUNT = 22;
 
 export type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
@@ -450,7 +449,13 @@ export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvata
           ? entry.shapeName
           : undefined;
         const color = typeof entry.color === 'string' && /^#[0-9a-f]{6}$/i.test(entry.color) ? entry.color.toLowerCase() : undefined;
-        return [key, { colorIndex, color, shapeName }] as const;
+        // Optional traits must stay absent. Explicit undefined properties survive IPC and can
+        // otherwise erase a broader scope's colour/shape in the renderer.
+        return [key, {
+          ...(colorIndex !== undefined ? { colorIndex } : {}),
+          ...(color !== undefined ? { color } : {}),
+          ...(shapeName !== undefined ? { shapeName } : {}),
+        }] as const;
       })
       .filter(([, entry]) => entry.colorIndex !== undefined || entry.color !== undefined || entry.shapeName !== undefined)
   );

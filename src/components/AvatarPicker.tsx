@@ -1,7 +1,7 @@
 import * as React from 'react';
 import Blob from '../blob/Blob';
-import { blobColor } from '../blob/color';
-import { IDENTITY_COLORS } from '../blob/contrast';
+import { IDENTITY_COLORS, identityPaletteFor } from '../blob/contrast';
+import { themeById } from '../themes';
 import { CRYSTAL_SHAPES } from '../blob/crystal';
 import { BUDDY_SHAPES } from '../blob/buddy';
 import { SCRIBBLE_SHAPES } from '../blob/scribble';
@@ -32,6 +32,8 @@ type Props = {
   open: boolean;
   title: string;
   style: BlobStyle;
+  theme: string;
+  resolvePreview: (scopeKey: string, override: AvatarOverride) => AvatarIdentity;
   identity: AvatarIdentity;
   scopes: Scope[];
   overrides: Record<string, AvatarOverride>;
@@ -45,12 +47,18 @@ export default function AvatarPicker({
   open,
   title,
   style,
+  theme,
+  resolvePreview,
   identity,
   scopes,
   overrides,
   onSave,
   onOpenChange,
 }: Props) {
+  const colors = React.useMemo(() => {
+    const palette = themeById(theme).palette;
+    return identityPaletteFor([palette.panel, palette.elev, palette.bg]);
+  }, [theme]);
   const [scopeKey, setScopeKey] = React.useState(scopes[0]?.key ?? '');
   const [draft, setDraft] = React.useState<AvatarOverride>({});
   const shapes =
@@ -80,11 +88,12 @@ export default function AvatarPicker({
     if (open && scopeKey) setDraft({ ...(overridesRef.current[scopeKey] ?? {}) });
   }, [open, scopeKey]);
 
-  const previewIdentity = (patch: AvatarOverride): AvatarIdentity => ({
-    ...identity,
-    ...draft,
-    ...patch,
-  });
+  const previewIdentity = (patch: AvatarOverride): AvatarIdentity =>
+    resolvePreview(scopeKey, { ...draft, ...patch });
+  const preview = previewIdentity({});
+  const previewColor = preview.color ?? colors[preview.colorIndex ?? 0];
+  const chosenColor = draft.color ?? (draft.colorIndex !== undefined ? colors[draft.colorIndex] : previewColor);
+  const colorOverridden = scopeKind !== 'session' && chosenColor !== previewColor;
   const hasOverride = draft.color !== undefined || draft.colorIndex !== undefined || draft.shapeName !== undefined;
 
   return (
@@ -123,7 +132,7 @@ export default function AvatarPicker({
             <Blob
               style={style}
               seed={identity.sessionKey}
-              identity={previewIdentity({})}
+              identity={preview}
               size={56}
               interactive={false}
             />
@@ -132,6 +141,11 @@ export default function AvatarPicker({
               <span className="text-xs text-muted-foreground">
                 Color and shape help you recognize this chat wherever it appears.
               </span>
+              {colorOverridden ? (
+                <span className="text-xs text-muted-foreground">
+                  This chat uses a separate colour. Choose This session to change it here.
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -139,12 +153,12 @@ export default function AvatarPicker({
             <span className="text-xs font-medium">Color</span>
             <label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
               Custom color
-              <input type="color" aria-label="Custom agent color" value={draft.color ?? identity.color ?? IDENTITY_COLORS[draft.colorIndex ?? identity.colorIndex ?? 0]} onChange={(event) => setDraft((prev) => ({ ...prev, color: event.target.value }))} className="h-8 w-12 cursor-pointer rounded border bg-transparent" />
+              <input type="color" aria-label="Custom agent color" value={chosenColor} onChange={(event) => setDraft((prev) => ({ ...prev, color: event.target.value, colorIndex: undefined }))} className="h-8 w-12 cursor-pointer rounded border bg-transparent" />
             </label>
             <div className="grid grid-cols-6 gap-2">
               {Array.from({ length: COLOR_COUNT }, (_, colorIndex) => {
                 const selected = !draft.color && draft.colorIndex === colorIndex;
-                const color = blobColor(style, previewIdentity({ colorIndex, color: undefined }));
+                const color = colors[colorIndex];
                 return (
                   <button
                     key={colorIndex}

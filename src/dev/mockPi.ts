@@ -6,6 +6,7 @@
  *
  * The legacy OpenCode mock stays reachable at `?legacy` (see `src/dev/mockBridge.ts`).
  */
+import { parseAvatarOverrides } from '../../electron/transport';
 import { generateToken } from '../../electron/tokenWords';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
 
@@ -1691,13 +1692,12 @@ const mockFolders: Record<string, string[]> = {
 
 /**
  * Read state survives a page reload, like the real thing (it lives in Ember's settings file).
- * Read marks, notification policy and instance defaults are kept; a fixture's theme or window cannot leak
- * from one test run into the next. localStorage rather than sessionStorage, because "relaunch and
+ * Read marks, notification policy, defaults and appearance are kept within the browser context. localStorage rather than sessionStorage, because "relaunch and
  * the dot is still gone" is exactly what the read-state tests check.
  */
 const READ_STATE_KEY = 'ember-pi-read-state';
 
-const storedReadState = (): { readMarks?: EmberSettings['readMarks']; readSince?: number; mutedSessions?: string[]; instanceDefaults?: EmberSettings['instanceDefaults'] } => {
+const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'theme' | 'blobStyle'>> => {
   try {
     return JSON.parse(window.localStorage.getItem(READ_STATE_KEY) ?? 'null') ?? {};
   } catch {
@@ -1708,8 +1708,8 @@ const storedReadState = (): { readMarks?: EmberSettings['readMarks']; readSince?
 const storedRead = storedReadState();
 
 let settings: EmberSettings = {
-  theme: 'stone',
-  blobStyle: 'buddy',
+  theme: storedRead.theme ?? 'stone',
+  blobStyle: storedRead.blobStyle ?? 'buddy',
   blobSize: 'standard',
   sessionWindowHours: 48,
   hiddenInstances: [],
@@ -1738,7 +1738,7 @@ let settings: EmberSettings = {
   composerDrafts: {},
   scheduledSessionBindings: {},
   autoArchiveScheduledRuns: true,
-  avatarOverrides: {},
+  avatarOverrides: parseAvatarOverrides(storedRead.avatarOverrides),
   projectColorAssignments: {},
   openSessions: [],
   activeSession: null,
@@ -1800,11 +1800,11 @@ export const bridge: EmberBridge = {
       if (draft === null) delete drafts[key];
       else drafts[key] = draft;
     }
-    settings = { ...settings, ...safe, ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
-    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined) {
+    settings = { ...settings, ...safe, ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
+    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,
-        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults })
+        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults, avatarOverrides: settings.avatarOverrides, theme: settings.theme, blobStyle: settings.blobStyle })
       );
     }
     return settings;

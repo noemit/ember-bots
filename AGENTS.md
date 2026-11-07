@@ -74,7 +74,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 - Blobs are mnemonic devices for chats. Automatic colours are stable per session, independent of
   project membership and visibility. The appearance picker defaults to one chat and accepts a custom
   hex colour; the blob and soft background glow must use the same resolved identity. Project/task
-  appearance overrides remain explicit choices.
+  appearance overrides remain explicit choices. Appearance previews use the same scope resolver as
+  saved avatars; absent/undefined traits never erase inherited choices. Swatches and the custom
+  colour input share the theme-adjusted palette. Desktop validation returns sparse overrides.
+  `electron/avatarPalette.ts` is the single indexed palette for the picker and desktop validator;
+  keep existing indices stable when extending it so saved choices keep their meaning.
 - A rail process marker means that chat has programs running on its host, using the same
   `session.processes` summary as the composer's Processes tray. It is not connection status.
 - Approval actions say Allow and Switch to YOLO mode, alongside Deny. The shared `YoloLabel` is the

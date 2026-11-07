@@ -1,3 +1,4 @@
+import { AVATAR_COLOR_COUNT } from './electron/avatarPalette';
 import { describe, expect, test } from 'bun:test';
 import {
   discoverLocalPiEndpoint,
@@ -76,7 +77,7 @@ describe('appearance settings validation', () => {
   });
 
   test('keeps bounded color assignments', () => {
-    expect(parseColorAssignments({ project: 21, negative: -1, overflow: 22, fractional: 1.5 })).toEqual({ project: 21 });
+    expect(parseColorAssignments({ project: AVATAR_COLOR_COUNT - 1, negative: -1, overflow: AVATAR_COLOR_COUNT, fractional: 1.5 })).toEqual({ project: AVATAR_COLOR_COUNT - 1 });
     expect(parseColorAssignments({ marker: 11, overflow: 12 }, 12)).toEqual({ marker: 11 });
   });
 
@@ -132,7 +133,7 @@ describe('appearance settings validation', () => {
   test('accepts only bounded curated appearance values', () => {
     expect(parseAvatarOverrides({
       valid: { colorIndex: 5, shapeName: 'wind-turbine' },
-      badColor: { colorIndex: 22 },
+      badColor: { colorIndex: AVATAR_COLOR_COUNT },
       fractional: { colorIndex: 1.5 },
       badShape: { shapeName: '<svg>' },
       empty: {},

@@ -1,3 +1,6 @@
+import { IDENTITY_COLORS } from '../../electron/avatarPalette';
+export { IDENTITY_COLORS, AVATAR_COLOR_COUNT } from '../../electron/avatarPalette';
+
 /**
  * How far a blob must stand out from the theme surface behind it.
  *
@@ -133,8 +136,6 @@ export const oklchToHexColor = (lightness: number, chroma: number, hue: number):
   oklchToHex(lightness, chroma, ((hue % 360) + 360) % 360);
 
 
-/** The yellow slot, forced because sampling always lands on a dark olive (see buildIdentityColors). */
-const BRIGHT_YELLOW = '#ffd60a';
 export const INSTANCE_MARKER_COLORS = [
   '#3D4EC7', '#A13DB8', '#D13F78', '#C84A3A', '#C66A24', '#9A7A12',
   '#4F8A2F', '#20866F', '#247F9E', '#3474C8', '#6757C2', '#8C4A9E',
@@ -151,101 +152,6 @@ const oklchToHex = (lightness: number, chroma: number, hue: number): string => {
   return rgbToHex(rgb);
 };
 
-
-/** How many identity colours the palette carries. */
-const TARGET_COLORS = 28;
-
-/**
- * No two entries sit closer than this in OKLab. This is the real guarantee, and the reason the old
- * palette failed: it optimised total spread and happily placed three picks on OKLCH hue 292 and two
- * on 136, which read as "the same colour, slightly off". Spacing by hue alone does not fix that
- * either, because two colours at one hue can still differ only in lightness and sit 0.06 apart.
- */
-const MIN_PALETTE_DISTANCE = 0.12;
-
-/**
- * Candidate colours spread across hue, lightness and chroma, then sampled greedily so every pick is
- * as far as possible from the ones already chosen, subject to {@link MIN_PALETTE_DISTANCE}.
- *
- * The violet-merging pass that used to run afterwards is gone: it deleted the two *closest* violet
- * entries, which were precisely the ones separating the remaining pair, so it created the duplicate
- * it was meant to prevent.
- */
-const buildIdentityColors = (): string[] => {
-  const candidates: Array<{ hex: string; lab: Oklab }> = [];
-  const seen = new Set<string>();
-  for (let hue = 0; hue < 360; hue += 3) {
-    for (let lightness = 0.42; lightness <= 0.86; lightness += 0.02) {
-      for (let chroma = 0.06; chroma <= 0.22; chroma += 0.015) {
-        const rgb = oklchToRgb([lightness, chroma, hue]);
-        if (!inGamut(rgb)) continue;
-        const hex = rgbToHex(rgb);
-        if (seen.has(hex)) continue;
-        seen.add(hex);
-        candidates.push({ hex, lab: rgbToOklab(hexToRgb(hex)) });
-      }
-    }
-  }
-
-  // Seed with the most chromatic candidate so the palette starts vivid.
-  let seedIndex = 0;
-  let seedChroma = -1;
-  candidates.forEach((candidate, index) => {
-    const chroma = rgbToOklch(hexToRgb(candidate.hex))[1];
-    if (chroma > seedChroma) {
-      seedChroma = chroma;
-      seedIndex = index;
-    }
-  });
-
-  const chosen = [candidates[seedIndex]];
-  const taken = new Set([candidates[seedIndex].hex]);
-  const nearest = candidates.map((candidate) => oklabDistance(candidate.lab, chosen[0].lab));
-
-  while (chosen.length < TARGET_COLORS) {
-    let bestIndex = -1;
-    for (let index = 0; index < candidates.length; index += 1) {
-      const candidate = candidates[index];
-      if (taken.has(candidate.hex)) continue;
-      // The floor: skip anything too close to a colour already chosen.
-      if (chosen.some((pick) => oklabDistance(candidate.lab, pick.lab) < MIN_PALETTE_DISTANCE)) continue;
-      if (bestIndex === -1 || nearest[index] > nearest[bestIndex]) bestIndex = index;
-    }
-    // The floor can exhaust the candidates; stop rather than loop forever.
-    if (bestIndex === -1) break;
-    const picked = candidates[bestIndex];
-    chosen.push(picked);
-    taken.add(picked.hex);
-    candidates.forEach((candidate, index) => {
-      nearest[index] = Math.min(nearest[index], oklabDistance(candidate.lab, picked.lab));
-    });
-  }
-  const colors = chosen.map((candidate) => candidate.hex);
-
-  // Farthest-point sampling never picks a bright yellow: it sits close to the light green and the
-  // orange, so it is never the farthest point and the search lands on a dark olive instead. That
-  // reads as mud on light themes and dull mustard on dark ones, so a vivid yellow replaces the entry
-  // nearest the yellow hue rather than being added alongside it (which would make a twin).
-  let yellowIndex = -1;
-  let yellowDistance = Infinity;
-  colors.forEach((color, index) => {
-    const distance = Math.abs(colorHue(color) - 95);
-    if (distance < yellowDistance) {
-      yellowDistance = distance;
-      yellowIndex = index;
-    }
-  });
-  if (yellowIndex >= 0 && yellowDistance < 30) colors[yellowIndex] = BRIGHT_YELLOW;
-
-  // Index order is the picker's display order, so lay the picks out as a rainbow (ascending OKLCH
-  // hue). Sampling is order-independent, so this only changes which index a colour lands on.
-  return colors.sort((a, b) => colorHue(a) - colorHue(b));
-};
-
-export const IDENTITY_COLORS = buildIdentityColors();
-
-/** Derived so the picker and the `--blob-*` variables can never disagree with the palette. */
-export const AVATAR_COLOR_COUNT = IDENTITY_COLORS.length;
 
 const meetsContrast = (hex: string, surfaces: string[]): boolean =>
   surfaces.every((surface) => contrastRatio(hex, surface) >= MIN_CONTRAST);

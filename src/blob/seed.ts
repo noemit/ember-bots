@@ -137,7 +137,10 @@ export const resolveAvatarIdentity = (
       delete override.color;
       delete override.colorIndex;
     }
-    Object.assign(override, choice);
+    // Treat missing and undefined identically, including values delivered by older desktops.
+    if (choice.color !== undefined) override.color = choice.color;
+    if (choice.colorIndex !== undefined) override.colorIndex = choice.colorIndex;
+    if (choice.shapeName !== undefined) override.shapeName = choice.shapeName;
   }
   return {
     sessionKey: key,
