@@ -69,7 +69,7 @@ import {
   type PromptInput,
   type ScheduledTask,
 } from './api';
-import { buildScheduledRuns, countUnseenScheduledRuns, scheduledReadSessions, unreadScheduledRunsByTask } from './lib/scheduledView';
+import { buildScheduledRuns, countUnseenScheduledRuns, scheduledReadSessions } from './lib/scheduledView';
 import {
   checkGithubForUpdate,
   formatUpdateNotice,
@@ -1374,8 +1374,6 @@ export default function App() {
       instances,
     ]
   );
-
-  const unreadRunByTask = React.useMemo(() => unreadScheduledRunsByTask(scheduledRuns), [scheduledRuns]);
 
   const unseenScheduledRunsCount = React.useMemo(
     () => countUnseenScheduledRuns(scheduledRuns),
@@ -5258,9 +5256,7 @@ export default function App() {
                 SESSION_WINDOWS.find((option) => option.hours === sessionWindowHours && option.hours > 0)
                   ?.label ?? null
               }
-              scheduledTasks={scheduledTaskList}
               scheduledTaskBySession={scheduledTaskBySession}
-              unreadRunByTask={unreadRunByTask}
               runningScheduledKeys={runningScheduledKeys}
               onRunScheduledTask={(task) => void handleRunScheduledTask(task)}
               onChangeScheduledTaskModel={handleChangeScheduledTaskModel}
@@ -5312,9 +5308,10 @@ export default function App() {
                     instances={instances}
                     silentInstances={silentInstancesList}
                     runningTaskKeys={runningScheduledKeys}
-                    onOpenSession={(session) =>
-                      openSession({ instanceId: session.instanceId, sessionId: session.id }, session)
-                    }
+                    onOpenSession={(session) => {
+                      if (session.archived) void handleRestoreAndOpen(session);
+                      else openSession({ instanceId: session.instanceId, sessionId: session.id }, session);
+                    }}
                     onRunTask={(task) => void handleRunScheduledTask(task)}
                     onChangeTaskModel={handleChangeScheduledTaskModel}
                     onRetryInstances={() => void refreshInstances()}

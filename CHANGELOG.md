@@ -1,3 +1,11 @@
+## 1.18.6
+
+### Fixed
+- Opening an archived run from Scheduled restores the conversation so its unread messages can be read.
+
+### Changed
+- Removed scheduled plans from the main rail. Plans remain in the Scheduled tab; their messages continue to arrive as ordinary sessions.
+
 ## 1.18.5
 
 ### Changed

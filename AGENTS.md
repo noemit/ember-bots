@@ -498,12 +498,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   reloads/archives that session). The toolbar is New agent + search + the archive button. **A
   scheduled run is an ordinary session** — it lives in the list like any other, with a small calendar
   mark beside its title whose tooltip says "This was triggered by a scheduled task." and names the task
-  — and the **plans** have their own section at the bottom (`data-testid="rail-scheduled-plan"`): one
-  trigger per task with its schedule text (`lib/scheduleText.ts`), `paused` and last-failure state,
-  a run-now button, an unread dot, and a click through to the newest unread run (otherwise the last run).
+  — while **plans** and run history live in the Scheduled tab, without a duplicate section in the rail.
   Scheduled counters use the same message marks as the rail, never a visit/startup timestamp.
-  New output after an older host reused an archived scheduled conversation appears unread on the
-  plan; opening it restores the conversation. Archives after the latest output stay respected. There is no scheduled *mode* any more (0.78.0):
+  Opening an archived run from Scheduled restores its conversation. New output after an older host
+  reused an archived scheduled conversation appears unread; archives after the latest output stay
+  respected. There is no scheduled rail *mode* any more (0.78.0):
   a clock toggle used to swap the whole list for the latest run of each task, which hid the sessions
   the person was working in. Search is scoped to the rail by default; when it comes up empty it offers
   "Search all time" and "Search archived sessions", the latter listing archived hits as individual

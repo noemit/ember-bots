@@ -459,7 +459,7 @@ test('a scheduled run is an ordinary session, marked with the plan that started 
   // The scheduler used to get a rail *mode*: a clock toggle swapped the whole list for the latest run
   // of each task, which hid every session the person was actually working in. A run is a session —
   // it belongs in the list, with a mark saying what started it — and the plans belong in their own
-  // section, because a trigger is not a conversation.
+  // Scheduled tab, because a trigger is not a conversation.
   await page.getByRole('button', { name: /Crew: auth refactor/ }).click();
 
   // The run is in the normal list, and says where it came from.
@@ -468,8 +468,10 @@ test('a scheduled run is an ordinary session, marked with the plan that started 
   await expect(page.getByLabel('Started by the scheduled task Nightly brief')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Show scheduled sessions' })).toHaveCount(0);
 
-  // The plan section names the task, its schedule, and can run it now.
-  const plan = page.getByTestId('rail-scheduled-plan');
+  // Plans live in the Scheduled tab, leaving the rail for ordinary sessions.
+  await expect(page.getByTestId('rail-scheduled-plan')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Scheduled — runs and recurring plans' }).click();
+  const plan = page.getByTestId('scheduled-plans-list');
   await expect(plan).toContainText('Nightly brief');
   await expect(plan).toContainText('Every day at 09:00');
   await expect(plan.getByRole('button', { name: 'Run Nightly brief now' })).toBeVisible();

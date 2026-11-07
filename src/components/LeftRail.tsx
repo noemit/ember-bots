@@ -10,11 +10,8 @@ import { AnimatePresence, LayoutGroup } from 'motion/react';
 import {
   Box,
   ChevronDown,
-  CalendarClock,
-  Loader2,
   PanelLeftClose,
   PanelLeftOpen,
-  Play,
   Plus,
   RefreshCw,
   Search,
@@ -26,7 +23,6 @@ import { normalizeDirectory, projectForSession, projectIdentityKey } from '../bl
 import { cn } from '@/lib/utils';
 import Blob from '../blob/Blob';
 import { useStableCallback } from '@/lib/useStableCallback';
-import { describeSchedule } from '@/lib/scheduleText';
 import { groupNewAgentTarget } from '@/lib/railStrip';
 import { endpointState, instanceReady, outageCopy, railEmptyCopy, type SilentInstance } from '@/lib/instanceHealth';
 import {
@@ -117,14 +113,8 @@ type Props = {
   selectedSession: Session | null;
   /** Human label for the recency window ("Last 2 days"), or null when everything is shown. */
   windowLabel: string | null;
-  /**
-   * The scheduling **plans** — triggers, not runs. A run is an ordinary session in the list above,
-   * marked with a calendar so it can be told apart from something a person started.
-   */
-  scheduledTasks: ScheduledTask[];
   /** Session key → scheduled task, for the run/model actions on a task's run rows. */
   scheduledTaskBySession: Record<string, ScheduledTask>;
-  unreadRunByTask: Record<string, Session>;
   runningScheduledKeys: Set<string>;
   onRunScheduledTask: (task: ScheduledTask) => void;
   onChangeScheduledTaskModel: (task: ScheduledTask) => void;
@@ -192,9 +182,7 @@ export default function LeftRail({
   visibleColumnKeys,
   selectedSession,
   windowLabel,
-  scheduledTasks,
   scheduledTaskBySession,
-  unreadRunByTask,
   runningScheduledKeys,
   onRunScheduledTask,
   onChangeScheduledTaskModel,
@@ -940,100 +928,6 @@ export default function LeftRail({
               Archived
             </span>
             {archivedMatches.map(renderArchivedSession)}
-          </div>
-        ) : null}
-
-        {/* The plans, not the runs: a run is an ordinary session in the list above (with a calendar
-            mark saying what started it), and this is the trigger that produces them. */}
-        {scheduledTasks.length > 0 && !needle ? (
-          <div className="mt-2 flex flex-col gap-0.5 border-t pt-2" data-testid="rail-scheduled-plan">
-            <span className="px-2.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-              Scheduled
-            </span>
-            {scheduledTasks.map((task) => {
-              const lastRun = task.state.lastSessionId
-                ? (everySession.find(
-                    (session) =>
-                      session.instanceId === task.instanceId && session.id === task.state.lastSessionId
-                  ) ?? null)
-                : null;
-              const unreadRun = unreadRunByTask[task.key];
-              const targetRun = unreadRun ?? lastRun;
-              const schedule = describeSchedule(task.raw.schedule);
-              const failed = task.state.lastStatus === 'error' || Boolean(task.state.lastError);
-              return (
-                <div
-                  key={task.key}
-                  className="group/plan flex min-w-0 items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
-                  data-task-key={task.key}
-                >
-                  <CalendarClock
-                    className={cn(
-                      'mt-0.5 size-3.5 flex-none',
-                      task.enabled ? 'text-muted-foreground' : 'text-muted-foreground/40'
-                    )}
-                    aria-hidden="true"
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => (targetRun ? selectSession(targetRun) : undefined)}
-                        disabled={!targetRun}
-                        title={
-                          unreadRun
-                            ? `Open unread messages from ${task.name}`
-                            : lastRun
-                            ? `Open the last run of ${task.name}`
-                            : `${task.name} has not run yet`
-                        }
-                        className={cn(
-                          'min-w-0 truncate text-left text-[12.5px] font-medium',
-                          lastRun ? 'text-foreground' : 'text-muted-foreground'
-                        )}
-                      >
-                        {task.name}
-                      </button>
-                      {unreadRun ? (
-                        <span
-                          role="img"
-                          aria-label={`Unread messages from ${task.name}`}
-                          className="size-2 flex-none rounded-full bg-highlight"
-                        />
-                      ) : null}
-                      {!task.enabled ? (
-                        <span className="flex-none rounded-sm bg-muted px-1 text-[9.5px] leading-4 font-semibold text-muted-foreground uppercase">
-                          paused
-                        </span>
-                      ) : null}
-                      {failed ? (
-                        <span
-                          className="flex-none text-[10px] font-medium text-destructive"
-                          title={task.state.lastError}
-                        >
-                          last run failed
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-                      {schedule ?? 'No schedule Ember understands'}
-                      {multiInstance ? ` · ${instanceById[task.instanceId]?.label ?? ''}` : ''}
-                    </span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    disabled={runningScheduledKeys.has(task.key)}
-                    aria-label={`Run ${task.name} now`}
-                    title={runningScheduledKeys.has(task.key) ? 'Starting…' : `Run ${task.name} now`}
-                    onClick={() => runScheduledTask(task)}
-                    className="mt-0.5 flex-none text-muted-foreground opacity-0 group-hover/plan:opacity-100 focus-visible:opacity-100"
-                  >
-                    {runningScheduledKeys.has(task.key) ? <Loader2 className="animate-spin" /> : <Play />}
-                  </Button>
-                </div>
-              );
-            })}
           </div>
         ) : null}
 
