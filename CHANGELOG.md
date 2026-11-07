@@ -1,3 +1,14 @@
+## 1.10.0
+
+### Changed
+- Replaced Pip with Mosaic: crisp pixel characters with seeded silhouettes, colour ribbons and square eyes.
+  Existing Pip selections migrate to Mosaic. Custom colours and six shapes are available in appearance settings.
+- Mosaic keeps chat identity consistent across the rail, conversation, reading view and dock, with static
+  idle poses, stepped working motion and reduced-motion support.
+
+### Fixed
+- Dock icons merge avatar bodies and status overlays into one valid SVG before rendering.
+
 ## 1.9.1
 
 ### Fixed

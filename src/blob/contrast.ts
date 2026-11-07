@@ -6,7 +6,7 @@
  * background squeezed the palette's lightness range hard enough to collapse colours into each other
  * — the opposite of what the floor was protecting. 1.6 keeps a disc clearly distinct from the
  * surface while leaving the palette room to span light and dark. The *face* contrast is the one that
- * has to stay high, and it is checked separately (`PIP_INK` against every palette colour).
+ * has to stay high, and it is checked separately (`FACE_INK` against every palette colour).
  */
 const MIN_CONTRAST = 1.6;
 
@@ -17,7 +17,7 @@ const MIN_CONTRAST = 1.6;
  */
 const LIGHTNESS_BAND = {
   dark: { min: 0.6, max: 0.82 },
-  // Lighter than the mid range alone would give: Pip paints near-black marks on the disc, and a
+  // Lighter than the mid range alone would give: The avatars paint near-black marks on the disc, and a
   // mid-dark tone on a light surface drops the face below readable contrast. 0.5 keeps the disc
   // visibly tinted against a pale background and still gives the ink room.
   light: { min: 0.5, max: 0.72 },
@@ -359,7 +359,7 @@ export const adjustPaletteForContrast = (colors: string[], surfaces: string[]): 
  * The palette adjusted for a theme, then corrected so the *face* always reads.
  *
  * Background contrast was deliberately relaxed to 1.6 — a blob is a big flat disc, not a glyph — but
- * that relaxation must not be paid for by the marks drawn on top of it. Pip paints near-black marks
+ * that relaxation must not be paid for by the marks drawn on top of it. The avatars paint near-black marks
  * onto the disc, so every entry is nudged lighter until it clears {@link MIN_FACE_CONTRAST} against
  * that ink. Lightening (never darkening) is the right direction: the disc must stay distinct from a
  * light surface, and a dark mark on a light-toned disc is the combination the reference sheet uses.
@@ -376,7 +376,7 @@ const lightenForInk = (hex: string, ink: string, minimum: number): string => {
   return oklchToHex(0.97, chroma, hue);
 };
 
-/** The face ink Pip draws with, kept here so the palette can be checked against it. */
+/** Shared face ink, kept here so the palette can be checked against it. */
 export const FACE_INK = '#16130f';
 
 /** Theme-adjusted blob palette, index-aligned with IDENTITY_COLORS. */

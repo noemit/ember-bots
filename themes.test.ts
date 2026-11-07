@@ -300,7 +300,7 @@ describe('blob colours', () => {
 
 test('explicit chat colors are the same identity in every blob style and glow', () => {
   const identity = resolveAvatarIdentity({ id: 'one', instanceId: 'local' }, [], {}, { 'session:local::one': { color: '#d25b87' } });
-  for (const style of ['buddy', 'crystal', 'lava', 'pip'] as const) expect(blobColor(style, identity)).toBe('#d25b87');
+  for (const style of ['buddy', 'crystal', 'lava', 'mosaic'] as const) expect(blobColor(style, identity)).toBe('#d25b87');
 });
 
 

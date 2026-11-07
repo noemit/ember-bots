@@ -510,8 +510,9 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 - `src/components/ui/` — shadcn/ui primitives (Tailwind v4, `radix-ui`). Add more with
   `bunx --bun shadcn@latest add <name>`.
 - `src/blob/` — session avatars. `Blob.tsx` switches between `BuddyBlob` (flat, soft creatures),
-  `CrystalBlob` (faceted stones that light up), `PipBlob` (a circle whose face is its mood) and
-  `LavaBlob` (grainy lava-lamp goo, below); Gem, Critter and Glyph were removed, and stored
+  `CrystalBlob` (faceted stones that light up), `MosaicBlob` (seeded pixel silhouettes with colour ribbons and square eyes) and
+  `LavaBlob` (grainy lava-lamp goo, below). Stored Pip selections migrate to Mosaic.
+  Gem, Critter and Glyph were removed, and stored
   settings that still name them fall back to the default. Renderers memoize on the `identity`
   object, so App hands back the previous reference when nothing changed. Buddy pupils track the
   cursor only while it's within `NEAR_RADIUS` (`usePupilTracking.ts`), and active Buddy blobs do

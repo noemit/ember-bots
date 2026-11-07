@@ -1,0 +1,12 @@
+/* Idle identities stay still. Activity moves whole pixels, never smears the grid. */
+.blob-mosaic .mosaic-step { width: 100%; height: 100%; }
+.blob-mosaic[data-mood='busy'] .mosaic-step {
+  animation: mosaic-step 1.2s steps(2, end) infinite;
+}
+@keyframes mosaic-step {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blob-mosaic .mosaic-step { animation: none !important; }
+}

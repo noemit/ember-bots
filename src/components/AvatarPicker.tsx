@@ -4,6 +4,7 @@ import { blobColor } from '../blob/color';
 import { IDENTITY_COLORS } from '../blob/contrast';
 import { CRYSTAL_SHAPES } from '../blob/crystal';
 import { BUDDY_SHAPES } from '../blob/buddy';
+import { MOSAIC_SHAPES } from '../blob/mosaic';
 import { LAVA_SHAPES } from '../blob/lava';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -58,8 +59,7 @@ export default function AvatarPicker({
         ? BUDDY_SHAPES.map((shape) => shape.name)
         : style === 'lava'
           ? LAVA_SHAPES.map((shape) => shape.name)
-          : // Pip is a circle: identity is the colour, so there is no shape to choose.
-          [];
+          : MOSAIC_SHAPES.map((shape) => shape.name);
 
   const firstScopeKey = scopes[0]?.key ?? '';
   const scopeKind = scopes.find((scope) => scope.key === scopeKey)?.kind ?? 'session';

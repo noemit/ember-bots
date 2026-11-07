@@ -1,7 +1,7 @@
 import * as React from 'react';
 import BuddyBlob from './BuddyBlob';
 import CrystalBlob from './CrystalBlob';
-import PipBlob from './PipBlob';
+import MosaicBlob from './MosaicBlob';
 import LavaBlob from './LavaBlob';
 import { moodFrom, stateFromMood } from './mood';
 import { seedIdentity } from './seed';
@@ -32,8 +32,8 @@ export default function Blob({ style, ...rest }: Props) {
   const rendered =
     style === 'buddy' ? (
       <BuddyBlob {...props} />
-    ) : style === 'pip' ? (
-      <PipBlob {...props} />
+    ) : style === 'mosaic' ? (
+      <MosaicBlob {...props} />
     ) : style === 'lava' ? (
       <LavaBlob {...props} />
     ) : (

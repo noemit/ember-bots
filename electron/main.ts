@@ -21,6 +21,7 @@ import {
   parseStringArray,
   parseStringRecord,
   isBlobStyle,
+  migrateBlobStyle,
   isReasoningDisplay,
   resolveApiUrl,
   resolveHealthUrl,
@@ -431,7 +432,7 @@ const readEmberSettings = (): EmberSettings => {
   const theme = typeof root.theme === 'string' && root.theme ? root.theme : legacyThemes[0];
   return {
     theme: theme || DEFAULT_THEME_ID,
-    blobStyle: isBlobStyle(root.blobStyle) ? root.blobStyle : DEFAULT_BLOB_STYLE,
+    blobStyle: migrateBlobStyle(root.blobStyle) ?? DEFAULT_BLOB_STYLE,
     sessionWindowHours: isWindowHours(root.sessionWindowHours)
       ? root.sessionWindowHours
       : DEFAULT_SESSION_WINDOW_HOURS,

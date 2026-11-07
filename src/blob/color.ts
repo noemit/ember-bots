@@ -12,6 +12,10 @@ export const blobColor = (style: BlobStyle, seedOrIdentity: string | AvatarIdent
   const identity = typeof seedOrIdentity === 'string' ? seedIdentity(seedOrIdentity) : seedOrIdentity;
   if (identity.color) return identity.color;
   switch (style) {
+    case 'mosaic': {
+      const index = identity.colorIndex ?? hashString(`mosaic:${identity.colorSeed}`) % IDENTITY_COLORS.length;
+      return `var(--blob-${Math.abs(index) % IDENTITY_COLORS.length})`;
+    }
     case 'lava': {
       // LavaBlob draws its colour first from this stream; keep the two in step.
       const rng = mulberry32(hashString(`lava:${identity.colorSeed}`));

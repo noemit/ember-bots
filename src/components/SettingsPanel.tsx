@@ -78,7 +78,7 @@ const REMOTE_PASSWORD_MIN = 8;
 const BLOB_STYLES: Array<{ id: BlobStyle; name: string; hint: string }> = [
   { id: 'buddy', name: 'Buddy', hint: 'Flat, soft shapes' },
   { id: 'crystal', name: 'Crystal', hint: 'Faceted stones that glow' },
-  { id: 'pip', name: 'Pip', hint: 'A little critter whose face is its mood' },
+  { id: 'mosaic', name: 'Mosaic', hint: 'Pixel characters with colourful ribbons and curious eyes' },
   { id: 'lava', name: 'Lava', hint: 'Grainy goo that drips while it works' },
 ];
 

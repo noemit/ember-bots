@@ -11,7 +11,7 @@ type BlobComponent = React.ComponentType<{
 }>;
 
 const loadBlobComponent = async (style: BlobStyle): Promise<BlobComponent> => {
-  if (style === 'pip') return (await import('./PipBlob')).default;
+  if (style === 'mosaic') return (await import('./MosaicBlob')).default;
   if (style === 'lava') return (await import('./LavaBlob')).default;
   if (style === 'crystal') return (await import('./CrystalBlob')).default;
   return (await import('./BuddyBlob')).default;
@@ -45,7 +45,14 @@ const blobSvg = (
       interactive: false,
     })
   );
-  const svg = html.slice(html.indexOf('<svg'), html.lastIndexOf('</svg>') + '</svg>'.length);
+  // Renderers can keep fixed badges in a sibling SVG outside their moving body.
+  // Merge those layers into one valid image instead of including the intervening HTML wrappers.
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  const layers = [...document.querySelectorAll('svg')];
+  const root = layers.shift();
+  if (!root) throw new Error('blob renderer did not draw an SVG');
+  for (const layer of layers) root.append(...layer.childNodes);
+  const svg = root.outerHTML;
   // The blob's own `data-mood` wrapper and its CSS (the unknown treatment included) do not survive
   // this cut, so an unknown status is applied to the root here: half-lit and desaturated, the same
   // neutral look the rail draws. Without it the icon would be a plain idle blob, which is a guess.
@@ -91,7 +98,7 @@ export const renderDockIcon = async (
   // Blobs show state through motion, which a still image loses. Buddy draws its own badge for
   // input/question/error paint their own badge, so only the rest need a corner marker.
   const hasOwnBadge =
-    style === 'buddy' || style === 'lava'
+    style === 'buddy' || style === 'lava' || style === 'mosaic'
       ? mood === 'input' || mood === 'question' || mood === 'error'
       : mood === 'error';
   // An unknown status gets no marker at all: the dot means "something is waiting for you", and the

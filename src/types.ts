@@ -232,7 +232,7 @@ export type BallMood =
 /** Where the open session's transcript is: first fetch in flight, failed (poll keeps retrying), or loaded. */
 export type MessagesStatus = 'loading' | 'error' | 'ready';
 
-export type BlobStyle = 'buddy' | 'crystal' | 'pip' | 'lava';
+export type BlobStyle = 'buddy' | 'crystal' | 'mosaic' | 'lava';
 
 /** Width the session list can take: a blob dock, the familiar rail, or about half the window. */
 export type RailMode = 'mini' | 'normal' | 'wide';

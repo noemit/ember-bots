@@ -461,11 +461,14 @@ export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvata
  * own copy in src/types.ts on purpose: main parses persisted JSON into these trusted shapes,
  * and the two tsconfigs have separate roots, so they can't import each other.
  */
-export type BlobStyle = 'buddy' | 'crystal' | 'pip' | 'lava';
+export type BlobStyle = 'buddy' | 'crystal' | 'mosaic' | 'lava';
 
-export const BLOB_STYLES: BlobStyle[] = ['buddy', 'crystal', 'pip', 'lava'];
+export const BLOB_STYLES: BlobStyle[] = ['buddy', 'crystal', 'mosaic', 'lava'];
 export const isBlobStyle = (value: unknown): value is BlobStyle =>
   typeof value === 'string' && (BLOB_STYLES as string[]).includes(value);
+
+export const migrateBlobStyle = (value: unknown): BlobStyle | undefined =>
+  value === 'pip' ? 'mosaic' : isBlobStyle(value) ? value : undefined;
 
 export type ReasoningDisplay = 'expanded' | 'collapsed' | 'hidden';
 
