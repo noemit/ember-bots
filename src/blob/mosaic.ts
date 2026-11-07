@@ -1,8 +1,8 @@
 import { hashString, mulberry32 } from './seed';
 import type { AvatarIdentity } from '../types';
 
-// One unit is one pixel. Every detail uses integer coordinates and whole-cell dimensions;
-// never subdivide cells to squeeze a feature in. Twelve-cell canvases keep eyes readable at 24px.
+// One unit is one body pixel. Tiles and error crosses use whole cells; the expressive face is a
+// separate, softly drawn layer in the outer 100-unit viewBox.
 // Every row is a solid run;
 // the notches, antennae and feet belong to the silhouette, not random pixel noise.
 export const MOSAIC_SHAPES = [
@@ -13,6 +13,15 @@ export const MOSAIC_SHAPES = [
   { name: 'ribbon', rows: [[4,9],[3,9],[3,9],[1,9],[3,10],[3,11],[2,10],[2,9],[3,9],[3,8],[3,8],[3,7]] },
   { name: 'sail', rows: [[6,8],[4,9],[3,9],[2,10],[2,10],[2,10],[2,11],[2,10],[1,10],[2,9],[3,8],[3,6]] },
 ] as const;
+
+/** Unequal, slightly lopsided whites: a tall left eye and a smaller, lower right eye. */
+export const MOSAIC_EYES = [
+  { x: -14, y: 0, pupilRadius: 6.5,
+    path: 'M-12-4 C-13-12-6-16 1-15 C9-16 14-8 13 1 C14 9 8 15-1 14 C-9 15-14 7-12-4Z' },
+  { x: 14, y: 2, pupilRadius: 6,
+    path: 'M-11-3 C-11-10-5-14 2-13 C9-12 13-5 12 3 C11 11 5 14-3 12 C-9 11-13 5-11-3Z' },
+] as const;
+export const MOSAIC_PUPIL_REACH = 4;
 
 export function mosaicGeometry(identity: AvatarIdentity) {
   const rng = mulberry32(hashString(`mosaic:${identity.shapeSeed}`));
@@ -31,7 +40,12 @@ export function mosaicGeometry(identity: AvatarIdentity) {
   const left = Math.max(...faceRows.map(xs => Math.min(...xs)));
   const right = Math.min(...faceRows.map(xs => Math.max(...xs)));
   const errorX = Math.floor((left + right - 6) / 2);
-  return { name: shape.name, cells, eyeY, errorEyes: [{ x: errorX, y: errorY }, { x: errorX + 4, y: errorY }], lookRight: rng() > 0.5 };
+  // Fit the whole expressive face inside a solid five-row patch, even on narrow mirrored bodies.
+  const eyeRows = [4, 5, 6, 7, 8].map(y => cells.filter(cell => cell.y === y).map(cell => cell.x));
+  const faceLeft = Math.max(...eyeRows.map(xs => Math.min(...xs)));
+  const faceRight = Math.min(...eyeRows.map(xs => Math.max(...xs))) + 1;
+  const face = { x: 8 + (faceLeft + faceRight) * 3.5, y: 46.5, scale: Math.min(1, ((faceRight - faceLeft) * 7 - 2) / 56) };
+  return { name: shape.name, cells, face, errorEyes: [{ x: errorX, y: errorY }, { x: errorX + 4, y: errorY }] };
 }
 
 /** Side pixels follow the silhouette, on its own grid, with room for a second outward beat. */

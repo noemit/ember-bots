@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { seedIdentity, hashString } from './seed';
 import { blobColor } from './color';
-import { mosaicActivityPixels, mosaicGeometry, mosaicTileColor } from './mosaic';
+import { MOSAIC_EYES, MOSAIC_PUPIL_REACH, mosaicActivityPixels, mosaicGeometry, mosaicTileColor } from './mosaic';
 import { MoodBadge } from './overlays';
 import { usePupilTracking } from './usePupilTracking';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
@@ -14,6 +14,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
   const wrapper = React.useRef<HTMLDivElement>(null);
   const left = React.useRef<SVGGElement>(null);
   const right = React.useRef<SVGGElement>(null);
+  const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
   const art = React.useMemo(() => {
     const resolved = identity ?? seedIdentity(seed);
     const base = blobColor('mosaic', resolved);
@@ -24,13 +25,9 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
       delay: -(hashString(resolved.motionSeed) % 2400) / 1000,
       eyeDelay: -(hashString(`mosaic-eyes:${resolved.motionSeed}`) % 10800) / 1000 };
   }, [identity, seed]);
-  // Each eye is two cells wide and one high: a pupil can change columns, never leave its row.
-  const mapPupilOffset = React.useCallback((x: number): [number, number] =>
-    [Math.round(x + .5) - (art.lookRight ? 1 : 0), 0], [art.lookRight]);
-  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), .5,
-    mapPupilOffset);
+  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), MOSAIC_PUPIL_REACH);
   return <div ref={wrapper} className="blob blob-mosaic" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size,
-    '--mosaic-eye-delay': `${art.eyeDelay}s`, '--mosaic-gaze-step': art.lookRight ? '-1px' : '1px',
+    '--mosaic-eye-delay': `${art.eyeDelay}s`,
   } as React.CSSProperties}>
     <div className="mosaic-step" style={{ animationDelay: `${art.delay}s` }}>
       <svg viewBox="0 0 100 100" width={size} height={size}>
@@ -43,18 +40,29 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
             key={`${side}:${x}:${y}`} className="mosaic-pixel" data-side={side === -1 ? 'left' : 'right'}
             x={x} y={y} width={1} height={1} fill={fill}
             style={{ animationDelay: `${art.delay - delay}s`, animationName: distance === 1 ? 'mosaic-pixel-near' : 'mosaic-pixel-far' }} />) : null}
-          <g className="mosaic-eyes">{(mood === 'error' ? art.errorEyes : [3, 6].map(x => ({ x, y: art.eyeY }))).map(({ x, y }) => <g key={x}>
-            <g className="mosaic-eye-open">
-              <rect x={x} y={y} width={mood === 'error' ? 3 : 2} height={mood === 'error' ? 3 : 1} fill="#fffdf5" />
-              {mood === 'error' ? <g className="mosaic-error-eye" fill="#14111a">
+          {mood === 'error' ? art.errorEyes.map(({ x, y }) => <g key={x}>
+              <rect x={x} y={y} width={3} height={3} fill="#fffdf5" />
+              <g className="mosaic-error-eye" fill="#14111a">
                 {[[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]].map(([dx, dy]) =>
                   <rect key={`${dx}:${dy}`} x={x + dx} y={y + dy} width={1} height={1} />)}
               </g>
-                : <g ref={x === 3 ? left : right} className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={y} width={1} height={1} fill="#14111a" /></g>}
-            </g>
-            <rect className="mosaic-eye-closed" x={x} y={y} width={2} height={1} fill="#14111a" opacity={0} />
-          </g>)}</g>
+          </g>) : null}
         </g>
+        {mood !== 'error' ? <g transform={`translate(${art.face.x} ${art.face.y}) scale(${art.face.scale})`}>
+          <g className="mosaic-eyes">{MOSAIC_EYES.map((eye, index) => <g key={index} transform={`translate(${eye.x} ${eye.y})`}>
+            <defs><clipPath id={`${uid}-eye-${index}`}><path d={eye.path} /></clipPath></defs>
+            <g className="mosaic-eye-open">
+              <path data-mosaic-eye d={eye.path} fill="#fffdf5" stroke="#302633" strokeWidth={1.1} />
+              <g clipPath={`url(#${uid}-eye-${index})`}>
+                <g ref={index === 0 ? left : right} className="mosaic-pupil">
+                  <circle r={eye.pupilRadius} fill="#211925" />
+                  <circle cx={-2} cy={-2.3} r={1.6} fill="#fffdf5" />
+                </g>
+              </g>
+            </g>
+            <path className="mosaic-eye-closed" d="M-9 1 Q0 5 9 0" fill="none" stroke="#211925" strokeWidth={2.8} strokeLinecap="round" opacity={0} />
+          </g>)}</g>
+        </g> : null}
       </svg>
     </div>
     <svg className="blob-overlay" viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>

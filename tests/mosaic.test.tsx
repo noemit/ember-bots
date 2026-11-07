@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Blob from '../src/blob/Blob';
-import { MOSAIC_SHAPES, mosaicActivityPixels, mosaicGeometry } from '../src/blob/mosaic';
+import { MOSAIC_EYES, MOSAIC_PUPIL_REACH, MOSAIC_SHAPES, mosaicActivityPixels, mosaicGeometry } from '../src/blob/mosaic';
 import { seedIdentity } from '../src/blob/seed';
 import { blobColor } from '../src/blob/color';
 import { BLOB_STYLES, migrateBlobStyle } from '../electron/transport';
@@ -23,8 +23,10 @@ test('Mosaic identities are stable, varied, and keep eyes inside every silhouett
     for (const shape of MOSAIC_SHAPES) {
       const chosen = mosaicGeometry({ ...identity, shapeName: shape.name });
       expect(chosen.name).toBe(shape.name);
-      // Thinking raises the eyes by one whole cell; both rows must stay inside the body.
-      for (const y of [chosen.eyeY, chosen.eyeY - 1]) for (const x of [3, 4, 6, 7]) {
+      // The organic face fits a solid patch of tiles, including its slight thinking lift.
+      for (const px of [-28, 0, 28]) for (const py of [-17.5, 0, 17.5]) {
+        const x = Math.floor((chosen.face.x + px * chosen.face.scale - 8) / 7);
+        const y = Math.floor((chosen.face.y + py * chosen.face.scale - 1) / 7);
         expect(chosen.cells.some(cell => cell.x === x && cell.y === y)).toBe(true);
       }
       // Full-size X eyes fit inside the actual body, including its mirrored silhouettes.
@@ -82,7 +84,7 @@ test('Mosaic replaces both pupils with crosses when a turn fails', () => {
 });
 
 
-test('every Mosaic detail stays on the body pixel grid in every mood', () => {
+test('Mosaic tiles and error crosses stay on the body pixel grid in every mood', () => {
   for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'error', 'unread', 'unknown'] as const) {
     const html = renderToStaticMarkup(<Blob style="mosaic" seed="grid" mood={mood} />);
     const grid = html.split('data-mosaic-grid')[1].split('</svg>')[0];
@@ -94,4 +96,18 @@ test('every Mosaic detail stays on the body pixel grid in every mood', () => {
       if (field === 'width' || field === 'height') expect(value).toBeGreaterThan(0);
     }
   }
+});
+
+test('Mosaic has unequal organic eyes, larger pupils and unique clipping for each face', () => {
+  expect(MOSAIC_EYES[0].path).not.toBe(MOSAIC_EYES[1].path);
+  expect(MOSAIC_EYES[0].y).not.toBe(MOSAIC_EYES[1].y);
+  for (const eye of MOSAIC_EYES) {
+    expect(eye.pupilRadius * 2).toBeGreaterThan(7); // Larger than the previous single-cell pupil.
+    expect(eye.pupilRadius + MOSAIC_PUPIL_REACH).toBeLessThan(11);
+  }
+  const html = renderToStaticMarkup(<><Blob style="mosaic" seed="a" /><Blob style="mosaic" seed="b" /></>);
+  const clips = [...html.matchAll(/<clipPath id="([^"]+)"/g)].map(match => match[1]);
+  expect(clips).toHaveLength(4);
+  expect(new Set(clips).size).toBe(4);
+  expect(html.match(/data-mosaic-eye/g)).toHaveLength(4);
 });

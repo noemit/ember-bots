@@ -1,3 +1,8 @@
+## 1.20.3
+
+### Changed
+- Mosaic has larger, uneven eyes with bigger pupils and catchlights. Its pupils follow the cursor in both directions and make more expressive working and thinking glances.
+
 ## 1.20.2
 
 ### Fixed

@@ -14,18 +14,16 @@ test('Mosaic and Scribble follow nearby pointers, stay inside their eyes, and re
           await page.mouse.move(box.x + box.width / 2 + side * 70, box.y + box.height / 2 - 25);
           await expect(blob).toHaveAttribute('data-pupil-tracking', 'true');
           await expect.poll(() => pupils.evaluateAll(nodes => nodes.every(node => {
-            const pupil = node.querySelector('rect, circle')!.getBoundingClientRect();
-            const eye = node.parentElement!.querySelector('rect, ellipse')!.getBoundingClientRect();
-            return pupil.left >= eye.left - .1 && pupil.right <= eye.right + .1 &&
-              pupil.top >= eye.top - .1 && pupil.bottom <= eye.bottom + .1;
+            const pupil = node.querySelector('circle')!;
+            const eye = (node.closest('.mosaic-eye-open')?.querySelector('[data-mosaic-eye]') ??
+              node.parentElement!.querySelector('ellipse')) as SVGGeometryElement;
+            const relative = eye.getScreenCTM()!.inverse().multiply(pupil.getScreenCTM()!);
+            return Array.from({ length: 16 }, (_, index) => index * Math.PI / 8).every(angle =>
+              eye.isPointInFill(new DOMPoint(pupil.r.baseVal.value * Math.cos(angle), pupil.r.baseVal.value * Math.sin(angle)).matrixTransform(relative)));
           }))).toBe(true);
           const gaze = await pupils.evaluateAll((nodes, direction) => nodes.map(node => {
             const matrix = (node as SVGGElement).transform.baseVal.consolidate()!.matrix;
-            if (node.classList.contains('scribble-pupil')) return matrix.e * direction > 0 && matrix.f < 0;
-            const pupil = node.querySelector('rect')!;
-            const eye = node.parentElement!.querySelector('rect')!;
-            const column = Number(pupil.getAttribute('x')) + matrix.e - Number(eye.getAttribute('x'));
-            return column === (direction < 0 ? 0 : 1) && matrix.f === 0 && getComputedStyle(node).animationName === 'none';
+            return matrix.e * direction > 0 && matrix.f < 0 && getComputedStyle(node).animationName === 'none';
           }), side);
           expect(gaze).toEqual([true, true]);
           if (side === 1 && !captured) {
@@ -297,21 +295,25 @@ test('Mosaic glances and briefly blinks while working and thinking, keeping pupi
         const elapsed = element.getAnimations()[0]?.currentTime;
         (element as SVGElement).style.animationDelay = `${-duration * phase + (typeof elapsed === 'number' ? elapsed / 1000 : 0)}s`;
       });
-      const pupils = [...node.querySelectorAll('.mosaic-pupil rect')];
-      const eyes = [...node.querySelectorAll('.mosaic-eye-open > rect')];
+      const pupils = [...node.querySelectorAll<SVGCircleElement>('.mosaic-pupil > circle:first-child')];
+      const eyes = [...node.querySelectorAll<SVGPathElement>('[data-mosaic-eye]')];
       return {
         gaze: getComputedStyle(node.querySelector('.mosaic-pupil')!).transform,
         peek: getComputedStyle(node.querySelector('.mosaic-eyes')!).transform,
         open: getComputedStyle(node.querySelector('.mosaic-eye-open')!).opacity,
         lid: getComputedStyle(node.querySelector('.mosaic-eye-closed')!).opacity,
         inside: pupils.every((pupil, index) => {
-          const p = pupil.getBoundingClientRect();
-          const e = eyes[index].getBoundingClientRect();
-          return p.left >= e.left - .1 && p.right <= e.right + .1 && p.top >= e.top - .1 && p.bottom <= e.bottom + .1;
+          const eye = eyes[index];
+          const relative = eye.getScreenCTM()!.inverse().multiply(pupil.getScreenCTM()!);
+          return Array.from({ length: 16 }, (_, point) => point * Math.PI / 8).every(angle =>
+            eye.isPointInFill(new DOMPoint(pupil.r.baseVal.value * Math.cos(angle), pupil.r.baseVal.value * Math.sin(angle)).matrixTransform(relative)));
         }),
       };
     }));
-    expect(new Set(frames.map(frame => frame.gaze)).size).toBe(2);
+    expect(new Set(frames.map(frame => frame.gaze)).size).toBeGreaterThan(3);
+    const offsets = frames.map(frame => frame.gaze.match(/matrix\(([^)]+)\)/)![1].split(',').map(Number));
+    expect(Math.max(...offsets.map(matrix => matrix[4])) - Math.min(...offsets.map(matrix => matrix[4]))).toBeGreaterThan(3);
+    expect(Math.max(...offsets.map(matrix => matrix[5])) - Math.min(...offsets.map(matrix => matrix[5]))).toBeGreaterThan(2);
     expect(frames.every(frame => frame.inside)).toBe(true);
     expect(frames.map(frame => frame.open)).toEqual(['1', '1', '1', '0', '0', '1', '1']);
     expect(frames.map(frame => frame.lid)).toEqual(['0', '0', '0', '1', '1', '0', '0']);

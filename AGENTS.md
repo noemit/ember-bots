@@ -537,7 +537,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 - `src/components/ui/` — shadcn/ui primitives (Tailwind v4, `radix-ui`). Add more with
   `bunx --bun shadcn@latest add <name>`.
 - `src/blob/` — session avatars. `Blob.tsx` switches between `BuddyBlob` (flat, soft creatures),
-  `CrystalBlob` (faceted stones that light up), `MosaicBlob` (seeded pixel silhouettes with colour ribbons and square eyes) and
+  `CrystalBlob` (faceted stones that light up), `MosaicBlob` (seeded pixel silhouettes with colour ribbons and uneven organic eyes) and
   `LavaBlob` (grainy lava-lamp goo, below) and `ScribbleBlob` (seeded pen strokes, tiny legs and
   dark-outlined eyes). Scribble uses bounded SVG paths without filters; idle stays still.
   Scribble turns through independent wire-bundle angles around a solid core, never an edge-on
@@ -547,15 +547,18 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   Thinking is style-specific: Buddy leans/squashes/rises and glances, Scribble wires twitch,
   Mosaic lights stepped tiles, Lava gathers/stretches/melts, and Crystal glints through facets.
   Only Crystal uses the orbit ring; Lava keeps decision badges without an orbit. No shared thinking ring. Reduced motion disables
-  all of them; idle remains still. Mosaic uses one shared pixel grid: all drawing coordinates and dimensions are whole cells, including eyes and blinks; never subdivide cells for finer details. Error eyes are three-by-three crosses of full-size cells, positioned inside each silhouette, without diagonal strokes. Its working/thinking eyes
-  use whole-cell glances and occasional blinks, with longer upward looks while thinking;
-  seeded CSS phases keep chats out of sync, and reduced motion leaves the eyes open.
+  all of them; idle remains still. Mosaic's body, activity tiles and error crosses use whole cells.
+  Its normal face is a separate smooth layer: two unequal, lopsided whites with larger pupils and
+  catchlights, fitted inside a solid patch of each silhouette. Per-eye clips contain the pupils.
+  Error eyes remain three-by-three crosses of full-size cells, without diagonal strokes. Working
+  and thinking pupils glance in both axes with quiet holds and occasional blinks; seeded CSS phases
+  keep chats out of sync, and reduced motion leaves the eyes open.
   Stored Pip selections migrate to Mosaic.
   Gem, Critter and Glyph were removed, and stored
   settings that still name them fall back to the default. Renderers memoize on the `identity`
   object, so App hands back the previous reference when nothing changed. Buddy, Scribble and Mosaic
-  pupils share nearby-cursor tracking (`NEAR_RADIUS` in `usePupilTracking.ts`). Mosaic changes only
-  whole-cell columns, yielding its automatic working gaze while tracking but keeping blinks.
+  pupils share nearby-cursor tracking (`NEAR_RADIUS` in `usePupilTracking.ts`). Mosaic yields its
+  automatic working gaze while tracking in both axes, but keeps its blinks.
   Thinking, error and unknown states do not track. Pointer exit, blur and disabling interaction
   restore the normal gaze; the gallery enables tracking except while paused or in reduced motion.
   Active Buddy blobs do
