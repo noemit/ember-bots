@@ -1,3 +1,8 @@
+## 1.20.5
+
+### Fixed
+- Crystal facets share a connected mesh instead of overlapping planes. Shading follows each face's angle, reflections stay on the same cuts, and sparkles sit at shared corners.
+
 ## 1.20.4
 
 ### Changed

@@ -569,8 +569,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   body (the mood badges) lives in its own `.blob-overlay` layer. Idle draws no
   animation at all: motion is reserved for a session that is working, waiting or failed, so a rail
   of idle blobs is static (and costs nothing). `lib/useMotionPause.ts` pauses every animation via
-  `animation-play-state` — progress survives — whenever the document is hidden. Crystal draws its volume as white/black *facet planes* clipped to the
-  silhouette (`coalGeometry`… now `crystalGeometry` in `blob/crystal.ts`), so shading works on every
+  `animation-play-state` — progress survives — whenever the document is hidden. Crystal draws a connected
+  triangular mesh with shared rim vertices and three raised interior junctions (`crystalGeometry`
+  in `blob/crystal.ts`). Every internal edge belongs to exactly two faces; rounded outline clipping
+  only trims the outer corners. Face normals set the white/black shading, reflections use those same
+  faces, and sparkles sit at the shared junctions. Shading works on every
   palette entry in both themes with no colour maths; its heat halo is the mood channel — dark when
   idle, gently warm when busy, the secondary attention accent when it wants you, cold grey when the turn failed — and each mood
   sets that halo *statically* first, so the state survives a still frame and reduced motion (only the

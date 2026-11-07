@@ -12,14 +12,19 @@ import { hashString, mulberry32 } from './seed';
 export type CrystalGeometry = {
   /** Closed path for the lump itself. */
   body: string;
+  /** Shared 3D corners: the outline first, then the three raised interior junctions. */
+  vertices: Array<[number, number, number]>;
+  rimCount: number;
   /**
    * The cut planes, as white/black overlays: volume without any colour maths, so it works on every
    * palette entry and both themes. `lit` catches the light, `shade` turns away, `soft` is the
    * in-between plane that stops a two-tone split reading as a flat sticker.
    */
   facets: Array<{
+    vertices: [number, number, number];
     d: string;
     kind: 'lit' | 'shade' | 'soft';
+    opacity: number;
     /** Maps a 100-unit reflection plane along the rim and inward toward this facet's anchor. */
     reflectionTransform: string;
   }>;
@@ -98,49 +103,70 @@ export const crystalGeometry = (
     const angle = (index / sides) * TAU - Math.PI / 2;
     const radius =
       RADIUS * (1 + wobble2 * Math.sin(2 * angle + phase2) + wobble3 * Math.sin(3 * angle + phase3));
-    return [50 + Math.cos(angle) * radius, 50 + Math.sin(angle) * radius] as [number, number];
+    return [50 + Math.cos(angle) * radius, 50 + Math.sin(angle) * radius]
+      .map(value => Number(value.toFixed(2))) as [number, number];
   });
 
   const body = facetPath(points, round);
 
-  // Facets hang off the highest and lowest vertices, closing on an anchor pulled the other way so
-  // the lit/shaded planes read as a solid with a light from the top-left.
-  const highest = points.reduce((best, point, index) => (point[1] < points[best][1] ? index : best), 0);
-  const lowest = points.reduce((best, point, index) => (point[1] > points[best][1] ? index : best), 0);
-  const neighbour = (index: number, offset: number) => points[(index + offset + sides) % sides];
-  const facet = (index: number, anchorX: number, anchorY: number) => {
-    const before = neighbour(index, -1);
-    const after = neighbour(index, 1);
-    const vertex = points[index];
+  // A raised triangle joins the rim through a complete mesh. Neighbouring faces reuse the exact
+  // same corners, so there are no overlapping planes, crossing cuts or unassigned patches.
+  const junctionRim = [0, Math.floor(sides / 3), Math.floor(sides * 2 / 3)];
+  const vertices: CrystalGeometry['vertices'] = points.map(([x, y]) => [x, y, 0]);
+  for (const index of junctionRim) {
+    const inset = .35 + shapeRng() * .12;
+    vertices.push([
+      Number((50 + (points[index][0] - 50) * inset).toFixed(2)),
+      Number((50 + (points[index][1] - 50) * inset).toFixed(2)),
+      Number((14 + shapeRng() * 6).toFixed(2)),
+    ]);
+  }
+  const junctionFor = (index: number) => {
+    const distance = (rim: number) => Math.min(Math.abs(index - rim), sides - Math.abs(index - rim));
+    return sides + junctionRim.reduce((best, rim, candidate) =>
+      distance(rim) < distance(junctionRim[best]) ? candidate : best, 0);
+  };
+  const triangles: Array<[number, number, number]> = [];
+  for (let index = 0; index < sides; index++) {
+    const next = (index + 1) % sides;
+    const inner = junctionFor(index);
+    const nextInner = junctionFor(next);
+    triangles.push([index, next, nextInner]);
+    if (inner !== nextInner) triangles.push([index, nextInner, inner]);
+  }
+  triangles.push([sides, sides + 1, sides + 2]);
+
+  const facets = triangles.map((corners): CrystalGeometry['facets'][number] => {
+    const [before, after, anchor] = corners.map(index => vertices[index]);
+    const u = after.map((value, axis) => value - before[axis]);
+    const v = anchor.map((value, axis) => value - before[axis]);
+    const normal = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    // One upper-left light for the whole stone, calculated from each actual triangular plane.
+    const light = (-.45 * normal[0] - .65 * normal[1] + .6 * normal[2]) / Math.hypot(...normal);
+    const shade = light < .48;
     return {
+      vertices: corners,
       d: `M${before[0].toFixed(2)} ${before[1].toFixed(2)} ` +
-        `L${vertex[0].toFixed(2)} ${vertex[1].toFixed(2)} ` +
         `L${after[0].toFixed(2)} ${after[1].toFixed(2)} ` +
-        `L${anchorX.toFixed(2)} ${anchorY.toFixed(2)} Z`,
+        `L${anchor[0].toFixed(2)} ${anchor[1].toFixed(2)} Z`,
+      kind: shade ? 'shade' : light > .72 ? 'lit' : 'soft',
+      opacity: Number(Math.min(.3, shade ? (.48 - light) * .45 : .035 + (light - .48) * .4).toFixed(3)),
       // The same local light bends and narrows differently on every cut. Derive the basis from
       // the actual face so reflections follow all six archetypes and their seeded variations.
       reflectionTransform: `matrix(${[
         (after[0] - before[0]) / 100,
         (after[1] - before[1]) / 100,
-        (anchorX - (before[0] + after[0]) / 2) / 100,
-        (anchorY - (before[1] + after[1]) / 2) / 100,
+        (anchor[0] - (before[0] + after[0]) / 2) / 100,
+        (anchor[1] - (before[1] + after[1]) / 2) / 100,
         before[0], before[1],
       ].join(' ')})`,
     };
-  };
-
-  // Three planes converging near the middle: the height of the lump catches the light, its base
-  // turns away, and a third plane on the roomier side keeps the split from reading as a sticker.
-  // Anchors sit off-centre so the planes meet along short edges rather than at one point.
-  const sideIndex = (highest + (shapeRng() < 0.5 ? 1 : sides - 1)) % sides;
-  const facets: CrystalGeometry['facets'] = [
-    { ...facet(highest, 44, 46), kind: 'lit' },
-    { ...facet(lowest, 56, 54), kind: 'shade' },
-    { ...facet(sideIndex, points[sideIndex][0] < 50 ? 53 : 47, 50), kind: 'soft' },
-  ];
+  });
 
   return {
     body,
+    vertices,
+    rimCount: sides,
     facets,
     tilt: Math.round((motionRng() - 0.5) * 20),
     heatDelay: -Number((motionRng() * 5).toFixed(2)),

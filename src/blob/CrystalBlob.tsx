@@ -98,17 +98,17 @@ export default function CrystalBlob({
 
         <g className="blob-body" transform={`rotate(${geometry.tilt} 50 50)`}>
           <path d={geometry.body} fill={ink} />
-          {/* Clipped, because a plane hangs off its two rim vertices and would otherwise poke
-              past the silhouette. */}
+          {/* The mesh covers the whole polygon; clipping trims its rounded outer corners. */}
           <g clipPath={`url(#${uid}-lump)`}>
             {geometry.facets.map((facet, index) => (
               <path
                 key={index}
+                data-crystal-facet={index}
                 className={facet.kind === 'shade' ? undefined : 'crystal-glint'}
                 style={{ animationDelay: `${geometry.heatDelay - index * .38}s` }}
                 d={facet.d}
                 fill={facet.kind === 'shade' ? '#000000' : '#ffffff'}
-                opacity={facet.kind === 'lit' ? 0.2 : facet.kind === 'shade' ? 0.18 : 0.1}
+                opacity={facet.opacity}
               />
             ))}
             {mood === 'busy' ? <g className="crystal-working-light">
@@ -126,7 +126,7 @@ export default function CrystalBlob({
             </g> : null}
           </g>
           {mood === 'busy' ? <g fill="white" stroke={ink} strokeWidth={.35}>
-            {[[32, 29], [69, 46], [43, 73]].map(([x, y], index) => (
+            {geometry.vertices.slice(geometry.rimCount).map(([x, y], index) => (
               <path key={index} className="crystal-sparkle"
                 d={`M${x} ${y - 4} Q${x + .8} ${y - .8} ${x + 4} ${y} Q${x + .8} ${y + .8} ${x} ${y + 4} Q${x - .8} ${y + .8} ${x - 4} ${y} Q${x - .8} ${y - .8} ${x} ${y - 4}Z`}
                 style={{ animationDelay: `${geometry.heatDelay - index * 2.1}s` }} />

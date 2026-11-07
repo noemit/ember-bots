@@ -143,6 +143,37 @@ test('gallery shows every state and previews distinct Scribble working gestures'
   expect(errors).toEqual([]);
 });
 
+test('Crystal facets cover the stone once and working reflections follow those same cuts', async ({ page }) => {
+  await page.goto('/blob-gallery.html');
+  await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
+  await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
+  const crystals = page.locator('[data-style="crystal"][data-state="busy"] .blob');
+  const surfaces = await crystals.evaluateAll(nodes => nodes.map(node => {
+    const body = node.querySelector('.blob-body > path') as SVGPathElement;
+    const faces = [...node.querySelectorAll<SVGPathElement>('[data-crystal-facet]')];
+    let checked = 0;
+    let misaligned = 0;
+    for (let x = 4.137; x < 96; x += 3.71) for (let y = 4.293; y < 96; y += 3.67) {
+      const point = new DOMPoint(x, y);
+      if (!body.isPointInFill(point)) continue;
+      checked++;
+      if (faces.filter(face => face.isPointInFill(point)).length !== 1) misaligned++;
+    }
+    const clips = [...node.querySelectorAll('.crystal-working-light > g')].map(light => {
+      const id = light.getAttribute('clip-path')!.slice(5, -1);
+      return node.querySelector(`[id="${id}"] path`)!.getAttribute('d');
+    });
+    return { checked, misaligned, clips, faces: faces.map(face => face.getAttribute('d')) };
+  }));
+  expect(surfaces).toHaveLength(3);
+  for (const surface of surfaces) {
+    expect(surface.checked).toBeGreaterThan(200);
+    expect(surface.misaligned).toBe(0);
+    expect(surface.clips).toEqual(surface.faces);
+  }
+  await page.getByRole('region', { name: 'Crystal states', exact: true }).screenshot({ path: '/tmp/ember-crystal-facets.png' });
+});
+
 test('Lava changes course between separations, keeps colour with its lobes, and stops when reduced', async ({ page }) => {
   await page.goto('/blob-gallery.html');
   await page.getByRole('button', { name: 'Rail · 55px', exact: true }).click();
