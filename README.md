@@ -1,11 +1,14 @@
-# Ember
+# Ember Bots
 
-**The human thinks, decides and steers.**
+**An agent workspace designed for high performing humans. Built on pi-durable to help you think, steer and stay organized.**
 
-Ember is a desktop workspace for building with AI agents. Follow their work, give specific feedback,
-and decide what happens next, with chats from your computers and projects in one window.
+Ember is an agent and bot workspace with support for multiple model providers. Visual mnemonics
+and familiar patterns help you manage cognitive load while directing several agents. It works
+out of the box on your own machine, and can connect to a second computer or container that serves
+as an always-on agent hub. Bring those workspaces together in Ember on your primary device, or
+access your running desktop workspace from a phone or tablet over a private network like Tailscale.
 
-[Download](#downloads--quick-install) · [First use](#first-use) · [Build from source](#run-from-source) · [Contribute](docs/development.md#contributing)
+[Download](#downloads--quick-install) · [First use](#first-use) · [Providers](#model-providers) · [Tailscale](docs/tailscale.md) · [Build from source](#run-from-source) · [Contribute](docs/development.md#contributing)
 
 ![Ember showing a quoted finding, a draft comment on that finding, background threads, and a human direction ready in the composer.](docs/images/workspace.png)
 
@@ -51,6 +54,42 @@ Model access comes from the provider account you connect.
 Quitting Ember stops its included Kiln and active agent work; conversation history stays on disk.
 On macOS, closing the window leaves the app running. For work that should continue after Ember
 quits, use a [standalone Kiln](docs/instances.md#standalone-kiln-with-tinder).
+
+## Model providers
+
+Configure providers in **Settings → Providers** on the instance that will run your agents.
+The table describes the current source; older downloads may expose fewer options.
+
+| Provider | Connection available now |
+| --- | --- |
+| OpenAI | API key; ChatGPT account sign-in through the separate **OpenAI Codex** provider |
+| Anthropic / Claude | API key; Claude subscription sign-in is not available yet |
+| Google Gemini | API key |
+| xAI / Grok | API key or account sign-in |
+| DeepSeek, NVIDIA NIM, Fireworks | API key |
+| OpenRouter | API key or account sign-in |
+| OpenCode Zen | API key; models are discovered from the service |
+| Kimi / Moonshot | Moonshot API key; Kimi Coding key or account sign-in |
+| Meta | API key or account sign-in |
+| GitHub Copilot | Existing token; interactive sign-in is not available yet |
+| Ollama, LM Studio | Local runtime, detected when running with models loaded |
+
+A provider being connected does not mean every model or feature is available. Your account,
+the provider’s catalogue and the connected Kiln version determine the choices shown in Ember.
+
+**Next support work:** complete Claude subscription sign-in and GitHub Copilot interactive
+sign-in. These flows need additional prompts during authentication; they are not ready in Ember
+and have no committed release date. Use the API-key or token route above in the meantime.
+
+## Use Ember across your devices
+
+Keep Ember running on your computer and open the same workspace from your phone, tablet or
+another computer over Tailscale. Enable access, set a password, then open the private address.
+Follow the [short Tailscale setup guide](docs/tailscale.md).
+
+For agents that should keep working when you quit the desktop app, use a
+[standalone Kiln on an always-on computer](docs/instances.md#standalone-kiln-with-tinder), then
+connect it in **Settings → Instances**.
 
 ## What it does
 

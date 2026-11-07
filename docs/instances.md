@@ -78,6 +78,8 @@ If a host is unreachable, establish its HTTP connection or tunnel first, then us
 
 ## Remote access
 
+For a short walkthrough, see [Use Ember over Tailscale](tailscale.md).
+
 This is browser access to the Ember app running on your desktop, separate from connecting Ember to
 a remote Kiln. It is disabled by default.
 

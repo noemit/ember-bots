@@ -1,3 +1,8 @@
+## 1.18.7
+
+### Changed
+- Expanded the README with provider connection methods, upcoming sign-in work and a short Tailscale guide for access across devices.
+
 ## 1.18.6
 
 ### Fixed
