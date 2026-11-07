@@ -23,7 +23,10 @@ test('Mosaic identities are stable, varied, and keep eyes inside every silhouett
     for (const shape of MOSAIC_SHAPES) {
       const chosen = mosaicGeometry({ ...identity, shapeName: shape.name });
       expect(chosen.name).toBe(shape.name);
-      for (const x of [3, 4, 6, 7]) expect(chosen.cells.some(cell => cell.x === x && cell.y === chosen.eyeY)).toBe(true);
+      // Thinking raises the eyes by one whole cell; both rows must stay inside the body.
+      for (const y of [chosen.eyeY, chosen.eyeY - 1]) for (const x of [3, 4, 6, 7]) {
+        expect(chosen.cells.some(cell => cell.x === x && cell.y === y)).toBe(true);
+      }
       expect(chosen.cells.length).toBeLessThan(130);
     }
   }

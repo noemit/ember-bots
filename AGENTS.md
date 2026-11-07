@@ -549,7 +549,9 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   flattening. Every silhouette mixes sharp, round and bent tips; crossing strands texture the back.
   Thinking is style-specific: Buddy gaze/tilt, Scribble wire twitches, Mosaic stepped tile light,
   Lava circulating pools and Crystal facet glints. No shared thinking ring. Reduced motion disables
-  all of them; idle remains still. Mosaic error eyes are crosses.
+  all of them; idle remains still. Mosaic error eyes are crosses. Its working/thinking eyes
+  use whole-cell glances and occasional blinks, with longer upward looks while thinking;
+  seeded CSS phases keep chats out of sync, and reduced motion leaves the eyes open.
   Stored Pip selections migrate to Mosaic.
   Gem, Critter and Glyph were removed, and stored
   settings that still name them fall back to the default. Renderers memoize on the `identity`

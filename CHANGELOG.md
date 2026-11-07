@@ -1,3 +1,10 @@
+## 1.15.3
+
+### Changed
+- Mosaic glances from side to side while working, looks up with longer holds while thinking,
+  and occasionally blinks. Eye movements stay on the pixel grid, vary in phase between chats,
+  and stop with eyes open under reduced motion. Idle and error faces remain still.
+
 ## 1.15.2
 
 ### Changed

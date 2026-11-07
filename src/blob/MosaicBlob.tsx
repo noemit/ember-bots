@@ -17,9 +17,12 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
     return { ...geometry, base,
       tiles: geometry.cells.map(cell => ({ ...cell, fill: mosaicTileColor(base, cell.band, cell.y, resolved.colorSeed) })),
       pixels: mosaicActivityPixels(geometry.cells).map(pixel => ({ ...pixel, fill: mosaicTileColor(base, Math.max(0, Math.min(11, pixel.x)), pixel.y, resolved.colorSeed) })),
-      delay: -(hashString(resolved.motionSeed) % 2400) / 1000 };
+      delay: -(hashString(resolved.motionSeed) % 2400) / 1000,
+      eyeDelay: -(hashString(`mosaic-eyes:${resolved.motionSeed}`) % 10800) / 1000 };
   }, [identity, seed]);
-  return <div className="blob blob-mosaic" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size }}>
+  return <div className="blob blob-mosaic" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size,
+    '--mosaic-eye-delay': `${art.eyeDelay}s`, '--mosaic-gaze-step': art.lookRight ? '-1px' : '1px',
+  } as React.CSSProperties}>
     <div className="mosaic-step" style={{ animationDelay: `${art.delay}s` }}>
       <svg viewBox="0 0 100 100" width={size} height={size}>
         <g transform="translate(8 1) scale(7)" shapeRendering="crispEdges">
@@ -31,12 +34,15 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle' }:
             key={`${side}:${x}:${y}`} className="mosaic-pixel" data-side={side === -1 ? 'left' : 'right'}
             x={x} y={y} width={1} height={1} fill={fill}
             style={{ animationDelay: `${art.delay - delay}s`, animationName: distance === 1 ? 'mosaic-pixel-near' : 'mosaic-pixel-far' }} />) : null}
-          {[3, 6].map(x => <g key={x}>
-            <rect x={x} y={art.eyeY} width={2} height={1} fill="#fffdf5" />
-            {mood === 'error' ? <path className="mosaic-error-eye" d={`M${x + .25} ${art.eyeY + .1}l1.5 .8m0 -.8l-1.5 .8`}
-              stroke="#14111a" strokeWidth={.28} fill="none" shapeRendering="geometricPrecision" />
-              : <rect x={x + (art.lookRight ? 1 : 0)} y={art.eyeY} width={1} height={1} fill="#14111a" />}
-          </g>)}
+          <g className="mosaic-eyes">{[3, 6].map(x => <g key={x}>
+            <g className="mosaic-eye-open">
+              <rect x={x} y={art.eyeY} width={2} height={1} fill="#fffdf5" />
+              {mood === 'error' ? <path className="mosaic-error-eye" d={`M${x + .25} ${art.eyeY + .1}l1.5 .8m0 -.8l-1.5 .8`}
+                stroke="#14111a" strokeWidth={.28} fill="none" shapeRendering="geometricPrecision" />
+                : <g className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={art.eyeY} width={1} height={1} fill="#14111a" /></g>}
+            </g>
+            <rect className="mosaic-eye-closed" x={x} y={art.eyeY + .4} width={2} height={.2} fill="#14111a" opacity={0} />
+          </g>)}</g>
         </g>
       </svg>
     </div>

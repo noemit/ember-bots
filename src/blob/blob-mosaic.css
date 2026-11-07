@@ -21,7 +21,46 @@
   12%, 24% { opacity: .48; }
   32% { opacity: .18; }
 }
+/* Whole-cell glances, shared by both eyes. Blink timing is independent of the edge pixels.
+   A seeded phase keeps neighbouring chats from looking and blinking in unison. */
+.blob-mosaic:is([data-mood='busy'], [data-mood='thinking']) :is(.mosaic-pupil, .mosaic-eye-open, .mosaic-eye-closed) {
+  animation-duration: 8.4s;
+  animation-timing-function: steps(1, end);
+  animation-iteration-count: infinite;
+  animation-delay: var(--mosaic-eye-delay);
+}
+.blob-mosaic[data-mood='busy'] .mosaic-pupil { animation-name: mosaic-working-gaze; }
+.blob-mosaic[data-mood='thinking'] .mosaic-pupil { animation-name: mosaic-thinking-gaze; }
+.blob-mosaic:is([data-mood='busy'], [data-mood='thinking']) .mosaic-eye-open { animation-name: mosaic-blink; }
+/* Opposite opacity tracks keep the lid visible only while the eye is shut. */
+.blob-mosaic:is([data-mood='busy'], [data-mood='thinking']) .mosaic-eye-closed { animation-name: mosaic-lid; }
+.blob-mosaic[data-mood='thinking'] :is(.mosaic-pupil, .mosaic-eye-open, .mosaic-eye-closed) { animation-duration: 10.8s; }
+.blob-mosaic[data-mood='thinking'] .mosaic-eyes {
+  animation: mosaic-thinking-peek 10.8s steps(1, end) infinite;
+  animation-delay: var(--mosaic-eye-delay);
+}
+@keyframes mosaic-working-gaze {
+  0%, 34%, 76%, 100% { transform: translateX(0); }
+  16%, 58% { transform: translateX(var(--mosaic-gaze-step)); }
+}
+@keyframes mosaic-thinking-gaze {
+  0%, 62%, 100% { transform: translateX(0); }
+  24% { transform: translateX(var(--mosaic-gaze-step)); }
+}
+@keyframes mosaic-thinking-peek {
+  0%, 62%, 100% { transform: translateY(0); }
+  24% { transform: translateY(-1px); }
+}
+@keyframes mosaic-blink {
+  0%, 55.5%, 100% { opacity: 1; }
+  54% { opacity: 0; }
+}
+@keyframes mosaic-lid {
+  0%, 55.5%, 100% { opacity: 0; }
+  54% { opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
+  .blob-mosaic :is(.mosaic-eyes, .mosaic-pupil, .mosaic-eye-open, .mosaic-eye-closed) { animation: none !important; }
   .blob-mosaic .mosaic-thought { animation: none !important; opacity: .12; }
   .blob-mosaic .mosaic-pixel { animation: none !important; opacity: 0.45; }
 }

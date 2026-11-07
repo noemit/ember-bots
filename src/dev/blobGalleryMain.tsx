@@ -72,7 +72,7 @@ function BlobGallery() {
       </article>
       <article className="gallery-spotlight">
         <div className="gallery-stage" data-preview="mosaic">{renderBlob('mosaic', 'busy', 160)}<div className="gallery-rail-sample">{renderBlob('mosaic', 'busy', 55)}<span>Rail size</span></div></div>
-        <div><p className="gallery-eyebrow">02 / MOSAIC IN MOTION</p><h2>Thinking in pixels.</h2><p>Tiles pop into place on the left and right, then disappear. The face stays steady while the edges get to work.</p></div>
+        <div><p className="gallery-eyebrow">02 / MOSAIC IN MOTION</p><h2>Thinking in pixels.</h2><p>Tiles pop into place on the left and right, then disappear. The eyes glance between tasks and blink now and then while the edges get to work.</p></div>
       </article>
     </section>
 

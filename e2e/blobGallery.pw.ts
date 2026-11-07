@@ -102,3 +102,61 @@ test('thinking is distinct for every style, and a turning Scribble keeps its vol
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await page.locator('.blob').evaluateAll(nodes => nodes.flatMap(node => node.getAnimations({ subtree: true })).length)).toBe(0);
 });
+
+test('Mosaic glances and briefly blinks while working and thinking, keeping pupils inside the eyes', async ({ page }) => {
+  await page.goto('/blob-gallery.html');
+  await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
+  for (const mood of ['busy', 'thinking']) {
+    const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`);
+    const frames = await blob.evaluate(node => [0, .25, .4, .545, .55, .56, .8].map(phase => {
+      node.querySelectorAll('.mosaic-eyes, .mosaic-pupil, .mosaic-eye-open, .mosaic-eye-closed').forEach(element => {
+        const duration = parseFloat(getComputedStyle(element).animationDuration);
+        // Pausing retains elapsed time. Offset it so short blink samples land at the intended phase.
+        const elapsed = element.getAnimations()[0]?.currentTime;
+        (element as SVGElement).style.animationDelay = `${-duration * phase + (typeof elapsed === 'number' ? elapsed / 1000 : 0)}s`;
+      });
+      const pupils = [...node.querySelectorAll('.mosaic-pupil rect')];
+      const eyes = [...node.querySelectorAll('.mosaic-eye-open > rect')];
+      return {
+        gaze: getComputedStyle(node.querySelector('.mosaic-pupil')!).transform,
+        peek: getComputedStyle(node.querySelector('.mosaic-eyes')!).transform,
+        open: getComputedStyle(node.querySelector('.mosaic-eye-open')!).opacity,
+        lid: getComputedStyle(node.querySelector('.mosaic-eye-closed')!).opacity,
+        inside: pupils.every((pupil, index) => {
+          const p = pupil.getBoundingClientRect();
+          const e = eyes[index].getBoundingClientRect();
+          return p.left >= e.left - .1 && p.right <= e.right + .1 && p.top >= e.top - .1 && p.bottom <= e.bottom + .1;
+        }),
+      };
+    }));
+    expect(new Set(frames.map(frame => frame.gaze)).size).toBe(2);
+    expect(frames.every(frame => frame.inside)).toBe(true);
+    expect(frames.map(frame => frame.open)).toEqual(['1', '1', '1', '0', '0', '1', '1']);
+    expect(frames.map(frame => frame.lid)).toEqual(['0', '0', '0', '1', '1', '0', '0']);
+    expect(new Set(frames.map(frame => frame.peek)).size).toBe(mood === 'thinking' ? 2 : 1);
+  }
+  // Put the two faces in a glance and a blink for a close visual review.
+  await page.locator('[data-style="mosaic"][data-state="thinking"] .blob').evaluate(node => {
+    node.querySelectorAll('.mosaic-eyes, .mosaic-pupil, .mosaic-eye-open, .mosaic-eye-closed').forEach(element => {
+      const elapsed = element.getAnimations()[0]?.currentTime;
+      (element as SVGElement).style.animationDelay = `${-parseFloat(getComputedStyle(element).animationDuration) * .25 + (typeof elapsed === 'number' ? elapsed / 1000 : 0)}s`;
+    });
+  });
+  await page.locator('[data-style="mosaic"][data-state="busy"] .blob').evaluate(node => {
+    node.querySelectorAll('.mosaic-pupil, .mosaic-eye-open, .mosaic-eye-closed').forEach(element => {
+      const elapsed = element.getAnimations()[0]?.currentTime;
+      (element as SVGElement).style.animationDelay = `${-parseFloat(getComputedStyle(element).animationDuration) * .545 + (typeof elapsed === 'number' ? elapsed / 1000 : 0)}s`;
+    });
+  });
+  await page.getByRole('region', { name: 'Mosaic states', exact: true }).screenshot({ path: '/tmp/ember-mosaic-eyes.png' });
+  for (const mood of ['idle', 'error']) {
+    expect(await page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const mood of ['busy', 'thinking']) {
+    const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`);
+    await expect(blob.locator('.mosaic-eye-open').first()).toHaveCSS('opacity', '1');
+    await expect(blob.locator('.mosaic-eye-closed').first()).toHaveCSS('opacity', '0');
+    expect(await blob.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
+  }
+});
