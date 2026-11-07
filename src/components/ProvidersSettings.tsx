@@ -47,8 +47,8 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
 /**
  * Provider credentials, one Hearth host at a time. `GET /providers` reports only the
  * credential *type* a host holds; a key set here is written to that host's
- * `$HEARTH_HOME/auth.json` and is never sent back or rendered. OAuth providers (xAI, OpenAI)
- * sign in on the host with `hearth.sh provider login`, so this panel only manages API keys.
+ * `$HEARTH_HOME/auth.json` and is never sent back or rendered. Subscription sign-in runs on that
+ * same host; this panel shows the browser link and polls for confirmed credential storage.
  */
 export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange }: Props) {
   const [endpointId, setEndpointId] = React.useState(initialEndpointId ?? endpoints[0]?.id ?? '');

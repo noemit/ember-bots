@@ -44,7 +44,8 @@ export default function ProviderSignInDialog({
   const [starting, setStarting] = React.useState(false);
   const [done, setDone] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
-  const stopped = React.useRef(false);
+  const [attempt, setAttempt] = React.useState(0);
+  const stopPolling = React.useRef(() => {});
   /**
    * Parents pass an inline arrow, so `onSignedIn` is a new function on every render. Keeping it in a
    * ref keeps it out of the effect's dependencies: otherwise each render restarts the effect, whose
@@ -56,15 +57,19 @@ export default function ProviderSignInDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    stopped.current = false;
+    // Each effect owns its cancellation flag. A retry or StrictMode remount must never revive
+    // the previous attempt's request or polling loop when it eventually answers.
+    let stopped = false;
+    stopPolling.current = () => { stopped = true; };
     setEvents([]);
     setError(null);
     setDone(false);
+    setCopied(false);
     setStarting(true);
 
     void (async () => {
       const started = await piStartProviderLogin(endpointId, providerId);
-      if (stopped.current) return;
+      if (stopped) return;
       setStarting(false);
       if (!started.ok) {
         setError(started.error ?? 'Could not start signing in.');
@@ -84,14 +89,11 @@ export default function ProviderSignInDialog({
       // Poll until the human approves (or it expires).
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-        if (stopped.current) return;
+        if (stopped) return;
         const polled = await piPollProviderLogin(endpointId, providerId);
-        if (stopped.current) return;
+        if (stopped) return;
         const outcome = loginPollOutcome(polled);
-        // 404 means the host settled the flow and forgot it; anything else that failed means Hearth
-        // did not answer. Treating every failure as the 404 case announced a sign-in that never
-        // happened.
-        if (outcome.kind === 'complete' || outcome.kind === 'swept') {
+        if (outcome.kind === 'complete') {
           setDone(true);
           signedIn.current();
           return;
@@ -106,14 +108,14 @@ export default function ProviderSignInDialog({
 
     return () => {
       // Stop polling, but leave the flow running on the host: a StrictMode remount (or a re-render
-      // path) must not cancel an authentication the user is completing in another window. Only the
-      // explicit Cancel button, or unmounting the dialog entirely, ends it.
-      stopped.current = true;
+      // path) must not cancel an authentication the user is completing in another window.
+      // Only the explicit Cancel button ends it.
+      stopped = true;
     };
-  }, [open, endpointId, providerId]);
+  }, [open, endpointId, providerId, attempt]);
 
   const cancel = async () => {
-    stopped.current = true;
+    stopPolling.current();
     await piCancelProviderLogin(endpointId, providerId);
     onOpenChange(false);
   };
@@ -155,8 +157,10 @@ export default function ProviderSignInDialog({
           <DialogTitle>Sign in to {providerName}</DialogTitle>
           <DialogDescription>
             {done
-              ? 'Signed in. ember-harness stored the credential on its own host.'
-              : 'Finish in your browser — this window will notice when you’re done.'}
+              ? 'Signed in. Kiln saved the connection on its computer.'
+              : error ? 'Sign-in did not finish. Use Try again below to start a new attempt.'
+              : starting ? `Connecting to ${providerName}…`
+              : 'Open the sign-in page below and finish in your browser. Ember will notice when you’re done.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -167,7 +171,7 @@ export default function ProviderSignInDialog({
         ) : null}
 
         {error ? (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+          <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
             {error}
           </p>
         ) : null}
@@ -178,7 +182,7 @@ export default function ProviderSignInDialog({
           </p>
         ) : null}
 
-        {device && !done ? (
+        {device && !done && !error ? (
           <div className="flex flex-col gap-3">
             <a
               href={device.verificationUri}
@@ -205,10 +209,16 @@ export default function ProviderSignInDialog({
                 ? ` The code expires in ${Math.round(device.expiresInSeconds / 60)} minutes.`
                 : ''}
             </p>
+            {providerId === 'openai-codex' ? (
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer">If OpenAI won’t accept the code</summary>
+                <p className="mt-2">Enable device code login in your ChatGPT security settings, or ask your workspace admin to enable it. Then try again here.</p>
+              </details>
+            ) : null}
           </div>
         ) : null}
 
-        {linkEvent && !device && !done ? (
+        {linkEvent && !device && !done && !error ? (
           <a
             href={linkEvent.url}
             target="_blank"
@@ -226,13 +236,14 @@ export default function ProviderSignInDialog({
           </p>
         ) : null}
 
-        {!done && !error ? (
+        {!done && !error && !starting ? (
           <p className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground" aria-live="polite">
             <Loader2 className="size-3 animate-spin" /> Waiting for approval…
           </p>
         ) : null}
 
         <div className="flex justify-end gap-2">
+          {error ? <Button type="button" size="sm" onClick={() => setAttempt((value) => value + 1)}>Try again</Button> : null}
           {!done && !error ? (
             <Button type="button" variant="ghost" size="sm" onClick={() => void cancel()}>
               Cancel

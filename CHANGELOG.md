@@ -1,3 +1,13 @@
+## 1.14.4
+
+### Fixed
+- Subscription sign-in no longer claims success when Kiln has forgotten an attempt or restarted.
+  Failed attempts offer Try again, and stale responses cannot overwrite a newer login.
+- OpenAI subscription sign-in explains device-code permissions when needed and hides expired codes
+  after failure. Success is shown only after Kiln confirms that the connection was saved.
+- Expanded fresh-profile packaged-app checks for issue #2: setup copy and spacing, OpenAI device-code
+  startup/cancellation, existing folders, folder creation/recovery, workspace persistence and glows.
+
 ## 1.14.3
 
 ### Fixed

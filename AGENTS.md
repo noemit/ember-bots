@@ -85,6 +85,9 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   mode's shield/word treatment. YOLO delegates all tool approvals for that conversation.
 - Adding a provider, by key or sign-in, offers a choice to keep or change the instance's default
   model. Credentials never select a replacement model implicitly.
+- Sign-in succeeds only when Kiln reports completion after saving the credential. A missing login
+  can mean a restart or a forgotten failure; never treat a 404 as success. Each dialog attempt owns
+  its polling lifetime so an old response cannot replace the current code or result.
 
 ## Packaging
 

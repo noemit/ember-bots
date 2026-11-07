@@ -1,17 +1,12 @@
 /**
  * What a sign-in poll actually tells us.
  *
- * The host stores a finished credential itself, and forgets the flow shortly afterwards, so a `404`
- * on the poll means "it finished and I no longer hold it" — a success. Every *other* failure means
- * Hearth did not answer, which is not success and must not be reported as one: the old code treated
- * any failed poll as the 404 case, so a timeout, a 401 or a 500 all rendered "Signed in. Hearth
- * stored the credential on its own host." while nothing had been stored.
+ * Only an explicit completion confirms that the host stored this flow's credential. A missing
+ * flow can also mean a restart or an expired failure: it says nothing about authentication.
  */
 export type LoginPollOutcome =
   | { kind: 'pending' }
   | { kind: 'complete' }
-  /** 404: the flow is no longer held because it settled. The credential was stored host-side. */
-  | { kind: 'swept' }
   | { kind: 'failed'; error: string }
   /** No answer at all (no bridge, a timeout, a 5xx): stop, say so, and let the reader try again. */
   | { kind: 'unreachable'; error: string };
@@ -25,7 +20,10 @@ type PollAnswer = {
 
 export const loginPollOutcome = (answer: PollAnswer): LoginPollOutcome => {
   if (!answer.ok) {
-    if (answer.status === 404) return { kind: 'swept' };
+    if (answer.status === 404) return {
+      kind: 'failed',
+      error: 'Kiln no longer has this sign-in attempt, so Ember cannot confirm it succeeded. Try again to start a new sign-in.',
+    };
     return {
       kind: 'unreachable',
       error:

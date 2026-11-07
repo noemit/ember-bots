@@ -3,8 +3,7 @@ import { loginPollOutcome, verificationHostLabel } from './src/lib/providerLogin
 
 /**
  * A sign-in poll must not turn "Hearth did not answer" into "signed in". The host stores the
- * credential itself and forgets the flow soon after, so 404 is the one failure that means success;
- * every other failure has to be reported as a failure the reader can act on.
+ * credential itself, but forgets successful and failed flows alike. Missing state is not proof.
  */
 describe('what a sign-in poll means', () => {
   test('a pending flow is pending', () => {
@@ -20,8 +19,14 @@ describe('what a sign-in poll means', () => {
     expect(outcome).toEqual({ kind: 'failed', error: 'expired' });
   });
 
-  test('404 means the host settled and forgot the flow, which is success', () => {
-    expect(loginPollOutcome({ ok: false, status: 404 })).toEqual({ kind: 'swept' });
+  test('a missing flow never claims success and offers a new attempt', () => {
+    const outcome = loginPollOutcome({ ok: false, status: 404 });
+    expect(outcome.kind).toBe('failed');
+    if (outcome.kind === 'failed') {
+      expect(outcome.error).toMatch(/Kiln/);
+      expect(outcome.error).toMatch(/try again/i);
+      expect(outcome.error).not.toMatch(/404|undefined|null/);
+    }
   });
 
   test('a 500 is not success', () => {
