@@ -80,3 +80,22 @@ test('split columns keep their own composers and reduced motion uses a still han
   await expect(page.locator('[data-connection-trace]')).toHaveCSS('animation-name', 'none');
   await expect(page.locator('[data-active-chat] [data-avatar-key]')).toHaveCSS('transform', 'none');
 });
+
+test('trays sit above the composer and do not enlarge its connected agent row', async ({ page }) => {
+  await page.goto('/?threads');
+  await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
+  const column = page.locator('main[data-session-key="pi:hearth::16"]');
+  const band = column.locator('[data-connection-composer]');
+  const extras = column.locator('[data-composer-extras]');
+  await expect(extras.getByRole('tab', { name: /Threads/ })).toBeVisible();
+  await expect(band.getByRole('tab')).toHaveCount(0);
+  const expanded = (await band.boundingBox())!;
+  const above = (await extras.boundingBox())!;
+  expect(above.y + above.height).toBeLessThanOrEqual(expanded.y + 1);
+  await extras.getByRole('button', { name: 'Fold the composer trays' }).click();
+  await expect.poll(async () => (await extras.boundingBox())!.height).toBeLessThan(above.height - 10);
+  expect(Math.abs((await band.boundingBox())!.height - expanded.height)).toBeLessThan(2);
+  const identity = (await page.locator(dock).boundingBox())!;
+  expect(Math.abs(identity.y - (await band.boundingBox())!.y)).toBeLessThan(2);
+  expect(Math.abs(identity.height - expanded.height)).toBeLessThan(2);
+});

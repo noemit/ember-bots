@@ -32,7 +32,7 @@ export function WorkspaceConnection({ activeKey, color, children }: {
 }
 export const useWorkspaceConnection = () => React.useContext(ConnectionContext);
 
-/** Measure the actual composer, including attachments and shelves, rather than guessing its height. */
+/** Measure the actual composer, including attachments but excluding the separate trays above it, rather than guessing its height. */
 export function useComposerConnection(key: string | null) {
   const connection = useWorkspaceConnection();
   const connected = Boolean(key && key === connection.activeKey);

@@ -112,7 +112,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
 - The rail displays older entries above newer entries and pins the current chat beside the input
   on desktop. `workspaceConnection.tsx` owns the measured geometry shared by LeftRail and ChatView:
   the active column reports its real footer height and input centre through ResizeObserver, so the
-  rail’s dock aligns through textarea growth, attachments, queues and shelves. Inputs remain in
+  rail’s dock aligns through textarea growth and attachments. Trays, comments, side questions and draft options sit in a separate section above the measured composer band; opening them never enlarges the agent/input row. Inputs remain in
   their session’s ChatView DOM; drafts, focus, drag/drop and split columns retain their boundaries.
   Mobile keeps the identity inside the composer and the rail retains its complete session list.
 - `AvatarTransitionContext` enables identity movement only within the rail’s LayoutGroup. Blob

@@ -1962,12 +1962,8 @@ function ChatView({
         />
       ) : null}
       {composerKey ? (
-        <div ref={connection.footer} data-connection-composer={connection.connected || undefined} className={cn("safe-composer relative flex-none border-t p-2.5 sm:p-3", connection.connected && "connection-band")}>
-          {connection.connected ? <span key={seed} data-connection-trace aria-hidden="true" /> : null}
-          {/* The region is a boundary plus one surface, not two: this band draws the line against the
-              transcript and the input card is the surface inside it. It used to paint its own fill too,
-              so the chips and the queue above the input sat on a rectangle inside another rectangle. */}
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex-none">
+          <div data-composer-extras className="flex min-w-0 flex-col gap-2 px-2.5 py-2 empty:hidden sm:px-3">
             {draftInstance ? (
               <div className="flex items-center gap-1.5 px-0.5" aria-label="New agent options">
                 {/* Starting a session freezes its destination: the request is already out, so an
@@ -2209,6 +2205,9 @@ function ChatView({
                 </button>
               </form>
             ) : null}
+          </div>
+          <div ref={connection.footer} data-connection-composer={connection.connected || undefined} className={cn("safe-composer relative border-t p-2.5 sm:p-3", connection.connected && "connection-band")}>
+            {connection.connected ? <span key={seed} data-connection-trace aria-hidden="true" /> : null}
             <motion.div
               layout
               // Focus is a soft outer glow, never a recoloured or thickened border and never a

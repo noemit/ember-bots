@@ -1,3 +1,8 @@
+## 1.18.1
+
+### Changed
+- Composer trays, comments and side questions sit above the composer connection. Expanding them no longer enlarges the row shared by the agent identity and text input.
+
 ## 1.18.0
 
 ### Added
