@@ -4,7 +4,8 @@
  * take different paths. CSS owns every timeline: hiding the app pauses it, reduced motion stops it,
  * and resting lamps have no animations or per-frame JavaScript work.
  */
-.blob-lava { --lava-pace: 1; }
+.blob-lava { --lava-pace: 1; --lava-current-pace: 1; }
+.blob-lava[data-motion='split'] { --lava-current-pace: .64; }
 .blob-lava[data-motion='swirl'] { --lava-pace: 1.25; }
 .blob-lava[data-motion='wait'] { --lava-pace: 1.7; }
 
@@ -19,23 +20,23 @@
 
 /* The shape and its colour share each transform and phase, keeping pools inside their lobe. */
 .blob-lava:not([data-motion='still']) .blob-lava-core {
-  animation: lava-core calc(var(--lava-core-duration) * var(--lava-pace)) ease-in-out infinite;
+  animation: var(--lava-core-animation, lava-core) calc(var(--lava-core-duration) * var(--lava-pace)) ease-in-out infinite;
   animation-delay: calc(var(--lava-core-delay) * var(--lava-pace));
 }
 .blob-lava:not([data-motion='still']) .blob-lava-rise {
-  animation: lava-rise calc(var(--lava-rise-duration) * var(--lava-pace)) ease-in-out infinite;
-  animation-delay: calc(var(--lava-rise-delay) * var(--lava-pace));
+  animation: lava-rise calc(var(--lava-rise-duration) * var(--lava-pace) * var(--lava-current-pace)) ease-in-out infinite;
+  animation-delay: calc(var(--lava-rise-delay) * var(--lava-pace) * var(--lava-current-pace));
 }
 .blob-lava:not([data-motion='still']) :is(.blob-lava-lobe, .blob-lava-bud) {
   animation:
-    lava-slosh calc(var(--lobe-duration) * var(--lava-pace)) ease-in-out infinite,
-    lava-flow calc(var(--lava-flow-duration) * var(--lava-pace)) ease-in-out infinite;
+    var(--lava-slosh-animation, lava-slosh) calc(var(--lobe-duration) * var(--lava-pace)) ease-in-out infinite,
+    lava-flow calc(var(--lava-flow-duration) * var(--lava-pace) * var(--lava-current-pace)) ease-in-out infinite;
   animation-delay:
     calc(var(--lobe-delay) * var(--lava-pace)),
-    calc(var(--lava-flow-delay) * var(--lava-pace));
+    calc(var(--lava-flow-delay) * var(--lava-pace) * var(--lava-current-pace));
 }
 .blob-lava:not([data-motion='still']) .blob-lava-bud {
-  animation-name: lava-split, lava-flow;
+  animation-name: var(--lava-bud-animation, lava-split), lava-flow;
 }
 /* A still working lamp retains its detached droplet. */
 .blob-lava[data-motion='split'] .blob-lava-bud {
@@ -44,12 +45,12 @@
 
 /* Colour meanders and occasionally reverses, rather than turning like a pair of clock hands. */
 .blob-lava:not([data-motion='still']) .blob-lava-pools {
-  animation: lava-pool calc(var(--lava-pools-duration) * var(--lava-pace)) ease-in-out infinite;
-  animation-delay: calc(var(--lava-pools-delay) * var(--lava-pace));
+  animation: lava-pool calc(var(--lava-pools-duration) * var(--lava-pace) * var(--lava-current-pace)) ease-in-out infinite;
+  animation-delay: calc(var(--lava-pools-delay) * var(--lava-pace) * var(--lava-current-pace));
 }
 .blob-lava:not([data-motion='still']) .blob-lava-glow {
-  animation: lava-pool calc(var(--lava-glow-duration) * var(--lava-pace)) ease-in-out infinite reverse;
-  animation-delay: calc(var(--lava-glow-delay) * var(--lava-pace));
+  animation: lava-pool calc(var(--lava-glow-duration) * var(--lava-pace) * var(--lava-current-pace)) ease-in-out infinite reverse;
+  animation-delay: calc(var(--lava-glow-delay) * var(--lava-pace) * var(--lava-current-pace));
 }
 
 /* Unequal stretches and lulls: there is no single inhale/exhale beat. */

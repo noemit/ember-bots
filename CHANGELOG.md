@@ -1,3 +1,8 @@
+## 1.20.4
+
+### Changed
+- Working Lava moves more quickly and visibly, with larger deformations and a different long sequence of pulls, sideways shifts and separations for each character.
+
 ## 1.20.3
 
 ### Changed

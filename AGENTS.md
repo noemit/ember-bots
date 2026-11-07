@@ -628,7 +628,10 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   durations and phases for the body, bud, currents and pools. `lava-split` alternates partial pulls
   with full separations; `lava-flow` adds sideways translation on a separate clock, so the bead
   takes a different path on successive splits. `lava-slosh` gives middle lobes uneven inward/outward
-  drift. The main body squashes/stretches while the whole goo
+  drift. Working uses `lavaWorkingMotion` instead: seeded, long CSS keyframe sequences change
+  the squash axis, pull depth and sideways path every 1–3 seconds, with faster independent currents
+  and colour movement. Body and pool copies share the same generated animation; no JavaScript
+  playback runs per frame. The main body squashes/stretches while the whole goo
   drifts in translation, without rocking as one solid shape. Approval/question use slower cycles
   and keep their badges stationary; no orbit. The shared needs-input wrapper wiggle excludes Lava
   so it cannot rock the fluid body or its badge. Idle, unread, unknown and error remain still.

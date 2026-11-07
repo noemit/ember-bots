@@ -168,6 +168,52 @@ export const lavaTiming = (rng: () => number) => {
   };
 };
 
+/** A long, seeded score of unequal gestures. CSS still owns playback, pause and reduced motion. */
+export const lavaWorkingMotion = (rng: () => number) => {
+  const fixed = (value: number) => Number(value.toFixed(3));
+  const score = (minimum: number, spread: number, pose: (index: number) => string) => {
+    let duration = 0;
+    const frames = Array.from({ length: 32 }, (_, index) => {
+      const frame = { at: duration, transform: pose(index) };
+      duration += minimum + rng() * spread;
+      return frame;
+    });
+    // Closing on the first pose avoids a jump when this long sequence eventually wraps.
+    frames.push({ at: duration, transform: frames[0].transform });
+    return {
+      duration: fixed(duration),
+      delay: fixed(-rng() * duration),
+      keyframes: frames.map(frame => `${fixed(frame.at / duration * 100)}%{transform:${frame.transform}}`).join(''),
+    };
+  };
+  const along = (x: string, y: string, amount: number) =>
+    `translate(calc(var(${x}) * ${fixed(amount)}),calc(var(${y}) * ${fixed(amount)}))`;
+  let previousPull = 0;
+  return {
+    core: score(1.05, 1.15, index => {
+      // Change the squash axis as well as its depth; a fixed axis reads as breathing in a loop.
+      const angle = fixed(-55 + rng() * 110);
+      const stretch = fixed((index % 2 ? -1 : 1) * (.09 + rng() * .1));
+      return `rotate(${angle}deg) scale(${fixed(1 + stretch)},${fixed(1 - stretch * .8)}) rotate(${-angle}deg)`;
+    }),
+    bud: score(1.2, 1.5, () => {
+      // Short tugs, deep reunions and full releases occur in different orders for each identity.
+      // Reject adjacent near-identical pulls, without imposing a repeated release/rejoin pattern.
+      let pull = -.85 + rng() * 2.1;
+      if (Math.abs(pull - previousPull) < .65) pull = previousPull > .2 ? -.55 - rng() * .3 : .85 + rng() * .4;
+      previousPull = pull;
+      const size = fixed(pull > .7 ? .72 + rng() * .08 : .95 + rng() * .14);
+      const side = fixed(-1.45 + rng() * 2.9);
+      return `${along('--lava-dx', '--lava-dy', pull)} ${along('--flow-x', '--flow-y', side)} scale(${size})`;
+    }),
+    slosh: score(1.1, 1.3, index => {
+      const pull = (index % 2 ? -1 : 1) * (.5 + rng() * .9);
+      const width = fixed(.88 + rng() * .24);
+      return `${along('--slosh-dx', '--slosh-dy', pull)} rotate(${fixed(-25 + rng() * 50)}deg) scale(${width},${fixed(2 - width)})`;
+    }),
+  };
+};
+
 /**
  * Places a shape for one identity: rotated by the seed, mirrored on a coin flip, and given its pools.
  * Rotation alone keeps every lobe inside {@link LAVA_EXTENT} because the shapes are drawn to fit at

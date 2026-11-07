@@ -145,6 +145,7 @@ test('gallery shows every state and previews distinct Scribble working gestures'
 
 test('Lava changes course between separations, keeps colour with its lobes, and stops when reduced', async ({ page }) => {
   await page.goto('/blob-gallery.html');
+  await page.getByRole('button', { name: 'Rail · 55px', exact: true }).click();
   await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
   const lava = page.locator('[data-style="lava"][data-state="busy"] .blob');
   const samples = await lava.evaluateAll(nodes => nodes.map(node => {
@@ -152,7 +153,7 @@ test('Lava changes course between separations, keeps colour with its lobes, and 
     const budPool = node.querySelector('g.blob-lava-bud')!;
     const duration = Number(bud.getAnimations()[0].effect!.getTiming().duration);
     const animations = node.getAnimations({ subtree: true });
-    const frames = [0, 4600, duration, duration + 4600].map(time => {
+    const frames = [0, 1800, duration, duration + 1800].map(time => {
       animations.forEach(animation => { animation.currentTime = time; });
       const bodyStyle = getComputedStyle(bud);
       const poolStyle = getComputedStyle(budPool);
@@ -162,14 +163,28 @@ test('Lava changes course between separations, keeps colour with its lobes, and 
         colourFollows: bodyStyle.transform === poolStyle.transform && bodyStyle.translate === poolStyle.translate,
       };
     });
-    return { duration, frames };
+    const positions = Array.from({ length: 9 }, (_, index) => {
+      animations.forEach(animation => { animation.currentTime = index * 1500; });
+      const rect = bud.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    });
+    const travel = positions.slice(1).reduce((total, position, index) =>
+      total + Math.hypot(position.x - positions[index].x, position.y - positions[index].y), 0);
+    const poseCount = new Set(bud.getAnimations()[0].effect!.getKeyframes().map(frame => frame.transform)).size;
+    const cores = [...node.querySelectorAll('.blob-lava-core')];
+    const coreColourFollows = getComputedStyle(cores[0]).transform === getComputedStyle(cores[1]).transform;
+    return { duration, frames, travel, poseCount, coreColourFollows };
   }));
   expect(new Set(samples.map(sample => sample.duration)).size).toBe(3);
-  for (const { frames } of samples) {
+  for (const { frames, travel, poseCount, coreColourFollows } of samples) {
     expect(frames.every(frame => frame.colourFollows)).toBe(true);
     expect(frames[0].body).not.toBe(frames[1].body);
     expect(frames[0].flow).not.toBe(frames[2].flow);
+    expect(travel).toBeGreaterThan(20); // Noticeable movement over 12 seconds, even at 55px.
+    expect(poseCount).toBeGreaterThan(25);
+    expect(coreColourFollows).toBe(true);
   }
+  await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
   await page.getByRole('region', { name: 'Lava states', exact: true }).screenshot({ path: '/tmp/ember-lava-variations.png' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await lava.evaluateAll(nodes => nodes.flatMap(node => node.getAnimations({ subtree: true })).length)).toBe(0);

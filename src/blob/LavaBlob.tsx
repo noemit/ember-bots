@@ -10,6 +10,7 @@ import {
   lavaGrainFrequency,
   lavaRimWidth,
   lavaTiming,
+  lavaWorkingMotion,
   type LavaBody,
 } from './lava';
 import { MoodBadge } from './overlays';
@@ -58,7 +59,7 @@ export default function LavaBlob({
   // Filter ids must be unique per instance; useId contains colons, which are illegal in url().
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
 
-  const { geometry, body, colors, noiseSeed, timing } = React.useMemo(() => {
+  const { geometry, body, colors, noiseSeed, timing, working } = React.useMemo(() => {
     const resolved = identity ?? seedIdentity(seed);
     const colorRng = mulberry32(hashString(`lava:${resolved.colorSeed}`));
     const shapeRng = mulberry32(hashString(`lava:${resolved.shapeSeed}`));
@@ -76,6 +77,7 @@ export default function LavaBlob({
       colors: lavaColors(index, resolved.color),
       noiseSeed: Math.floor(motionRng() * 997),
       timing: lavaTiming(motionRng),
+      working: lavaWorkingMotion(motionRng),
     };
   }, [identity, seed]);
 
@@ -103,7 +105,8 @@ export default function LavaBlob({
    * is the only thing that decides when it happens.
    */
   const lobeStyle = (entry: LavaBody, index: number): React.CSSProperties => {
-    const clock = index === budIndex ? timing.bud : timing.slosh;
+    const clocks = mood === 'busy' ? working : timing;
+    const clock = index === budIndex ? clocks.bud : clocks.slosh;
     const style: Record<string, string> = {
       transformOrigin: at(entry.lobe),
       '--lobe-duration': `${clock.duration}s`,
@@ -142,12 +145,19 @@ export default function LavaBlob({
           [`--lava-${part}-duration`, `${clock.duration}s`],
           [`--lava-${part}-delay`, `${clock.delay}s`],
         ])),
+        ...(mood === 'busy' ? Object.fromEntries(Object.entries(working).flatMap(([part, clock]) => [
+          [`--lava-${part}-animation`, `${uid}-lava-${part}`],
+          [`--lava-${part}-duration`, `${clock.duration}s`],
+          [`--lava-${part}-delay`, `${clock.delay}s`],
+        ])) : {}),
         ['--lava-dx' as string]: `${geometry.budTravel.dx.toFixed(2)}px`,
         ['--lava-dy' as string]: `${geometry.budTravel.dy.toFixed(2)}px`,
         // A cold lamp's rim goes grey with its body rather than keeping the hue it lost.
         ['--lava-rim' as string]: cold ? COLD_DEEP : `color-mix(in srgb, ${body} 60%, ${colors.deep})`,
       }}
     >
+      {mood === 'busy' ? <style>{Object.entries(working).map(([part, clock]) =>
+        `@keyframes ${uid}-lava-${part}{${clock.keyframes}}`).join('')}</style> : null}
       <svg viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
         <defs>
           {/* Pools are soft-edged gradients rather than one blurred group: a pool belongs to its

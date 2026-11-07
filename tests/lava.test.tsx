@@ -18,6 +18,7 @@ import {
   lavaGrainFrequency,
   lavaRimWidth,
   lavaTiming,
+  lavaWorkingMotion,
 } from '../src/blob/lava';
 import { seedIdentity, mulberry32 } from '../src/blob/seed';
 import { BLOB_STYLES, isBlobStyle } from '../electron/transport';
@@ -169,6 +170,30 @@ describe('Lava shapes', () => {
       schedules.add(JSON.stringify(timing));
     }
     expect(schedules.size).toBe(200);
+  });
+
+  test('working motion changes every few seconds without reusing a short gesture sequence', () => {
+    const sequences = new Set<string>();
+    for (let seed = 0; seed < 30; seed++) {
+      const motion = lavaWorkingMotion(mulberry32(seed));
+      expect(motion).toEqual(lavaWorkingMotion(mulberry32(seed)));
+      for (const score of Object.values(motion)) {
+        const poses = [...score.keyframes.matchAll(/([\d.]+)%\{transform:([^}]+)\}/g)];
+        expect(score.duration).toBeGreaterThan(30);
+        expect(poses.at(-1)![2]).toBe(poses[0][2]);
+        expect(new Set(poses.map(pose => pose[2])).size).toBeGreaterThan(25);
+        for (let index = 1; index < poses.length; index++) {
+          const seconds = (Number(poses[index][1]) - Number(poses[index - 1][1])) / 100 * score.duration;
+          expect(seconds).toBeGreaterThan(1);
+          expect(seconds).toBeLessThan(2.8);
+        }
+      }
+      sequences.add(motion.bud.keyframes);
+    }
+    expect(sequences.size).toBe(30);
+    // Only working creates a private score; slower waiting/thinking keep their existing motion.
+    expect(markup('busy')).toContain('@keyframes');
+    for (const mood of ['idle', 'thinking', 'input', 'question'] as const) expect(markup(mood)).not.toContain('@keyframes');
   });
 
   test('a two-lobe shape still moves: the body swells even with nothing to drift', () => {
