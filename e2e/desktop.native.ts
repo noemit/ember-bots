@@ -110,6 +110,17 @@ require(process.env.EMBER_TEST_ENTRY);
       expect(JSON.stringify(stored)).not.toContain('Native fixture response');
     });
 
+    await test.step('avatar size persists through IPC and each composer names its own destination', async () => {
+      expect((await nativeWindow.evaluate(() => window.ember.getSettings())).blobSize).toBe('standard');
+      await nativeWindow.evaluate(() => window.ember.setSettings({ blobSize: 'extra-large' }));
+      expect(JSON.parse(await readFile(join(ember, 'settings.json'), 'utf8')).blobSize).toBe('extra-large');
+      await nativeWindow.reload();
+      await expect(nativeWindow.locator('[data-composer-identity]')).toHaveCount(2);
+      await expect(nativeWindow.locator('[data-composer-identity]').nth(0)).toContainText('Native session a');
+      await expect(nativeWindow.locator('[data-composer-identity]').nth(1)).toContainText('Native session b');
+      await expect(nativeWindow.locator('[data-composer-identity] .blob').first()).toHaveCSS('width', '48px');
+    });
+
     // Remote interactions no longer need a visible native window.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
     const password = randomBytes(24).toString('hex');

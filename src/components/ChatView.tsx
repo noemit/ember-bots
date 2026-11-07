@@ -1,3 +1,4 @@
+import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -2219,8 +2220,11 @@ function ChatView({
               // `box-shadow` (`has-focus-visible:shadow-[…]`) has one curve and falls off smoothly
               // while the border keeps its own colour at every state (`focus-within` and
               // `:focus-visible` stay distinct: clicking a row control does not trigger the glow).
+              data-composer-surface
+              style={session ? { backgroundImage: `radial-gradient(ellipse at top left, color-mix(in oklab, ${blobColor(blobStyle, identity)} 10%, transparent), transparent 75%)` } : undefined}
               className="group/composer flex flex-col rounded-xl border bg-background transition-shadow duration-200 has-focus-visible:shadow-[0_0_12px_-2px_color-mix(in_oklab,var(--ring)_28%,transparent)]"
             >
+            {session ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} /> : null}
             {replyContext ? (
               /* A left accent carries "this is quoted" without drawing a rectangle inside the
                  composer's rectangle. */

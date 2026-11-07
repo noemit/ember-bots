@@ -1,3 +1,4 @@
+import { AVATAR_SIZES, avatarPixels } from '../blob/size';
 import * as React from 'react';
 import { motion } from 'motion/react';
 import { Check, ChevronRight, KeyRound, ShieldCheck, SlidersHorizontal } from 'lucide-react';
@@ -642,6 +643,18 @@ export default function SettingsPanel({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-3">
+                  <fieldset className="mb-4">
+                    <legend className="text-xs font-medium">Avatar size</legend>
+                    <p className="mt-1 mb-2 text-[11px] text-muted-foreground">In the rail and beside your message. Standard keeps the current size.</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {AVATAR_SIZES.map(option => <button key={option.id} type="button" aria-label={`${option.label} avatars`}
+                        aria-pressed={settings.blobSize === option.id} onClick={() => onChange({ blobSize: option.id })}
+                        className={cn('flex min-w-0 flex-col items-center justify-end gap-1 rounded-lg border p-2 hover:bg-muted', settings.blobSize === option.id && 'border-highlight bg-muted/50')}>
+                        <Blob style={settings.blobStyle} seed="avatar-size-preview" size={avatarPixels(40, option.id)} interactive={false} />
+                        <span className="text-xs">{option.label}</span>
+                      </button>)}
+                    </div>
+                  </fieldset>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {BLOB_STYLES.map((option) => {
                       const selected = option.id === settings.blobStyle;

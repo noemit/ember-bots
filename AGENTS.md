@@ -57,6 +57,9 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.
 - Home has been removed. Startup restores the workspace or opens a recent chat; an empty install
   starts a draft on an available Kiln. Unread reading remains accessible from the rail.
+- `settings.blobSize` chooses Standard, Large or Extra large on recognition surfaces through
+  `AvatarSizeContext`; transcript icons keep their compact size. ComposerIdentity repeats the current
+  chat’s resolved blob and name beside the input, whose faint tint uses that same colour.
 - Blobs are mnemonic devices for chats. Automatic colours are stable per session, independent of
   project membership and visibility. The appearance picker defaults to one chat and accepts a custom
   hex colour; the blob and soft background glow must use the same resolved identity. Project/task

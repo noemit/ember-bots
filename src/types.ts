@@ -232,6 +232,8 @@ export type BallMood =
 /** Where the open session's transcript is: first fetch in flight, failed (poll keeps retrying), or loaded. */
 export type MessagesStatus = 'loading' | 'error' | 'ready';
 
+export type BlobSize = 'standard' | 'large' | 'extra-large';
+
 export type BlobStyle = 'buddy' | 'crystal' | 'mosaic' | 'lava';
 
 /** Width the session list can take: a blob dock, the familiar rail, or about half the window. */
@@ -542,6 +544,8 @@ export type StoredComposerDraft = {
 export type EmberSettings = {
   theme: string;
   blobStyle: BlobStyle;
+  /** Avatar size on the rail and beside the composer. */
+  blobSize: BlobSize;
   /** Only list sessions active within this many hours; 0 means show everything. */
   sessionWindowHours: number;
   /**

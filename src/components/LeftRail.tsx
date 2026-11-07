@@ -1,3 +1,4 @@
+import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { AnimatePresence, LayoutGroup } from 'motion/react';
@@ -680,14 +681,17 @@ export default function LeftRail({
     );
   };
 
+  const miniAvatarSize = useAvatarSize(40);
+
   return (
     <aside
+      style={{ '--mini-rail-width': `${miniAvatarSize + 24}px` } as React.CSSProperties}
       className={cn(
         'mobile-rail fixed left-0 z-40 flex w-[min(88vw,320px)] flex-none flex-col border-r bg-card transition-transform duration-200 md:static md:z-auto md:translate-x-0',
         // Collapsible: narrow (320px) as before, or about half the window so a row can show the
         // latest message. The ceiling keeps the text at a readable measure.
         'md:transition-[width] md:duration-200',
-        mode === 'wide' ? 'md:w-[min(50vw,760px)]' : mode === 'mini' ? 'md:w-[64px]' : 'md:w-[320px]',
+        mode === 'wide' ? 'md:w-[min(50vw,760px)]' : mode === 'mini' ? 'md:w-[var(--mini-rail-width)]' : 'md:w-[320px]',
         mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
       )}
     >
@@ -854,8 +858,9 @@ export default function LeftRail({
                         onClick={() => openSession(session)}
                         aria-label={label}
                         data-mini-session={key}
+                        style={{ width: miniAvatarSize + 8, height: miniAvatarSize + 8 }}
                         className={cn(
-                          'relative grid size-12 place-items-center rounded-lg transition-colors',
+                          'relative grid place-items-center rounded-lg transition-colors',
                           key === selectedKey ? 'bg-muted' : 'hover:bg-muted/60'
                         )}
                       >
@@ -863,7 +868,7 @@ export default function LeftRail({
                           style={blobStyle}
                           seed={key}
                           identity={avatarIdentities[key]}
-                          size={40}
+                          size={miniAvatarSize}
                           mood={moods[key] ?? 'unknown'}
                         />
                         <ProcessIndicator session={session} overlay />

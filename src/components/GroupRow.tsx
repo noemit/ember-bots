@@ -1,3 +1,4 @@
+import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { Box, Group as GroupIcon, Plus, Trash2 } from 'lucide-react';
@@ -67,6 +68,7 @@ export default function GroupRow({
   onUngroup,
 }: Props) {
   // Recomputed per render so the menu's counts stay current with the member list.
+  const avatarSize = useAvatarSize(22);
   const inactiveTargets = bulkArchiveTargets(entry.members, moods, { now: Date.now() });
 
   return (
@@ -183,7 +185,7 @@ export default function GroupRow({
                           style={blobStyle}
                           seed={key}
                           identity={avatarIdentities[key]}
-                          size={22}
+                          size={avatarSize}
                           mood={moods[key] ?? 'unknown'}
                           interactive={false}
                         />

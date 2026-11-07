@@ -6,6 +6,7 @@ import { mergeDraftChanges } from '../lib/composerDrafts';
 export const DEFAULT_SETTINGS: EmberSettings = {
   theme: DEFAULT_THEME_ID,
   blobStyle: 'buddy',
+  blobSize: 'standard',
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],

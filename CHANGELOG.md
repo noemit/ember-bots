@@ -1,3 +1,11 @@
+## 1.11.0
+
+### Added
+- Standard, Large and Extra large avatar sizes in Settings, with the existing size kept as the default.
+  Rail rows, project/group views and the compact rail adapt to the choice.
+- The composer carries its chat’s blob, name and subtle identity colour, so the destination stays
+  recognizable beside the message you are writing.
+
 ## 1.10.0
 
 ### Changed

@@ -1,3 +1,4 @@
+import { useAvatarSize } from '../blob/size';
 import * as React from 'react';
 import { motion } from 'motion/react';
 import { Box, Plus, Trash2 } from 'lucide-react';
@@ -92,7 +93,9 @@ export default function ProjectCard({
   onQuietChange,
   stripWidth = STRIP_WIDTH,
 }: Props) {
-  const layout = blobStripLayout(sessions.length, stripWidth, 48, 30, 4, LABEL_WIDTH);
+  const maxAvatarSize = useAvatarSize(48);
+  const minAvatarSize = useAvatarSize(30);
+  const layout = blobStripLayout(sessions.length, stripWidth, maxAvatarSize, minAvatarSize, 4, LABEL_WIDTH);
   const visible = sessions.slice(0, layout.visible);
   // Recomputed per render so the menu's counts stay current with the session list.
   const inactiveTargets = bulkArchiveTargets(sessions, moods, { now: Date.now() });

@@ -1,3 +1,4 @@
+import { AvatarSizeContext } from './blob/size';
 import * as React from 'react';
 import { MotionConfig } from 'motion/react';
 import InstanceBar from './components/InstanceBar';
@@ -5166,6 +5167,7 @@ export default function App() {
     ) : null;
 
   return (
+    <AvatarSizeContext.Provider value={settings.blobSize}>
     <ImageViewerContext.Provider value={imageViewerApi}>
     <MotionConfig reducedMotion="user">
       <TooltipProvider delayDuration={300}>
@@ -5650,5 +5652,6 @@ export default function App() {
       </React.Suspense>
     ) : null}
     </ImageViewerContext.Provider>
+    </AvatarSizeContext.Provider>
   );
 }

@@ -1695,6 +1695,7 @@ const storedRead = storedReadState();
 let settings: EmberSettings = {
   theme: 'stone',
   blobStyle: 'buddy',
+  blobSize: 'standard',
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],

@@ -1,3 +1,4 @@
+import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { motion } from 'motion/react';
@@ -242,6 +243,7 @@ const SessionRow = React.memo(function SessionRow({
   const title = titleOverride?.trim() || session.title?.trim() || session.id;
   // Per row, not per view: the selected session is pinned into the active list even when
   // it's archived, and its button must offer "Restore" rather than archiving it again.
+  const avatarSize = useAvatarSize(compact ? 40 : 55);
   const archived = Boolean(session.archived);
   const archiveLabel = archived ? 'Restore session' : 'Archive session';
   const archiveBusyLabel = archived ? 'Restoring…' : 'Archiving…';
@@ -277,7 +279,7 @@ const SessionRow = React.memo(function SessionRow({
             >
               {/* Project/task/session identity is resolved once in App so every surface stays aligned,
                   including across instances that reuse session ids. */}
-              <Blob style={blobStyle} seed={key} identity={identity} size={compact ? 40 : 55} mood={mood} />
+              <Blob style={blobStyle} seed={key} identity={identity} size={avatarSize} mood={mood} />
               <ProcessIndicator session={session} overlay />
               {visibleColumn ? (
                 <span
