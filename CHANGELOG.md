@@ -1,3 +1,12 @@
+## 1.15.6
+
+### Changed
+- Scribble raises its hand only for questions. Working cycles through wire movement while looking
+  left, right and away, followed by a stretch; the gallery previews each gesture separately.
+- Buddy thinks with stronger leaning, squashing, rising and eye movement. Lava gathers, stretches
+  and melts while thinking, with its colours following the moving material.
+- Removed Lava’s orbit ring; Crystal alone uses it. Decision badges and reduced-motion poses remain.
+
 ## 1.15.5
 
 ### Fixed

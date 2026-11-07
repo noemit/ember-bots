@@ -46,3 +46,11 @@ test('Scribble keeps decisions and unread indicators while thinking belongs to t
   expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="thinking" />)).not.toContain('blob-arc');
   expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="unread" />)).toContain('bg-highlight');
 });
+
+
+test('the raised hand belongs only to a question', () => {
+  for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'error', 'unread', 'unknown'] as const) {
+    const html = renderToStaticMarkup(<Blob style="scribble" seed="chat" mood={mood} />);
+    expect(html.includes('class="scribble-wave"')).toBe(mood === 'question');
+  }
+});

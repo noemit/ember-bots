@@ -262,7 +262,7 @@ export const lavaColors = (colorIndex: number, customColor?: string): LavaColors
  * How each mood moves the goo. Idle, unread and error never move: motion is how the rail says a
  * session is *doing* something.
  *
- * - `swirl` — the pools drift around inside a still silhouette (thinking: busy inside, nothing out).
+ * - `swirl` — the body gathers, stretches and melts as its pools circulate (thinking).
  * - `split` — the bud pinches off and rejoins while the pools churn (busy: the lamp is on).
  * - `wait`  — the bud stays put and the pools barely drift (input, question: waiting, not working).
  */

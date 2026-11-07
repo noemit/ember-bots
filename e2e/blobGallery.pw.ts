@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('gallery shows every state and previews three distinct Scribble gestures', async ({ page }) => {
+test('gallery shows every state and previews distinct Scribble working gestures', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/blob-gallery.html');
@@ -9,12 +9,17 @@ test('gallery shows every state and previews three distinct Scribble gestures', 
   expect(await page.evaluate(() => Boolean(window.ember))).toBe(false);
   await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
   const scribble = page.locator('[data-preview="scribble"] > .blob');
-  await page.getByRole('button', { name: 'Head scratch', exact: true }).click();
-  await expect(scribble.locator('.scribble-scratch')).toHaveCSS('opacity', '1');
-  await page.screenshot({ path: '/tmp/ember-blob-gallery-scratch.png', fullPage: true });
+  await page.getByRole('button', { name: 'Look left', exact: true }).click();
+  expect(await scribble.locator('.scribble-face').evaluate(node => new DOMMatrix(getComputedStyle(node).transform).e)).toBeLessThan(-4);
+  await expect(scribble.locator('.scribble-face')).toHaveCSS('opacity', '1');
+  await page.screenshot({ path: '/tmp/ember-blob-gallery-left.png' });
+  await page.getByRole('button', { name: 'Look right', exact: true }).click();
+  expect(await scribble.locator('.scribble-face').evaluate(node => new DOMMatrix(getComputedStyle(node).transform).e)).toBeGreaterThan(4);
+  await expect(scribble.locator('.scribble-face')).toHaveCSS('opacity', '1');
+  await page.screenshot({ path: '/tmp/ember-blob-gallery-right.png' });
   await page.getByRole('button', { name: 'Turn around', exact: true }).click();
   await expect(scribble.locator('.scribble-face')).toHaveCSS('opacity', '0');
-  await expect(scribble.locator('.scribble-scratch')).toHaveCSS('opacity', '0');
+  await expect(scribble.locator('.scribble-wave')).toHaveCount(0);
   await page.screenshot({ path: '/tmp/ember-blob-gallery-turn.png' });
   await page.getByRole('button', { name: 'Little stretch', exact: true }).click();
   await expect(scribble.locator('.scribble-face')).toHaveCSS('opacity', '1');
@@ -22,12 +27,12 @@ test('gallery shows every state and previews three distinct Scribble gestures', 
   await page.getByLabel('Theme', { exact: true }).selectOption('graphite');
   await page.getByLabel('Creature colour').fill('#fff4c2');
   await expect(scribble.locator('[data-scribble-eye]').first()).toHaveAttribute('stroke', '#29212f');
-  await page.getByRole('button', { name: 'Head scratch', exact: true }).click();
+  await page.getByRole('button', { name: 'Look left', exact: true }).click();
   await page.screenshot({ path: '/tmp/ember-blob-gallery-dark.png' });
   await page.getByLabel('Reduced motion', { exact: true }).check();
   await expect(scribble.locator('.scribble-dance')).toHaveCSS('animation-name', 'none');
   expect(await scribble.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
-  await expect(scribble.locator('.scribble-scratch')).toHaveCSS('opacity', '0');
+  await expect(scribble.locator('.scribble-wave')).toHaveCount(0);
   await page.setViewportSize({ width: 430, height: 900 });
   await page.getByRole('heading', { name: 'Crystal', exact: true }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('heading', { name: 'Crystal', exact: true })).toBeVisible();
@@ -72,7 +77,7 @@ test('thinking is distinct for every style, and a turning Scribble keeps its vol
   const samples = await scribble.evaluate(node => {
     const widths: number[] = [];
     const wirePoses = new Set<string>();
-    for (let step = 0; step <= 24; step++) {
+    for (let step = 0; step <= 32; step++) {
       (node as HTMLElement).style.setProperty('--scribble-delay', `-${step / 2}s`);
       widths.push(node.querySelector('.scribble-head')!.getBoundingClientRect().width);
       wirePoses.add([...node.querySelectorAll('.scribble-wire')].map(wire => getComputedStyle(wire).transform).join('|'));
@@ -160,4 +165,38 @@ test('Mosaic glances and briefly blinks while working and thinking, keeping pupi
     await expect(blob.locator('.mosaic-eye-closed').first()).toHaveCSS('opacity', '0');
     expect(await blob.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
   }
+});
+
+test('question waves are exclusive, thinking has body motion, and only Crystal orbits', async ({ page }) => {
+  await page.goto('/blob-gallery.html');
+  await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
+  const question = page.locator('[data-style="scribble"][data-state="question"] .scribble-wave');
+  await expect(question).toHaveCount(1);
+  await expect(question).toHaveCSS('opacity', '1');
+  for (const mood of ['busy', 'thinking', 'idle', 'input']) {
+    await expect(page.locator(`[data-style="scribble"][data-state="${mood}"] .scribble-wave`)).toHaveCount(0);
+  }
+  await expect(page.locator('.blob-lava .blob-orbit')).toHaveCount(0);
+  await expect(page.locator('[data-style="crystal"][data-state="question"] .blob-orbit')).toHaveCount(2);
+  for (const [style, part] of [['buddy', '.blob-hop'], ['lava', '.blob-lava-core']]) {
+    const samples = await page.locator(`[data-style="${style}"][data-state="thinking"] ${part}`).first().evaluate(node => {
+      const frames = [];
+      for (const phase of [0, .2, .4, .6, .8]) {
+        const duration = parseFloat(getComputedStyle(node).animationDuration);
+        const elapsed = node.getAnimations()[0]?.currentTime;
+        (node as SVGElement).style.animationDelay = `${-duration * phase + (typeof elapsed === 'number' ? elapsed / 1000 : 0)}s`;
+        const matrix = new DOMMatrix(getComputedStyle(node).transform);
+        frames.push({ scaleX: Math.hypot(matrix.a, matrix.b), scaleY: Math.hypot(matrix.c, matrix.d), tilt: Math.atan2(matrix.b, matrix.a) });
+      }
+      return frames;
+    });
+    expect(Math.max(...samples.map(frame => frame.scaleY)) - Math.min(...samples.map(frame => frame.scaleY))).toBeGreaterThan(.15);
+    if (style === 'buddy') expect(Math.max(...samples.map(frame => frame.tilt)) - Math.min(...samples.map(frame => frame.tilt))).toBeGreaterThan(.3);
+  }
+  await page.screenshot({ path: '/tmp/ember-gestures-light.png', fullPage: true });
+  await page.getByLabel('Theme', { exact: true }).selectOption('graphite');
+  await page.screenshot({ path: '/tmp/ember-gestures-dark.png', fullPage: true });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(question).toHaveCSS('opacity', '1');
+  expect(await page.locator('.blob').evaluateAll(nodes => nodes.flatMap(node => node.getAnimations({ subtree: true })).length)).toBe(0);
 });

@@ -64,9 +64,9 @@ function BlobGallery() {
     <section className="gallery-spotlights" aria-label="New working animations">
       <article className="gallery-spotlight">
         <div className="gallery-stage" data-preview="scribble">{renderBlob('scribble', 'busy', 160)}<div className="gallery-rail-sample">{renderBlob('scribble', 'busy', 55)}<span>Rail size</span></div></div>
-        <div><p className="gallery-eyebrow">01 / SCRIBBLE IN MOTION</p><h2>A moment to think.</h2><p>A head scratch, wires turning around a solid core, a little stretch. A tangle with volume, even when it turns away.</p>
+        <div><p className="gallery-eyebrow">01 / SCRIBBLE IN MOTION</p><h2>A moment to think.</h2><p>Wires shift while it looks left, looks right, or turns away. The raised hand belongs to questions now.</p>
           <div className="gallery-gestures" aria-label="Preview Scribble gestures">
-            <button onClick={() => jump(1.6)}>Head scratch</button><button onClick={() => jump(5.8)}>Turn around</button><button onClick={() => jump(9.8)}>Little stretch</button>
+            <button onClick={() => jump(2)}>Look left</button><button onClick={() => jump(6)}>Look right</button><button onClick={() => jump(10)}>Turn around</button><button onClick={() => jump(14.4)}>Little stretch</button>
           </div>
         </div>
       </article>
@@ -96,7 +96,7 @@ function BlobGallery() {
         </div></div>
       </section>)}
     </section>
-    <footer className="gallery-footer">For feedback, name the style and state — for example, “Scribble · Working · the head scratch.” Change the character name to try another silhouette.</footer>
+    <footer className="gallery-footer">For feedback, name the style and state — for example, “Scribble · Working · looking left.” Change the character name to try another silhouette.</footer>
   </div>;
 }
 

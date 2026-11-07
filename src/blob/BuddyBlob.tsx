@@ -79,7 +79,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
       data-mood={mood}
       aria-hidden="true"
       ref={wrapperRef}
-      style={{ width: size, height: size, animationDelay: `${wobbleDelay}s` }}
+      style={{ width: size, height: size, animationDelay: `${wobbleDelay}s`, '--buddy-thought-delay': `${wobbleDelay}s` } as React.CSSProperties}
     >
       {/* The hop/flip wrappers are DOM elements rather than SVG <g>s: Chromium can composite a
           transform on a DOM node but not on an SVG child, and Buddy's idle breathe runs on every

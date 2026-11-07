@@ -71,22 +71,55 @@
   animation-delay: var(--lava-delay, 0s);
 }
 
-/*
- * Thinking: busy inside, nothing outside. The silhouette holds still — that is the difference the
- * eye reads at rail size — while the colour churns, and the glow counter-turns more slowly still.
- */
+/* Thinking changes the material: gather into a dense lump, soften, stretch, then melt back.
+   Bodies and their pools share each transform so the colour stays inside the moving material. */
+.blob-lava[data-motion='swirl'] .blob-lava-core {
+  animation: lava-phase-core 4.6s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
+}
+.blob-lava[data-motion='swirl'] .blob-lava-lobe {
+  animation: lava-phase-lobe 4.6s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
+}
+.blob-lava[data-motion='swirl'] .blob-lava-bud {
+  animation: lava-phase-bud 4.6s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
+}
+.blob-lava[data-motion='swirl'] .blob-lava-rise {
+  transform-origin: 50px 50px;
+  animation: lava-phase-drift 6.2s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
+}
 .blob-lava[data-motion='swirl'] .blob-lava-pools {
   transform: rotate(-24deg);
-  animation: lava-thought 7s ease-in-out infinite;
-  animation-delay: var(--lava-delay, 0s);
+  animation: lava-thought 4.6s ease-in-out infinite;
+  animation-delay: var(--lava-delay);
 }
-
 .blob-lava[data-motion='swirl'] .blob-lava-glow {
-  animation: lava-swirl 11s linear infinite reverse;
-  animation-delay: var(--lava-delay, 0s);
+  animation: lava-swirl 5.4s linear infinite reverse;
+  animation-delay: var(--lava-delay);
 }
-
-/* Waiting on you: the colour barely sways. The orbit ring and badge carry the ask. */
+@keyframes lava-phase-core {
+  0%, 100% { transform: scale(1.04, .96); }
+  26% { transform: scale(.86, 1.16); }
+  58% { transform: scale(1.14, .86); }
+  80% { transform: scale(.96, 1.08); }
+}
+@keyframes lava-phase-lobe {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  26% { transform: translate(var(--slosh-dx), var(--slosh-dy)) scale(.93, 1.08); }
+  58% { transform: translate(calc(var(--slosh-dx) * -.7), calc(var(--slosh-dy) * -.7)) scale(1.08, .92); }
+}
+@keyframes lava-phase-bud {
+  0%, 100% { transform: translate(calc(var(--lava-dx) * -.35), calc(var(--lava-dy) * -.35)) scale(1.06); }
+  35% { transform: translate(calc(var(--lava-dx) * .4), calc(var(--lava-dy) * .4)) scale(.95); }
+  72% { transform: translate(calc(var(--lava-dx) * .15), calc(var(--lava-dy) * .15)) scale(1.15); }
+}
+@keyframes lava-phase-drift {
+  0%, 100% { transform: rotate(-8deg) translateY(1px); }
+  50% { transform: rotate(8deg) translateY(-2px); }
+}
+/* Waiting on you: the colour barely sways; the badge carries the ask. */
 .blob-lava[data-motion='wait'] .blob-lava-pools {
   animation: lava-sway 4.8s ease-in-out infinite alternate;
   animation-delay: var(--lava-delay, 0s);
@@ -163,7 +196,7 @@
   }
 }
 
-/* Circulating colour gathers and releases inside an anchored silhouette. */
+/* Circulating colour gathers and releases with the melting silhouette. */
 @keyframes lava-thought {
   0% { transform: rotate(-24deg) scale(.94); }
   40% { transform: rotate(135deg) scale(1.06); }

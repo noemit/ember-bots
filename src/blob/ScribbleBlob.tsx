@@ -16,7 +16,7 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
   const right = React.useRef<SVGGElement>(null);
   const art = React.useMemo(() => {
     const resolved = identity ?? seedIdentity(seed);
-    return { ...scribbleGeometry(resolved), color: blobColor('scribble', resolved), delay: -(hashString(resolved.motionSeed) % 12000) / 1000 };
+    return { ...scribbleGeometry(resolved), color: blobColor('scribble', resolved), delay: -(hashString(resolved.motionSeed) % 16000) / 1000 };
   }, [identity, seed]);
   usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), 2);
   const dark = `color-mix(in srgb, ${art.color} 65%, #211925)`;
@@ -58,13 +58,15 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
               </g>
             </g>
           </g>
-          {/* A loose ink arm emerges only for the scratch, keeping the idle silhouette intact. */}
-          <g className="scribble-scratch" opacity={0} fill="none" stroke={dark} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M66 55 Q88 52 83 37 Q81 27 71 24" />
-            <g className="scribble-fingers">
-              <path d="M73 26l-6-6m7 5l-3-8m4 8l1-7" />
+          {/* The raised hand is an invitation to respond, reserved for a question. */}
+          {mood === 'question' ? <g className="scribble-wave" opacity={1} fill="none" stroke={dark} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+            <g transform="translate(100 0) scale(-1 1)">
+              <path d="M66 55 Q88 52 83 37 Q81 27 71 24" />
+              <g className="scribble-fingers">
+                <path d="M73 26l-6-6m7 5l-3-8m4 8l1-7" />
+              </g>
             </g>
-          </g>
+          </g> : null}
         </g>
       </svg>
     </div>

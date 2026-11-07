@@ -35,3 +35,14 @@ describe('blob layers', () => {
     expect(html.indexOf('blob-heat')).toBeLessThan(html.indexOf('blob-body'));
   });
 });
+
+
+test('only Crystal carries an orbit ring when asking the human', () => {
+  for (const style of ['buddy', 'scribble', 'mosaic', 'lava', 'crystal'] as const) {
+    for (const mood of ['input', 'question'] as const) {
+      const html = renderToStaticMarkup(<Blob style={style} seed="seed" mood={mood} />);
+      expect(html.includes('blob-orbit')).toBe(style === 'crystal');
+      expect(html).toContain('blob-badge');
+    }
+  }
+});

@@ -52,22 +52,34 @@
   transition: transform 90ms linear;
 }
 
-/* Buddy considers an idea: head cocked, gaze up, then a glance to the other side. */
+/* Thinking has weight: lean, gather, spring up into a new idea, then settle. */
 .blob-buddy[data-mood='thinking'] .blob-hop {
   transform: rotate(-6deg);
-  animation: buddy-ponder 5.6s ease-in-out infinite;
+  animation: buddy-ponder 4.8s ease-in-out infinite;
 }
 .blob-buddy[data-mood='thinking'] .buddy-gaze {
   transform: translate(-2px, -4px);
-  animation: buddy-gaze 5.6s ease-in-out infinite;
+  animation: buddy-gaze 4.8s ease-in-out infinite;
+  animation-delay: var(--buddy-thought-delay);
+}
+.blob-buddy[data-mood='thinking'] .blob-eyes {
+  animation: buddy-concentrate 4.8s ease-in-out infinite;
 }
 @keyframes buddy-ponder {
-  0%, 35%, 100% { transform: rotate(-6deg) translateY(-1%); }
-  50%, 80% { transform: rotate(5deg) translateY(1%); }
+  0%, 100% { transform: rotate(-9deg) translate(-2%, 0) scale(1.03, .97); }
+  20% { transform: rotate(-12deg) translate(-3%, -5%) scale(.96, 1.06); }
+  40% { transform: rotate(0) translateY(2%) scale(1.1, .9); }
+  60% { transform: rotate(11deg) translate(3%, -7%) scale(.96, 1.08); }
+  80% { transform: rotate(6deg) translate(1%, -3%) scale(1); }
 }
 @keyframes buddy-gaze {
-  0%, 35%, 100% { transform: translate(-2px, -4px); }
-  50%, 80% { transform: translate(3px, -3px); }
+  0%, 28%, 100% { transform: translate(-3px, -4px); }
+  40% { transform: translate(0, -2px); }
+  55%, 78% { transform: translate(3px, -4px); }
+}
+@keyframes buddy-concentrate {
+  0%, 30%, 50%, 100% { transform: scaleY(1); }
+  38%, 44% { transform: scaleY(.72); }
 }
 
 /* Busy: big squash-and-stretch hops, with an occasional somersault layered on top. */

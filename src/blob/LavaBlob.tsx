@@ -14,7 +14,6 @@ import {
   type LavaBody,
 } from './lava';
 import { MoodBadge } from './overlays';
-import { OrbitRing } from './OrbitRing';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
 import './blob-lava.css';
@@ -41,7 +40,7 @@ const TONES = ['halo', 'core', 'glow'] as const;
 
 /**
  * Lava — melted lobes of the session's colour with contrasting pools inside and a stippled ink rim.
- * See `lava.ts` for the rules. Mood is motion first: still when idle, colour churning while thinking,
+ * See `lava.ts` for the rules. Mood is motion first: still when idle, gathering and melting while thinking,
  * and while busy the whole body works — it rises and settles, swells and squashes, any middle lobe
  * pulls in and out, a droplet is thrown off and reabsorbed, and the glow turns against the pool. Each
  * working mood also sets something *static* (the droplet's resting place is already detached, the
@@ -248,7 +247,6 @@ export default function LavaBlob({
           </filter>
         </defs>
 
-        {state === 'needs-input' ? <OrbitRing.Back cx={50} cy={50} r={44} /> : null}
 
         <g filter={`url(#${uid}-goo)`}>
           {/* One wrapper for the whole goo, so the lamp's rise carries every lobe and pool at once. */}
@@ -306,7 +304,6 @@ export default function LavaBlob({
         </g>
 
         <MoodBadge mood={mood} inset={-2} />
-        {state === 'needs-input' ? <OrbitRing.Front cx={50} cy={50} r={44} /> : null}
       </svg>
     </div>
   );

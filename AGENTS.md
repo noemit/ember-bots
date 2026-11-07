@@ -547,8 +547,11 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   dark-outlined eyes). Scribble uses bounded SVG paths without filters; idle stays still.
   Scribble turns through independent wire-bundle angles around a solid core, never an edge-on
   flattening. Every silhouette mixes sharp, round and bent tips; crossing strands texture the back.
-  Thinking is style-specific: Buddy gaze/tilt, Scribble wire twitches, Mosaic stepped tile light,
-  Lava circulating pools and Crystal facet glints. No shared thinking ring. Reduced motion disables
+  Scribble’s raised hand appears only for questions; working cycles through left/right/away
+  glances with the same wire movement, then a stretch, on a sixteen-second timeline.
+  Thinking is style-specific: Buddy leans/squashes/rises and glances, Scribble wires twitch,
+  Mosaic lights stepped tiles, Lava gathers/stretches/melts, and Crystal glints through facets.
+  Only Crystal uses the orbit ring; Lava keeps decision badges without an orbit. No shared thinking ring. Reduced motion disables
   all of them; idle remains still. Mosaic error eyes are three-by-three pixel crosses made from square rects, without diagonal strokes. Its working/thinking eyes
   use whole-cell glances and occasional blinks, with longer upward looks while thinking;
   seeded CSS phases keep chats out of sync, and reduced motion leaves the eyes open.
@@ -625,8 +628,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   (`lava-split`, bent off the outward line by `--lava-wx/-wy` so it arcs). The pool turns while the
   glow turns the other way. Measured on a 55px busy blob, the silhouette changes 3.3% of its area per
   140ms, against 1.1% before, and sways 6px sideways against 0.5px. Idle, unread and error still draw
-  no animation at all; thinking still holds the silhouette still and only churns the colour (that is
-  the difference the eye reads); two-lobe shapes (`drop`, `cell`) have no middle lobe, so the swell is
+  no animation at all; thinking continuously changes the material’s shape while
+  pools and lobes move together; two-lobe shapes (`drop`, `cell`) have no middle lobe, so the swell is
   their body movement. Busy's still frame — reduced motion, a paused window, the dock icon — is the
   detached droplet, which no other mood draws.
 - **A blob's cost**: one goo filter per blob, and a busy blob re-evaluates it every frame. With 4 busy
