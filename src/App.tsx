@@ -5214,6 +5214,13 @@ export default function App() {
             unseenScheduledRuns={unseenScheduledRunsCount}
             hideNavigation={usageOpen || scheduledOpen}
             onOpenSettings={() => {
+              setMobileRailOpen(false);
+              setProviderEndpointId(undefined);
+              setSettingsView('general');
+              setSettingsActivated(true);
+              setSettingsOpen(true);
+            }}
+            onOpenInstanceSettings={() => {
               setProviderEndpointId(undefined);
               setSettingsView('instances');
               setSettingsActivated(true);
@@ -5294,13 +5301,6 @@ export default function App() {
               onNewAgent={(instanceId, directory) => {
                 beginNewAgent(instanceId, directory);
                 setMobileRailOpen(false);
-              }}
-              onOpenSettings={() => {
-                setMobileRailOpen(false);
-                setProviderEndpointId(undefined);
-                setSettingsView('general');
-                setSettingsActivated(true);
-                setSettingsOpen(true);
               }}
             />
             ) : null}

@@ -96,7 +96,6 @@ const render = (
         onOpenGroup={() => undefined}
         onUngroup={() => undefined}
         onManageGroup={() => undefined}
-        onOpenSettings={() => undefined}
       />
     </TooltipProvider>
   );

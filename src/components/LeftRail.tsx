@@ -15,7 +15,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Settings,
   EyeOff,
   X,
 } from 'lucide-react';
@@ -142,7 +141,6 @@ type Props = {
   onUngroup: (groupId: string) => void;
   /** Open the group panel for a group, or start one from a session. */
   onManageGroup: (draft: { id?: string; name: string; keys: string[]; primaryKey?: string }) => void;
-  onOpenSettings: () => void;
   onRenameSession: (session: Session, title: string) => void;
 };
 
@@ -198,7 +196,6 @@ export default function LeftRail({
   onOpenGroup,
   onUngroup,
   onManageGroup,
-  onOpenSettings,
   onRenameSession,
 }: Props) {
   const composerConnection = useWorkspaceConnection();
@@ -722,7 +719,7 @@ export default function LeftRail({
                   disabled={!defaultInstanceId}
                   onClick={() => defaultInstanceId && onNewAgent(defaultInstanceId)}
                   aria-label="New bot"
-                  className="size-8"
+                  className="size-8 bg-highlight text-highlight-foreground hover:bg-highlight"
                 >
                   <Plus />
                 </Button>
@@ -734,7 +731,7 @@ export default function LeftRail({
         {mode === 'mini' ? null : multiInstance ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" className="min-w-0 flex-1 justify-start" size="sm">
+              <Button variant="secondary" className="min-w-0 flex-1 justify-start bg-highlight text-highlight-foreground hover:bg-highlight" size="sm">
                 <Plus />
                 New bot
                 <ChevronDown className="ml-auto opacity-70" />
@@ -759,7 +756,7 @@ export default function LeftRail({
         ) : (
           <Button
             variant="secondary"
-            className="min-w-0 flex-1 justify-start"
+            className="min-w-0 flex-1 justify-start bg-highlight text-highlight-foreground hover:bg-highlight"
             size="sm"
             disabled={!defaultInstanceId}
             onClick={() => defaultInstanceId && onNewAgent(defaultInstanceId)}
@@ -769,7 +766,6 @@ export default function LeftRail({
           </Button>
         )}
 
-        <Button variant="ghost" size="icon-sm" onClick={onOpenSettings} aria-label="Settings" title="Settings"><Settings /></Button>
         </div>
         {mode === 'mini' ? null : (
         <div className="flex gap-1.5">

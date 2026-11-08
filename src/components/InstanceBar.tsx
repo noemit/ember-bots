@@ -35,6 +35,7 @@ type Props = {
   onOpenCommandPalette: () => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
+  onOpenInstanceSettings: () => void;
 
   /** Back to the workspace (rail + columns); opens the most recent session if none is open. */
   onShowSessions: () => void;
@@ -137,6 +138,7 @@ export default function InstanceBar({
   onOpenCommandPalette,
   onRefresh,
   onOpenSettings,
+  onOpenInstanceSettings,
   onShowSessions,
   onShowUsage,
   usageActive,
@@ -206,6 +208,15 @@ export default function InstanceBar({
       ) : (
         <div className="flex-1" />
       )}
+
+      <Tooltip><TooltipTrigger asChild><button
+        type="button"
+        onClick={onOpenSettings}
+        className="no-drag flex size-8 flex-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        aria-label="Settings"
+      >
+        <Settings aria-hidden="true" className="size-[18px]" />
+      </button></TooltipTrigger><TooltipContent>Settings</TooltipContent></Tooltip>
 
       {/* The three views, side by side: a tab bar, not a row of toggles. */}
       <div
@@ -335,7 +346,7 @@ export default function InstanceBar({
             <RefreshCw className={cn(refreshing && 'animate-spin')} />
             {refreshing ? 'Reprobing…' : 'Reprobe instances'}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onOpenSettings}>
+          <DropdownMenuItem onSelect={onOpenInstanceSettings}>
             <Settings />
             Instance settings
           </DropdownMenuItem>
