@@ -40,7 +40,7 @@ test('every style rasterises its body and overlay as a valid dock image', async 
 test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood', async ({ page }) => {
   await page.goto('/blob-gallery.html');
   await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
-  for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'unread', 'unknown']) {
+  for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'unread']) {
     const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).first();
     await blob.scrollIntoViewIfNeeded();
     const box = (await blob.boundingBox())!;
@@ -61,6 +61,11 @@ test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood'
       [{ x: 1, y: 0, animation: 'none' }, { x: 1, y: 0, animation: 'none' }],
     ]);
     await page.mouse.move(1590, 0);
+    await expect(blob).not.toHaveAttribute('data-pupil-tracking');
+  }
+  for (const mood of ['unknown', 'error']) {
+    const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).first();
+    await blob.hover();
     await expect(blob).not.toHaveAttribute('data-pupil-tracking');
   }
   await page.getByRole('region', { name: 'Mosaic states', exact: true }).screenshot({ path: '/tmp/ember-mosaic-pixel-large.png' });

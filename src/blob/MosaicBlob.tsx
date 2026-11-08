@@ -27,7 +27,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
   // A two-cell white has only two legal pupil positions. No interpolation off the grid.
   const snapGaze = React.useCallback((x: number): [number, number] =>
     [(x >= 0 ? 1 : 0) - (art.lookRight ? 1 : 0), 0], [art.lookRight]);
-  usePupilTracking(wrapper, [left, right], interactive && mood !== 'error', 1, snapGaze);
+  usePupilTracking(wrapper, [left, right], interactive && mood !== 'error' && mood !== 'unknown', 1, snapGaze);
   return <div ref={wrapper} className="blob blob-mosaic" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size,
     '--mosaic-eye-delay': `${art.eyeDelay}s`, '--mosaic-gaze-step': art.lookRight ? '-1px' : '1px',
   } as React.CSSProperties}>
