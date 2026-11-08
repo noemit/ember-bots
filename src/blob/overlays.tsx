@@ -18,7 +18,8 @@ export const accentFor = (mood: BallMood): string => {
 
 /**
  * The notification / lock / question / warning badge in the top-right corner. All circles share
- * their size and centre; each renderer's `inset` follows its silhouette for every mood.
+ * their base size and centre; each renderer's `inset` follows its silhouette. Capped rail unread
+ * dots move toward the corner, without moving the larger decision badges.
  */
 export const MoodBadge = ({ mood, inset = 0, size = 30 }: { mood: BallMood; inset?: number; size?: number }) => {
   const maxDiameter = useContext(NotificationSizeContext);
@@ -28,11 +29,16 @@ export const MoodBadge = ({ mood, inset = 0, size = 30 }: { mood: BallMood; inse
   const y = 22 + inset;
   // The SVG grid is 100 units wide. Include the 3-unit outline in the 35-unit diameter.
   // Decision badges retain their readable symbols; only an unread notification is capped.
-  const scale = mood === 'unread' && maxDiameter !== undefined
-    ? Math.min(1, maxDiameter / (size * .35)) : 1;
+  const cappedUnread = mood === 'unread' && maxDiameter !== undefined;
+  const scale = cappedUnread ? Math.min(1, maxDiameter / (size * .35)) : 1;
+  // Large rail blobs use the outer corner (88,12). On smaller blobs, keep the entire outline
+  // inside the SVG, including Crystal/Lava's outward inset, rather than clipping the dot.
+  const radius = 17.5 * scale;
+  const anchorX = Math.min(88 - inset, 100 - radius);
+  const anchorY = Math.max(12 + inset, radius);
   return (
     <g className="blob-badge" data-badge={mood}
-      transform={scale < 1 ? `translate(${x} ${y}) scale(${scale}) translate(${-x} ${-y})` : undefined}>
+      transform={cappedUnread ? `translate(${anchorX} ${anchorY}) scale(${scale}) translate(${-x} ${-y})` : undefined}>
       {mood === 'error' ? (
         <>
           <path

@@ -24,7 +24,7 @@
 - The current bot stays aligned beside the composer when a long draft shrinks or is sent, instead of overlapping other bots in the rail.
 - The current bot beside the composer retains Hide session and New bot in this folder actions, including the mini rail and undocked composers; hiding active work still asks first.
 - Mosaic eyes use the body’s pixel grid in every state again, including whole-cell glances and blinks.
-- Unread notification dots stay at or below 10px across rail sizes and avatar transitions.
+- Unread notification dots stay at or below 10px across rail sizes and avatar transitions, and sit nearer the top-right corner without clipping at smaller sizes.
 - Mini-rail tooltips use readable foreground text against their tooltip background.
 
 ## 1.20.6
