@@ -10,6 +10,7 @@
 - Rail bot names and descriptions have up to two lines, with timestamps beside the final description line. Group members show the same readable previews, composer identities wrap their names, and hover actions keep clear of the text.
 - Documented the Ember brand and visual asset reservation, permission contact and official website, while retaining MIT for software source and preserving permissions already granted.
 - Settings now sits in the top bar immediately before Sessions, and the rail’s New bot button uses the theme accent in every rail width.
+- Composer trays use quiet underline tabs and fine-separated, two-line previews with metadata below. The full tab bar folds the shelf, row actions remain reachable on touchscreens and keyboards, and thread YOLO controls reflect policy changes immediately.
 - The model picker’s instance-default action and status now live in the right-hand model details pane, not model rows; narrow screens show them in a compact footer naming the inspected model.
 - Scribble is temporarily retired from appearance choices. Saved Scribble preferences display Buddy without being rewritten; the Scribble renderer and development studies remain available.
 - Session actions now say Hide, Hidden sessions and Unhide, with eye icons instead of trash; Undo and active-work safeguards are unchanged.

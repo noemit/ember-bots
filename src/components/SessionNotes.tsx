@@ -15,15 +15,14 @@ type Props = {
   onDelete: (note: SessionNote) => void;
 };
 
-const ICON_BUTTON = 'size-5 rounded text-muted-foreground hover:bg-muted hover:text-foreground';
+const ICON_BUTTON = 'size-5 max-sm:size-8 rounded text-muted-foreground hover:bg-muted hover:text-foreground';
 
 /**
  * Notes parked from the composer: the shelf's "For later" section. Never dispatched on their own —
  * each row can be sent as-is, brought back into the composer, or deleted, and clicking it reads it.
  *
- * The card is gone: the shelf's tab already says what these are, so a row no longer repeats
- * "For Later:" in front of every note, and the four actions fit on the row's hover cluster instead
- * of a second line.
+ * Two-line previews and fine separators match Queue. Actions occupy a reserved lane beneath
+ * the text, shown on hover/focus or always on touch, so revealing them cannot reflow the preview.
  */
 export default function SessionNotes({ notes, canSend = true, onSend, onBringBack, onDelete }: Props) {
   const [busyNoteId, setBusyNoteId] = React.useState<string | null>(null);
@@ -54,7 +53,7 @@ export default function SessionNotes({ notes, canSend = true, onSend, onBringBac
 
   return (
     <>
-      <ol className="flex max-h-28 min-w-0 flex-col gap-0.5 overflow-y-auto" aria-label="Notes for later">
+      <ol className="flex max-h-48 min-w-0 list-none flex-col divide-y divide-border/50 overflow-y-auto" aria-label="Notes for later">
         <AnimatePresence initial={false} mode="popLayout">
           {notes.map((note) => (
             <motion.li
@@ -77,7 +76,7 @@ export default function SessionNotes({ notes, canSend = true, onSend, onBringBac
                       type="button"
                       variant="ghost"
                       size="icon-xs"
-                      disabled={busyNoteId === note.id || !canSend}
+                      disabled={busyNoteId !== null || !canSend}
                       onClick={() => void send(note)}
                       aria-label={`Send note: ${note.text.slice(0, 60)}`}
                       title="Send this note now"
@@ -125,7 +124,7 @@ export default function SessionNotes({ notes, canSend = true, onSend, onBringBac
           actions={
             <Button
               variant="outline"
-              disabled={busyNoteId === readingNote.id || !canSend}
+              disabled={busyNoteId !== null || !canSend}
               onClick={() => {
                 const note = readingNote;
                 setReadingId(null);

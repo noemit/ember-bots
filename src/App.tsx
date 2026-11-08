@@ -5019,9 +5019,10 @@ export default function App() {
           crewCost={crewCostByKey.get(key)}
           nestedBlocked={blockedCrewByLeader.get(key) ?? []}
           workerState={(worker) => states[sessionKey(worker)] ?? 'unknown'}
-          workerAutoAccept={(worker) =>
-            Boolean(autoAcceptByInstance[worker.instanceId]?.sessions[worker.id] ?? false)
-          }
+          workerAutoAcceptByKey={Object.fromEntries((crewWorkers.get(key) ?? []).map((worker) => [
+            sessionKey(worker),
+            Boolean(autoAcceptByInstance[worker.instanceId]?.sessions[worker.id] ?? false),
+          ]))}
           onOpenWorker={(worker) =>
             openSession({ instanceId: worker.instanceId, sessionId: worker.id }, worker)
           }

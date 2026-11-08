@@ -315,8 +315,8 @@ type Props = {
   nestedBlocked?: BlockedWorker[];
   /** Coarse ball state per worker, from the instance's status poll. */
   workerState?: (worker: Session) => BallState;
-  /** Server-side auto-accept per worker, shown as an `auto` badge in the strip. */
-  workerAutoAccept?: (worker: Session) => boolean;
+  /** Data crosses both memo boundaries; a stabilized lookup callback cannot signal YOLO changes. */
+  workerAutoAcceptByKey?: Readonly<Record<string, boolean>>;
   /** Open a worker as a transient column. */
   onOpenWorker?: (worker: Session) => void;
   /** Resolve a promoted worker's peer session, so the strip row links to the peer fork. */
@@ -529,7 +529,7 @@ function ChatView({
   nestedBlocked,
   workerState,
   threadTargets,
-  workerAutoAccept,
+  workerAutoAcceptByKey,
   onOpenWorker,
   workerPeer,
   onToggleWorkerYolo,
@@ -2118,7 +2118,7 @@ function ChatView({
                               peerFor={workerPeer}
                               blobStyle={blobStyle}
                               stateFor={workerState}
-                              autoAcceptFor={workerAutoAccept}
+                              autoAcceptByKey={workerAutoAcceptByKey}
                               onToggleYolo={onToggleWorkerYolo}
                               identityFor={identityFor}
                               // The leader's own blob colour, so the crew's chips read as one family

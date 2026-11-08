@@ -429,12 +429,11 @@ their existing names; archive references in the implementation notes below descr
 - `src/components/CrewStrip.tsx` — **coagent crews**. Hearth leaders (the default; a session
   with `delegates`) spawn `kind: "worker"` conversations with `lead`; those workers are hidden
   from the rail, search, archive screen and palette, and surface only in the shelf's **Threads** tab
-  above the leader's composer. The strip is **chips and no card**: one wrapping row of filled,
-  borderless chips (blob + title + status + needs-input/`auto` badge) with a `role="group"` for
-  the accessible boundary. It used to be a bordered card around bordered chips — the "chip in a
-  card" report — and then a bordered strip of bordered chips; both are gone, and the shelf owns
-  opening and folding, so the strip draws no fold control and never collapses itself. Clicking a
-  chip opens the worker in a **session dialog** — a live ChatView with its own composer and prompt controls, while the main workspace and selected session stay unchanged. The dialog key is never persisted; its transcript joins visible-column event refresh, polling and cache protection. Closing or Escape returns to the same workspace. Promoted workers link to their peer in the normal workspace, and promotion from an open dialog hands over to that peer. Because the strip is
+  above the leader's composer. Threads use **flat rows with fine separators**, two-line titles and
+  status underneath, matching Queue and For later. Threads have no avatars; promoted peer links
+  retain their own identity. The `role="group"` supplies the accessible boundary without a card.
+  The shelf owns opening and folding; Previous still reveals finished threads, and pending nested
+  workers remain directly reachable. Clicking a row opens the worker in a **session dialog** — a live ChatView with its own composer and prompt controls, while the main workspace and selected session stay unchanged. The dialog key is never persisted; its transcript joins visible-column event refresh, polling and cache protection. Closing or Escape returns to the same workspace. Promoted workers link to their peer in the normal workspace, and promotion from an open dialog hands over to that peer. Because the strip is
   the only place a worker is visible, it also carries a row for every worker blocked on the human
   **below** the direct crew, at any depth (`blockedCrewByLeader` in App, one `blockedWorkersUnder`
   per leader), marked with its depth and opening the conversation that is actually waiting — a
@@ -731,9 +730,11 @@ their existing names; archive references in the implementation notes below descr
   selection to its first line or roughly 200 characters plus an ellipsis. The pure half is
   `src/lib/comments.ts`, unit-tested in `tests/comments.test.ts`; `e2e/comments.pw.ts` covers the scene.
 - `src/components/ComposerShelf.tsx` + `TrayRow.tsx` + `TrayItemDialog.tsx` — **the tray above
-  the composer is one shelf**, not three stacked cards: one line of tabs (`Queue 3 · For later 2 ·
-  Crew 3`, each with its count, a dot when that tray wants the human), the open tray's rows under
-  it, and a chevron that folds the whole thing to that one line. A tray with nothing in it has no
+  the composer is one shelf**, not three stacked cards: quiet underline tabs (`Queue 3 · For later 2 ·
+  Threads 3`, each with its count or summary, a dot when that tray wants the human), and fine-separated
+  rows below. The selected tab, the empty tab-bar space and the chevron each fold/reopen the shelf;
+  another tab switches and opens without collapsing. Arrow keys/Home/End move tab focus, Enter/Space
+  activate, and tabs name their panels. A tray with nothing in it has no
   tab, and folding keeps the tabs, so nothing becomes unreachable. Which tray is open is the
   person's choice; `ChatView` only brings one forward when something *arrives* in it (a queued
   message, a saved note) and opens the shelf for a crew that has just become blocked — the first
@@ -742,8 +743,12 @@ their existing names; archive references in the implementation notes below descr
   different React key, and `AnimatePresence` kept the removed one mounted through its exit animation,
   drawing the same message twice for ~200ms (0.77.2). A poll also drops an optimistic row when the
   served row is the same message (`sameQueuedMessage`, one local row per served row). A `TrayRow` is
-  one line of text with the model muted at the end and the row's actions appearing on hover or
-  keyboard focus; **no outlines anywhere inside the band**, which is what "chip in card" was about.
+  a two-line, word-wrapped preview with muted metadata beneath and sibling actions in a reserved
+  lane. Actions reveal on hover/focus on wide fine-pointer screens and stay visible on narrow or
+  touch screens, so neither the preview nor the controls jump. Errors wrap outside the preview
+  clamp; a held steer keeps its trailing waiting spinner. There are fine separators, not outlined
+  cards. Pending rows allow text edits but not model changes or unsafe queue operations, and steers
+  cannot be edited, sent again, parked or merged.
   Clicking a row opens `TrayItemDialog` — the whole text, read-only, with Edit as a separate button
   (the queue has no edit operation, so its editor's Save re-enqueues the row under a new id; reading
   must not be that).

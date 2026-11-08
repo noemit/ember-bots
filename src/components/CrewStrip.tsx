@@ -5,14 +5,11 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { springTransition } from '@/lib/animation';
 import Blob from '../blob/Blob';
-import { blobColor } from '../blob/color';
 import { moodFrom } from '../blob/mood';
 import { seedIdentity } from '../blob/seed';
 import { sessionKey } from '../types';
 import {
   brickStatusSignal,
-  leaderBrickStyle,
-  leaderBrickWash,
   splitCrew,
   workerStateLabel,
   type BlockedWorker,
@@ -32,8 +29,8 @@ type Props = {
   blobStyle: BlobStyle;
   /** Coarse ball state per worker, from the instance's status poll; missing reads as idle. */
   stateFor?: (session: Session) => BallState;
-  /** Server-side auto-accept (YOLO) per worker, shown as the same YOLO chip the composer uses. */
-  autoAcceptFor?: (session: Session) => boolean;
+  /** Per-session YOLO data must change identity through memoized ChatView and this strip. */
+  autoAcceptByKey?: Readonly<Record<string, boolean>>;
   /** Toggle a worker's auto-accept; omit to render the chip read-only. */
   onToggleYolo?: (session: Session, enabled: boolean) => void;
   /**
@@ -47,41 +44,10 @@ type Props = {
    * scheduled binding), so its chip matches its workspace avatar. Threads draw no blob.
    */
   identityFor?: (session: Session) => AvatarIdentity | undefined;
-  /**
-   * The **leader's** own identity, used for one thing only: the colour family of the bricks. It
-   * washes each brick's surface and tints its edge (`blobColor` → `leaderBrickStyle`), so a crew
-   * reads as its leader's family. A promoted bot retains its own avatar identity.
-   *
-   * Absent, the bricks stay untinted: a standalone strip should not invent a colour it was not
-   * given.
-   */
+  /** Retained caller compatibility; neutral rows no longer tint their surfaces by leader. */
   leaderIdentity?: AvatarIdentity;
   /** The leader's title, for the strip's accessible name and the collapsed pill's tooltip. */
   leaderTitle?: string;
-};
-
-/**
- * The brick's own surface, by tone. The two loud states take the surface, so the leader's wash is
- * kept off their edge — a warning tinted in the leader's colour reads as decoration.
- */
-const BRICK_SURFACE: Record<CrewBrickTone, string> = {
-  // No edges anywhere: the status is the tint, the dot and (for "needs input") the word.
-  attention: 'bg-highlight/15',
-  failed: 'bg-destructive/15',
-  unknown: 'bg-muted/40',
-  active: '',
-  done: '',
-  quiet: '',
-};
-
-/** Tones whose edge is the status's own; the rest let the leader's colour tint the border. */
-const OWNS_EDGE: Record<CrewBrickTone, boolean> = {
-  attention: true,
-  failed: true,
-  unknown: false,
-  active: false,
-  done: false,
-  quiet: false,
 };
 
 /**
@@ -99,28 +65,9 @@ const BRICK_DOT: Record<CrewBrickTone, string> = {
   unknown: 'border border-dashed border-muted-foreground/60',
 };
 
-/**
- * The shared brick shell: one wrapped line, blob + truncated title + signal. The width cap is per
- * tone (`BRICK_MAX_W`) because a brick that prints a word has to fit that word *and* a readable
- * title — six characters of "Migr…" beside "needs input" is worse than one wider brick.
- *
- * Never put `@container` on `BRICK_CLASS` itself: `container-type: inline-size` applies inline-size
- * containment, which makes an `inline-flex` chip ignore its own children when sizing and collapse
- * to its horizontal padding (`12px`). The container lives on the strip wrapper (`group/strip`)
- * instead, where the width is governed by the column rather than shrink-to-fit content.
- */
+/** Flat thread rows share the queue's readable preview and fine separators. */
 export const BRICK_CLASS =
-  'group/brick inline-flex min-w-0 items-center gap-1 rounded-full bg-muted/70 px-1.5 py-1 text-[11px] text-foreground';
-
-/** A brick stays compact; the loud ones earn the room their word needs. */
-const BRICK_MAX_W: Record<CrewBrickTone, string> = {
-  attention: 'max-w-[240px]',
-  failed: 'max-w-[170px]',
-  unknown: 'max-w-[170px]',
-  active: 'max-w-[170px]',
-  done: 'max-w-[170px]',
-  quiet: 'max-w-[170px]',
-};
+  'group/brick flex min-w-0 items-start gap-2 px-1.5 py-2 text-[12.5px] text-foreground';
 
 /**
  * One worker, as a brick. Bricks stay memoized so a poll that leaves the strip untouched doesn't
@@ -134,7 +81,6 @@ const WorkerBrick = React.memo(function WorkerBrick({
   status,
   auto,
   peer,
-  leaderColor,
   onOpen,
   onToggleYolo,
   identityFor,
@@ -146,8 +92,6 @@ const WorkerBrick = React.memo(function WorkerBrick({
   auto: boolean;
   /** The promoted peer this brick links to; null when the worker isn't promoted or it isn't loaded. */
   peer: Session | null;
-  /** The leader's blob colour, or undefined to leave the brick untinted. */
-  leaderColor?: string;
   onOpen: (session: Session) => void;
   onToggleYolo?: (session: Session, enabled: boolean) => void;
   identityFor?: (session: Session) => AvatarIdentity | undefined;
@@ -172,15 +116,6 @@ const WorkerBrick = React.memo(function WorkerBrick({
   // announces "Parse config, working" without the name growing a word per row.
   const statusId = React.useId();
   const hint = promoted ? `Open the peer for ${title}` : `Open ${title}`;
-  // The leader's wash, computed from primitives so the memo above isn't defeated by a fresh object.
-  const tint = React.useMemo(() => {
-    if (!leaderColor) return undefined;
-    if (signal.tone === 'failed') return undefined;
-    return OWNS_EDGE[signal.tone]
-      ? { backgroundColor: leaderBrickWash(leaderColor) }
-      : leaderBrickStyle(leaderColor);
-  }, [leaderColor, signal.tone]);
-
   return (
     <motion.li
       layout="position"
@@ -190,8 +125,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
       transition={springTransition}
       data-crew-brick=""
       data-worker-status={status}
-      className={cn(BRICK_CLASS, BRICK_MAX_W[signal.tone], BRICK_SURFACE[signal.tone])}
-      style={tint}
+      className={BRICK_CLASS}
     >
       <button
         type="button"
@@ -199,7 +133,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
         title={`${hint} — ${signal.word}`}
         aria-label={title}
         aria-describedby={statusId}
-        className="flex min-w-0 items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 items-start gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {promoted ? <Blob
           style={blobStyle}
@@ -209,29 +143,19 @@ const WorkerBrick = React.memo(function WorkerBrick({
           mood={mood}
           interactive={false}
         /> : null}
-        <span className="min-w-0 truncate">{title}</span>
-        {/* Exactly one node carries the status word, and it is the one `aria-describedby` points at:
-            the word itself when the state prints it, a hidden word beside the dot when it does not.
-            Two carriers would read "needs input" twice — to a screen reader and to any text query. */}
-        {signal.showWord ? (
-          <span
-            id={statusId}
-            className="flex-none rounded-sm bg-highlight px-1 text-[9.5px] leading-4 font-semibold text-highlight-foreground"
-          >
-            {signal.word}
-          </span>
-        ) : (
-          <>
+        <span className="min-w-0 flex-1">
+          <span data-tray-preview="" className="line-clamp-2 leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{title}</span>
+          <span data-tray-meta="" className="mt-1 flex items-center gap-1.5 text-[10.5px] leading-4 text-muted-foreground">
             <span aria-hidden="true" className={cn('size-1.5 flex-none rounded-full', BRICK_DOT[signal.tone])} />
-            <span id={statusId} className="sr-only">
+            <span id={statusId} className={cn(signal.tone === 'attention' && 'font-medium text-highlight', signal.tone === 'failed' && 'text-destructive')}>
               {signal.word}
             </span>
-          </>
-        )}
+          </span>
+        </span>
       </button>
       {promoted ? (
         <span
-          className="flex-none rounded-sm border border-highlight/50 px-1 text-[9.5px] leading-4 font-semibold text-highlight uppercase"
+          className="flex-none px-1 text-[9.5px] leading-4 font-semibold text-highlight uppercase"
           title="This worker has been promoted to an addressable peer"
         >
           peer
@@ -252,13 +176,13 @@ const WorkerBrick = React.memo(function WorkerBrick({
                 aria-label={`Turn off YOLO mode for ${title}`}
                 title="YOLO mode is on for this worker: permission prompts are accepted automatically — click to turn it off"
                 onClick={() => onToggleYolo(worker, false)}
-                className="h-5 flex-none items-center gap-0.5 rounded-sm bg-warning/15 px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-warning uppercase hover:bg-warning/25"
+                className="mt-1 h-5 max-sm:h-8 flex-none items-center gap-0.5 rounded-sm bg-warning/15 px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-warning uppercase hover:bg-warning/25"
               >
                 <YoloLabel small labelClassName="hidden @[420px]:inline" />
               </Button>
             ) : (
               <span
-                className="flex flex-none items-center gap-0.5 rounded-sm border border-warning/50 px-1 text-[9.5px] leading-4 font-semibold text-warning uppercase"
+                className="flex flex-none items-center gap-0.5 px-1 text-[9.5px] leading-4 font-semibold text-warning uppercase"
                 title="YOLO mode is on for this worker"
               >
                 <YoloLabel small labelClassName="hidden @[420px]:inline" />
@@ -275,7 +199,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
               aria-label={`Turn on YOLO mode for ${title}`}
               title="Turn on YOLO mode for this worker"
               onClick={() => onToggleYolo(worker, true)}
-              className="h-5 flex-none items-center gap-0.5 rounded-sm px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-muted-foreground uppercase opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/brick:opacity-100"
+              className="mt-1 h-5 max-sm:h-8 flex-none items-center gap-0.5 rounded-sm px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-muted-foreground uppercase opacity-100 [@media(min-width:640px)_and_(hover:hover)_and_(pointer:fine)]:opacity-0 max-sm:opacity-100 hover:text-foreground focus-visible:opacity-100 group-focus-within/brick:opacity-100 group-hover/brick:opacity-100"
             >
               <YoloLabel small labelClassName="hidden @[420px]:inline" />
             </Button>
@@ -291,9 +215,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
  * leader's own workers, so a sub-agent's question used to be invisible unless you opened the worker
  * above it; this brick names it here and opens the conversation that is actually waiting.
  *
- * It keeps its highlight surface rather than the leader's wash — it is the loudest thing in the
- * strip by design — and announces `nested` rows with their depth rather than a bubble, so it reads
- * as "inside my crew" without imitating the queue card.
+ * The status and depth sit below the readable title, without a card or a thread avatar.
  */
 const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
   entry,
@@ -325,14 +247,14 @@ const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
       transition={springTransition}
       data-crew-brick=""
       data-worker-status="needs input"
-      className={cn(BRICK_CLASS, BRICK_MAX_W.attention, 'bg-highlight/15')}
+      className={BRICK_CLASS}
     >
       <button
         type="button"
         onClick={() => onOpen(worker)}
         title={`${nested ? `Open ${title} (crew depth ${entry.depth})` : `Open ${title}`} — needs input`}
         aria-label={`${title} needs input — open the conversation to answer`}
-        className="flex min-w-0 items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 items-start gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {worker.promotedTo ? <Blob
           style={blobStyle}
@@ -342,17 +264,12 @@ const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
           mood={mood}
           interactive={false}
         /> : null}
-        <span className="min-w-0 truncate">{title}</span>
-        {nested ? (
-          <span
-            className="flex-none text-[9.5px] leading-4 text-muted-foreground tabular-nums"
-            title={`${entry.depth} levels below this bot`}
-          >
-            {`›${entry.depth}`}
+        <span className="min-w-0 flex-1">
+          <span data-tray-preview="" className="line-clamp-2 leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{title}</span>
+          <span data-tray-meta="" className="mt-1 flex flex-wrap gap-1.5 text-[10.5px] leading-4 text-muted-foreground">
+            <span className="font-medium text-highlight">needs input</span>
+            {nested ? <span title={String(entry.depth) + " levels below this bot"}>Nested · depth {entry.depth}</span> : null}
           </span>
-        ) : null}
-        <span className="flex-none rounded-sm bg-highlight px-1 text-[9.5px] leading-4 font-semibold text-highlight-foreground">
-          needs input
         </span>
       </button>
     </motion.li>
@@ -360,13 +277,9 @@ const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
 });
 
 /**
- * The crew strip: the only place a leader's workers appear (they are hidden from the rail). A
- * sibling of the queue/notes cards above the composer; one **brick** per worker — its title and
- * a compact status signal — wrapping into a few short lines instead of a scrolling column.
- * Threads open in a modal and have no avatar; promoted bots keep their workspace avatar.
- * Renders nothing when the leader has no workers.
- *
- * The bricks inherit the leader's colour (`leaderIdentity`) as a wash. Without one they stay neutral.
+ * The Threads tray is a flat list, with readable titles and status beneath. Direct workers keep
+ * their open/YOLO controls; nested blocked conversations remain reachable without an avatar.
+ * Finished workers stay behind Previous. Only promoted peer links retain their blob.
  */
 const CrewStrip = React.memo(function CrewStrip({
   workers,
@@ -374,22 +287,15 @@ const CrewStrip = React.memo(function CrewStrip({
   peerFor,
   blobStyle,
   stateFor,
-  autoAcceptFor,
+  autoAcceptByKey,
   onToggleYolo,
   nestedBlocked = [],
   identityFor,
-  leaderIdentity,
   leaderTitle,
 }: Props) {
-  // Live work in the chips; finished workers behind one chip instead of lengthening the row.
+  // Live work remains visible; finished workers are an explicit expansion.
   const { live, previous } = splitCrew(workers, stateFor);
   const [previousOpen, setPreviousOpen] = React.useState(false);
-  // Resolved once for the whole strip: `blobColor` consumes the seed RNG, and a string keeps the
-  // memoized bricks comparable (a fresh identity object per render would re-render all of them).
-  const leaderColor = React.useMemo(
-    () => (leaderIdentity ? blobColor(blobStyle, leaderIdentity) : undefined),
-    [blobStyle, leaderIdentity]
-  );
   // A blocked worker that is already one of this strip's own bricks is announced by that brick's
   // status; only the ones further down need a brick of their own here. (It reads `workers`, not the
   // live list: a worker behind the "+N previous" chip still has its own brick waiting.)
@@ -410,9 +316,8 @@ const CrewStrip = React.memo(function CrewStrip({
         blobStyle={blobStyle}
         state={state}
         status={workerStateLabel(worker, { state })}
-        auto={autoAcceptFor?.(worker) === true}
+        auto={autoAcceptByKey?.[sessionKey(worker)] === true}
         peer={worker.promotedTo !== undefined ? peerFor?.(worker) ?? null : null}
-        leaderColor={leaderColor}
         onOpen={onOpenWorker}
         onToggleYolo={onToggleYolo}
         identityFor={identityFor}
@@ -421,22 +326,24 @@ const CrewStrip = React.memo(function CrewStrip({
   };
 
   return (
-    /* No card, and no edges on the chips: a border around a bordered chip is what read as a chip
-       inside a card. The tint still says which leader this crew belongs to, and the container owes
-       nothing but the group's accessible name — the shelf above owns opening and folding. */
+    /* One flat list; status stays beneath each title. The shelf owns opening and folding. */
     <div
       role="group"
       aria-label={leaderTitle ? `Crew of ${leaderTitle}` : 'Crew'}
-      className="group/strip @container flex min-w-0 flex-wrap items-center gap-1"
+      className="group/strip @container min-w-0"
     >
-      {/* Bricks wrap: no `max-h`, no inner scroll. A crew of ten grows to three short lines, which
-          is cheaper to read than a 160px window over the composer with hidden rows in it. */}
-      <ul className="flex min-w-0 flex-wrap items-center gap-1">
+      {/* Bound large crews like Queue/Notes. Every row, Previous and nested question stays in
+          the same keyboard-scrollable list; nothing is sampled or clipped out of the DOM. */}
+      <ul
+        tabIndex={0}
+        aria-label="Thread conversations"
+        className="flex max-h-48 min-w-0 list-none flex-col divide-y divide-border/50 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
         <AnimatePresence initial={false} mode="popLayout">
           {live.map(brick)}
         </AnimatePresence>
         {previous.length > 0 ? (
-          <li className="inline-flex min-w-0">
+          <li className="min-w-0">
             <button
               type="button"
               onClick={() => setPreviousOpen((open) => !open)}
@@ -446,7 +353,7 @@ const CrewStrip = React.memo(function CrewStrip({
                   ? 'Hide previous worker chats'
                   : `${previous.length} finished worker ${previous.length === 1 ? 'chat' : 'chats'}`
               }
-              className="inline-flex items-center rounded-md border border-dashed px-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {previousOpen ? 'hide previous' : `+${previous.length} previous`}
             </button>

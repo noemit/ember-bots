@@ -65,19 +65,13 @@ const render = (props: React.ComponentProps<typeof CrewStrip>) =>
 /** How many bricks the markup draws. One per worker, plus one per extra blocked worker. */
 const bricks = (html: string) => html.split('data-crew-brick=""').length - 1;
 
-/** Replace the leader's two colour mixes with fixed tokens, so the rest of the markup compares. */
-const withoutTint = (html: string) =>
-  html
-    .replace(/color-mix\(in oklab, [^ ]+ 10%, transparent\)/g, 'WASH')
-    .replace(/color-mix\(in oklab, [^ ]+ 45%, var\(--border\)\)/g, 'EDGE');
-
-describe('the crew strip is bricks, not rows', () => {
+describe('the crew strip is a flat readable list', () => {
   const crew = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => worker(id));
 
-  test('one brick per worker, in one wrapping list', () => {
+  test('one row per worker, separated by fine rules', () => {
     const html = render({ workers: crew, stateFor: () => 'active' });
     expect(bricks(html)).toBe(7);
-    expect(html).toContain('flex-wrap');
+    expect(html).toContain('flex-col divide-y');
     expect(html).toContain('<ul');
     // One list item per worker and nothing else: the minimiser lives on the shelf's Crew tab now,
     // so the strip cannot grow a chip of its own chrome.
@@ -98,18 +92,33 @@ describe('the crew strip is bricks, not rows', () => {
     expect(html).toContain('aria-label="Crew"');
   });
 
-  test('a big crew grows instead of scrolling: no height cap, no nested scrollbar', () => {
-    // `max-h-40` + `overflow-y-auto` was the whole problem: six workers turned the card above the
-    // composer into a 160px window with rows hidden below the fold.
-    const html = render({ workers: crew, stateFor: () => 'active' });
-    expect(html).not.toContain('max-h-40');
-    expect(html).not.toContain('overflow-y-auto');
+  test('a large crew is bounded without losing nested questions, Previous or keyboard controls', () => {
+    const many = Array.from({ length: 20 }, (_, index) => worker('live-' + index));
+    const html = render({
+      workers: [...many, worker('finished')],
+      stateFor: (session) => session.id === 'finished' ? 'idle' : 'active',
+      onToggleYolo: () => {},
+      nestedBlocked: [{ worker: worker('deep', { needsInput: true, title: 'Deep question' }), depth: 3, title: 'Deep question' }],
+    });
+    expect(bricks(html)).toBe(21);
+    expect(html).toContain('max-h-48');
+    expect(html).toContain('overflow-y-auto');
+    expect(html).toMatch(/<ul[^>]+tabindex="0"[^>]+aria-label="Thread conversations"/);
+    expect(html).toContain('focus-visible:ring-inset');
+    for (const session of many) {
+      expect(html).toContain('aria-label="' + session.title + '"');
+      expect(html).toContain('aria-label="Turn on YOLO mode for ' + session.title + '"');
+    }
+    expect(html).toContain('+1 previous');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-label="Deep question needs input — open the conversation to answer"');
+    expect(html).not.toContain('overflow-hidden');
   });
 
   test('the worker chip stays compact without allocating an avatar', () => {
     const html = render({ workers: [worker('a')], stateFor: () => 'active' });
-    expect(html).toContain('max-w-[170px]');
-    expect(html).toContain('text-[11px]');
+    expect(html).toContain('line-clamp-2');
+    expect(html).toContain('data-tray-preview');
     expect(html).not.toMatch(/class="blob(?: |")/);
     expect(html).not.toContain('width:16px;height:16px');
   });
@@ -129,8 +138,8 @@ describe('the crew strip is bricks, not rows', () => {
     const described = html.match(/aria-describedby="([^"]+)"/)?.[1];
     expect(described).toBeTruthy();
     expect(html).toContain(`id="${described}"`);
-    expect(html).toContain('class="sr-only"');
-    expect(html).toContain('>working</span>');
+    expect(html).toContain('data-tray-meta');
+    expect(html).toMatch(/>working<\/span>/);
   });
 });
 
@@ -156,7 +165,7 @@ describe('only promoted peer links retain an avatar', () => {
   });
 });
 
-describe('status without a word per brick', () => {
+describe('readable status beneath each preview', () => {
   /**
    * One live brick of `a` in the requested state, with a busy worker beside it: a crew whose every
    * worker is idle starts collapsed, and these assertions are about the brick, not the pill.
@@ -167,7 +176,7 @@ describe('status without a word per brick', () => {
       stateFor: (session) => (session.id === 'a' ? state : 'active'),
     });
 
-  test('a quiet state keeps its word off the brick, in the label only', () => {
+  test('a quiet peer keeps its status beneath the title', () => {
     // A quiet worker only reaches the brick list as a standing relationship: `splitCrew` files an
     // idle one-shot worker under "+N previous". This is the one brick that shows the quiet tone.
     const html = one('idle', { promotedTo: 'peer-1' });
@@ -183,14 +192,14 @@ describe('status without a word per brick', () => {
     const html = one('needs-input');
     expect(html).toContain('>needs input<');
     // The word and the surface, not an outline: chips carry no borders at all now.
-    expect(html).toContain('bg-highlight/15');
-    expect(html).toContain('bg-highlight px-1');
+    expect(html).toContain('font-medium text-highlight');
+    expect(html).toContain('data-tray-meta');
     expect(html).not.toContain('border-highlight');
   });
 
-  test('"failed" takes a destructive surface, not just another dot', () => {
+  test('"failed" keeps a destructive status, not a neutral word', () => {
     const failed = one('error');
-    expect(failed).toContain('bg-destructive/15');
+    expect(failed).toContain('text-destructive');
     expect(failed).toContain('size-1.5 flex-none rounded-full bg-destructive');
     expect(failed).toContain('title="Open Worker a — failed"');
     expect(failed).toContain('>failed</span>');
@@ -215,65 +224,19 @@ describe('status without a word per brick', () => {
   });
 });
 
-describe('the leader tints the avatar-free worker chip', () => {
-  const crew = [worker('a'), worker('b', { needsInput: true })];
-
-  test('no leader identity means no invented colour', () => {
-    const html = render({ workers: crew, stateFor: () => 'active' });
-    expect(html).not.toContain('color-mix');
+describe('neutral rows preserve the leader relationship without tinted cards', () => {
+  test('a leader identity never adds a surface or outline to a thread', () => {
+    for (const identity of [leader, ungroupedLeader]) {
+      const html = render({ workers: [worker('a')], leaderIdentity: identity, stateFor: () => 'active' });
+      expect(html).not.toContain('color-mix');
+      expect(html).not.toMatch(/class="blob(?: |")/);
+      expect(html).toContain('data-tray-meta');
+    }
   });
 
-  test('a grouped identity washes the brick and tints its edge', () => {
-    const html = render({ workers: crew, leaderIdentity: leader, stateFor: () => 'active' });
-    expect(html).toContain('background-color:color-mix(in oklab, var(--blob-');
-    expect(html).toContain(' 10%, transparent)');
-    expect(html).toContain('border-color:color-mix(in oklab, var(--blob-');
-    expect(html).toContain(' 45%, var(--border))');
-  });
-
-  test('an ungrouped buddy identity is a raw hex, and the tint still composes', () => {
-    // `blobColor` returns a hex for an ungrouped buddy identity and a `var(--blob-N)` otherwise; the
-    // composer has to work for both, which is why it is `color-mix` and not a channel split.
-    const html = render({ workers: crew, leaderIdentity: ungroupedLeader, stateFor: () => 'active' });
-    expect(html).toContain('background-color:color-mix(in oklab, #');
-    expect(html).toContain(' 10%, transparent)');
-  });
-
-  test('the leader colour changes the surface and nothing else', () => {
-    // Family colour belongs to the surface; workers have no separate avatar identity.
-    const other: AvatarIdentity = { ...leader, colorSeed: 'a-different-colour', projectKey: 'other' };
-    const a = render({ workers: crew, leaderIdentity: leader, stateFor: () => 'active' });
-    const b = render({ workers: crew, leaderIdentity: other, stateFor: () => 'active' });
-    expect(a).not.toBe(b);
-    expect(withoutTint(a)).toBe(withoutTint(b));
-    expect(a).not.toMatch(/class="blob(?: |")/);
-  });
-
-  test('a failed brick keeps its own surface: a warning is not washed into the family', () => {
-    const html = render({
-      workers: [worker('a')],
-      leaderIdentity: leader,
-      stateFor: () => 'error',
-    });
-    expect(html).toContain('bg-destructive/15');
-    expect(html).not.toContain('color-mix');
-  });
-
-  test('"needs input" keeps the leader wash but not the leader edge', () => {
-    const html = render({
-      workers: [worker('a', { needsInput: true })],
-      leaderIdentity: leader,
-      stateFor: () => 'needs-input',
-    });
-    expect(html).toContain('background-color:color-mix');
-    expect(html).not.toContain('border-color:color-mix');
-  });
-
-  test('the strip is named after its leader and names it in the pill', () => {
-    expect(render({ workers: crew, leaderTitle: 'Lead agent', stateFor: () => 'active' })).toContain(
-      'aria-label="Crew of Lead agent"'
-    );
-    expect(render({ workers: crew, leaderTitle: 'Lead agent' })).toContain('Crew of Lead agent');
+  test('the group still names its leader', () => {
+    expect(render({ workers: [worker('a')], leaderTitle: 'Lead agent', stateFor: () => 'active' }))
+      .toContain('aria-label="Crew of Lead agent"');
   });
 });
 
@@ -292,7 +255,7 @@ describe('previous worker chats are a chip in the same wrap', () => {
     expect(html).toContain('aria-expanded="false"');
     // A chip, not a full-width text link: the visible count *is* its name.
     expect(html).toContain('title="2 finished worker chats"');
-    expect(html).toContain('border-dashed px-1.5 py-1 text-[11px]');
+    expect(html).not.toContain('border-dashed px-1.5');
   });
 
   test('the chip is exactly the count of finished workers, and absent when there are none', () => {
@@ -329,7 +292,7 @@ describe('the parts that must survive the layout change', () => {
     const on = render({
       workers: [worker('a')],
       stateFor: () => 'active',
-      autoAcceptFor: () => true,
+      autoAcceptByKey: { 'hearth::a': true },
       onToggleYolo: () => {},
     });
     expect(on).toContain('aria-pressed="true"');
@@ -340,7 +303,7 @@ describe('the parts that must survive the layout change', () => {
     const off = render({
       workers: [worker('a')],
       stateFor: () => 'active',
-      autoAcceptFor: () => false,
+      autoAcceptByKey: { 'hearth::a': false },
       onToggleYolo: () => {},
     });
     expect(off).toContain('aria-pressed="false"');
@@ -348,7 +311,7 @@ describe('the parts that must survive the layout change', () => {
   });
 
   test('without a toggle the YOLO state is still shown, read-only', () => {
-    const html = render({ workers: [worker('a')], stateFor: () => 'active', autoAcceptFor: () => true });
+    const html = render({ workers: [worker('a')], stateFor: () => 'active', autoAcceptByKey: { 'hearth::a': true } });
     expect(html).toContain('Yolo');
     expect(html).toContain('lucide-shield-check');
     expect(html).not.toContain('aria-pressed');
@@ -363,7 +326,7 @@ describe('the parts that must survive the layout change', () => {
     const html = render({
       workers: [worker('a')],
       stateFor: () => 'active',
-      autoAcceptFor: () => true,
+      autoAcceptByKey: { 'hearth::a': true },
       onToggleYolo: () => {},
     });
     expect(html).toContain('group/strip @container');
@@ -383,7 +346,7 @@ describe('the parts that must survive the layout change', () => {
     });
     expect(bricks(html)).toBe(2);
     expect(html).toContain('Deep ask');
-    expect(html).toContain('›2');
+    expect(html).toContain('Nested · depth 2');
     expect(html).toContain('title="2 levels below this bot"');
     expect(html).toContain('aria-label="Deep ask needs input — open the conversation to answer"');
     expect(html).not.toMatch(/class="blob(?: |")/);

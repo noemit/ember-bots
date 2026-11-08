@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import ComposerShelf, { nextShelfState, type ShelfSection } from '../src/components/ComposerShelf';
+import ComposerShelf, { nextShelfState, shelfFocusIndex, type ShelfSection } from '../src/components/ComposerShelf';
 
 /**
  * The shelf above the composer: one line of tabs, one section open under it.
@@ -153,5 +153,43 @@ describe('clicking a tab', () => {
       open: true,
       active: 'crew',
     });
+  });
+});
+
+
+describe('quiet, keyboard-accessible shelf navigation', () => {
+  test('each tab controls its own existing labelled panel, even folded', () => {
+    for (const open of [true, false]) {
+      const html = render({ open });
+      const tabs = [...html.matchAll(/<button[^>]+role="tab"[^>]+>/g)].map(match => match[0]);
+      expect(tabs.filter(tab => tab.includes('tabindex="0"')).length).toBe(1);
+      for (const tab of tabs) {
+        const id = tab.match(/ id="([^"]+)"/)?.[1];
+        const panel = tab.match(/aria-controls="([^"]+)"/)?.[1];
+        expect(id).toBeTruthy();
+        expect(panel).toBeTruthy();
+        expect(html).toContain('id="' + panel + '"');
+        expect(html).toContain('aria-labelledby="' + id + '"');
+      }
+    }
+  });
+
+  test('the empty bar has a real sibling disclosure button, not a clickable wrapper around buttons', () => {
+    const html = render();
+    expect(html).toContain('data-shelf-toggle="space"');
+    expect(html).toContain('aria-label="Fold trays using the tab bar"');
+    expect(html).not.toContain('bg-muted font-semibold');
+    expect(html).toContain('after:h-px');
+  });
+
+  test('focus navigation wraps and jumps without being an activation command', () => {
+    expect(shelfFocusIndex('ArrowRight', 2, 3)).toBe(0);
+    expect(shelfFocusIndex('ArrowLeft', 0, 3)).toBe(2);
+    expect(shelfFocusIndex('Home', 2, 3)).toBe(0);
+    expect(shelfFocusIndex('End', 0, 3)).toBe(2);
+    expect(shelfFocusIndex('ArrowRight', 0, 1)).toBe(0);
+    expect(shelfFocusIndex('ArrowRight', 0, 0)).toBeNull();
+    expect(shelfFocusIndex('Enter', 0, 3)).toBeNull();
+    expect(shelfFocusIndex(' ', 0, 3)).toBeNull();
   });
 });

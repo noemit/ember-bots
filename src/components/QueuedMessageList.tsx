@@ -35,7 +35,15 @@ type Props = {
   onDiscardQueued: (itemId: string) => boolean;
 };
 
-const ICON_BUTTON = 'size-5 rounded text-muted-foreground hover:bg-muted hover:text-foreground';
+/** Never merge a held steer or an unsettled item on either side of the boundary. */
+export const canMergeQueuedUp = (items: readonly QueuedMessage[], index: number): boolean => {
+  const current = items[index];
+  const previous = items[index - 1];
+  return Boolean(current && previous && [current, previous].every((item) =>
+    item.mode !== 'steer' && !item.pending && !item.error));
+};
+
+const ICON_BUTTON = 'size-5 max-sm:size-8 rounded text-muted-foreground hover:bg-muted hover:text-foreground';
 
 /**
  * When the row was queued, in words. A host that sends no timestamp (or a clock that disagrees) gets
@@ -53,7 +61,7 @@ const queuedWhen = (at: number | undefined): string | null => {
 };
 
 /**
- * The queue, as the open shelf section: one line per message, click to read it, actions on hover.
+ * The queue: two-line previews, metadata beneath, click to read, sibling actions on hover/focus.
  *
  * Two things changed from the card this replaced. Rows no longer repeat the word "Queue" (the tab
  * above them says it), and reading is separated from editing: a row opens a read-only view, because
@@ -123,12 +131,12 @@ export default function QueuedMessageList({
 
   return (
     <>
-      <ol className="flex max-h-28 min-w-0 flex-col gap-0.5 overflow-y-auto" aria-label="Queued messages">
+      <ol className="flex max-h-48 min-w-0 list-none flex-col divide-y divide-border/50 overflow-y-auto" aria-label="Queued messages">
           {queueItems.map((item, index) => {
             const sendingItem = queue?.sendingId === item.id;
             const pending = Boolean(item.pending);
             const failed = Boolean(item.error);
-            const busy = sendingItem || busyQueueItemId === item.id || pending;
+            const busy = Boolean(queue?.sendingId) || busyQueueItemId !== null || pending;
             const reorderLocked = Boolean(queue?.sendingId) || busyQueueItemId !== null;
             // A steer is a real inbox item too: it waits for the running turn to pause, then joins
             // it. It is not a follow-up, so it is withdrawn (Cancel) rather than sent again, edited,
@@ -139,7 +147,7 @@ export default function QueuedMessageList({
               item.text.trim() ||
               item.content.trim() ||
               `${item.attachments.length} attachment${item.attachments.length === 1 ? '' : 's'}`;
-            // One line, but it must still say what rides with the message: an attachment on a queued
+            // Metadata must still say what rides with the message: an attachment on a queued
             // row is invisible until it is sent, and that is exactly when it is too late to notice.
             // A steer row keeps its attachments count (they ride with it) and nothing else: the
             // trailing spinner says it is held, and a sentence here would take the line away from
@@ -147,7 +155,7 @@ export default function QueuedMessageList({
             const modelNote = steer ? null : pending ? 'queueing…' : queuedModelLabel(item);
             const meta =
               item.attachments.length > 0 || modelNote ? (
-                <span className="flex items-center gap-1.5">
+                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   {item.attachments.length > 0 ? (
                     <span>
                       {item.attachments.length} file{item.attachments.length === 1 ? '' : 's'}
@@ -158,10 +166,10 @@ export default function QueuedMessageList({
               ) : null;
             const canEdit =
               !steer &&
-              !sendingItem &&
-              busyQueueItemId === null &&
+              !reorderLocked &&
               Boolean(item.text.trim() || item.content.trim());
             const mergeUp = () => {
+              if (!canMergeQueuedUp(queueItems, index)) return Promise.resolve(false);
               const plan = mergeUpPlan(queueItems, index);
               return plan
                 ? onReplaceQueued({ itemIds: plan.ids, survivorId: plan.survivorId })
@@ -176,13 +184,13 @@ export default function QueuedMessageList({
                 animate={{ opacity: 1, y: 0 }}
                 transition={springTransition}
                 data-queued-id={item.id}
-                className={failed ? 'rounded-md bg-destructive/10' : undefined}
+                className="min-w-0"
               >
                 <TrayRow
                   text={preview}
                   meta={meta}
                   busy={pending || sendingItem}
-                  waiting={steer && !failed}
+                  waiting={steer && !failed && !pending && !sendingItem}
                   waitingLabel={steer ? 'Waiting for the turn to pause' : undefined}
                   detail={item.error}
                   openLabel={`Read queued message: ${preview.slice(0, 60)}`}
@@ -194,6 +202,7 @@ export default function QueuedMessageList({
                           type="button"
                           variant="ghost"
                           size="xs"
+                          disabled={reorderLocked}
                           onClick={() => void runQueueAction(item.id, () => onRetryQueued(item.id))}
                           aria-label={`Retry queueing this message: ${preview.slice(0, 60)}`}
                           title="Retry queueing this message"
@@ -205,6 +214,7 @@ export default function QueuedMessageList({
                           type="button"
                           variant="ghost"
                           size="xs"
+                          disabled={reorderLocked}
                           onClick={() => onDiscardQueued(item.id)}
                           aria-label={`Discard this message: ${preview.slice(0, 60)}`}
                           title="Discard this message"
@@ -221,7 +231,7 @@ export default function QueuedMessageList({
                               type="button"
                               variant="ghost"
                               size="icon-xs"
-                              disabled={reorderLocked || index === 0}
+                              disabled={reorderLocked || index === 0 || Boolean(queueItems[index - 1]?.pending)}
                               onClick={() => void runQueueAction(item.id, () => onMoveQueued(item.id, -1))}
                               aria-label={`Move queued message up: ${preview.slice(0, 60)}`}
                               title="Move up"
@@ -233,7 +243,7 @@ export default function QueuedMessageList({
                               type="button"
                               variant="ghost"
                               size="icon-xs"
-                              disabled={reorderLocked || index === queueItems.length - 1}
+                              disabled={reorderLocked || index === queueItems.length - 1 || Boolean(queueItems[index + 1]?.pending)}
                               onClick={() => void runQueueAction(item.id, () => onMoveQueued(item.id, 1))}
                               aria-label={`Move queued message down: ${preview.slice(0, 60)}`}
                               title="Move down"
@@ -257,7 +267,7 @@ export default function QueuedMessageList({
                             )}
                           </>
                         )}
-                        <Button
+                        {steer ? null : <Button
                           type="button"
                           variant="ghost"
                           size="icon-xs"
@@ -268,7 +278,7 @@ export default function QueuedMessageList({
                           className={ICON_BUTTON}
                         >
                           <Pencil />
-                        </Button>
+                        </Button>}
                         {/* Withdrawing is the common queue action, so it stays on the row; parking and
                             merging are the rare ones and live behind "…". A row that is still being
                             enqueued has no server id yet, so it has no withdraw — and offering one
@@ -290,7 +300,7 @@ export default function QueuedMessageList({
                         >
                           <Trash2 />
                         </Button>
-                        <DropdownMenu>
+                        {steer || pending ? null : <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
                               type="button"
@@ -298,6 +308,7 @@ export default function QueuedMessageList({
                               size="icon-xs"
                               aria-label={`More actions for queued message: ${preview.slice(0, 60)}`}
                               title="More actions"
+                              disabled={reorderLocked}
                               className={ICON_BUTTON}
                             >
                               <MoreHorizontal />
@@ -306,6 +317,7 @@ export default function QueuedMessageList({
                           <DropdownMenuContent align="end" className="w-52">
                             {steer ? null : (
                               <DropdownMenuItem
+                                disabled={busy}
                                 onSelect={() => void runQueueAction(item.id, () => onParkQueued(item.id))}
                               >
                                 <Send className="size-3.5" />
@@ -313,15 +325,15 @@ export default function QueuedMessageList({
                               </DropdownMenuItem>
                             )}
                             {/* Merging the first row would have nothing to merge into. */}
-                            {pending || index === 0 ? null : (
-                              <DropdownMenuItem onSelect={() => void runQueueAction(item.id, mergeUp)}>
+                            {!canMergeQueuedUp(queueItems, index) ? null : (
+                              <DropdownMenuItem disabled={busy} onSelect={() => void runQueueAction(item.id, mergeUp)}>
                                 <Merge className="size-3.5" />
                                 Merge into the one above
                               </DropdownMenuItem>
                             )}
 
                           </DropdownMenuContent>
-                        </DropdownMenu>
+                        </DropdownMenu>}
                       </>
                     )
                   }
@@ -336,7 +348,7 @@ export default function QueuedMessageList({
             type="button"
             variant="ghost"
             size="xs"
-            disabled={busyQueueItemId !== null || Boolean(queue?.sendingId)}
+            disabled={busyQueueItemId !== null || Boolean(queue?.sendingId) || mergeAllTargets.some((item) => item.pending || item.error)}
             onClick={() => {
               const plan = mergeAllPlan(mergeAllTargets);
               if (!plan) return;
@@ -380,7 +392,7 @@ export default function QueuedMessageList({
             readingItem.mode === 'steer' ? null : (
               <Button
                 variant="outline"
-                disabled={Boolean(readingItem.pending) || busyQueueItemId !== null}
+                disabled={Boolean(readingItem.pending) || busyQueueItemId !== null || Boolean(queue?.sendingId)}
                 onClick={() => {
                   const target = readingItem;
                   setReadingId(null);
@@ -400,7 +412,7 @@ export default function QueuedMessageList({
           item={editingItem}
           models={models} instanceId={instanceId} directory={queue?.directory} defaultModelId={defaultModelId} instanceDefaultModelId={instanceDefaultModelId} onSetInstanceDefault={onSetInstanceDefault} onModelsRefresh={onModelsRefresh}
           modelLabel={queuedModelLabel(editingItem)}
-          busy={busyQueueItemId !== null}
+          busy={busyQueueItemId !== null || Boolean(queue?.sendingId)}
           onCancel={() => setEditing(null)}
           onSave={(next, modelSelection) => {
             // Close first: the replacement is in flight and a second Save would enqueue twice.
