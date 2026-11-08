@@ -14,12 +14,14 @@ test('Mosaic and Scribble follow nearby pointers, stay inside their eyes, and re
           await page.mouse.move(box.x + box.width / 2 + side * 70, box.y + box.height / 2 - 25);
           await expect(blob).toHaveAttribute('data-pupil-tracking', 'true');
           await expect.poll(() => pupils.evaluateAll(nodes => nodes.every(node => {
-            const pupil = node.querySelector('circle')!;
+            const pupil = node.querySelector('circle, ellipse') as SVGCircleElement | SVGEllipseElement;
             const eye = (node.closest('.mosaic-eye-open')?.querySelector('[data-mosaic-eye]') ??
-              node.parentElement!.querySelector('ellipse')) as SVGGeometryElement;
+              node.closest('.scribble-eye-blink')!.querySelector('[data-scribble-eye]')) as SVGGeometryElement;
+            const rx = 'r' in pupil ? pupil.r.baseVal.value : pupil.rx.baseVal.value;
+            const ry = 'r' in pupil ? pupil.r.baseVal.value : pupil.ry.baseVal.value;
             const relative = eye.getScreenCTM()!.inverse().multiply(pupil.getScreenCTM()!);
             return Array.from({ length: 16 }, (_, index) => index * Math.PI / 8).every(angle =>
-              eye.isPointInFill(new DOMPoint(pupil.r.baseVal.value * Math.cos(angle), pupil.r.baseVal.value * Math.sin(angle)).matrixTransform(relative)));
+              eye.isPointInFill(new DOMPoint(rx * Math.cos(angle), ry * Math.sin(angle)).matrixTransform(relative)));
           }))).toBe(true);
           const gaze = await pupils.evaluateAll((nodes, direction) => nodes.map(node => {
             const matrix = (node as SVGGElement).transform.baseVal.consolidate()!.matrix;

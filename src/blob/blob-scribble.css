@@ -112,3 +112,27 @@
   .blob-scribble * { animation: none !important; }
   .blob-scribble .scribble-pupil { transition: none; }
 }
+
+/* The pen contours carry the expression even without motion. Only active eyes blink;
+   the short closure sits in a long quiet hold rather than adding constant twitching. */
+.blob-scribble .scribble-eye-blink { transform-origin: 0 0; }
+.blob-scribble .scribble-gaze { transform: translate(var(--eye-x), var(--eye-y)); }
+.blob-scribble[data-mood='busy'] .scribble-gaze {
+  animation: scribble-eye-glance 8s ease-in-out infinite;
+  animation-delay: var(--scribble-delay);
+}
+.blob-scribble:is([data-mood='busy'], [data-mood='thinking']) .scribble-eye-blink {
+  animation: scribble-eye-blink 7.6s ease-in-out infinite;
+  animation-delay: var(--scribble-delay);
+}
+/* A nearby pointer owns the pupil movement, not the automatic glance. */
+.blob-scribble[data-pupil-tracking] .scribble-gaze { animation: none; transform: none; }
+@keyframes scribble-eye-glance {
+  0%, 28%, 100% { transform: translate(1.3px, 1px); }
+  36%, 62% { transform: translate(-1.5px, .5px); }
+  70%, 86% { transform: translate(.5px, -1px); }
+}
+@keyframes scribble-eye-blink {
+  0%, 45%, 49%, 100% { transform: scaleY(1); }
+  47% { transform: scaleY(.12); }
+}

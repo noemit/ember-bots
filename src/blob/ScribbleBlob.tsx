@@ -2,15 +2,21 @@ import * as React from 'react';
 import { blobColor } from './color';
 import { hashString, seedIdentity } from './seed';
 import { scribbleGeometry } from './scribble';
+import { scribbleEyes } from './scribbleEyes';
 import { usePupilTracking } from './usePupilTracking';
 import { MoodBadge } from './overlays';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
 import './blob-scribble.css';
 
+// Low lids still leave a little vertical cursor response without losing the pupil.
+const constrainGaze = (x: number, y: number): [number, number] => [x, y * .15];
+
 type Props = { seed: string; identity?: AvatarIdentity; size?: number; mood?: BallMood; state?: BallState; interactive?: boolean };
 
 export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle', interactive = true }: Props) {
+  const eyeId = React.useId().replace(/:/g, '');
+  const eyes = scribbleEyes(mood);
   const wrapper = React.useRef<HTMLDivElement>(null);
   const left = React.useRef<SVGGElement>(null);
   const right = React.useRef<SVGGElement>(null);
@@ -18,7 +24,7 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
     const resolved = identity ?? seedIdentity(seed);
     return { ...scribbleGeometry(resolved), color: blobColor('scribble', resolved), delay: -(hashString(resolved.motionSeed) % 16000) / 1000 };
   }, [identity, seed]);
-  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), 3.2);
+  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), 1.8, constrainGaze);
   const dark = `color-mix(in srgb, ${art.color} 65%, #211925)`;
   return <div ref={wrapper} className="blob blob-scribble" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size, '--scribble-delay': `${art.delay}s` } as React.CSSProperties}>
     <div className="scribble-dance">
@@ -50,10 +56,20 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
             </g>
             <g className="scribble-face">
               <g transform={`rotate(${art.eyeTilt} 50 44)`}>
-                {[{ x: 42, y: 42, radius: 7.7, ref: left }, { x: 59, y: 46, radius: 5.9, ref: right }].map(eye => <g key={eye.x} transform={`translate(${eye.x} ${eye.y})`}>
-                  <ellipse data-scribble-eye rx={eye.radius} ry={eye.radius * 1.08} fill="#fffdf5" stroke="#29212f" strokeWidth={1.8} />
-                  <g ref={eye.ref} className="scribble-pupil" transform={mood === 'thinking' ? 'translate(0 0)' : undefined}>
-                    {mood === 'error' ? <path d="M-2 -2L2 2M2 -2L-2 2" fill="none" stroke="#211925" strokeWidth={1.6} /> : <circle r={1.7} fill="#211925" />}
+                {eyes.map((eye, index) => <g key={index} transform={`translate(${eye.x} ${eye.y})`}>
+                  <path className="scribble-brow" d={eye.brow} fill="none" stroke="#211925" strokeWidth={2} strokeLinecap="round" />
+                  <g className="scribble-eye-blink">
+                    <defs><clipPath id={`${eyeId}-eye-${index}`}><path d={eye.outline} /></clipPath></defs>
+                    <path data-scribble-eye d={eye.outline} fill="#fffdf5" stroke="#29212f" strokeWidth={1.8} />
+                    <g clipPath={`url(#${eyeId}-eye-${index})`}>
+                      <g ref={index ? right : left} className="scribble-pupil">
+                        <g className="scribble-gaze" style={{ '--eye-x': `${eye.gaze[0]}px`, '--eye-y': `${eye.gaze[1]}px` } as React.CSSProperties}>
+                          {mood === 'error'
+                            ? <path d="M-2.8 -2.5L2.8 2.5M2.8 -2.5L-2.8 2.5" fill="none" stroke="#211925" strokeWidth={2} strokeLinecap="round" />
+                            : <ellipse rx={eye.pupil} ry={eye.pupil + .35} fill="#211925" />}
+                        </g>
+                      </g>
+                    </g>
                   </g>
                 </g>)}
               </g>
