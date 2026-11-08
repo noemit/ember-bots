@@ -12,7 +12,7 @@ import { modelRefKey, type ModelRef, type ModelOption } from '../types';
  */
 
 /** The steps, in the order they are drawn when every one applies. */
-export type OnboardingStepId = 'welcome' | 'connection' | 'token' | 'providers' | 'first-agent';
+export type OnboardingStepId = 'welcome' | 'connection' | 'token' | 'providers' | 'first-agent' | 'privacy';
 
 export type OnboardingStep = {
   id: OnboardingStepId;
@@ -32,6 +32,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   { id: 'token', title: 'Your token', summary: 'The password for connecting to Kiln' },
   { id: 'providers', title: 'Choose an AI', summary: 'Sign in or add an access code' },
   { id: 'first-agent', title: 'First bot', summary: 'Pick a folder and say hello' },
+  { id: 'privacy', title: 'Yours to use', summary: 'Privacy, people and support' },
 ];
 
 /** What the wizard knows about the world when it decides what to show. */
@@ -97,6 +98,7 @@ export const stepStates = (state: OnboardingState, problem?: string | null): Rec
   token: state.localReady ? { kind: 'done' } : { kind: 'pending' },
   providers: { kind: 'pending' },
   'first-agent': { kind: 'pending' },
+  privacy: { kind: 'pending' },
 });
 
 /** Where the wizard opens: the first step that is not already satisfied. */

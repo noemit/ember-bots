@@ -2,6 +2,7 @@
 
 ### Added
 - Customize a new bot’s colour, style and shape from its draft avatar before sending; the choice follows it through creation and retries without changing other bots.
+- Setup ends with a privacy and support introduction, including a direct way to contact Em before opening your first draft.
 - Answer pending thread questions directly in the leader’s conversation, including nested threads, with replies routed to the asking thread.
 - Inspect worker threads in a roomy live conversation dialog without replacing the main workspace. Promoted peers still open as normal sessions.
 - Set an instance’s default model directly from the model picker without changing the current conversation.

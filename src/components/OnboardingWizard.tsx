@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ArrowLeftRight, Boxes, Cpu, Laptop, Monitor, ArrowRight, Check, CircleAlert, FolderOpen, KeyRound, Loader2, PlugZap, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import OnboardingPrivacy from './OnboardingPrivacy';
 import Blob from '../blob/Blob';
 import { blobColor } from '../blob/color';
 import { MoodBadge } from '../blob/overlays';
@@ -57,6 +58,8 @@ const stepIcon = (id: OnboardingStepId) => {
       return KeyRound;
     case 'first-agent':
       return FolderOpen;
+    case 'privacy':
+      return Sparkles;
   }
 };
 
@@ -92,6 +95,9 @@ export default function OnboardingWizard({
   const [retrying, setRetrying] = React.useState(false);
   const marks = stepStates(state, localProblem);
   const target = state.targetInstanceId;
+  const [projectChoice, setProjectChoice] = React.useState<{ instanceId: string | null; directory: string }>({ instanceId: null, directory: '' });
+  const project = projectChoice.instanceId === target ? projectChoice.directory : '';
+  const setProject = (directory: string) => setProjectChoice({ instanceId: target, directory });
   const defaultModel = target ? instanceDefaults[target]?.model : undefined;
   const [providerCatalog, setProviderCatalog] = React.useState<{ id: string; providers: PiProviderInfo[] } | null>(null);
   const providersReady = Boolean(target && (
@@ -131,6 +137,12 @@ export default function OnboardingWizard({
   const next = () => {
     const following = steps[index + 1];
     if (following) setActive(following.id);
+    else onDismiss();
+  };
+
+  const finish = () => {
+    const workspace = target ? instanceDefaults[target]?.workspaceDirectory : undefined;
+    if (target && workspace && modelReady) onStartAgent({ instanceId: target, directory: project || workspace });
     else onDismiss();
   };
 
@@ -269,10 +281,13 @@ export default function OnboardingWizard({
                   state={state}
                   instances={instances}
                   onChange={onChange}
-                  onStart={onStartAgent}
+                  onStart={next}
+                  project={project}
+                  setProject={setProject}
                   modelReady={modelReady}
                 />
               ) : null}
+              {step.id === 'privacy' ? <OnboardingPrivacy /> : null}
             </div>
 
             <div className="flex items-center gap-2 border-t border-border/60 bg-background/65 px-6 py-4 backdrop-blur-xl">
@@ -285,13 +300,14 @@ export default function OnboardingWizard({
                 Back
               </Button>
               <div className="flex-1" />
+              {last && !modelReady ? <span className="text-base text-muted-foreground">Choose a default model in Choose an AI before finishing setup.</span> : null}
               {last || (canFinish(state) && step.id === 'first-agent') ? null : (
                 <span className="text-base text-muted-foreground">
                   {step.id === 'providers' && !providersReady ? 'Connect a provider first' : step.id === 'providers' && !modelReady ? 'Choose a default model to continue' : marks[step.id]?.kind === 'pending' ? 'Continue when you’re ready' : ''}
                 </span>
               )}
-              <Button size="sm" disabled={(last || step.id === 'providers') && !modelReady} onClick={last ? onDismiss : next} data-testid="onboarding-next">
-                {last ? 'Done' : canFinish(state) && step.id === 'providers' ? 'Continue' : 'Next'}
+              <Button size="sm" disabled={(last || step.id === 'providers' || step.id === 'first-agent') && !modelReady} onClick={last ? finish : next} data-testid="onboarding-next">
+                {last ? 'Finish' : canFinish(state) && step.id === 'providers' ? 'Continue' : 'Next'}
                 <ArrowRight />
               </Button>
             </div>
@@ -633,17 +649,18 @@ function Providers({
   );
 }
 
-function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, modelReady }: {
+function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, modelReady, project, setProject }: {
   state: OnboardingState;
   instances: Instance[];
   instanceDefaults: Record<string, InstanceDefaults>;
   onChange: (patch: EmberSettingsPatch) => void;
-  onStart: (input: { instanceId: string; directory: string | null }) => void;
+  onStart: () => void;
+  project: string;
+  setProject: (directory: string) => void;
   modelReady: boolean;
 }) {
   const target = instances.find((instance) => instance.id === state.targetInstanceId);
   const workspace = target ? instanceDefaults[target.id]?.workspaceDirectory : undefined;
-  const [project, setProject] = React.useState('');
   return (
     <div className="flex max-w-xl flex-col gap-5">
       <h3 className="text-base font-semibold">Where does your work live?</h3>
@@ -671,8 +688,8 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, mod
       </div> : null}
       <p className="text-sm leading-relaxed text-muted-foreground">Nothing is sent until you write your first message.</p>
       <Button className="self-start" disabled={!target || !workspace || !modelReady} onClick={() => {
-        if (target && workspace && modelReady) onStart({ instanceId: target.id, directory: project || workspace });
-      }}>New bot<ArrowRight /></Button>
+        if (target && workspace && modelReady) onStart();
+      }}>Continue<ArrowRight /></Button>
     </div>
   );
 }

@@ -67,16 +67,18 @@ test('setup requires an explicit workspace choice and preserves the model defaul
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local']?.model)).toEqual(chosenModel);
   // An explicit model alone must not bypass the workspace choice.
   await guide.getByRole('button', { name: /First bot/ }).click();
-  await expect(guide.getByRole('button', { name: 'New bot', exact: true })).toBeDisabled();
+  await expect(guide.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
   await guide.getByRole('button', { name: 'Choose workspace' }).click();
   const picker = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Choose your workspace' }) });
   await picker.getByRole('button', { name: 'Use this workspace' }).click();
-  await expect(guide.getByRole('button', { name: 'New bot', exact: true })).toBeEnabled();
+  await expect(guide.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local'])).toMatchObject({
     model: chosenModel, workspaceDirectory: '/workspace',
   });
   await page.screenshot({ path: '/tmp/ember-workspace-setup.png' });
-  await guide.getByRole('button', { name: 'New bot', exact: true }).click();
+  await guide.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(guide.getByRole('heading', { name: 'Free, open source, and private.' })).toBeVisible();
+  await guide.getByRole('button', { name: 'Finish', exact: true }).click();
   await expect(guide).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'New bot project' })).toHaveText('workspace');
 });

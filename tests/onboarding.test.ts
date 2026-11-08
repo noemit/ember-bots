@@ -59,7 +59,7 @@ describe('needsOnboarding', () => {
 describe('which steps to draw', () => {
   test('a connected-here setup never sees the container instructions', () => {
     const steps = stepsFor(world({ localReady: true }));
-    expect(steps.map((step) => step.id)).toEqual(['welcome', 'connection', 'token', 'providers', 'first-agent']);
+    expect(steps.map((step) => step.id)).toEqual(['welcome', 'connection', 'token', 'providers', 'first-agent', 'privacy']);
   });
 
   test('a failed local keeps the computer choice page, with optional setup inside it', () => {
