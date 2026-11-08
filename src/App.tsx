@@ -4664,7 +4664,7 @@ export default function App() {
       pinned: input.pinned,
     }).catch(() => null);
     if (!peer) {
-      showActionError('Could not promote this worker.', () => void handlePromoteWorker(worker, input));
+      showActionError('Couldn’t make this bot persistent.', () => void handlePromoteWorker(worker, input));
       return;
     }
     saveNewAvatarAssignment(peer);
@@ -4681,7 +4681,7 @@ export default function App() {
     // The server is the truth (promotedTo, the fork's title/summary); reconcile right away.
     await refreshSessions([worker.instanceId]).catch(() => undefined);
     openSession({ instanceId: peer.instanceId, sessionId: peer.id }, peer);
-    setActionNotice({ message: `Promoted “${input.name}” to a peer.` });
+    setActionNotice({ message: `“${input.name}” is persistent now — others can message it by name.` });
   };
 
   const handleAvatarOverride = (scopeKey: string, override: AvatarOverride | null) => {

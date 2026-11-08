@@ -442,11 +442,12 @@ their existing names; archive references in the implementation notes below descr
   `crewByLeader`, rolls a worker's `needsInput` up its `lead` chain to the leader's mood, and
   warns through `ArchiveSessionDialog` before a cascade archiving stops a working crew. The
   `[crew] …` wake Hearth sends at quiescence renders in `Transcript` as a "Crew report" card
-  (`src/lib/crew.ts` parses it), not as a user bubble. A worker can be promoted to an
-  addressable **peer** from **its own session's header** — a labelled "Promote to peer" button next
+  (`src/lib/crew.ts` parses it), not as a user bubble. A thread can be promoted to an
+  addressable **persistent bot** (the wire still calls it a `peer`) from **its own session's header**
+  — a short "Promote" button whose tooltip and accessible name carry the full phrase, next
   to the title (`PromoteWorkerDialog` → `promoteSession` → Hearth's
-  `POST /conversations/:id/promote`): Hearth forks it, the peer appears in the rail, and the strip
-  row becomes a peer link off the worker's `promotedTo`. The header is the only place the role is
+  `POST /conversations/:id/promote`): Hearth forks it, the persistent bot appears in the rail, and
+  the strip row becomes a link off the worker's `promotedTo`. The header is the only place the role is
   known: a worker's conversation summary does not always carry `kind`, so `ChatView.promotable` also
   accepts "this conversation appears in my leader's crew list" (that is what the strip is drawn
   from). The icon-only control that used to sit in the header guarded on `session.kind` alone, so it

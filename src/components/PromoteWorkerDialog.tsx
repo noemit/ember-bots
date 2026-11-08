@@ -15,8 +15,9 @@ import type { Session } from '../types';
 
 /**
  * Human promotion: a worker can't be addressable in place, so promotion
- * forks it into a new ownerless **peer** registered under a local name and leaves the worker as
- * history with a `promotedTo` link. `busy` mirrors Hearth's 409 gate: a running worker must settle
+ * forks it into a new ownerless conversation (kind `peer` on the wire) registered under a local
+ * name and leaves the worker as history with a `promotedTo` link. The interface calls that result
+ * a persistent bot; only the wire keeps saying peer. `busy` mirrors Hearth's 409 gate: a running worker must settle
  * (or be stopped) first, so the confirm stays disabled and the copy says why.
  */
 export default function PromoteWorkerDialog({
@@ -53,10 +54,11 @@ export default function PromoteWorkerDialog({
       <DialogContent>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>Promote worker to peer</DialogTitle>
+            <DialogTitle>Promote to a persistent bot</DialogTitle>
             <DialogDescription>
-              “{workerTitle}” becomes a named bot other bots can find and hand work to.
-              {busy ? ' This worker is still working — wait for it to finish or stop it first.' : ''}
+              “{workerTitle}” becomes its own bot that others can message by name and that keeps
+              running whether or not its parent does.
+              {busy ? ' This thread is still working — wait for it to finish, or stop it first.' : ''}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
@@ -96,14 +98,14 @@ export default function PromoteWorkerDialog({
             <Switch checked={pinned} onCheckedChange={setPinned} aria-label="Pin so other bots can find it" />
           </label>
           <p className="text-xs text-muted-foreground">
-            The worker stays as history; the peer is a new session that appears in the rail.
+            This thread stays in its parent’s crew as history; the persistent bot is a new session in the rail.
           </p>
           <DialogFooter>
             <Button type="button" variant="secondary" onClick={onCancel}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy || !trimmedName}>
-              Promote
+              Make persistent
             </Button>
           </DialogFooter>
         </form>

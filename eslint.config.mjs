@@ -10,7 +10,7 @@ export default tseslint.config(
   // Root-level *.mjs are throwaway capture scripts, not app code; .audit/ is the audit harness.
   // `build/notarize.js` is electron-builder's CommonJS hook: it is loaded by that tool, not bundled,
   // so `require` is the correct form there and the ESM/TS rules do not apply.
-  { ignores: ['dist/', 'dist-electron/', 'node_modules/', 'release/', 'packages/', '.audit/', '*.mjs', 'build/notarize.js'] },
+  { ignores: ['dist/', 'dist-electron/', 'node_modules/', 'release/', 'packages/', '.audit/', '**/*.mjs', 'build/notarize.js'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

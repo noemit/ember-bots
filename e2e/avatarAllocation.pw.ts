@@ -68,10 +68,10 @@ test('only the promoted bot gets an assignment, never its worker thread', async 
   await page.goto('/?noDock');
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   await page.locator('main[data-session-key="pi:hearth::16"]').getByRole('button', { name: 'Migrate schema', exact: true }).click();
-  await page.locator('main[data-session-key="pi:hearth::18"]').getByRole('button', { name: 'Promote to peer' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Promote worker to peer' });
+  await page.locator('main[data-session-key="pi:hearth::18"]').getByRole('button', { name: 'Promote to a persistent bot' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Promote to a persistent bot' });
   await dialog.getByLabel('Name', { exact: true }).fill('Distinct promoted bot');
-  await dialog.getByRole('button', { name: 'Promote', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Make persistent', exact: true }).click();
   await expect.poll(async () => Object.keys(await assignments(page)).length).toBe(1);
   const key = await page.locator('main[data-session-key]').first().getAttribute('data-session-key');
   const stored = await assignments(page);

@@ -164,21 +164,22 @@ test('an open worker dialog refreshes host output and accepts a new message', as
   await expect.poll(async () => (await persistedWorkspace(page)).activeSession).toBe('pi:hearth::16');
 });
 
-test('an already promoted worker links to its peer, and the peer shows in the rail', async ({ page }) => {
-  // `?promoted` seeds a worker whose `promotedTo` points at its peer fork.
+test('an already promoted thread links to its persistent bot, which shows in the rail', async ({ page }) => {
+  // `?promoted` seeds a worker whose `promotedTo` points at its persistent-bot fork.
   await page.goto('/?promoted');
   // The workspace opens directly; the leader is always reachable from its rail row.
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
   const rail = page.locator('aside');
-  // The peer is an ordinary session, so the rail lists it; the worker stays hidden by kind.
+  // The persistent bot is an ordinary session, so the rail lists it; the worker stays hidden by kind.
   await expect(rail.getByRole('button', { name: /Harness improver/ }).first()).toBeVisible();
   await expect(rail.getByRole('button', { name: /^Harness audit/ })).toHaveCount(0);
   await expect(leader.getByRole('button', { name: 'Harness audit', exact: true })).toBeVisible();
   await expect(leader.getByRole('button', { name: 'Harness audit', exact: true }).locator('.blob')).toHaveCount(1);
   await expect(leader.getByRole('button', { name: 'Parse config', exact: true }).locator('.blob')).toHaveCount(0);
-  // The row is a peer link, not a live worker: it carries the `peer` badge instead of a status.
-  await expect(leader.getByText('peer', { exact: true })).toBeVisible();
+  // The row links to the persistent bot, not a live worker: it carries the `bot` badge instead of
+  // a status word.
+  await expect(leader.getByText('bot', { exact: true })).toBeVisible();
   await leader.getByRole('button', { name: 'Harness audit', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const peer = page.locator('main[data-session-key="pi:hearth::20"]');
@@ -208,7 +209,7 @@ test('the directory lists every spawned session automatically', async ({ page })
   expect(names).toContain('Archivist:peer');
 });
 
-test('the mock promote wire forks a peer, and refuses busy or duplicate promotions', async ({ page }) => {
+test('the mock promote wire forks a persistent bot, and refuses busy or duplicate promotions', async ({ page }) => {
   await expect(page.locator('aside')).toBeVisible();
   // The dialog flow below needs the app to wire `onPromote`; this pins the wire contract itself.
   const result = await page.evaluate(async () => {
@@ -243,7 +244,7 @@ test('the mock promote wire forks a peer, and refuses busy or duplicate promotio
   expect(result.duplicate).toBe(400);
 });
 
-test('promoting an idle worker from its header opens the peer in the rail', async ({ page }) => {
+test('promoting an idle thread from its header opens it as a persistent bot in the rail', async ({ page }) => {
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
   // Migrate schema is idle (it just parked a question), so Hearth accepts the promotion.
@@ -251,11 +252,11 @@ test('promoting an idle worker from its header opens the peer in the rail', asyn
   const worker = page.locator('main[data-session-key="pi:hearth::18"]');
   await expect(worker).toBeVisible();
 
-  await worker.getByRole('button', { name: 'Promote to peer' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Promote worker to peer' });
-  await expect(dialog.getByRole('heading', { name: 'Promote worker to peer' })).toBeVisible();
+  await worker.getByRole('button', { name: 'Promote to a persistent bot' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Promote to a persistent bot' });
+  await expect(dialog.getByRole('heading', { name: 'Promote to a persistent bot' })).toBeVisible();
   await dialog.getByLabel('Name', { exact: true }).fill('Schema guardian');
-  await dialog.getByRole('button', { name: 'Promote', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Make persistent', exact: true }).click();
 
   const rail = page.locator('aside');
   await expect(rail.getByRole('button', { name: /Schema guardian/ }).first()).toBeVisible({ timeout: 10_000 });

@@ -143,7 +143,7 @@ describe('the crew strip is a flat readable list', () => {
   });
 });
 
-describe('only promoted peer links retain an avatar', () => {
+describe('only promoted bot links retain an avatar', () => {
   for (const state of ['active', 'needs-input', 'error', 'unknown'] as const) {
     test(`an unpromoted ${state} worker has no avatar DOM`, () => {
       const html = render({ workers: [worker('a')], stateFor: () => state });
@@ -158,10 +158,10 @@ describe('only promoted peer links retain an avatar', () => {
     expect(html).toContain('aria-label="Worker a"');
   });
 
-  test('a promoted peer link keeps its blob and peer badge', () => {
+  test('a promoted bot link keeps its blob and bot badge', () => {
     const html = render({ workers: [worker('a', { promotedTo: 'peer-1' })], stateFor: () => 'idle' });
     expect(html).toMatch(/class="blob(?: |")/);
-    expect(html).toContain('>peer<');
+    expect(html).toContain('>bot<');
   });
 });
 
@@ -176,12 +176,12 @@ describe('readable status beneath each preview', () => {
       stateFor: (session) => (session.id === 'a' ? state : 'active'),
     });
 
-  test('a quiet peer keeps its status beneath the title', () => {
+  test('a quiet bot keeps its status beneath the title', () => {
     // A quiet worker only reaches the brick list as a standing relationship: `splitCrew` files an
     // idle one-shot worker under "+N previous". This is the one brick that shows the quiet tone.
     const html = one('idle', { promotedTo: 'peer-1' });
     expect(html).toContain('aria-label="Worker a"');
-    expect(html).toContain('title="Open the peer for Worker a — idle"');
+    expect(html).toContain('title="Open the persistent bot for Worker a — idle"');
     // A 6px dot carries it on the brick; the word is only in the tooltip and the description.
     expect(html).toContain('size-1.5 flex-none rounded-full bg-muted-foreground/40');
     expect(html).not.toContain('bg-highlight px-1');
@@ -267,7 +267,7 @@ describe('previous worker chats are a chip in the same wrap', () => {
       stateFor,
     });
     expect(promoted).not.toContain('previous');
-    expect(promoted).toContain('>peer<');
+    expect(promoted).toContain('>bot<');
   });
 });
 

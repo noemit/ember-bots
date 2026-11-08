@@ -115,7 +115,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
   // look a worker up by — and the status rides along as its *description*, so a screen reader still
   // announces "Parse config, working" without the name growing a word per row.
   const statusId = React.useId();
-  const hint = promoted ? `Open the peer for ${title}` : `Open ${title}`;
+  const hint = promoted ? ('Open the persistent bot for ' + title) : ('Open ' + title);
   return (
     <motion.li
       layout="position"
@@ -155,10 +155,10 @@ const WorkerBrick = React.memo(function WorkerBrick({
       </button>
       {promoted ? (
         <span
-          className="flex-none px-1 text-[9.5px] leading-4 font-semibold text-highlight uppercase"
-          title="This worker has been promoted to an addressable peer"
+          className="flex-none rounded-sm border border-highlight/50 px-1 text-[9.5px] leading-4 font-semibold text-highlight uppercase"
+          title="This thread is a persistent bot now — others can message it by name"
         >
-          peer
+          bot
         </span>
       ) : (
         <>

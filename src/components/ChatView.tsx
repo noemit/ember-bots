@@ -1626,10 +1626,11 @@ function ChatView({
                   size="sm"
                   className="h-7 px-2 text-xs"
                   onClick={onPromote}
-                  title="Fork this worker into a named peer other bots can message by name"
+                  aria-label="Promote to a persistent bot"
+                  title="Promote to a persistent bot: it becomes its own named bot others can message, and keeps running on its own"
                 >
                   <UserPlus aria-hidden="true" />
-                  Promote to peer
+                  Promote
                 </Button>
               ) : null}
               {offerReload || reloading ? (
