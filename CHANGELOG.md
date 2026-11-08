@@ -1,3 +1,24 @@
+## 1.22.0
+
+### Added
+- Conversations can keep a schedule. Bots get a `schedule` tool — list, create, update, remove, run —
+  with daily, weekly and one-off times in a real timezone, a named field in every refusal, and the
+  next run confirmed in words. Tasks belong to the Hearth (the Scheduled view shows the same list),
+  and a run uses its own session, so it never interrupts the chat that created it.
+
+### Changed
+- The composer trays sit on a 1% wash of the theme's ink (white on dark themes, black on light), so
+  the Queue/For later/Threads row separates from the transcript without a second panel.
+- The “Marked read” confirmation fades after about a second; hovering it or focusing Undo holds it
+  for up to five seconds.
+- Right-clicking a bot reply offers **Mark as unread**, which makes that reply and everything after it
+  unread again. It is withheld on your own messages, drafts, worker threads, and while text is
+  selected.
+
+### Fixed
+- Where a jump landed is now a single hairline above the message, fading out, instead of a tinted box
+  with a ring that read like a selection.
+
 ## 1.21.0
 
 ### Added
@@ -13,12 +34,6 @@
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
-- The composer trays sit on a 1% wash of the theme's ink (white on dark themes, black on light),
-  so the Queue/For later/Threads row separates from the transcript without a second panel.
-- The “Marked read” confirmation fades after about a second; hovering it or focusing Undo holds it
-  for up to five seconds.
-- Right-clicking a bot reply offers **Mark as unread**, which makes that reply and everything after
-  it unread again.
 - Worker threads have no unread management: no notify switch and no per-message read controls. A
   thread is something its leader reads, not a place a person does.
 - The Threads tab above the composer reads running over total ("3 / 8") instead of naming what is
@@ -45,8 +60,6 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
-- Where a jump landed is now a single hairline above the message, fading out, instead of a tinted
-  box with a ring that read like a selection.
 - Windows packages now bundle a Windows Kiln (`build/harness/kiln.exe`, cross-compiled and checked
   under Wine). Packaging for Windows from a Linux host used to ship with no bundled harness at all.
 - Hiding a bot also stops the programs it left running, and those of every worker under it: a polite stop first, then a force stop for anything that ignores it. The bot is hidden either way; a stop that fails becomes a banner naming the host, with Retry.
