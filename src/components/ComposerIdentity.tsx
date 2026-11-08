@@ -34,7 +34,7 @@ export default function ComposerIdentity({ name, seed, identity, style, mood, do
       {editing ? <input autoFocus aria-label="Rename session" defaultValue={name} className="w-full min-w-0 rounded border bg-background px-1 py-0.5 text-[13px]"
         onKeyDown={event => { if (event.key === 'Escape') { cancelled.current = true; setEditing(false); } else if (event.key === 'Enter') event.currentTarget.blur(); }}
         onBlur={event => { const title = event.currentTarget.value.trim(); if (!cancelled.current && title && title !== name) onRename?.(title); setEditing(false); }} />
-        : <span className="block truncate text-[13px] font-medium text-foreground" title={onRename ? `${name} — double-click to rename` : name}
+        : <span data-composer-title="" data-composer-name="" className="line-clamp-2 text-[13px] leading-[18px] font-medium text-foreground [overflow-wrap:anywhere]" title={onRename ? `${name} — double-click to rename` : name}
           onDoubleClick={onRename ? () => { cancelled.current = false; setEditing(true); } : undefined}>{name}</span>}
       {docked && !topMeta && folder ? <span className="mt-1 block truncate text-[11px] text-muted-foreground" title={directory}>{folder}</span> : null}
     </div> : null}

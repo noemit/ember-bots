@@ -5,7 +5,7 @@ import { motion } from 'motion/react';
 import { Eye, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, EyeOff } from 'lucide-react';
 import Blob from '../blob/Blob';
 import ProjectCleanupMenu from './ProjectCleanupMenu';
-import { normalizeDirectory } from '../blob/seed';
+import RailDescription from './RailDescription';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,28 +21,7 @@ import { sessionKey } from '../types';
 import type { ScheduledTask } from '../api';
 import type { AvatarIdentity, BallMood, BlobStyle, Session } from '../types';
 
-const relativeTime = (timestamp: number | undefined, now: number): string => {
-  if (!timestamp) return '';
-  const seconds = Math.max(0, Math.round((now - timestamp) / 1000));
-  if (seconds < 45) return 'now';
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-};
-
-/** Owns its own clock so the 30s tick re-renders one span, not every rail row. */
-export const RelativeTime = ({ timestamp, className }: { timestamp: number | undefined; className?: string }) => {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return <span className={className}>{relativeTime(timestamp, now)}</span>;
-};
+export { RelativeTime } from './RailDescription';
 
 const spring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const;
 
@@ -64,8 +43,7 @@ export type SessionRowProps = {
   /** Compact rail row: smaller blob, no preview line. */
   compact?: boolean;
   /**
-   * The rail is widened: give the latest message three lines instead of one clipped line, because
-   * the room is the reason for widening it.
+   * The rail is widened: retain descriptions even when compact rows are enabled.
    */
   expanded?: boolean;
   /** Overrides the title text; used by a one-session project row to show the project name. */
@@ -232,14 +210,6 @@ const SessionRow = React.memo(function SessionRow({
   quiet,
   onQuietChange,
 }: SessionRowProps) {
-  // The loader is a startup affordance, not a permanent state: a session with nothing summarisable
-  // never gets a preview, so after a few seconds it falls back to the folder name.
-  const [previewSettled, setPreviewSettled] = React.useState(false);
-  React.useEffect(() => {
-    const timer = window.setTimeout(() => setPreviewSettled(true), 8000);
-    return () => window.clearTimeout(timer);
-  }, []);
-
   const key = sessionKey(session);
   // Blank is not a title: a `''` (or whitespace) title used to win the `??` chain and render an
   // empty row, which reads as a broken session rather than an untitled one.
@@ -297,13 +267,16 @@ const SessionRow = React.memo(function SessionRow({
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <div data-rail-heading="" className={cn('flex min-w-0 flex-col gap-0.5', actionsAlwaysVisible ? 'pr-[var(--rail-action-space)]' : 'group-hover:pr-[var(--rail-action-space)] group-focus-within:pr-[var(--rail-action-space)]')}>
-              {topMeta ? (
-                <span className="flex min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">
-                  {topMeta}
-                </span>
-              ) : null}
-              <div className="flex items-baseline gap-2">
+              {/* Actions share only the metadata band. Its reserved height also protects rows
+                  without metadata, while the title and description keep their full width on hover. */}
+              <div data-rail-heading="" className="flex min-h-[30px] min-w-0 items-center pr-[var(--rail-action-space)]">
+                {topMeta ? (
+                  <span className="flex min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">
+                    {topMeta}
+                  </span>
+                ) : null}
+              </div>
+              <div data-rail-title-row="" className="flex min-w-0 items-baseline gap-2">
                 {/* A run the scheduler started is an ordinary session; this mark is the only thing
                     that says so, and the tooltip names the task so it can be found in the rail's
                     own Scheduled section. */}
@@ -323,7 +296,8 @@ const SessionRow = React.memo(function SessionRow({
                 ) : null}
                 <span
                   data-session-title=""
-                  className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground"
+                  title={title}
+                  className="min-w-0 flex-1 line-clamp-2 text-[13px] leading-[18px] font-medium text-foreground [overflow-wrap:anywhere]"
                   style={markerColor === undefined ? undefined : {
                     textDecoration: 'underline',
                     textDecorationColor: `var(--instance-marker-${markerColor})`,
@@ -333,30 +307,8 @@ const SessionRow = React.memo(function SessionRow({
                 >
                   {title}
                 </span>
-                <RelativeTime
-                  timestamp={session.updated}
-                  className={cn('flex-none text-[10.5px] tabular-nums text-muted-foreground group-focus-within:hidden group-hover:hidden', actionsAlwaysVisible && 'hidden')}
-                />
               </div>
-              </div>
-              {compact && !expanded ? null : preview === undefined && !previewSettled ? (
-                // Startup: the session list has landed but the preview has not been warmed yet. A
-                // loader reads as "loading"; an empty line read as a broken session.
-                <span
-                  aria-hidden="true"
-                  className="my-0.5 block h-2.5 w-3/4 animate-pulse rounded bg-muted"
-                />
-              ) : (
-                <span
-                  data-testid="session-preview"
-                  className={cn(
-                    'text-[11.5px] leading-4',
-                    expanded ? 'line-clamp-3 whitespace-pre-wrap' : 'truncate'
-                  )}
-                >
-                  {preview || (session.directory ? normalizeDirectory(session.directory).split(/[\\/]/).pop() : '')}
-                </span>
-              )}
+              <RailDescription preview={preview} timestamp={session.updated} directory={session.directory} compact={compact && !expanded} />
               {mood === 'input' || mood === 'question' || mood === 'error' || (!topMeta && (projectName || instanceLabel)) ? (
                 <span className="flex items-center gap-1 truncate text-[10.5px] text-muted-foreground">
                   {mood === 'input' || mood === 'question' ? (

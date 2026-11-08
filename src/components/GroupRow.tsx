@@ -1,5 +1,6 @@
 import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
+import RailDescription from './RailDescription';
 import * as React from 'react';
 import { Box, Group as GroupIcon, Plus, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -22,6 +23,9 @@ import type { AvatarIdentity, BallMood, BlobStyle, Session } from '../types';
 
 type Props = {
   entry: GroupEntry;
+  previews?: Record<string, string>;
+  /** Compact rows hide descriptions, except in the wide rail. */
+  compact?: boolean;
   /** Instance label per id, for the footer's instance chips. */
   instanceLabels: Record<string, string>;
   avatarIdentities: Record<string, AvatarIdentity>;
@@ -50,6 +54,8 @@ type Props = {
 /** Not memoized: it takes sets and records that change identity per render anyway. */
 export default function GroupRow({
   entry,
+  previews = {},
+  compact = false,
   instanceLabels,
   avatarIdentities,
   moods,
@@ -153,7 +159,7 @@ export default function GroupRow({
             right for a project — a folder of sessions you recognise by face. It is wrong for a
             group: you grouped these agents because their *names* matter, and "Habit onboarding QA ·
             copy pass" clipped to "Habit onboarding QA ·" makes two members indistinguishable.
-            One row per member carries the whole title at any rail width, which is what the strip
+            One row per member gives the title two readable lines, which is what the strip
             could never do at 320px however tall the chip grew. */}
         <ul className="mt-1 flex min-w-0 flex-col gap-0.5">
           {entry.members.map((member) => {
@@ -195,8 +201,12 @@ export default function GroupRow({
                           />
                         ) : null}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[11.5px] text-foreground">
-                        {member.title?.trim() || member.id}
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span data-group-member-title="" data-session-title="" title={member.title?.trim() || member.id}
+                          className="line-clamp-2 text-[11.5px] leading-4 text-foreground [overflow-wrap:anywhere]">
+                          {member.title?.trim() || member.id}
+                        </span>
+                        <RailDescription preview={previews[key]} timestamp={member.updated} directory={member.directory} compact={compact} />
                       </span>
                       <ProcessIndicator session={member} />
                       {member.needsInput ? (

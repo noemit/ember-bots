@@ -559,6 +559,8 @@ export default function LeftRail({
         <GroupRow
           key={entry.id}
           entry={entry}
+          previews={previews}
+          compact={compact && mode !== 'wide'}
           instanceLabels={Object.fromEntries(instances.map((instance) => [instance.id, instance.label]))}
           avatarIdentities={avatarIdentities}
           moods={moods}
