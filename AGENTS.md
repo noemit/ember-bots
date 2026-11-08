@@ -68,16 +68,19 @@ their existing names; archive references in the implementation notes below descr
 - The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
   (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
   `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.
-- Unread navigation lives above the transcript: “Go to new messages” jumps to the newest unread
+- Unread navigation lives above the transcript: “New unread messages” jumps to the newest unread
   finished reply without marking it. Multiple unread replies offer “Mark all as read”. Each reply's
   `MessageReadButton` has a 44px hit area and immediate check/spin/fade confirmation (fade only for
   reduced motion). Read eligibility is shared with `unreadDigest`; live output is never marked early.
+  Explicit read actions also show a conversation-scoped “Marked read” toast with Undo and a brief
+  background-only highlight. The centered “↑ Jump to your last message” pill appears only below the
+  latest user message with no user message visible; it never marks messages read.
   Tool-call steps (including commentary) need no read receipt. Folded tool rows keep the final
   reply’s original eligibility, and tool steps never block advancing a reply’s read mark.
 - Home has been removed. Startup restores the workspace or opens a recent chat; an empty install
   starts a draft on an available Kiln. Unread reading remains accessible from the rail.
 - `settings.blobSize` chooses Standard, Large or Extra large on recognition surfaces through
-  `AvatarSizeContext`; transcript icons keep their compact size. ComposerIdentity repeats the current
+  `AvatarSizeContext`; transcripts never display bot avatars. ComposerIdentity repeats the current
   chat’s resolved blob and name beside the input, whose faint tint uses that same colour.
 - Blobs are mnemonic devices for chats. Automatic colours are stable per session, independent of
   project membership and visibility. The appearance picker defaults to one chat and accepts a custom
@@ -386,7 +389,7 @@ their existing names; archive references in the implementation notes below descr
   **eye menu** (`ViewMenu.tsx`) is the single home for display choices: Show / Expand thinking
   blocks (independent switches — visibility and default-open, where the old control was one
   3-way cycle), Show question & answer blocks, Show tool use (the old `hideToolCalls`), Expand tool
-  calls, Show message details, Show avatars in transcript, Compact spacing, Compact rail, and Follow
+  calls, Show message details, Compact spacing, Compact rail, and Follow
   new content while streaming — plus Reset to defaults. Each persists as a setting; the eye is
   struck through when something is hidden. It replaces the top-bar View options dialog
   (`ViewOptionsDialog.tsx` is gone). Pressing
@@ -463,7 +466,7 @@ their existing names; archive references in the implementation notes below descr
   `src/lib/gallery.ts`; no second window, no IPC.
 - Home and its activity/link/card components were removed in 1.7.0. The rail's unread-count
   shortcut and separate reading modal are also removed. Read replies in the conversation with
-  Go to new messages and explicit per-message read controls. Activity milestones remain recorded
+  New unread messages and explicit per-message read controls. Activity milestones remain recorded
   by main, without a separate activity page.
 - `src/components/InstanceBar.tsx` — the top bar: sidebar-width control followed by the Ember name,
   beside the native macOS window buttons, then search, **Sessions**, **Usage**
@@ -686,9 +689,9 @@ their existing names; archive references in the implementation notes below descr
   block onto `ToolCall.images`, and `ToolRow` shows it above the expandable detail. Expanding a
   thinking block stops auto-follow and
   nudges the block into view with `block: 'nearest'`, so it doesn't yank the reader to the bottom.
-  The session blob lives here rather than in the
-  chat header: while a turn is pending it rides the activity line below the last message, and once
-  the turn is done it tucks in beside the last assistant message. A leader that is idle but still
+  Transcripts never draw bot avatars, either beside settled replies or the live activity line;
+  regular bot identities remain in the rail and composer. The old persisted `showAvatars` setting
+  is accepted but ignored, and the View menu no longer offers it. A leader that is idle but still
   has workers in flight gets one extra quiet line there (`SessionStatusLine`, fed by
   `lib/sessionStatus`): "Waiting on 2 workers…". It is transient (derived, never persisted or
   logged), a polite live region, and turns nothing off or down: the composer stays live so another

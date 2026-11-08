@@ -2,7 +2,7 @@ import * as React from 'react';
 import { loadMessageAppend, loadMessageTail } from '../api';
 import { digestUnread, type UnreadDigest } from '../lib/unreadDigest';
 import { mayHaveUnread, unreadVersion as versionOf } from '../lib/sessionUnread';
-import { MAX_READ_MARKS } from '../lib/readState';
+import { MAX_READ_MARKS, unreadReadCursor } from '../lib/readState';
 import { sessionKey } from '../types';
 import type { EmberSettings, Session, SessionReadMark } from '../types';
 
@@ -22,7 +22,7 @@ export type UnreadDigestState = {
 
 /** A read mark in one string, for "has this changed since the digest was built?". */
 const markSignature = (mark: SessionReadMark | undefined): string =>
-  mark ? `${mark.through}|${(mark.ids ?? []).join(',')}|${mark.readAt ?? 0}` : '';
+  mark ? JSON.stringify([mark.through, mark.ids, mark.readAt, mark.unreadOrdinals, mark.unreadMessageIds]) : '';
 
 /**
  * The unread messages of every session that has any, for Home's cards.
@@ -79,7 +79,7 @@ export function useUnreadDigests(options: {
     });
 
     void (async () => {
-      const results: Array<[string, UnreadDigest | null]> = [];
+      const results: Array<[string, UnreadDigest | null, string]> = [];
       let cursor = 0;
       const readNext = async (): Promise<void> => {
         while (!cancelled && cursor < fresh.length) {
@@ -98,15 +98,15 @@ export function useUnreadDigests(options: {
             inFlight.current.delete(key);
           }
           if (cancelled) return;
-          results.push([key, digest]);
+          results.push([key, digest, markSignature(mark)]);
         }
       };
       await Promise.all(
         Array.from({ length: Math.min(DIGEST_CONCURRENCY, fresh.length) }, () => readNext())
       );
       if (cancelled || results.length === 0) return;
-      results.forEach(([key, digest]) => {
-        if (digest) cache.current.set(key, { digest, sig: markSignature(marksRef.current[key]) });
+      results.forEach(([key, digest, sig]) => {
+        if (digest) cache.current.set(key, { digest, sig });
       });
       setDigests((prev) => {
         let changed = false;
@@ -177,7 +177,7 @@ const digestFor = async (
 ): Promise<UnreadDigest> => {
   const version = versionOf(session);
   if (mark && (mark.through ?? 0) > 0) {
-    const page = await loadMessageAppend(session.instanceId, session.id, mark.through);
+    const page = await loadMessageAppend(session.instanceId, session.id, unreadReadCursor(mark));
     if (page.supported) {
       return digestUnread(page.messages, { mark, complete: page.complete, version });
     }

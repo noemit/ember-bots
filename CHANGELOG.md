@@ -8,6 +8,10 @@
 
 ### Changed
 - Session actions now say Hide, Hidden sessions and Unhide, with eye icons instead of trash; Undo and active-work safeguards are unchanged.
+- Conversations offer an upward jump to your last message only when it is above the view, and label unread navigation “New unread messages” without an arrow.
+- Marking a reply read shows a quiet, conversation-scoped confirmation with Undo and a brief background highlight, without a border.
+- Transcripts no longer display bot avatars or offer an avatar toggle; regular bot identities remain in the rail and composer.
+- Waiting-on-workers status aligns with message content and uses the same readable size as tool rows.
 - Ember calls its assistants bots throughout the interface and product guidance; the composer now invites you to “Message your bot..”.
 - Scribble eyes express each mood with hand-drawn contours, brows and larger pupils, with quiet working glances and blinks that respect reduced motion.
 - Expanded tool calls show their full input and output height instead of trapping content in nested scrolling areas.

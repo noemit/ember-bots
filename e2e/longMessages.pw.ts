@@ -14,7 +14,7 @@ test('long-message study opens with scrollable full replies and mixed Markdown',
   expect((await second.boundingBox())!.height).toBeGreaterThan(readingHeight);
   await expect(first.locator('table')).toHaveCount(1);
   await expect(first.locator('pre')).toHaveCount(1);
-  await column.getByRole('button', { name: /Go to new messages/ }).click();
+  await column.getByRole('button', { name: /New unread messages/ }).click();
   await expect(second).toHaveAttribute('data-highlighted', 'true');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '/tmp/ember-long-messages.png' });
@@ -25,7 +25,7 @@ test('unread jump opens a long reply at its start with padding and a five-second
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
   const history = column.getByLabel('Conversation history', { exact: true });
   const message = column.locator('[data-message-id="e4"]');
-  const jump = column.getByRole('button', { name: /Go to new messages/ });
+  const jump = column.getByRole('button', { name: /New unread messages/ });
   await jump.click();
   await expect.poll(async () => {
     const [row, viewport] = await Promise.all([message.boundingBox(), history.boundingBox()]);

@@ -97,7 +97,7 @@ connect it in **Settings → Instances**.
   mnemonic devices: they help you find the conversation you remember. Their movement shows work,
   thinking, questions and errors. Appearance and size are adjustable when you want more control.
 - **Keep track of what you’ve read.** A read mark records your acknowledgement. Opening a chat does
-  not mark its messages read. **Go to new messages** finds unread replies; individual bubbles and
+  not mark its messages read. **New unread messages** finds unread replies; individual bubbles and
   **Mark all as read** let you clear them deliberately. Tool steps need no read receipt.
 - **Give feedback on the exact passage.** Select part of a plan or response, add a comment, and
   collect several comments before sending them together. The bot gets the quoted text with

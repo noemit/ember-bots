@@ -48,7 +48,6 @@ const DEFAULTS: ViewSettingsPatch = {
   expandToolCalls: false,
   toolDisplay: 'collapsed',
   showMessageDetails: true,
-  showAvatars: true,
   compactSpacing: false,
   compactRail: false,
   autoFollow: true,
@@ -100,7 +99,7 @@ export default function ViewMenu({
   const showToolCalls = !view.hideToolCalls;
   const toolOptions = toolMenuOptions(view);
   const anythingHidden =
-    !showThinking || !showToolCalls || !view.showQuestions || !view.showMessageDetails || !view.showAvatars;
+    !showThinking || !showToolCalls || !view.showQuestions || !view.showMessageDetails;
 
   return (
     <DropdownMenu>
@@ -222,9 +221,6 @@ export default function ViewMenu({
         ))}
         <ViewToggle checked={view.showMessageDetails} onCheckedChange={(on) => onChange({ showMessageDetails: on })}>
           Show message details
-        </ViewToggle>
-        <ViewToggle checked={view.showAvatars} onCheckedChange={(on) => onChange({ showAvatars: on })}>
-          Show avatars in transcript
         </ViewToggle>
 
         <DropdownMenuSeparator />

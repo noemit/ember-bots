@@ -188,6 +188,9 @@ export type Session = {
  */
 export type SessionReadMark = {
   through: number;
+  /** Explicit Undo exceptions; never cleared by ordinary watermark advancement. */
+  unreadOrdinals?: number[];
+  unreadMessageIds?: string[];
   ids?: number[];
   readAt?: number;
   comments?: number;
@@ -582,7 +585,7 @@ export type EmberSettings = {
   toolDisplay: ToolDisplay;
   /** The per-turn footer: model, duration, tokens, cost, received time. */
   showMessageDetails: boolean;
-  /** The session blob beside the latest turn. */
+  /** Legacy persisted preference; ignored. Transcripts never display bot avatars. */
   showAvatars: boolean;
   /** The transcript's scrub rail; hidden automatically on short chats. */
   showActivityRail: boolean;
@@ -708,7 +711,6 @@ export type ViewSettings = {
   expandToolCalls: boolean;
   toolDisplay: ToolDisplay;
   showMessageDetails: boolean;
-  showAvatars: boolean;
   showActivityRail: boolean;
   compactSpacing: boolean;
   compactRail: boolean;

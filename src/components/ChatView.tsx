@@ -219,6 +219,7 @@ type Props = {
   readMark?: SessionReadMark;
   /** Mark one message read (the dot beside it). Omitted where marking is not offered. */
   onMarkMessageRead?: (session: Session, message: ChatMessage) => void;
+  onUndoMarkMessageRead?: (session: Session, message: ChatMessage) => void;
   /** Mark the whole session read (the unread navigation bar). */
   onMarkAllRead?: (session: Session) => void;
   /** Set or clear "mark everything read, no notifications" for this session. */
@@ -486,6 +487,7 @@ function ChatView({
   onStopProcesses,
   readMark,
   onMarkMessageRead,
+  onUndoMarkMessageRead,
   onMarkAllRead,
   onQuietChange,
   notificationsMuted = false,
@@ -1448,7 +1450,6 @@ function ChatView({
   /** Known descendants for inline source links, including unblocked nested threads. */
   threadTargets?: Session[];
     workerState?: (worker: Session) => BallState;
-    showAvatars?: boolean;
     showActivityRail?: boolean;
   }) => (
     <React.Suspense fallback={<TranscriptFallback />}>
@@ -1471,10 +1472,7 @@ function ChatView({
         creating={pane.creating}
         sessionTitle={pane.sessionTitle}
         instanceLabel={pane.instanceLabel ?? instanceLabel ?? draftInstance?.label}
-        blobStyle={blobStyle}
         seed={seed}
-        identity={identity}
-        mood={mood}
         hideToolCalls={hideToolCalls}
         reasoningDisplay={reasoningDisplay}
         showQuestions={view.showQuestions}
@@ -1483,10 +1481,10 @@ function ChatView({
         showCost={costShown}
         {...(readMark ? { readMark } : {})}
         {...(onMarkMessageRead && session ? { onMarkRead: (message: ChatMessage) => onMarkMessageRead(session, message) } : {})}
+        {...(onUndoMarkMessageRead && session ? { onUndoMarkRead: (message: ChatMessage) => onUndoMarkMessageRead(session, message) } : {})}
         {...(onMarkAllRead && session ? { onMarkAllRead: () => onMarkAllRead(session) } : {})}
         onReply={session ? replyToMessage : undefined}
         showMessageDetails={view.showMessageDetails}
-        showAvatars={pane.showAvatars ?? view.showAvatars}
         crew={pane.crew ?? crew}
         workerState={pane.workerState ?? workerState}
         showActivityRail={pane.showActivityRail ?? view.showActivityRail}
@@ -1802,7 +1800,6 @@ function ChatView({
                 sessionTitle: pending.title,
                 instanceLabel: draftInstance?.label,
                 crew: [],
-                showAvatars: false,
                 showActivityRail: false,
                 onRetryPendingSend: () => retryPendingCreate(),
                 onDiscardPendingSend: () => editPendingCreate(),

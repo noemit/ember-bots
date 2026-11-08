@@ -23,9 +23,12 @@ Messages sent while a chat is busy can wait in the host’s follow-up queue. Alt
 the running turn instead. Notes stay parked until you send them or bring them back into the composer.
 A chat’s running programs appear in its Processes tray and rail indicator.
 
-Read marks belong to the human. Use Go to new messages to navigate without acknowledging a reply;
-press its read bubble when you have read it. With several unread replies, Mark all as read clears
-them together. Tool steps do not need receipts.
+Read marks belong to the human. Use New unread messages to navigate without acknowledging a reply;
+click a reply or press its read bubble when you have read it. A brief background highlight and a
+“Marked read” confirmation offer Undo without leaving the conversation. Selecting text or using a
+link does not mark a reply read. With several unread replies, Mark all as read clears them together.
+Tool steps do not need receipts. “↑ Jump to your last message” appears only when your last message
+is above the view and none of your messages is visible; jumping never marks anything read.
 
 Select part of a response or plan to comment on it. Comments remain drafts in a tray until you send
 them together. Internal thread-result retrieval does not change your read marks.

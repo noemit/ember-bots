@@ -14,7 +14,7 @@ test('plain message clicks acknowledge only that reply and persist; navigation a
   const latest = column.locator('[data-message-id="e93"]');
   const earlier = column.locator('[data-message-id="e91"]');
   const before = await marks(page);
-  await column.getByRole('button', { name: /Go to new messages/ }).click();
+  await column.getByRole('button', { name: /New unread messages/ }).click();
   await column.locator('[data-message-id="e90"] .conversation-prose').click();
   await page.waitForTimeout(400);
   expect(await marks(page)).toEqual(before);

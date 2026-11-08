@@ -324,6 +324,9 @@ export const parseSessionGroups = (value: unknown): SessionGroup[] => {
  */
 export type StoredReadMark = {
   through: number;
+  /** Explicit Undo exceptions; never cleared by ordinary watermark advancement. */
+  unreadOrdinals?: number[];
+  unreadMessageIds?: string[];
   ids?: number[];
   readAt?: number;
   comments?: number;
@@ -333,6 +336,7 @@ export type StoredReadMark = {
 
 const MAX_READ_MARKS = 2000;
 const MAX_OUT_OF_ORDER = 200;
+const MAX_UNREAD_EXCEPTIONS = 2000;
 
 const toOrdinal = (value: unknown): number | null =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -353,16 +357,25 @@ export const parseReadMarks = (value: unknown): Record<string, StoredReadMark> =
             .sort((a, b) => a - b)
             .slice(-MAX_OUT_OF_ORDER)
         : [];
+      // The writer refuses new exceptions at the cap rather than discarding earlier unread choices.
+      const unreadOrdinals = Array.isArray(entry.unreadOrdinals)
+        ? [...new Set(entry.unreadOrdinals.map(toOrdinal))].filter((id): id is number => id !== null && id > 0).sort((a, b) => a - b).slice(0, MAX_UNREAD_EXCEPTIONS)
+        : [];
+      const unreadMessageIds = Array.isArray(entry.unreadMessageIds)
+        ? [...new Set(entry.unreadMessageIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 500))].slice(0, MAX_UNREAD_EXCEPTIONS)
+        : [];
       const readAt = toOrdinal(entry.readAt);
       const comments = toOrdinal(entry.comments);
       // A standing policy, not a mark: it has to survive the round trip or the toggle snaps back.
       const quiet = entry.quiet === true;
       // A mark that says nothing is not worth a key — but a quiet session with no read history is
       // a real choice, and dropping it would silently turn notifications back on.
-      if (through === 0 && ids.length === 0 && !readAt && !comments && !quiet) return;
+      if (through === 0 && ids.length === 0 && !readAt && !comments && !quiet && !unreadOrdinals.length && !unreadMessageIds.length) return;
       marks[key] = {
         through,
         ...(ids.length ? { ids } : {}),
+        ...(unreadOrdinals.length ? { unreadOrdinals } : {}),
+        ...(unreadMessageIds.length ? { unreadMessageIds } : {}),
         ...(readAt ? { readAt } : {}),
         ...(comments ? { comments } : {}),
         ...(quiet ? { quiet: true } : {}),
@@ -593,6 +606,7 @@ export type EmberSettings = {
   /** `list` draws a row per tool group; `collapsed` folds the turn into one line. */
   toolDisplay: 'list' | 'collapsed';
   showMessageDetails: boolean;
+  /** Legacy persisted preference; ignored by the renderer. */
   showAvatars: boolean;
   compactSpacing: boolean;
   compactRail: boolean;

@@ -104,7 +104,7 @@ export const digestUnread = (
     if (!isUnreadEligible(message)) return;
     const ordinal = entryOrdinal(message.id);
     const at = message.createdAt ?? 0;
-    if (isMessageRead(options.mark, ordinal, at)) return;
+    if (isMessageRead(options.mark, ordinal, at, message.id)) return;
     const { excerpt, truncated } = excerptText(message.text || message.error || '');
     const tags = tagsFor(message);
     items.push({
@@ -174,7 +174,7 @@ export const visibleUnreadItems = (
   digest: UnreadDigest | undefined,
   mark: SessionReadMark | undefined
 ): UnreadItem[] =>
-  (digest?.items ?? []).filter((item) => item.sticky || !isMessageRead(mark, item.ordinal, item.at));
+  (digest?.items ?? []).filter((item) => item.sticky || !isMessageRead(mark, item.ordinal, item.at, item.id));
 
 /** Unread first: most unread messages wins, then the most recent activity. */
 export const orderUnreadCards = <T extends { count: number; updated: number }>(cards: readonly T[]): T[] =>

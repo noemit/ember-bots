@@ -129,6 +129,9 @@ import {
   markAllRead,
   markRead,
   markTimestampRead,
+  messageReadReceipt,
+  undoMessageRead,
+  type MessageReadReceipt,
   pruneSessionReadMarks,
 } from './lib/readState';
 import { deriveSessionName } from './lib/sessionNames';
@@ -509,6 +512,8 @@ export default function App() {
   // Per-message read state lives in settings (`readMarks`), so it survives a restart — see
   // lib/readState. Opening a session does not mark anything; the dot on one message does.
   const readMarks = settings.readMarks;
+  // Only tiny receipts are retained; transcripts/toasts can unmount independently.
+  const readUndoReceipts = React.useRef(new Map<string, MessageReadReceipt>());
 
   // Absent on the first launch that understood marks: everything older than this instant counts as
   // read, so the upgrade doesn't open Home with every message ever written flagged unread.
@@ -526,7 +531,6 @@ export default function App() {
       showQuestions: settings.showQuestions,
       expandToolCalls: settings.expandToolCalls,
       showMessageDetails: settings.showMessageDetails,
-      showAvatars: settings.showAvatars,
       showActivityRail: settings.showActivityRail,
       compactSpacing: settings.compactSpacing,
       compactRail: settings.compactRail,
@@ -540,7 +544,6 @@ export default function App() {
       settings.showQuestions,
       settings.expandToolCalls,
       settings.showMessageDetails,
-      settings.showAvatars,
       settings.showActivityRail,
       settings.compactSpacing,
       settings.compactRail,
@@ -4554,6 +4557,13 @@ export default function App() {
     const key = sessionKey(session);
     const current = settingsRef.current.readMarks[key];
     const ordinal = entryOrdinal(message.id);
+    const at = message.completedAt ?? message.createdAt ?? Date.now();
+    const receipt = messageReadReceipt(current, ordinal, at, message.id);
+    if (receipt.wasRead) return;
+    const receiptKey = JSON.stringify([key, message.id]);
+    readUndoReceipts.current.delete(receiptKey);
+    readUndoReceipts.current.set(receiptKey, receipt);
+    if (readUndoReceipts.current.size > 2000) readUndoReceipts.current.delete(readUndoReceipts.current.keys().next().value!);
     if (ordinal !== null) {
       const digestUnread = visibleUnreadItems(unreadDigests.digests[key], current)
         .map((entry) => entry.ordinal)
@@ -4564,7 +4574,7 @@ export default function App() {
         .filter(
           (m) =>
             isUnreadEligible(m) &&
-            !isMessageRead(current, entryOrdinal(m.id), m.completedAt ?? m.createdAt ?? 0)
+            !isMessageRead(current, entryOrdinal(m.id), m.completedAt ?? m.createdAt ?? 0, m.id)
         )
         .map((m) => entryOrdinal(m.id))
         .filter((o): o is number => o !== null);
@@ -4574,10 +4584,25 @@ export default function App() {
       handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
       return;
     }
-    const at = message.completedAt ?? message.createdAt ?? Date.now();
-    const next = markTimestampRead(current, at);
+    const next = markTimestampRead(current, at, message.id);
     if (next === current) return;
     handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
+  };
+
+  const handleUndoMarkMessageReadInColumn = (session: Session, message: ChatMessage) => {
+    const key = sessionKey(session);
+    const receiptKey = JSON.stringify([key, message.id]);
+    const receipt = readUndoReceipts.current.get(receiptKey);
+    if (!receipt) return;
+    const current = settingsRef.current.readMarks[key];
+    try {
+      const next = undoMessageRead(current, receipt);
+      readUndoReceipts.current.delete(receiptKey);
+      if (!next || next === current) return;
+      handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
+    } catch (error) {
+      showActionError(error instanceof Error ? error.message : 'Ember could not undo this read mark. Try Undo again.', () => handleUndoMarkMessageReadInColumn(session, message));
+    }
   };
 
   /** Muting notifications leaves every explicit read mark intact. */
@@ -4838,6 +4863,7 @@ export default function App() {
           onStopProcesses={handleStopProcesses}
           {...(viewReadMark ? { readMark: viewReadMark } : {})}
           onMarkMessageRead={handleMarkMessageReadInColumn}
+          onUndoMarkMessageRead={handleUndoMarkMessageReadInColumn}
           onMarkAllRead={handleMarkAllRead}
           onQuietChange={handleQuietChange}
           notificationsMuted={quietKeys.has(sessionKey(session))}

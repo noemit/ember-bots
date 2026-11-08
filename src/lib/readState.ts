@@ -10,9 +10,10 @@ import { sessionKey, type Session, type SessionReadMark } from '../types';
  * The unit is the host's own entry ordinal (Hearth message ids are `e<entryId>`, and entry ids only
  * grow), so marking is a small scalar rather than a set of ids that grows forever:
  *
- *   - every message with ordinal ≤ `through` is read;
+ *   - every message with ordinal ≤ `through` is read, except explicit Undo exceptions;
  *   - a message marked out of order sits in `ids` until `through` catches up and compacts it away;
- *   - a wire without ordinals (OpenChamber, being retired) falls back to `readAt` and timestamps.
+ *   - a wire without ordinals (OpenChamber, being retired) falls back to `readAt` and timestamps;
+ *   - unreadOrdinals / unreadMessageIds retain Undo choices without rewinding other receipts.
  *
  * Nothing here marks anything implicitly: only `markRead` and `markAllRead` change a mark, and a
  * session being open on screen is not a reason to call either.
@@ -22,12 +23,15 @@ import { sessionKey, type Session, type SessionReadMark } from '../types';
 export const MAX_OUT_OF_ORDER = 200;
 /** Sessions with a mark; pruned with the workspace, so this is a backstop, not the usual bound. */
 export const MAX_READ_MARKS = 2000;
+/** Persisted exceptions are bounded separately from short-lived Undo receipts. */
+export const MAX_UNREAD_EXCEPTIONS = 2000;
 
 export const EMPTY_READ_MARK: SessionReadMark = { through: 0, readAt: 0 };
 
 /** The ordinal the wire minted for a message, or null when its id carries none. */
 export const isOrdinalMarked = (mark: SessionReadMark, ordinal: number): boolean =>
-  ordinal <= mark.through || (mark.ids?.includes(ordinal) ?? false);
+  !mark.unreadOrdinals?.includes(ordinal) &&
+  (ordinal <= mark.through || (mark.ids?.includes(ordinal) ?? false));
 
 /**
  * Whether one message is read. `ordinal` wins when it exists (the host's own ordering); otherwise
@@ -36,12 +40,49 @@ export const isOrdinalMarked = (mark: SessionReadMark, ordinal: number): boolean
 export const isMessageRead = (
   mark: SessionReadMark | undefined,
   ordinal: number | null,
-  at: number
+  at: number,
+  messageId?: string
 ): boolean => {
   if (!mark) return false;
   if (ordinal !== null) return isOrdinalMarked(mark, ordinal);
-  return at > 0 && at <= (mark.readAt ?? 0);
+  return !mark.unreadMessageIds?.includes(messageId ?? '') && at > 0 && at <= (mark.readAt ?? 0);
 };
+
+/** Remove only the acknowledgement's own exception, retaining all other Undo choices. */
+const clearUnreadException = (mark: SessionReadMark, ordinal: number | null, messageId?: string): SessionReadMark => {
+  if (ordinal !== null && mark.unreadOrdinals?.includes(ordinal)) {
+    const unreadOrdinals = mark.unreadOrdinals.filter((id) => id !== ordinal);
+    return { ...mark, unreadOrdinals: unreadOrdinals.length ? unreadOrdinals : undefined };
+  }
+  if (ordinal === null && messageId && mark.unreadMessageIds?.includes(messageId)) {
+    const unreadMessageIds = mark.unreadMessageIds.filter((id) => id !== messageId);
+    return { ...mark, unreadMessageIds: unreadMessageIds.length ? unreadMessageIds : undefined };
+  }
+  return mark;
+};
+
+/** A small receipt, not a settings snapshot: Undo can never overwrite another action's fields. */
+export type MessageReadReceipt = { ordinal: number | null; at: number; messageId: string; wasRead: boolean };
+export const messageReadReceipt = (
+  mark: SessionReadMark | undefined, ordinal: number | null, at: number, messageId: string
+): MessageReadReceipt => ({ ordinal, at, messageId, wasRead: isMessageRead(mark, ordinal, at, messageId) });
+
+/** Restore only this reply's previous unread status, even after ids compact into through. */
+export const undoMessageRead = (mark: SessionReadMark | undefined, receipt: MessageReadReceipt): SessionReadMark | undefined => {
+  if (receipt.wasRead || !mark || !isMessageRead(mark, receipt.ordinal, receipt.at, receipt.messageId)) return mark;
+  const exceptions = receipt.ordinal !== null ? mark.unreadOrdinals : mark.unreadMessageIds;
+  if ((exceptions?.length ?? 0) >= MAX_UNREAD_EXCEPTIONS) {
+    throw new Error('Ember has reached the unread Undo limit for this chat. Mark an undone reply read, then try Undo again.');
+  }
+  if (receipt.ordinal !== null) {
+    return { ...mark, unreadOrdinals: [...new Set([...(mark.unreadOrdinals ?? []), receipt.ordinal])].sort((a, b) => a - b) };
+  }
+  return { ...mark, unreadMessageIds: [...new Set([...(mark.unreadMessageIds ?? []), receipt.messageId])] };
+};
+
+/** Append reads must include undone replies below the compacted watermark. */
+export const unreadReadCursor = (mark: SessionReadMark): number =>
+  Math.max(0, Math.min(mark.through, ...(mark.unreadOrdinals ?? []).map((id) => id - 1)));
 
 /**
  * Mark one message read, compacting whatever the new mark makes contiguous.
@@ -56,7 +97,8 @@ export const markRead = (
   unreadOrdinals: readonly number[],
   at = 0
 ): SessionReadMark => {
-  const base = mark ?? EMPTY_READ_MARK;
+  const original = mark ?? EMPTY_READ_MARK;
+  const base = clearUnreadException(original, ordinal);
   if (ordinal <= base.through) return base;
   const ids = [...new Set([...(base.ids ?? []), ordinal])].sort((a, b) => a - b);
   let through = base.through;
@@ -69,6 +111,8 @@ export const markRead = (
   }
   const kept = ids.filter((id) => id > through).slice(-MAX_OUT_OF_ORDER);
   return {
+    ...base,
+    ids: undefined,
     through,
     ...(kept.length ? { ids: kept } : {}),
     readAt: Math.max(base.readAt ?? 0, at),
@@ -81,9 +125,10 @@ export const markRead = (
  */
 export const markTimestampRead = (
   mark: SessionReadMark | undefined,
-  at: number
+  at: number,
+  messageId?: string
 ): SessionReadMark => {
-  const base = mark ?? EMPTY_READ_MARK;
+  const base = clearUnreadException(mark ?? EMPTY_READ_MARK, null, messageId);
   if (at <= (base.readAt ?? 0)) return base;
   return {
     ...base,

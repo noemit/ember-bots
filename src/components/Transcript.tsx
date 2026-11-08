@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import Linkify from './Linkify';
 import CopyButton from './CopyButton';
-import Blob from '../blob/Blob';
+import { isHumanReadingMessage, type ReadingBounds, shouldOfferLastMessageJump } from '../lib/transcriptReadingGeometry';
 import { isTurnLive, outputSignature } from '../lib/turnActivity';
 import { parseCrewReport } from '../lib/crew';
 import { deriveActivityLabel } from '../lib/activityLabel';
@@ -55,10 +55,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
-  AvatarIdentity,
-  BallMood,
   BallState,
-  BlobStyle,
   ChatMessage,
   FileAttachment,
   MessagePart,
@@ -126,11 +123,8 @@ type Props = {
   sessionTitle?: string;
   /** The instance's label, so an unanswered status can say which host went quiet. */
   instanceLabel?: string;
-  /** The session's blob, shown beside the last message and as the live activity indicator. */
-  blobStyle: BlobStyle;
+  /** Stable conversation key used to reset scrolling and ephemeral reading feedback. */
   seed: string;
-  identity: AvatarIdentity;
-  mood: BallMood;
   /** Drop tool-call rows from every message. */
   hideToolCalls: boolean;
   /** How thinking blocks render: open, collapsed, or dropped. */
@@ -147,14 +141,13 @@ type Props = {
   readMark?: SessionReadMark;
   /** Mark only the message whose bubble was pressed. */
   onMarkRead?: (message: ChatMessage) => void;
+  onUndoMarkRead?: (message: ChatMessage) => void;
   /** Mark the entire session read, including older unloaded messages. */
   onMarkAllRead?: () => void;
   /** Quote this message in the composer's existing reply context. */
   onReply?: (message: ChatMessage) => void;
   /** The per-turn footer metadata (model, duration, tokens, cost, time). */
   showMessageDetails: boolean;
-  /** The session blob beside the latest turn. */
-  showAvatars: boolean;
   /** A leader's crew workers; the status line reports a wait on the ones still in flight. */
   crew?: Session[];
   /** Their ball states, from the instance status poll. */
@@ -1457,6 +1450,7 @@ const renderBlock = (
 type MessageRowProps = {
   message: ChatMessage;
   highlighted: boolean;
+  readConfirmed: boolean;
   highlightRequest: number;
   showMetadata: boolean;
   hideToolCalls: boolean;
@@ -1471,16 +1465,10 @@ type MessageRowProps = {
   onMarkRead?: (message: ChatMessage) => void;
   onReply?: (message: ChatMessage) => void;
   showMessageDetails: boolean;
-  /** Render the session's blob tucked beside this message. */
-  showBuddy: boolean;
   /** This message is the turn currently streaming, so its reasoning follows the stream. */
   streaming: boolean;
   /** Every image in the conversation, so the viewer can walk between messages. */
   gallery: ViewerImage[];
-  blobStyle: BlobStyle;
-  seed: string;
-  identity: AvatarIdentity;
-  mood: BallMood;
   onRetryPendingSend?: (message: ChatMessage) => void;
   onDiscardPendingSend?: (message: ChatMessage) => void;
   pendingSendLabels?: { retry?: string; discard?: string };
@@ -1684,6 +1672,7 @@ const DeliveryRow = ({
 const MessageRow = React.memo(function MessageRow({
   message,
   highlighted,
+  readConfirmed,
   highlightRequest,
   showMetadata,
   hideToolCalls,
@@ -1696,13 +1685,8 @@ const MessageRow = React.memo(function MessageRow({
   onMarkRead,
   onReply,
   showMessageDetails,
-  showBuddy,
   streaming,
   gallery,
-  blobStyle,
-  seed,
-  identity,
-  mood,
   onRetryPendingSend,
   onDiscardPendingSend,
   pendingSendLabels,
@@ -1778,6 +1762,8 @@ const MessageRow = React.memo(function MessageRow({
       ref={ref}
       layout={false}
       data-message-id={message.id}
+      data-read-highlighted={readConfirmed || undefined}
+      style={readConfirmed ? { backgroundColor: 'color-mix(in srgb, var(--highlight) 10%, transparent)' } : undefined}
       data-highlighted={highlighted ? 'true' : undefined}
       onPointerDown={(event) => {
         window.clearTimeout(readClickTimer.current);
@@ -1852,17 +1838,6 @@ const MessageRow = React.memo(function MessageRow({
         />
         <MessageFooter message={message} showMetadata={showMetadata && showMessageDetails} showCost={showCost} onReply={onReply} />
       </div>
-      {showBuddy ? (
-        // One anchor for the whole message, whichever block is last: the row's own bottom-right
-        // gutter, level with the metadata line. Nothing to re-parent on a block boundary, so a turn
-        // that streams reasoning → text → tool → text cannot teleport it, and the block growing
-        // under it just carries it down. The gutter is already empty because every block is
-        // `self-start` with a max width (text 85%, files 70%), so the free right margin clears the
-        // 30px blob without covering a tool row or a file row.
-        <div className="pointer-events-none absolute bottom-1 right-0 z-10 sm:right-2">
-          <Blob style={blobStyle} seed={seed} identity={identity} size={30} mood={mood} interactive={false} />
-        </div>
-      ) : null}
       {textBlockIndex < 0 ? <>{renderGutter('left-0')}{unreadBadge}</> : null}
     </motion.div>
   );
@@ -1904,10 +1879,7 @@ function Transcript({
   sending,
   sessionTitle,
   instanceLabel,
-  blobStyle,
   seed,
-  identity,
-  mood,
   hideToolCalls,
   reasoningDisplay,
   showQuestions,
@@ -1916,10 +1888,10 @@ function Transcript({
   showCost = true,
   readMark,
   onMarkRead,
+  onUndoMarkRead,
   onMarkAllRead,
   onReply,
   showMessageDetails,
-  showAvatars,
   crew = [],
   workerState,
   showActivityRail,
@@ -2047,6 +2019,42 @@ function Transcript({
     }, [focusedIndex, highlightedIndex]),
     enabled: virtualized,
   });
+  const latestUserIndex = React.useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index--) if (isHumanReadingMessage(items[index].message)) return index;
+    return -1;
+  }, [items]);
+  const userMessageIds = React.useMemo(() => new Set(items.filter(({ message }) => isHumanReadingMessage(message)).map(({ message }) => message.id)), [items]);
+  const [showLastMessageJump, setShowLastMessageJump] = React.useState(false);
+  const updateReadingGeometry = useStableCallback(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const viewport = scroller.getBoundingClientRect();
+    const users = [...messageRefs.current].flatMap(([id, node]) =>
+      userMessageIds.has(id) ? [node.getBoundingClientRect()] : []
+    );
+    const latest = items[latestUserIndex];
+    let bounds: ReadingBounds | undefined = latest ? messageRefs.current.get(latest.message.id)?.getBoundingClientRect() : undefined;
+    if (!bounds && virtualized && latest) {
+      const measurement = virtualizer.measurementsCache[latestUserIndex];
+      const history = contentRef.current?.querySelector('[data-message-history]');
+      if (measurement && history) {
+        const origin = history.getBoundingClientRect().top;
+        bounds = { top: origin + measurement.start, bottom: origin + measurement.end };
+      }
+    }
+    setShowLastMessageJump(shouldOfferLastMessageJump(viewport, bounds, users));
+  });
+  React.useLayoutEffect(() => { updateReadingGeometry(); });
+  React.useEffect(() => {
+    const scroller = scrollRef.current;
+    const content = contentRef.current;
+    if (!scroller || !content) return;
+    const observer = new ResizeObserver(updateReadingGeometry);
+    observer.observe(scroller);
+    observer.observe(content);
+    scroller.addEventListener('scroll', updateReadingGeometry);
+    return () => { observer.disconnect(); scroller.removeEventListener('scroll', updateReadingGeometry); };
+  }, [updateReadingGeometry]);
   // Marks for the scrub rail, derived from the same visible items the list renders (so a tick's
   // index is directly a `jumpToIndex` argument).
   const railTicks = React.useMemo(
@@ -2257,13 +2265,38 @@ function Transcript({
   // Folded rows borrow tool parts from earlier steps. Read status belongs to the original reply.
   const unreadIndices = React.useMemo(() => items.flatMap(({ message, index: sourceIndex }, index) =>
     isUnreadEligible(messages[sourceIndex]) &&
-    !isMessageRead(readMark, entryOrdinal(message.id), message.createdAt ?? 0)
+    !isMessageRead(readMark, entryOrdinal(message.id), message.completedAt ?? message.createdAt ?? 0, message.id)
       ? [index] : []
   ), [items, messages, readMark]);
   const unreadIds = React.useMemo(() => new Set(unreadIndices.map((index) => items[index].message.id)), [items, unreadIndices]);
+  const [receipt, setReceipt] = React.useState<{ message: ChatMessage; version: number } | null>(null);
+  const [readHighlight, setReadHighlight] = React.useState(false);
+  const receiptVersion = React.useRef(0);
+  const [toastHovered, setToastHovered] = React.useState(false);
+  const [toastFocused, setToastFocused] = React.useState(false);
+  React.useEffect(() => {
+    setReceipt(null);
+    setReadHighlight(false);
+  }, [seed]);
+  React.useEffect(() => {
+    if (!receipt) return;
+    const highlightTimer = window.setTimeout(() => setReadHighlight(false), 1100);
+    return () => window.clearTimeout(highlightTimer);
+  }, [receipt]);
+  React.useEffect(() => {
+    if (!receipt) { setToastHovered(false); setToastFocused(false); return; }
+    if (toastHovered || toastFocused) return;
+    const timer = window.setTimeout(() => setReceipt(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [receipt, toastHovered, toastFocused]);
   const markMessageRead = useStableCallback((message: ChatMessage) => {
     const original = messages.find((entry) => entry.id === message.id);
-    if (original && isUnreadEligible(original)) onMarkRead?.(original);
+    if (original && isUnreadEligible(original) && unreadIds.has(original.id) && onMarkRead) {
+      onMarkRead(original);
+      setHighlightedMessageId(null);
+      setReceipt({ message: original, version: ++receiptVersion.current });
+      setReadHighlight(true);
+    }
   });
 
   const last = messages[messages.length - 1];
@@ -2301,17 +2334,6 @@ function Transcript({
     : undefined;
   const blocked = permissions.length > 0 || questions.length > 0;
   const turnPending = busy || blocked;
-  // The last assistant message that actually renders something, so the buddy can settle beside it.
-  const lastAssistantId = React.useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.role !== 'assistant') continue;
-      if (message.error || visibleBlocks(message, hideToolCalls, reasoningDisplay, showQuestions).length > 0) {
-        return message.id;
-      }
-    }
-    return null;
-  }, [messages, hideToolCalls, reasoningDisplay, showQuestions]);
   const activeSince = last?.createdAt ?? last?.completedAt;
 
   // The running tool row above already shows the command; this line just says what phase we're in.
@@ -2386,8 +2408,7 @@ function Transcript({
             onClick={() => jumpToIndex(unreadIndices[unreadIndices.length - 1], 'start')}
             title="Go to the newest unread reply without marking it as read"
           >
-            <ArrowDown aria-hidden="true" />
-            Go to new messages
+            New unread messages
             <span className="text-xs tabular-nums text-muted-foreground">{unreadIndices.length}{hasOlderHistory ? '+' : ''}</span>
           </Button>
           {onMarkAllRead && unreadIndices.length > 1 ? (
@@ -2451,6 +2472,22 @@ function Transcript({
             )}
           </div>
         ) : null}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      {showLastMessageJump ? <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
+        <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" onClick={() => jumpToIndex(latestUserIndex, 'start')}>↑ Jump to your last message</Button>
+      </div> : null}
+      {receipt ? <div data-read-toast=""
+        onPointerEnter={() => setToastHovered(true)} onPointerLeave={() => setToastHovered(false)}
+        onFocusCapture={() => setToastFocused(true)}
+        onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
+        className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-secondary px-3 py-1 text-xs text-secondary-foreground shadow-sm">
+        <span role="status" key={receipt.version}>Marked read</span>
+        {onUndoMarkRead ? <button type="button" className="rounded px-1 py-1 underline underline-offset-2 focus-visible:outline-2" onClick={() => {
+          onUndoMarkRead(receipt.message);
+          setReceipt(null);
+          setReadHighlight(false);
+        }}>Undo</button> : null}
+      </div> : null}
       <div ref={scrollRef} tabIndex={0} aria-label="Conversation history" onScroll={handleScroll}
         onWheel={(event) => leaveOnUpwardGesture(event.deltaY)}
         onTouchMove={(event) => {
@@ -2483,7 +2520,7 @@ function Transcript({
           className={cn('flex w-full flex-col', compactSpacing ? 'gap-1' : 'gap-2.5')}
         >
           <AnimatePresence initial={false}>
-            <div key="history" style={virtualized ? { height: virtualizer.getTotalSize(), position: 'relative' } : undefined}>
+            <div key="history" data-message-history="" style={virtualized ? { height: virtualizer.getTotalSize(), position: 'relative' } : undefined}>
             {(virtualized ? virtualizer.getVirtualItems() : items.map((_, index) => ({ index, start: 0 }))).map((row) => {
               const { message, index } = items[row.index];
               return <div key={message.id} role="article" aria-label={`${message.role} message ${index + 1} of ${messages.length}`} data-index={row.index} ref={virtualized ? virtualizer.measureElement : undefined}
@@ -2492,6 +2529,7 @@ function Transcript({
               <MessageRow
                 key={message.id}
                 message={message}
+                readConfirmed={receipt?.message.id === message.id && readHighlight}
                 highlighted={highlightedMessageId === message.id}
                 highlightRequest={highlightRequest}
                 showMetadata={isAssistantTurnEnd(messages, index, turnPending)}
@@ -2505,13 +2543,8 @@ function Transcript({
                 onMarkRead={onMarkRead ? markMessageRead : undefined}
                 onReply={onReply}
                 showMessageDetails={showMessageDetails}
-                showBuddy={showAvatars && !turnPending && message.id === lastAssistantId}
                 streaming={turnPending && index === items.length - 1}
                 gallery={conversationGallery}
-                blobStyle={blobStyle}
-                seed={seed}
-                identity={identity}
-                mood={!turnPending && message.id === lastAssistantId ? mood : 'idle'}
                 onRetryPendingSend={onRetryPendingSend}
                 onDiscardPendingSend={onDiscardPendingSend}
                 pendingSendLabels={pendingSendLabels}
@@ -2555,9 +2588,6 @@ function Transcript({
                 transition={spring}
                 className="flex max-w-full min-w-0 items-center gap-2 self-start px-1 text-[11.5px] text-muted-foreground"
               >
-                <div className="flex-none">
-                  <Blob style={blobStyle} seed={seed} identity={identity} size={30} mood={mood} />
-                </div>
                 {runningTool ? <Wrench className="size-3 flex-none" /> : null}
                 <ActivityLabel label={activity} since={activeSince} />
                 <span className="animate-pulse">…</span>
@@ -2565,7 +2595,7 @@ function Transcript({
             ) : null}
           </AnimatePresence>
 
-          <SessionStatusLine status={statusLine} className="-mt-0.5" />
+          <SessionStatusLine status={statusLine} className="-mt-0.5 px-5 sm:px-7" />
 
           {messages.length === 0 && !blocked && !activity ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center text-[12px] text-muted-foreground">
@@ -2594,6 +2624,8 @@ function Transcript({
             </div>
           ) : null}
         </div>
+      </div>
+
       </div>
 
       {railVisible ? (

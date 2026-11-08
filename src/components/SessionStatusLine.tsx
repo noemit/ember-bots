@@ -22,7 +22,7 @@ export default function SessionStatusLine({ status, className }: Props) {
       aria-atomic="true"
       data-session-status={status.kind}
       className={cn(
-        'pointer-events-none flex items-center gap-2 self-start px-1 text-[11.5px] text-muted-foreground',
+        'pointer-events-none flex items-center gap-2 self-start text-xs text-muted-foreground',
         className
       )}
     >
