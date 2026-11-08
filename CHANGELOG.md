@@ -39,6 +39,8 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
+- Windows packages now bundle a Windows Kiln (`build/harness/kiln.exe`, cross-compiled and checked
+  under Wine). Packaging for Windows from a Linux host used to ship with no bundled harness at all.
 - Hiding a bot also stops the programs it left running, and those of every worker under it: a polite stop first, then a force stop for anything that ignores it. The bot is hidden either way; a stop that fails becomes a banner naming the host, with Retry.
 - The top bar shares its width with the instance chip on phone-sized screens instead of pushing the page sideways.
 - A delayed read acknowledgement no longer clears the search highlight on a different message, including merged tool groups in virtualized history.

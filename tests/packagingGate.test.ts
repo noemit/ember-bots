@@ -56,11 +56,34 @@ for (const kind of ['kiln', 'tinder']) {
       expect(checkFailure.removed).toEqual([checkFailure.calls[1].command, '/isolated']);
     });
   }
-  test(`${kind} does not silently accept target or skip flags`, () => {
-    for (const flag of ['--target=bun-linux-x64', '--skip-self-test']) {
+  test(`${kind} rejects any flag it does not act on, including a skip switch`, () => {
+    for (const flag of ['--skip-self-test', '--no-verify']) {
       const result = run(kind, ok, ok, 'linux', [flag]);
       expect(result.error).toBeDefined();
       expect(result.calls).toHaveLength(0);
     }
+    // A target it cannot build is refused before anything is spawned.
+    const unknownTarget = run(kind, ok, ok, 'linux', ['--target=bun-plan9-x64']);
+    expect(unknownTarget.error).toBeDefined();
+    expect(unknownTarget.calls).toHaveLength(0);
+  });
+
+  test(`${kind} builds a named foreign target and verifies it through Wine`, () => {
+    const result = run(kind, ok, ok, 'linux', ['--target=bun-windows-x64']);
+    expect(result.error).toBeUndefined();
+    expect(result.calls).toHaveLength(3);
+    const [build, wineProbe, check] = result.calls;
+    expect(build.args).toContain('--target=bun-windows-x64');
+    const binary = build.args[build.args.indexOf('--outfile') + 1];
+    // The output name follows the target, not the host: a Windows package needs `kiln.exe`.
+    expect(binary.endsWith('.exe')).toBe(true);
+    expect(wineProbe.command).toBe('wine');
+    expect(wineProbe.args).toEqual(['--version']);
+    // Wine runs the real executable, so the sandbox is proven for the artifact being shipped.
+    expect(check.command).toBe('wine');
+    expect(check.args).toEqual([binary, '--self-test-codemode']);
+    expect(check.options).toMatchObject({ timeout: 120_000, killSignal: 'SIGKILL' });
+    expect(check.options.env).toHaveProperty('PATH');
+    expect(check.options.env).not.toHaveProperty('SECRET');
   });
 }
