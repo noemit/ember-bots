@@ -1,14 +1,12 @@
 ## Unreleased
 
-### Changed
-- Ember calls its assistants bots throughout the interface and product guidance; the composer now invites you to “Message your bot..”.
-
 ### Added
 - Inspect worker threads in a roomy live conversation dialog without replacing the main workspace. Promoted peers still open as normal sessions.
 - Set an instance’s default model directly from the model picker without changing the current conversation.
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
+- Ember calls its assistants bots throughout the interface and product guidance; the composer now invites you to “Message your bot..”.
 - Scribble eyes express each mood with hand-drawn contours, brows and larger pupils, with quiet working glances and blinks that respect reduced motion.
 - Expanded tool calls show their full input and output height instead of trapping content in nested scrolling areas.
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
