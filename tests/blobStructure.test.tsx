@@ -30,8 +30,22 @@ describe('blob layers', () => {
     }
   });
 
-  test('crystal keeps its heat layer under the body and its badges over it', () => {
-    const html = renderToStaticMarkup(<Blob style="crystal" seed="seed" mood="busy" />);
+  test('working and thinking Crystal render reflections without any heat filter or halo', () => {
+    for (const mood of ['busy', 'thinking'] as const) {
+      const html = renderToStaticMarkup(<Blob style="crystal" seed="seed" mood={mood} />);
+      expect(html).toContain('crystal-reflection-sweep');
+      expect(html).toContain('crystal-sparkle');
+      expect(html).not.toContain('blob-heat');
+      expect(html).not.toContain('<filter');
+      expect(html).not.toContain('feGaussianBlur');
+    }
+    const idle = renderToStaticMarkup(<Blob style="crystal" seed="seed" mood="idle" />);
+    expect(idle).not.toContain('crystal-working-light');
+    expect(idle).not.toContain('crystal-sparkle');
+  });
+  test('crystal keeps attention heat under the body and its badge over it', () => {
+    const html = renderToStaticMarkup(<Blob style="crystal" seed="seed" mood="question" />);
+    expect(html).toContain('blob-heat');
     expect(html.indexOf('blob-heat')).toBeLessThan(html.indexOf('blob-body'));
   });
 

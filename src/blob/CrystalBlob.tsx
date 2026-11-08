@@ -19,13 +19,8 @@ type Props = {
 /** A cold lump: what an ember looks like after the fire has gone out. */
 const COLD = 'var(--muted-foreground)';
 
-/**
- * Crystal — a faceted lump of the session's colour. Mood is heat, and heat is the only thing the
- * style draws beyond the lump itself: inert when idle, gently warm when busy, amber when it wants you,
- * cold grey when the turn failed. Every mood sets the halo statically, so the state still reads in
- * a still frame and under `prefers-reduced-motion`. Thinking travels through the facets; the
- * faint heat follows the silhouette.
- */
+/** A stationary cut stone: working and thinking show only light travelling across its facets.
+ * Attention keeps its static halo and badge; a failed turn keeps the cold stone and error badge. */
 export default function CrystalBlob({
   seed,
   identity,
@@ -36,7 +31,7 @@ export default function CrystalBlob({
   // Gradient and clip ids must be unique per instance; useId contains colons, illegal in url().
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
 
-  const { geometry, body, glow } = React.useMemo(() => {
+  const { geometry, body } = React.useMemo(() => {
     const resolved = identity ?? seedIdentity(seed);
     const shapeRng = mulberry32(hashString(`crystal:${resolved.shapeSeed}`));
     const colorRng = mulberry32(hashString(`crystal:${resolved.colorSeed}`));
@@ -52,15 +47,14 @@ export default function CrystalBlob({
         CRYSTAL_SHAPES.find((entry) => entry.name === resolved.shapeName)
       ),
       body: resolved.color ?? `var(--blob-${index})`,
-      glow: resolved.color ?? `var(--blob-${index})`,
     };
   }, [identity, seed]);
 
   const cold = mood === 'error';
   const ink = cold ? COLD : body;
-  // Heat colour per mood: the accent takes over when the blob is asking for something.
-  const heat =
-    cold ? COLD : mood === 'input' || mood === 'question' ? accentFor(mood) : glow;
+  const reflecting = mood === 'busy' || mood === 'thinking';
+  const attention = mood === 'input' || mood === 'question';
+  const heat = accentFor(mood);
 
   return (
     <div
@@ -72,9 +66,9 @@ export default function CrystalBlob({
     >
       <svg viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
         <defs>
-          <filter id={`${uid}-heat`} x="-30%" y="-30%" width="160%" height="160%">
+          {attention ? <filter id={`${uid}-heat`} x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur stdDeviation={3} />
-          </filter>
+          </filter> : null}
           <linearGradient id={`${uid}-reflection`} x1="0" y1="0" x2="1" y2=".2">
             <stop offset="0" stopColor="white" stopOpacity="0" />
             <stop offset=".35" stopColor="white" stopOpacity=".06" />
@@ -84,7 +78,7 @@ export default function CrystalBlob({
           <clipPath id={`${uid}-lump`}>
             <path d={geometry.body} />
           </clipPath>
-          {mood === 'busy' ? geometry.facets.map((facet, index) => (
+          {reflecting ? geometry.facets.map((facet, index) => (
             <clipPath key={index} id={`${uid}-facet-${index}`}>
               <path d={facet.d} />
             </clipPath>
@@ -93,8 +87,8 @@ export default function CrystalBlob({
 
         {state === 'needs-input' ? <OrbitRing.Back cx={50} cy={50} r={46} /> : null}
 
-        <g className="blob-heat" opacity={0}><path d={geometry.body} fill={heat} stroke={heat} strokeWidth={5}
-          filter={`url(#${uid}-heat)`} transform={`rotate(${geometry.tilt} 50 50)`} /></g>
+        {attention ? <g className="blob-heat" opacity={0}><path d={geometry.body} fill={heat} stroke={heat} strokeWidth={5}
+          filter={`url(#${uid}-heat)`} transform={`rotate(${geometry.tilt} 50 50)`} /></g> : null}
 
         <g className="blob-body" transform={`rotate(${geometry.tilt} 50 50)`}>
           <path d={geometry.body} fill={ink} />
@@ -111,7 +105,7 @@ export default function CrystalBlob({
                 opacity={facet.opacity}
               />
             ))}
-            {mood === 'busy' ? <g className="crystal-working-light">
+            {reflecting ? <g className="crystal-working-light">
               {geometry.facets.map((facet, index) => (
                 <g key={index} clipPath={`url(#${uid}-facet-${index})`}
                   opacity={facet.kind === 'lit' ? 1 : facet.kind === 'soft' ? .65 : .35}
@@ -125,7 +119,7 @@ export default function CrystalBlob({
               ))}
             </g> : null}
           </g>
-          {mood === 'busy' ? <g fill="white" stroke={ink} strokeWidth={.35}>
+          {reflecting ? <g fill="white" stroke={ink} strokeWidth={.35}>
             {geometry.vertices.slice(geometry.rimCount).map(([x, y], index) => (
               <path key={index} className="crystal-sparkle"
                 d={`M${x} ${y - 4} Q${x + .8} ${y - .8} ${x + 4} ${y} Q${x + .8} ${y + .8} ${x} ${y + 4} Q${x - .8} ${y + .8} ${x - 4} ${y} Q${x - .8} ${y - .8} ${x} ${y - 4}Z`}

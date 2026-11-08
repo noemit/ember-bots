@@ -113,28 +113,16 @@
   animation: blob-wobble 1.6s ease-in-out infinite;
 }
 
-/* Crystal's faint heat follows its own irregular silhouette; thinking travels through facets. */
+/* Crystal's attention halo follows its own silhouette; work is shown by facet light alone. */
 .blob-crystal .blob-heat {
   transform-box: view-box;
   transform-origin: 50% 50%;
   opacity: 0;
 }
-.blob-crystal[data-mood='thinking'] .blob-heat { opacity: .12; }
-.blob-crystal[data-mood='thinking'] .crystal-glint {
-  animation: crystal-glint 4.8s ease-in-out infinite;
-}
-@keyframes crystal-glint {
-  0%, 65%, 100% { opacity: .12; }
-  25%, 38% { opacity: .64; }
-}
-.blob-crystal[data-mood='busy'] .blob-heat {
-  opacity: .24;
-  animation: blob-crystal-swell 3.4s ease-in-out infinite;
-}
-/* Working light makes a slow circuit; thinking keeps its quicker individual glints. */
-.blob-crystal[data-mood='busy'] .blob-body {
-  animation: crystal-working-loop 7.2s ease-in-out infinite;
-}
+/* Reflection sweeps change the descendants' bounds. Never let that moving fill-box shift the
+   stone's rotation origin: its SVG transform already supplies the fixed (50,50) pivot. */
+.blob-crystal .blob-body { transform-box: view-box; transform-origin: 0 0; }
+/* Working and thinking animate only reflected light. The stone and its silhouette stay put. */
 .crystal-working-facet {
   opacity: 0;
   animation: crystal-working-facet 7.2s ease-in-out infinite;
@@ -151,12 +139,6 @@
   transform-box: fill-box;
   transform-origin: center;
   animation: crystal-sparkle 7.2s ease-in-out infinite;
-}
-@keyframes crystal-working-loop {
-  0%, 100% { translate: 0 0; }
-  25% { translate: 1px -1.5px; }
-  50% { translate: 0 -2px; }
-  75% { translate: -1px -1px; }
 }
 @keyframes crystal-working-facet {
   0%, 60%, 100% { opacity: 0; }
@@ -175,10 +157,6 @@
 }
 .blob-crystal[data-mood='input'] .blob-heat { opacity: .24; }
 .blob-crystal[data-mood='question'] .blob-heat { opacity: .16; }
-@keyframes blob-crystal-swell {
-  0%, 100% { transform: scale(1.02, 1.04) rotate(-3deg); opacity: .16; }
-  50% { transform: scale(1.09, 1.02) rotate(3deg); opacity: .28; }
-}
 
 /* Lava already waits through its own fluid currents; rocking its wrapper shakes the badge too. */
 .blob[data-state='needs-input']:where(:not(.blob-lava)) {
@@ -403,10 +381,11 @@
   /* The app-wide short-duration fallback must not create a tiny transform transition here. */
   .blob-buddy :is(.blob-hop, .blob-flip, .blob-eyes, .buddy-gaze) { transition-property: none; }
 
-  /* Keep the same restrained heat when motion is reduced. */
-  .blob-crystal[data-mood='busy'] .blob-heat {
-    opacity: 0.24;
-    transform: none;
+  /* Do not let the app-wide reduced-motion duration create a transition out of a lit frame. */
+  .blob-crystal :is(.crystal-working-facet, .crystal-reflection-sweep, .crystal-sparkle) { transition-property: none; }
+  /* A quiet static reflection keeps the cut faces readable without motion or a halo. */
+  .blob-crystal:is([data-mood='busy'], [data-mood='thinking']) .crystal-working-facet {
+    opacity: .1;
   }
 
   /* Without motion, park the marker at the front so the ring still reads as "waiting on you". */

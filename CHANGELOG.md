@@ -28,6 +28,8 @@
 - Composer colour and focus halos multiply into light surfaces and dodge dark surfaces instead of adding a greyish wash; the focus halo stays subtle rather than framing the whole composer.
 - Consecutive tool-only assistant steps share one “Used N tools” group, retaining individual results and stable expansion instead of repeating “Used 1 tool”.
 - Configured instance-colour underlines stay visible when a bot moves into the current composer dock, including mini rail and split/mobile composers; active-column indicators remain separate.
+- Crystal stays still while working or thinking, with facet reflections instead of a glow or moving body.
+- Bots waiting on active workers look busy across all avatar styles, including nested workers, without changing the leader’s send, queue or stop behavior.
 - Eyed bots follow nearby pointers in the composer, groups, settings, appearance picker and onboarding; thinking Buddy yields to the pointer, and gaze refreshes after scrolling or resizing. Reduced motion keeps direct pointer tracking without autonomous animation.
 - The current bot stays aligned beside the composer when a long draft shrinks or is sent, instead of overlapping other bots in the rail.
 - The current bot beside the composer retains Hide session and New bot in this folder actions, including the mini rail and undocked composers; hiding active work still asks first.
