@@ -100,16 +100,16 @@
   animation: blob-flip 12s cubic-bezier(0.62, 0, 0.38, 1) infinite;
 }
 
-/* Input / question / error move the body itself, no hop. */
-.blob-buddy[data-mood='input'] {
+/* All moods share the same body layer, leaving the decision badge anchored. */
+.blob-buddy[data-mood='input'] .blob-hop {
   animation: blob-wiggle 1.4s ease-in-out infinite;
 }
 
-.blob-buddy[data-mood='question'] {
+.blob-buddy[data-mood='question'] .blob-hop {
   animation: blob-tilt 2.6s ease-in-out infinite;
 }
 
-.blob-buddy[data-mood='error'] {
+.blob-buddy[data-mood='error'] .blob-hop {
   animation: blob-wobble 1.6s ease-in-out infinite;
 }
 
@@ -400,6 +400,8 @@
   }
 
   .blob .blob-eyes .blob-pupil { transition: none; }
+  /* The app-wide short-duration fallback must not create a tiny transform transition here. */
+  .blob-buddy :is(.blob-hop, .blob-flip, .blob-eyes, .buddy-gaze) { transition-property: none; }
 
   /* Keep the same restrained heat when motion is reduced. */
   .blob-crystal[data-mood='busy'] .blob-heat {

@@ -4,6 +4,7 @@ import { IDENTITY_COLORS } from './contrast';
 import { BUDDY_COLORS, BUDDY_SHAPES } from './buddy';
 import { usePupilTracking } from './usePupilTracking';
 import { MoodBadge } from './overlays';
+import BuddyPoseTransition from './BuddyPoseTransition';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
 
@@ -65,7 +66,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
           <line x1={-5.5} y1={5.5} x2={5.5} y2={-5.5} />
         </g>
       ) : (
-        <g className="buddy-gaze"><g ref={pupilRef} className="blob-pupil" transform={mood === 'thinking' ? 'translate(0 0)' : undefined}>
+        <g className="buddy-gaze"><g ref={pupilRef} className="blob-pupil">
           <circle r={6.5} fill={color.ink} />
           <circle cx={-2.2} cy={-2.4} r={2} fill="#ffffff" />
         </g></g>
@@ -74,6 +75,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
   );
 
   return (
+    <BuddyPoseTransition mood={mood} root={wrapperRef}>
     <div
       className="blob blob-buddy"
       data-mood={mood}
@@ -81,10 +83,8 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
       ref={wrapperRef}
       style={{ width: size, height: size, animationDelay: `${wobbleDelay}s`, '--buddy-thought-delay': `${wobbleDelay}s` } as React.CSSProperties}
     >
-      {/* The hop/flip wrappers are DOM elements rather than SVG <g>s: Chromium can composite a
-          transform on a DOM node but not on an SVG child, and Buddy's idle breathe runs on every
-          visible session in the rail. Decision badges sit in their own overlay so they hold
-          still while the body hops. */}
+      {/* DOM wrappers let Chromium composite body motion. The separate overlay stays anchored;
+          idle has no ongoing animation. Mood handoffs preserve these nodes and their gaze. */}
       <div className="blob-hop" style={{ animationDelay: `${wobbleDelay}s` }}>
         <div
           className="blob-flip"
@@ -112,5 +112,6 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
         <MoodBadge size={size} mood={mood} />
       </svg>
     </div>
+    </BuddyPoseTransition>
   );
 }

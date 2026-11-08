@@ -20,6 +20,7 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
+- Buddy settles smoothly between working, thinking and resting instead of snapping to a new pose; decision badges stay anchored and reduced motion remains still.
 - Packaged Kiln and Tinder include the QuickJS sandbox and its worker, so code-mode scripts can call tools without an installed checkout while retaining worker-thread timeout isolation.
 - Composer colour and focus halos multiply into light surfaces and dodge dark surfaces instead of adding a greyish wash.
 - Eyed bots follow nearby pointers in the composer, groups, settings, appearance picker and onboarding; thinking Buddy yields to the pointer, and gaze refreshes after scrolling or resizing. Reduced motion keeps direct pointer tracking without autonomous animation.
