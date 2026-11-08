@@ -160,7 +160,6 @@ for (const mode of ['normal', 'wide', 'mini'] as const) {
         })), { timeout: 2500 }).toBeLessThan(2);
         // The dock's centre follows the measured surface; it settles with the same handover.
         await expect.poll(async () => (await page.evaluate(() => {
-          const footer = document.querySelector('[data-connection-composer]')!.getBoundingClientRect();
           const surface = document.querySelector('[data-connection-composer] [data-composer-surface]')!.getBoundingClientRect();
           const identity = document.querySelector('[data-active-chat] [data-composer-identity]')!.getBoundingClientRect();
           return Math.abs(identity.top + identity.height / 2 - surface.top - surface.height / 2);
