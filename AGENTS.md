@@ -1,4 +1,4 @@
-> **Reminder:** Check `/workspace/AGENTS.md` first for general container usage and best practices (ports, binding, host access, etc.) — it applies to every project in this workspace.
+> **Workspace notes:** read `/home/em/workspace/AGENTS.md` first — the workspace-level notes one directory above this repo (container/machine specifics, sending files to the Mac, and the logged-in browser profile used for scraping and logged-in browsing).
 
 > **Local notes:** read `AGENTS.local.md` in this repo root if it exists (it is gitignored, so it
 > is per-machine and may be absent). It holds things that must not be published: credentials
