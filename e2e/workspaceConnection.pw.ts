@@ -151,8 +151,20 @@ for (const mode of ['normal', 'wide', 'mini'] as const) {
           };
         });
         expect(geometry.offsetParentIsFooter).toBe(true);
-        expect(geometry.bandDifference).toBeLessThan(2);
-        expect(geometry.centreDifference).toBeLessThan(2);
+        // Both bands are one handover behind for a frame under a loaded machine; a poll measures
+        // again instead of failing on the mid-animation frame.
+        await expect.poll(async () => (await page.evaluate(() => {
+          const band = document.querySelector('[data-active-chat]')!.getBoundingClientRect();
+          const footer = document.querySelector('[data-connection-composer]')!.getBoundingClientRect();
+          return Math.abs(band.top - footer.top) + Math.abs(band.height - footer.height);
+        })), { timeout: 2500 }).toBeLessThan(2);
+        // The dock's centre follows the measured surface; it settles with the same handover.
+        await expect.poll(async () => (await page.evaluate(() => {
+          const footer = document.querySelector('[data-connection-composer]')!.getBoundingClientRect();
+          const surface = document.querySelector('[data-connection-composer] [data-composer-surface]')!.getBoundingClientRect();
+          const identity = document.querySelector('[data-active-chat] [data-composer-identity]')!.getBoundingClientRect();
+          return Math.abs(identity.top + identity.height / 2 - surface.top - surface.height / 2);
+        })), { timeout: 2500 }).toBeLessThan(2);
         expect(geometry.identityInside).toBe(true);
         // Give the 600ms shared-layout handover a chance to finish before judging the avatar's box;
         // a poll re-runs the measurement instead of failing on a mid-animation frame.
