@@ -51,9 +51,13 @@ export function useComposerConnection(key: string | null) {
       queueMicrotask(() => {
         queued = false;
         if (cancelled || !footer.current || !surface.current) return;
-        const band = footer.current.getBoundingClientRect();
-        const input = surface.current.getBoundingClientRect();
-        report(key, { height: Math.round(band.height), centre: Math.round(band.bottom - input.top - input.height / 2) });
+        const band = footer.current;
+        const input = surface.current;
+        // The surface animates layout with a projection transform. ResizeObserver reports
+        // its layout size only, not subsequent animation frames: reading its transformed
+        // rect here would leave the dock stuck at an intermediate centre after a resize.
+        // The positioned footer is the surface's offset parent; measure their layout boxes.
+        report(key, { height: band.offsetHeight, centre: Math.round(band.offsetHeight - band.clientTop - input.offsetTop - input.offsetHeight / 2) });
       });
     };
     const observer = new ResizeObserver(measure);

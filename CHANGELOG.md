@@ -12,6 +12,7 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
+- The current bot stays aligned beside the composer when a long draft shrinks or is sent, instead of overlapping other bots in the rail.
 - Unread notification dots stay at or below 10px across rail sizes and avatar transitions.
 - Mini-rail tooltips use readable foreground text against their tooltip background.
 

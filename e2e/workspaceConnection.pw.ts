@@ -113,3 +113,62 @@ test('trays sit above the composer and do not enlarge its connected agent row', 
   expect(Math.abs(identity.y - (await band.boundingBox())!.y)).toBeLessThan(2);
   expect(Math.abs(identity.height - expanded.height)).toBeLessThan(2);
 });
+
+for (const mode of ['normal', 'wide', 'mini'] as const) {
+  for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+    test(`composer resizing keeps the ${mode} rail identity in its band (${reducedMotion})`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion });
+      await page.goto('/');
+      await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
+      if (mode !== 'normal') await page.getByRole('button', { name: 'Widen the session list', exact: true }).click();
+      if (mode === 'mini') await page.getByRole('button', { name: 'Collapse the session list', exact: true }).click();
+      const input = page.locator('main[data-session-key="pi:hearth::10"] textarea');
+      const band = page.locator('[data-connection-composer]');
+      const assertGeometry = async () => {
+        // Wait for projection animations, not just ResizeObserver: the bug persisted after
+        // those animations ended even though the two outer bands had matching dimensions.
+        await page.waitForTimeout(800);
+        const geometry = await page.evaluate(() => {
+          const footer = document.querySelector('[data-connection-composer]')!;
+          const surface = footer.querySelector('[data-composer-surface]') as HTMLElement;
+          const band = document.querySelector('[data-active-chat]')!;
+          const identity = band.querySelector('[data-composer-identity]')!;
+          const avatar = identity.querySelector('.blob')!;
+          const rect = (element: Element) => element.getBoundingClientRect();
+          const b = rect(band), f = rect(footer), s = rect(surface), i = rect(identity), a = rect(avatar);
+          const rows = [...document.querySelectorAll('[data-rail-scroll] .blob')].map(rect);
+          return {
+            offsetParentIsFooter: surface.offsetParent === footer,
+            bandDifference: Math.abs(b.top - f.top) + Math.abs(b.height - f.height),
+            centreDifference: Math.abs(i.top + i.height / 2 - s.top - s.height / 2),
+            identityInside: i.top >= b.top && i.bottom <= b.bottom,
+            avatarInside: a.top >= b.top && a.bottom <= b.bottom,
+            overlaps: rows.some(r => r.left < a.right && r.right > a.left && r.top < a.bottom && r.bottom > a.top),
+          };
+        });
+        expect(geometry.offsetParentIsFooter).toBe(true);
+        expect(geometry.bandDifference).toBeLessThan(2);
+        expect(geometry.centreDifference).toBeLessThan(2);
+        expect(geometry.identityInside).toBe(true);
+        expect(geometry.avatarInside).toBe(true);
+        expect(geometry.overlaps).toBe(false);
+      };
+      await assertGeometry();
+      const initialHeight = (await band.boundingBox())!.height;
+      for (let cycle = 0; cycle < 3; cycle++) {
+        await input.fill('More to consider.\n'.repeat(9));
+        await expect.poll(async () => (await band.boundingBox())!.height).toBeGreaterThan(initialHeight + 100);
+        await assertGeometry();
+        if (cycle === 1) {
+          await input.press('Enter');
+          await expect(input).toHaveValue('');
+        } else {
+          await input.fill('A short thought');
+        }
+        await expect.poll(async () => (await band.boundingBox())!.height).toBeLessThan(initialHeight + 2);
+        await assertGeometry();
+      }
+      await page.screenshot({ path: `/tmp/ember-rail-resize-${mode}-${reducedMotion}.png` });
+    });
+  }
+}
