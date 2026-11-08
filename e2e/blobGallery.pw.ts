@@ -39,7 +39,7 @@ test('Scribble follows nearby pointers, stays inside its eyes, and releases its 
         if (style === 'mosaic' && mood === 'busy') await expect(pupils.first()).toHaveCSS('animation-name', 'mosaic-working-gaze');
       }
     }
-    for (const mood of ['thinking', 'unknown', 'error']) {
+    for (const mood of ['unknown', 'error']) {
       const blob = page.locator(`[data-style="${style}"][data-state="${mood}"] .blob`).first();
       await blob.hover();
       await expect(blob).not.toHaveAttribute('data-pupil-tracking');

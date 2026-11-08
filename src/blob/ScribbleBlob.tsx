@@ -24,7 +24,7 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
     const resolved = identity ?? seedIdentity(seed);
     return { ...scribbleGeometry(resolved), color: blobColor('scribble', resolved), delay: -(hashString(resolved.motionSeed) % 16000) / 1000 };
   }, [identity, seed]);
-  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error', 'thinking'].includes(mood), 1.8, constrainGaze);
+  usePupilTracking(wrapper, [left, right], interactive && !['unknown', 'error'].includes(mood), 1.8, constrainGaze);
   const dark = `color-mix(in srgb, ${art.color} 65%, #211925)`;
   return <div ref={wrapper} className="blob blob-scribble" data-mood={mood} data-shape={art.name} aria-hidden="true" style={{ width: size, height: size, '--scribble-delay': `${art.delay}s` } as React.CSSProperties}>
     <div className="scribble-dance">
