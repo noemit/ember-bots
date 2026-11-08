@@ -3,7 +3,7 @@
 [Back to the README](../README.md)
 
 Use your phone, tablet or another computer to open the Ember workspace running on your desktop.
-Your agents and files stay on their existing hosts. Keep the desktop computer awake and Ember running.
+Your bots and files stay on their existing hosts. Keep the desktop computer awake and Ember running.
 
 ## Set up once
 
@@ -35,9 +35,9 @@ for network setup and access policies.
   and ends when Ember quits. On macOS, closing its window does not quit it.
 - **You run two Ember profiles:** enable remote access in only one; both use port `57821`.
 
-## Connect an always-on agent computer instead
+## Connect an always-on bot computer instead
 
-Browser access and a remote agent backend serve different purposes. To run agents on a second
+Browser access and a remote bot backend serve different purposes. To run bots on a second
 computer while using the desktop app on your laptop, install [standalone Kiln with Tinder](instances.md#standalone-kiln-with-tinder)
 on that computer. Connect both computers to Tailscale, then add the backend’s reachable URL and
 bearer token in **Settings → Instances**. Use the backend’s own port, not Ember’s browser port `57821`.

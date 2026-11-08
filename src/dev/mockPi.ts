@@ -629,7 +629,7 @@ const agentNames = new Map<string, number>();
  */
 const autoRegister = (conversation: MockConversation): string => {
   for (const [name, id] of agentNames) if (id === conversation.id) return name;
-  const base = (conversation.title ?? '').trim() || `Agent ${conversation.id}`;
+  const base = (conversation.title ?? '').trim() || `Bot ${conversation.id}`;
   let name = base;
   for (let attempt = 2; agentNames.has(name); attempt += 1) name = `${base} ${attempt}`;
   agentNames.set(name, conversation.id);
@@ -1786,7 +1786,7 @@ let settings: EmberSettings = {
     ? {
         kind: 'failed',
         notice:
-          'The local agent server did not start: it did not answer on 127.0.0.1:3002 within 20s. You can still add a host in Settings → Instances. Log: ~/.ember/kiln.log',
+          'The local Kiln server did not start: it did not answer on 127.0.0.1:3002 within 20s. You can still add a host in Settings → Instances. Log: ~/.ember/kiln.log',
       }
     : { kind: 'started', url: 'http://127.0.0.1:3002', notice: null },
   remoteAccessEnabled: false,

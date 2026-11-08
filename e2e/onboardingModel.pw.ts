@@ -10,15 +10,15 @@ test('onboarding requires and saves an explicit default before opening the first
   await expect(wizard.getByRole('button', { name: 'Skip for now' })).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(wizard).toBeVisible();
-  await wizard.getByRole('button', { name: /5\. First agent/ }).click();
-  await expect(wizard.getByRole('button', { name: 'New agent', exact: true })).toBeDisabled();
+  await wizard.getByRole('button', { name: /5\. First bot/ }).click();
+  await expect(wizard.getByRole('button', { name: 'New bot', exact: true })).toBeDisabled();
   await expect(page.getByTestId('onboarding-next')).toBeDisabled();
   await wizard.getByRole('button', { name: 'Choose workspace', exact: true }).click();
   const workspacePicker = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Choose your workspace' }) });
   await workspacePicker.getByRole('button', { name: 'Use this workspace' }).click();
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local']?.workspaceDirectory)).toBe('/workspace');
   // A workspace alone must not bypass the explicit model choice.
-  await expect(wizard.getByRole('button', { name: 'New agent', exact: true })).toBeDisabled();
+  await expect(wizard.getByRole('button', { name: 'New bot', exact: true })).toBeDisabled();
   await expect(page.getByTestId('onboarding-next')).toBeDisabled();
   await wizard.getByRole('button', { name: /4\. Choose an AI/ }).click();
   await expect(page.getByTestId('onboarding-next')).toBeDisabled();
@@ -37,7 +37,7 @@ test('onboarding requires and saves an explicit default before opening the first
   })).toEqual({ providerID: choice!.split('/')[0], modelID: choice!.slice(choice!.indexOf('/') + 1) });
   await expect(page.getByTestId('onboarding-next')).toBeEnabled();
   await page.getByTestId('onboarding-next').click();
-  await wizard.getByRole('button', { name: 'New agent', exact: true }).click();
+  await wizard.getByRole('button', { name: 'New bot', exact: true }).click();
   await expect(wizard).not.toBeVisible();
   await expect(page.getByRole('button', { name: 'Choose model', exact: true })).toContainText(choiceLabel!);
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local']?.model)).toEqual({ providerID: choice!.split('/')[0], modelID: choice!.slice(choice!.indexOf('/') + 1) });

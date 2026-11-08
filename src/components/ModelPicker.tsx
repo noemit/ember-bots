@@ -94,12 +94,12 @@ const Row = React.memo(function Row({
         {selected ? <Check aria-hidden="true" className="size-3.5 flex-none text-highlight" /> : null}
       </button>
       {isDefault ? (
-        <span className="flex flex-none items-center gap-1 text-[10px]" title="Used for new agents on this instance; existing conversations keep their model.">
+        <span className="flex flex-none items-center gap-1 text-[10px]" title="Used for new bots on this instance; existing conversations keep their model.">
           <Check aria-hidden="true" className="size-3" />Instance Default
         </span>
       ) : onSetDefault ? (
         <button type="button" onClick={onSetDefault}
-          title="Used for new agents on this instance; existing conversations keep their model."
+          title="Used for new bots on this instance; existing conversations keep their model."
           className="max-w-32 flex-none rounded px-1 py-0.5 text-left text-[10px] leading-tight hover:bg-background focus-visible:ring-2 focus-visible:ring-ring">
           Set this model as the instance default
         </button>

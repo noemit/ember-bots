@@ -128,14 +128,14 @@ test('an open worker dialog refreshes host output and accepts a new message', as
   expect(stopped.ok).toBe(true);
   await worker.getByRole('button', { name: 'Used 1 tool', exact: true }).click();
   await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText(/aborted|interrupted/i);
-  await worker.getByRole('textbox', { name: 'Message the agent' }).fill('Verify modal delivery');
+  await worker.getByRole('textbox', { name: 'Message your bot' }).fill('Verify modal delivery');
   await worker.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Echo from Hearth: Verify modal delivery');
   await worker.locator('input[type="file"]').setInputFiles({
     name: 'thread.png', mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC', 'base64'),
   });
-  await worker.getByRole('textbox', { name: 'Message the agent' }).fill('Review this image');
+  await worker.getByRole('textbox', { name: 'Message your bot' }).fill('Review this image');
   await worker.getByRole('button', { name: 'Send', exact: true }).click();
   await worker.getByRole('log', { name: 'Conversation' }).locator('img').first().click();
   const viewer = page.getByRole('dialog', { name: /^Image:/ });

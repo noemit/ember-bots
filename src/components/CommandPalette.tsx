@@ -106,7 +106,7 @@ export default function CommandPalette({
         type: 'new-agent',
         id: `new:${instance.id}`,
         instance,
-        searchable: `new agent ${instance.label} ${instance.kind}`.toLowerCase(),
+        searchable: `new bot ${instance.label} ${instance.kind}`.toLowerCase(),
       }));
     return [...sessionItems, ...agentItems];
   }, [instances, projectsByInstance, sessionNotes, sessions]);
@@ -139,7 +139,7 @@ export default function CommandPalette({
       >
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <DialogDescription className="sr-only">
-          Search sessions and notes, or start a new agent.
+          Search sessions and notes, or start a new bot.
         </DialogDescription>
 
         <Command
@@ -152,7 +152,7 @@ export default function CommandPalette({
               ref={searchRef}
               value={query}
               onValueChange={(value: string) => setQuery(value)}
-              placeholder="Search sessions, folders, notes, or type “new agent”…"
+              placeholder="Search sessions, folders, notes, or type “new bot”…"
               aria-label="Search commands"
               className="h-10 border-none bg-transparent pl-9 text-sm shadow-none outline-none focus-visible:ring-0"
             />
@@ -168,7 +168,7 @@ export default function CommandPalette({
                   exit={{ opacity: 0 }}
                   transition={springTransition}
                 >
-                  <CommandGroup heading="New agent">
+                  <CommandGroup heading="New bot">
                     {agentItems.map((item) => (
                       <CommandItem
                         key={item.id}
@@ -177,7 +177,7 @@ export default function CommandPalette({
                         className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] aria-selected:bg-muted aria-selected:text-foreground"
                       >
                         <Plus className="size-4 flex-none text-highlight" />
-                        <span className="min-w-0 flex-1 truncate">New agent on {item.instance.label}</span>
+                        <span className="min-w-0 flex-1 truncate">New bot on {item.instance.label}</span>
                         <ArrowRight className="size-3.5 flex-none" />
                       </CommandItem>
                     ))}

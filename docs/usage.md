@@ -30,7 +30,7 @@ Use Cmd on macOS and Ctrl elsewhere. Tooltips show shortcuts on the relevant con
 
 | Shortcut | Action |
 | --- | --- |
-| `Cmd/Ctrl+K` | Search sessions and notes, or start a new agent |
+| `Cmd/Ctrl+K` | Search sessions and notes, or start a new bot |
 | `Cmd/Ctrl+1–9` | Activate an open session slot |
 | `Cmd/Ctrl+F` within a column | Find in the conversation, including offscreen history |
 | `Enter` | Send, or queue a follow-up while the chat is busy |

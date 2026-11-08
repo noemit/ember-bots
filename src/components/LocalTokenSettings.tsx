@@ -156,7 +156,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
           </div>
           <p className="text-[11px] text-muted-foreground">
             Other machines and browsers use this to connect to this one. Anyone who has it can use this
-            computer's agents, so treat it like a password.
+            computer's bots, so treat it like a password.
           </p>
           {canRotate ? (
             confirming ? (
@@ -165,7 +165,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
                   <ShieldAlert className="mt-px size-3.5 flex-none text-destructive" />
                   <span>
                     Every other machine and browser pointed at this host will stop connecting until
-                    you copy the new token across. The agents themselves are untouched.
+                    you copy the new token across. The bots themselves are untouched.
                   </span>
                 </span>
                 <div className="flex items-center gap-1.5">

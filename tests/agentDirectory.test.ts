@@ -74,7 +74,7 @@ describe('grouping the directory by host', () => {
 
   test('a connection with no directory is not an outage', () => {
     const note = hostDirectoryNote({ state: 'unsupported' });
-    expect(note).toMatch(/serves no agent directory/);
+    expect(note).toMatch(/serves no bot directory/);
     expect(note).not.toMatch(/Not answering/);
   });
 
@@ -162,8 +162,8 @@ describe('resolving session titles with window and all-time follow-up', () => {
     const outside = resolveAddressableAgent({ groups, sessions, name: 'Spotted Fox', windowHours: 48, now });
     expect(outside.kind).toBe('outside-window');
     if (outside.kind === 'outside-window') {
-      expect(outside.question).toContain('No agent called "Spotted Fox" in the last 2 days.');
-      expect(outside.question).toContain('Would you like to search all of your agents — all time');
+      expect(outside.question).toContain('No bot called "Spotted Fox" in the last 2 days.');
+      expect(outside.question).toContain('Would you like to search all of your bots — all time');
     }
 
     const widened = resolveAddressableAgent({
@@ -187,7 +187,7 @@ describe('resolving session titles with window and all-time follow-up', () => {
     expect(res.kind).toBe('silent-hosts');
     if (res.kind === 'silent-hosts') {
       expect(res.message).toContain("Tower didn't answer");
-      expect(res.message).not.toMatch(/no agent called/i);
+      expect(res.message).not.toMatch(/no bot called/i);
     }
   });
 
@@ -198,6 +198,6 @@ describe('resolving session titles with window and all-time follow-up', () => {
     // Timestamps older than an hour age out.
     const aged = Array.from({ length: AGENT_MESSAGE_HOURLY_BUDGET }, () => now - 2 * hour);
     expect(canSendAgentMessage(aged, now)).toBe(true);
-    expect(agentMessageBudgetRefusal()).toContain('60 agent messages in the last hour');
+    expect(agentMessageBudgetRefusal()).toContain('60 bot messages in the last hour');
   });
 });

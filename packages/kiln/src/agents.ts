@@ -128,7 +128,7 @@ export const AgentsDoc = defineDoc<AgentsState>({
 /** A duplicate local name. The server maps this to 400; the tool never registers. */
 export class DuplicateAgentError extends Error {
   constructor(readonly name: string) {
-    super(`agent name already registered: ${name}`);
+    super(`bot name already registered: ${name}`);
     this.name = "DuplicateAgentError";
   }
 }

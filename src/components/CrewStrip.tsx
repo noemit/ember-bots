@@ -350,7 +350,7 @@ const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
         {nested ? (
           <span
             className="flex-none text-[9.5px] leading-4 text-muted-foreground tabular-nums"
-            title={`${entry.depth} levels below this agent`}
+            title={`${entry.depth} levels below this bot`}
           >
             {`›${entry.depth}`}
           </span>

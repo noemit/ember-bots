@@ -15,7 +15,7 @@ test('the top bar has no Directory tab: names are registered, not browsed', asyn
   // 0.82.0 removed the tab at the owner's request — a spawned session now registers itself, so
   // there is nothing to go and look at.
   await expect(page.getByRole('group', { name: 'Views' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Agent directory/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Bot directory/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Usage — model calls and reported cost' })).toBeVisible();
 });
 
@@ -405,15 +405,15 @@ test('compacting stays visible while the compaction is in flight', async ({ page
 test('an answered question stays in the transcript as a Q&A record', async ({ page }) => {
   await page.getByRole('button', { name: /Dataset shortlist/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::13"]');
-  await expect(column.getByText('The agent has a question')).toBeVisible();
+  await expect(column.getByText('The bot has a question')).toBeVisible();
   // A URL in the question is a clickable link (routed through the Ember bridge).
   await expect(column.getByRole('link', { name: 'https://example.com/licences' })).toBeVisible();
   await column.getByRole('button', { name: 'CC-BY' }).click();
   await column.getByRole('button', { name: 'Answer' }).click();
 
   // The pending card goes away, but the question and the answer stay in the transcript.
-  await expect(column.getByText('The agent has a question')).toHaveCount(0, { timeout: 10_000 });
-  await expect(column.getByText('The agent asked')).toBeVisible({ timeout: 10_000 });
+  await expect(column.getByText('The bot has a question')).toHaveCount(0, { timeout: 10_000 });
+  await expect(column.getByText('The bot asked')).toBeVisible({ timeout: 10_000 });
   await expect(column.getByText('Which licence should the shortlist require?')).toBeVisible();
   await expect(column.getByText(/You answered:/)).toBeVisible();
 });
@@ -477,9 +477,9 @@ test('a scheduled run is an ordinary session, marked with the plan that started 
   await expect(plan.getByRole('button', { name: 'Run Nightly brief now' })).toBeVisible();
 });
 
-test('a new agent is named from its first message, not given a number', async ({ page }) => {
-  await page.getByRole('button', { name: 'New agent' }).first().click();
-  await page.getByRole('button', { name: 'New agent project' }).waitFor();
+test('a new bot is named from its first message, not given a number', async ({ page }) => {
+  await page.getByRole('button', { name: 'New bot' }).first().click();
+  await page.getByRole('button', { name: 'New bot project' }).waitFor();
   const composer = page.locator('textarea').first();
   await composer.fill('Fix the flaky tailnet reconnect before the demo.');
   await composer.press('Enter');
@@ -550,12 +550,12 @@ test('the session list has three widths: mini, normal, wide', async ({ page }) =
 });
 
 test('the new-agent folder picker lists Hearth directories', async ({ page }) => {
-  await page.getByRole('button', { name: 'New agent' }).click();
-  await page.getByRole('button', { name: 'New agent project' }).click();
+  await page.getByRole('button', { name: 'New bot' }).click();
+  await page.getByRole('button', { name: 'New bot project' }).click();
   await page.getByRole('button', { name: 'Use this workspace' }).click();
   await expect(page.getByRole('option', { name: /habit/ })).toBeVisible();
   await page.getByRole('option', { name: /habit/ }).click();
-  await expect(page.getByRole('button', { name: 'New agent project' })).toContainText('habit');
+  await expect(page.getByRole('button', { name: 'New bot project' })).toContainText('habit');
 });
 
 test('a busy conversation queues a follow-up, and it can be withdrawn', async ({ page }) => {

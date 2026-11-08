@@ -11,7 +11,7 @@ test('Scribble can be selected and customised, with the same creature beside the
   await row.click();
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: /Customize appearance/ }).click();
-  await page.getByLabel('Custom agent color').fill('#fff4c2');
+  await page.getByLabel('Custom bot color').fill('#fff4c2');
   await page.getByRole('button', { name: 'thistle', exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(row.locator('.blob-scribble')).toHaveAttribute('data-shape', 'thistle');

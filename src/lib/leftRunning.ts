@@ -136,7 +136,7 @@ export const leftRunningNotice = (input: LeftRunningInput): LeftRunningNotice | 
     tone: 'calm',
     // Calm is not vague: it says what keeps happening and why, so the Stop is a choice rather than
     // a demand. Nothing here claims the process is a problem.
-    text: `This agent has ${programs} running. Stop ${count === 1 ? 'it' : 'them'} when you no longer need them.`,
+    text: `This bot has ${programs} running. Stop ${count === 1 ? 'it' : 'them'} when you no longer need them.`,
     action,
     rows,
     hidden,

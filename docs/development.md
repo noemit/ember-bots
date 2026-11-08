@@ -117,7 +117,7 @@ Successful runs upload the `ember-windows-x64` artifact.
 
 Start with a concrete problem or proposed interaction in
 [GitHub Issues](https://github.com/noemit/ember-bots/issues), or submit a focused pull request.
-For UX changes, explain how the human reviews work, makes a decision or steers the agent. Prefer
+For UX changes, explain how the human reviews work, makes a decision or steers the bot. Prefer
 cohesive modules, explicit ownership and progressively revealed controls.
 
 Follow [AGENTS.md](../AGENTS.md), run the checks appropriate to the change, and document material

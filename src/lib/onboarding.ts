@@ -31,7 +31,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   { id: 'connection', title: 'Where to run Kiln', summary: 'Start here, or connect another computer', blocking: true },
   { id: 'token', title: 'Your token', summary: 'The password for connecting to Kiln' },
   { id: 'providers', title: 'Choose an AI', summary: 'Sign in or add an access code' },
-  { id: 'first-agent', title: 'First agent', summary: 'Pick a folder and say hello' },
+  { id: 'first-agent', title: 'First bot', summary: 'Pick a folder and say hello' },
 ];
 
 /** What the wizard knows about the world when it decides what to show. */
@@ -120,7 +120,7 @@ export const canFinish = (state: OnboardingState): boolean => state.localReady |
  * to read the same wherever it appears.
  */
 export const workspaceHint = (root: string | null): string => {
-  if (!root) return 'Each folder in here is a project — a place an agent can read, write and run things.';
+  if (!root) return 'Each folder in here is a project — a place a bot can read, write and run things.';
   if (root === '/workspace') {
     return 'Each folder in here is a project. On this machine the default is /workspace, the container mount.';
   }

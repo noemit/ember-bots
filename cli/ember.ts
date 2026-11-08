@@ -193,7 +193,7 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
   if (opts.platform === 'linux') {
     return [
       '[Unit]',
-      'Description=Kiln (ember-harness) — Durable Agent Harness for Ember',
+      'Description=Kiln (ember-harness) — Durable Bot Harness for Ember',
       'After=network-online.target',
       'Wants=network-online.target',
       '',
@@ -474,8 +474,8 @@ export const formatHelp = (): string =>
   [
     'Tinder (ember / tinder) — Unified Launcher & Setup CLI',
     '',
-    '  Ember   Desktop control room GUI for your agents',
-    '  Kiln    Durable agent harness (ember-harness)',
+    '  Ember   Desktop control room GUI for your bots',
+    '  Kiln    Durable bot harness (ember-harness)',
     '  Tinder  Setup, token & service CLI for desktop and headless hosts',
     '',
     'Usage:',

@@ -43,8 +43,8 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
       const cancelled = await window.evaluate(() => window.ember.piRequest!<{ status: string }>('pi:local', '/providers/openai-codex/login'));
       expect(cancelled.data.status).toBe('failed');
     }
-    await window.getByRole('button', { name: /First agent/ }).click();
-    await expect(window.getByTestId('onboarding').getByRole('button', { name: 'New agent', exact: true })).toBeDisabled();
+    await window.getByRole('button', { name: /First bot/ }).click();
+    await expect(window.getByTestId('onboarding').getByRole('button', { name: 'New bot', exact: true })).toBeDisabled();
     await window.getByRole('button', { name: 'Choose workspace' }).click();
     await window.getByRole('button', { name: 'Enter a folder path' }).click();
     await window.getByRole('textbox', { name: 'Folder path' }).fill(workspace);
@@ -65,11 +65,11 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     expect((await stat(join(workspace, 'New workspace'))).isDirectory()).toBe(true);
     await expect.poll(() => window.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local']?.workspaceDirectory))
       .toBe(join(workspace, 'New workspace'));
-    await expect(window.getByTestId('onboarding').getByRole('button', { name: 'New agent', exact: true })).toBeEnabled();
+    await expect(window.getByTestId('onboarding').getByRole('button', { name: 'New bot', exact: true })).toBeEnabled();
     await window.screenshot({ path: test.info().outputPath('packaged-setup.png') });
     await window.evaluate(() => window.ember.setSettings({ theme: 'graphite' }));
     await window.reload();
-    await window.getByRole('button', { name: /First agent/ }).click();
+    await window.getByRole('button', { name: /First bot/ }).click();
     await expect(window.getByRole('button', { name: 'Choose workspace' })).toHaveText('New workspace');
     await window.screenshot({ path: test.info().outputPath('packaged-setup-dark.png') });
   } finally {

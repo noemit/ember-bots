@@ -117,7 +117,7 @@ export default function ScheduledView({
             {runs.length === 0 ? (
               <div className="rounded-lg border border-dashed px-4 py-8 text-center text-xs text-muted-foreground">
                 {tasks.length === 0
-                  ? 'No scheduled runs yet. Ask an agent to schedule a recurring or one-off task, and its runs will appear here.'
+                  ? 'No scheduled runs yet. Ask a bot to schedule a recurring or one-off task, and its runs will appear here.'
                   : 'None of your scheduled plans have recorded a run in this window yet. Use Run now on a plan to trigger one immediately.'}
               </div>
             ) : (

@@ -175,8 +175,8 @@ test('a day-old finished scheduled run archives itself', async ({ page }) => {
 test('one-session project rows use the same visible-column indicator', async ({ page }) => {
   await page.goto('/?noDock&legacy');
   await page.getByRole('button', { name: 'Open command palette' }).click();
-  await page.getByRole('combobox', { name: 'Search commands' }).fill('Agent deploy');
-  await page.getByRole('option').filter({ hasText: 'Agent deploy smoke test' }).first().click();
+  await page.getByRole('combobox', { name: 'Search commands' }).fill('Bot deploy');
+  await page.getByRole('option').filter({ hasText: 'Bot deploy smoke test' }).first().click();
   const row = page.locator('aside [data-session-key="studio::ses_b2"]');
   await expect(row).toHaveAttribute('data-visible-column', 'true');
   await expect(row.locator('[data-column-underline]')).toBeVisible();

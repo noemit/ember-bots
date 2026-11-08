@@ -1,5 +1,8 @@
 ## Unreleased
 
+### Changed
+- Ember calls its assistants bots throughout the interface and product guidance; the composer now invites you to “Message your bot..”.
+
 ### Added
 - Inspect worker threads in a roomy live conversation dialog without replacing the main workspace. Promoted peers still open as normal sessions.
 - Set an instance’s default model directly from the model picker without changing the current conversation.

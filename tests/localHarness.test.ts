@@ -148,7 +148,9 @@ describe('starting (or adopting) the local harness', () => {
     });
     expect(state.kind).toBe('missing');
     const notice = localHarnessNotice(state);
-    expect(notice).toContain('did not ship its local agent server');
+    expect(notice).toMatch(/Ember.*Kiln/);
+    expect(notice).toMatch(/missing|did not ship/);
+    expect(notice).not.toMatch(/\bagent\b/i);
     // It points at the recovery that is on screen.
     expect(notice).toContain('Settings → Instances');
   });

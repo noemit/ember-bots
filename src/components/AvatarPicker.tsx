@@ -153,7 +153,7 @@ export default function AvatarPicker({
             <span className="text-xs font-medium">Color</span>
             <label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
               Custom color
-              <input type="color" aria-label="Custom agent color" value={chosenColor} onChange={(event) => setDraft((prev) => ({ ...prev, color: event.target.value, colorIndex: undefined }))} className="h-8 w-12 cursor-pointer rounded border bg-transparent" />
+              <input type="color" aria-label="Custom bot color" value={chosenColor} onChange={(event) => setDraft((prev) => ({ ...prev, color: event.target.value, colorIndex: undefined }))} className="h-8 w-12 cursor-pointer rounded border bg-transparent" />
             </label>
             <div className="grid grid-cols-6 gap-2">
               {Array.from({ length: COLOR_COUNT }, (_, colorIndex) => {

@@ -64,7 +64,7 @@ test('composer text and placeholder stay 18px independently of transcript size, 
   await expect(input).toHaveCSS('overflow-y', 'auto');
   expect((await input.boundingBox())!.height).toBeLessThanOrEqual(322);
   // The draft composer follows the same fixed metrics, not just an existing conversation.
-  await page.getByRole('button', { name: 'New agent', exact: true }).click();
+  await page.getByRole('button', { name: 'New bot', exact: true }).click();
   await expect(page.locator('[data-composer-surface] textarea')).toHaveCSS('font-size', '18px');
 });
 
@@ -91,7 +91,8 @@ test('split messages fill only their own column, retaining padding and composers
   await page.getByRole('button', { name: 'Split view', exact: true }).click();
   await page.keyboard.press('Escape');
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
-  await leader.getByRole('button', { name: 'Parse config', exact: true }).click();
+  // Workers now open in a modal; use another ordinary session to exercise split columns.
+  await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
   await expect(page.locator('main[data-session-key]')).toHaveCount(2);
   await assertColumnWidth(leader, leader.locator('[data-message-id="e93"]'));
   const columns = page.locator('main[data-session-key]');

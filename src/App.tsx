@@ -4228,7 +4228,7 @@ export default function App() {
       const aborted = await abortSession(session);
       if (!aborted.ok) {
         restorePrevState();
-        showActionError('Could not stop this agent.', () => void handleAbort(session));
+        showActionError('Could not stop this bot.', () => void handleAbort(session));
         return;
       }
       // What the stop kept. Hearth re-parks every queued input (in the same mode) and reports how
@@ -4265,7 +4265,7 @@ export default function App() {
       console.error('Abort refresh failed', err);
       restorePrevState();
       showActionError(
-        err instanceof Error ? err.message : 'Could not stop this agent.',
+        err instanceof Error ? err.message : 'Could not stop this bot.',
         () => void handleAbort(session)
       );
     } finally {
@@ -4667,20 +4667,20 @@ export default function App() {
     ].join('|');
     let message = '';
     if (selectedPermissions.length > 0) {
-      message = `Agent in ${sessionLabel} is waiting for approval.`;
+      message = `Bot in ${sessionLabel} is waiting for approval.`;
     } else if (selectedQuestions.length > 0) {
-      message = `Agent in ${sessionLabel} has a question.`;
+      message = `Bot in ${sessionLabel} has a question.`;
     } else if (selectedQueue?.sendingId) {
       message = `Sending a queued message in ${sessionLabel}.`;
     } else if (selectedQueue?.items.length) {
       const count = selectedQueue.items.length;
       message = selectedState === 'active'
-        ? `Agent in ${sessionLabel} is working; ${count} ${count === 1 ? 'message is' : 'messages are'} queued.`
+        ? `Bot in ${sessionLabel} is working; ${count} ${count === 1 ? 'message is' : 'messages are'} queued.`
         : `${count} queued ${count === 1 ? 'message' : 'messages'} in ${sessionLabel}.`;
     } else if (selectedState === 'active') {
-      message = `Agent in ${sessionLabel} is working.`;
+      message = `Bot in ${sessionLabel} is working.`;
     } else if (selectedState === 'error') {
-      message = `Agent in ${sessionLabel} stopped with an error.`;
+      message = `Bot in ${sessionLabel} stopped with an error.`;
     } else if (selectedState === 'unknown') {
       // Sighted users get the status line under the transcript; without this a screen reader would
       // never learn that the session's status became unknown.
@@ -4690,7 +4690,7 @@ export default function App() {
       previous.state === 'active' &&
       selectedState === 'idle'
     ) {
-      message = `Agent in ${sessionLabel} finished.`;
+      message = `Bot in ${sessionLabel} finished.`;
     }
     const signature = `${selectedState}:${requestSignature}:${message}`;
     if (previous?.key !== selectedKey || previous.signature !== signature) {

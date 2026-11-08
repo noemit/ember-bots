@@ -717,13 +717,13 @@ export default function LeftRail({
                   size="icon-sm"
                   disabled={!defaultInstanceId}
                   onClick={() => defaultInstanceId && onNewAgent(defaultInstanceId)}
-                  aria-label="New agent"
+                  aria-label="New bot"
                   className="size-8"
                 >
                   <Plus />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>New agent</TooltipContent>
+              <TooltipContent>New bot</TooltipContent>
             </Tooltip>
           </div>
         ) : null}
@@ -732,7 +732,7 @@ export default function LeftRail({
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" className="min-w-0 flex-1 justify-start" size="sm">
                 <Plus />
-                New agent
+                New bot
                 <ChevronDown className="ml-auto opacity-70" />
               </Button>
             </DropdownMenuTrigger>
@@ -742,7 +742,7 @@ export default function LeftRail({
               // Picking an instance opens a draft whose composer takes focus; don't yank it back here.
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              <DropdownMenuLabel>New agent on…</DropdownMenuLabel>
+              <DropdownMenuLabel>New bot on…</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {ready.map((instance) => (
                 <DropdownMenuItem key={instance.id} onSelect={() => onNewAgent(instance.id)}>
@@ -761,7 +761,7 @@ export default function LeftRail({
             onClick={() => defaultInstanceId && onNewAgent(defaultInstanceId)}
           >
             <Plus />
-            New agent
+            New bot
           </Button>
         )}
 

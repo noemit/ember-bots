@@ -43,7 +43,7 @@ describe('the three states', () => {
     expect(calm.text).toContain('1 program');
     // It names the agent, and offers the choice rather than claiming a problem: a dev server
     // someone asked for is information.
-    expect(calm.text).toContain('This agent has');
+    expect(calm.text).toContain('This bot has');
     expect(calm.text).toContain('when you no longer need');
     expect(calm.action).toBe('Stop it');
   });

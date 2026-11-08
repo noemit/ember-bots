@@ -19,7 +19,7 @@ test('avatar sizes keep rail and composer identities together without crowding t
   // Custom identity stays exact beside the input and survives selecting another chat.
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: /Customize appearance/ }).click();
-  await page.getByLabel('Custom agent color').fill('#a858c8');
+  await page.getByLabel('Custom bot color').fill('#a858c8');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(composer.locator('svg [fill="#a858c8"]')).not.toHaveCount(0);
   await expect(column.locator('[data-composer-surface]')).toHaveAttribute('style', /rgb\(168, 88, 200\)/);

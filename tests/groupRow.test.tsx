@@ -97,10 +97,10 @@ describe('a group card', () => {
 
   test('the header carries the count, not a name', () => {
     const shown = text(render(entryOf()));
-    expect(shown).toContain('2 agents');
+    expect(shown).toContain('2 bots');
     // "Group" is this entry's name; it must not be drawn in the header. It survives as the row's
     // accessible name, which is not visible text and so does not appear here.
-    expect(shown.startsWith('2 agents')).toBe(true);
+    expect(shown.startsWith('2 bots')).toBe(true);
   });
 
   test('a group named after a member does not repeat that name in the header', () => {
@@ -114,7 +114,7 @@ describe('a group card', () => {
     const shown = text(html);
     // Once, in the list — not twice.
     expect(shown.split('Habit onboarding QA · copy pass').length - 1).toBe(1);
-    expect(shown).toContain('1 agent');
+    expect(shown).toContain('1 bot');
   });
 
   test('the row still says what it is, for a screen reader and for a tooltip', () => {

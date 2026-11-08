@@ -9,7 +9,7 @@ test('the top-bar sidebar control opens and closes the mobile rail', async ({ pa
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('aside').getByRole('button', { name: 'New agent', exact: true })).toBeVisible();
+  await expect(page.locator('aside').getByRole('button', { name: 'New bot', exact: true })).toBeVisible();
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   const control = (await toggle.boundingBox())!;
@@ -71,7 +71,7 @@ test('a custom chat colour follows its blob and background without recolouring i
   await page.getByRole('menuitem', { name: /Customize appearance/ }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('combobox', { name: 'Appearance scope' })).toContainText('This session');
-  await dialog.getByLabel('Custom agent color').fill('#d25b87');
+  await dialog.getByLabel('Custom bot color').fill('#d25b87');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.avatarOverrides['session:pi:hearth::10']?.color))).toBe('#d25b87');
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
@@ -122,7 +122,7 @@ test('the confirmed instance default seeds the next chat without changing existi
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.instanceDefaults['pi:hearth']?.model?.modelID))).toBe('deepseek-v4.1-flash');
   await expect(page.getByText('New chats default to faux-hearth/deepseek-v4.1-flash.', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.locator('aside').getByRole('button', { name: 'New agent', exact: true }).click();
+  await page.locator('aside').getByRole('button', { name: 'New bot', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Choose model' })).toContainText('DeepSeek V4.1 Flash');
   await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
   await expect(page.getByRole('button', { name: 'Choose model' })).toContainText('GLM-5.3 Flash');

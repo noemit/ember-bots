@@ -243,7 +243,7 @@ export const activityEmptyCopy = (input: { state: EndpointState; endpointCount: 
     return 'No activity to show yet — Ember records milestones as your ember-harness hosts answer.';
   }
   if (state === 'no-endpoints') {
-    return 'No activity recorded yet — add an ember-harness endpoint in Settings → Instances, then run an agent.';
+    return 'No activity recorded yet — add an ember-harness endpoint in Settings → Instances, then run a bot.';
   }
-  return 'No activity recorded yet — run an agent and milestones will land here.';
+  return 'No activity recorded yet — run a bot and milestones will land here.';
 };

@@ -179,7 +179,7 @@ const sessions: Record<string, MockSession[]> = {
       { role: 'assistant', text: 'Drafted 12 outreach emails and queued them for review.' },
     ] },
     // Real OpenChamber only reports idle/busy/retry; the error state must come from the transcript.
-    { id: 'ses_b2', title: 'Agent deploy smoke test', directory: '/workspace/agent', updated: minutes(35), status: 'idle', messages: [
+    { id: 'ses_b2', title: 'Bot deploy smoke test', directory: '/workspace/agent', updated: minutes(35), status: 'idle', messages: [
       { role: 'user', text: 'Click through every new GitHub deploy and report issues.' },
       { role: 'assistant', text: '', error: 'Invalid request Error' },
     ] },
@@ -202,7 +202,7 @@ const projects: Record<string, unknown[]> = {
   ],
   studio: [
     { id: 'p4', path: '/workspace/habit', label: 'Habit' },
-    { id: 'p5', path: '/workspace/agent', label: 'Agent Platform' },
+    { id: 'p5', path: '/workspace/agent', label: 'Bot Platform' },
   ],
 };
 
@@ -863,7 +863,7 @@ export const bridge: EmberBridge = {
         String((body as { directory?: string })?.directory ?? '');
       const created: MockSession = {
         id: `ses_${Math.random().toString(36).slice(2, 8)}`,
-        title: 'New agent',
+        title: 'New bot',
         directory,
         updated: Date.now(),
         status: 'idle',

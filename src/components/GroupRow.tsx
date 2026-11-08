@@ -98,7 +98,7 @@ export default function GroupRow({
             The row keeps `aria-label` and a tooltip, so it still says what it is — the visible
             name is what went, not the accessible one. */}
         <span className="min-w-0 truncate text-[11.5px] font-semibold text-foreground">
-          {entry.members.length} {entry.members.length === 1 ? 'agent' : 'agents'}
+          {entry.members.length} {entry.members.length === 1 ? 'bot' : 'bots'}
         </span>
         {onNewAgent ? (
           <Tooltip>
@@ -246,7 +246,7 @@ export default function GroupRow({
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuLabel className="text-[11px] text-muted-foreground">
-                  Archive inactive agents
+                  Archive inactive bots
                 </ContextMenuLabel>
                 <ContextMenuItem onSelect={() => onArchiveMany(inactiveTargets)}>
                   <Trash2 />

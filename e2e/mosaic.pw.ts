@@ -13,7 +13,7 @@ test('Mosaic replaces Pip in settings and keeps custom shape and colour in the r
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: /Customize appearance/ }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Custom agent color').fill('#158cba');
+  await dialog.getByLabel('Custom bot color').fill('#158cba');
   await dialog.getByRole('button', { name: 'crown', exact: true }).click();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(row.locator('.blob-mosaic')).toHaveAttribute('data-shape', 'crown');

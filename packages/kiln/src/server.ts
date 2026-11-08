@@ -2287,7 +2287,7 @@ const server = Bun.serve<{
           // Reject a duplicate before forking; `registerAgent` re-checks inside the commit so a
           // race cannot produce two names for one local registry.
           if (Object.hasOwn((await harness.snapshot(AgentsDoc, context))?.entries ?? {}, name)) {
-            return badRequest(`agent name already registered: ${name}`);
+            return badRequest(`bot name already registered: ${name}`);
           }
           const newest = (await conversation.entries({}, 1, undefined, context)).items[0];
           if (!newest) return badRequest("nothing to fork");

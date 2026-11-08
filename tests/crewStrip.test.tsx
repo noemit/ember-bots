@@ -364,7 +364,7 @@ describe('the parts that must survive the layout change', () => {
     expect(bricks(html)).toBe(2);
     expect(html).toContain('Deep ask');
     expect(html).toContain('›2');
-    expect(html).toContain('title="2 levels below this agent"');
+    expect(html).toContain('title="2 levels below this bot"');
     expect(html).toContain('aria-label="Deep ask needs input — open the conversation to answer"');
   });
 

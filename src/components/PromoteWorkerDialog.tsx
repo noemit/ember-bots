@@ -55,7 +55,7 @@ export default function PromoteWorkerDialog({
           <DialogHeader>
             <DialogTitle>Promote worker to peer</DialogTitle>
             <DialogDescription>
-              “{workerTitle}” becomes a named agent other agents can find and hand work to.
+              “{workerTitle}” becomes a named bot other bots can find and hand work to.
               {busy ? ' This worker is still working — wait for it to finish or stop it first.' : ''}
             </DialogDescription>
           </DialogHeader>
@@ -82,18 +82,18 @@ export default function PromoteWorkerDialog({
               id="promote-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="What this agent is for"
+              placeholder="What this bot is for"
               autoComplete="off"
             />
           </div>
           <label className="flex items-start justify-between gap-3 rounded-md border p-3">
             <span className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Pin so other agents can find it</span>
+              <span className="text-sm font-medium">Pin so other bots can find it</span>
               <span className="text-xs text-muted-foreground">
-                Pinned agents stay in the directory permanently; unpinned ones fall out after a day.
+                Pinned bots stay in the directory permanently; unpinned ones fall out after a day.
               </span>
             </span>
-            <Switch checked={pinned} onCheckedChange={setPinned} aria-label="Pin so other agents can find it" />
+            <Switch checked={pinned} onCheckedChange={setPinned} aria-label="Pin so other bots can find it" />
           </label>
           <p className="text-xs text-muted-foreground">
             The worker stays as history; the peer is a new session that appears in the rail.

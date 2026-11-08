@@ -1605,7 +1605,7 @@ function ChatView({
                   size="sm"
                   className="h-7 px-2 text-xs"
                   onClick={onPromote}
-                  title="Fork this worker into a named peer other agents can message by name"
+                  title="Fork this worker into a named peer other bots can message by name"
                 >
                   <UserPlus aria-hidden="true" />
                   Promote to peer
@@ -1815,7 +1815,7 @@ function ChatView({
               <>
                 <Blob style={blobStyle} seed={`new:${draftInstance.id}`} identity={draftIdentity} size={48} interactive />
                 <div className="flex flex-col items-center gap-1 text-center">
-                  <span className="text-[13px] font-medium text-foreground">New agent on {draftInstance.label}</span>
+                  <span className="text-[13px] font-medium text-foreground">New bot on {draftInstance.label}</span>
                   <span className="max-w-[420px] truncate text-xs">
                     {draftDirectory.trim() || 'Pick a folder below to get started.'}
                   </span>
@@ -1929,7 +1929,7 @@ function ChatView({
                   <Blob style={blobStyle} seed="empty two" size={48} interactive />
                   <Blob style={blobStyle} seed="empty three" size={48} interactive />
                 </div>
-                <span className="text-[13px]">Pick a session, or start a new agent.</span>
+                <span className="text-[13px]">Pick a session, or start a new bot.</span>
               </>
             )}
           </motion.div>
@@ -1953,14 +1953,14 @@ function ChatView({
         <div className="flex-none">
           <div data-composer-extras className="flex min-w-0 flex-col gap-2 px-2.5 py-2 empty:hidden sm:px-3">
             {draftInstance ? (
-              <div className="flex items-center gap-1.5 px-0.5" aria-label="New agent options">
+              <div className="flex items-center gap-1.5 px-0.5" aria-label="New bot options">
                 {/* Starting a session freezes its destination: the request is already out, so an
                     editable row would invite edits that change nothing. It thaws on failure,
                     because that is when changing the folder is the fix. */}
                 <Select value={draftInstance.id} onValueChange={onNewSessionInstanceChange} disabled={creatingSession}>
                   <SelectTrigger
                     size="sm"
-                    aria-label="New agent instance"
+                    aria-label="New bot instance"
                     disabled={creatingSession}
                     className="h-7 w-auto gap-1 border-none bg-transparent px-2 text-xs shadow-none hover:bg-muted dark:bg-transparent dark:hover:bg-muted"
                   >
@@ -1995,7 +1995,7 @@ function ChatView({
                   />
                 </React.Suspense>
                 <div className="flex-1" />
-                <Button variant="ghost" size="icon-sm" className="size-7" onClick={onCancelNewSession} aria-label="Cancel new agent">
+                <Button variant="ghost" size="icon-sm" className="size-7" onClick={onCancelNewSession} aria-label="Cancel new bot">
                   <X />
                 </Button>
               </div>
@@ -2292,7 +2292,7 @@ function ChatView({
                       ? 'Steer the running turn…'
                       : shouldQueue
                         ? 'Queue a follow-up…'
-                        : 'Message the agent…'
+                        : 'Message your bot..'
               }
               aria-label={
                 creatingSession
@@ -2301,7 +2301,7 @@ function ChatView({
                     ? 'Message (waiting for the session above)'
                     : shouldQueue
                       ? 'Queue a follow-up message'
-                      : 'Message the agent'
+                      : 'Message your bot'
               }
               aria-expanded={mentionOpen}
               aria-controls={mentionOpen ? 'mention-option-0' : undefined}
@@ -2599,7 +2599,7 @@ function ChatView({
                 aria-label={yeet ? 'YEET mode on: messages steer the running turn instead of queueing' : 'YEET mode off: messages queue behind the running turn'}
                 title={
                   yeet
-                    ? 'YEET mode: every message steers the running turn, interrupting what the agent is doing'
+                    ? 'YEET mode: every message steers the running turn, interrupting what the bot is doing'
                     : 'YEET mode: send every message straight into the running turn instead of queueing it'
                 }
                 className="h-7 flex-none gap-1 px-1.5 text-xs data-[state=on]:border-destructive/60 data-[state=on]:bg-destructive/10 data-[state=on]:text-destructive @[490px]:pr-2"
@@ -2854,8 +2854,8 @@ function ChatView({
             <DialogTitle>Standing instructions</DialogTitle>
             <DialogDescription>
               {draftInstanceId
-                ? "What this agent is for. It becomes part of the session's own prompt, before anything you type — not a first message."
-                : "What this agent is for. Saved to the session itself and applied from its next turn — not sent as a message."}
+                ? "What this bot is for. It becomes part of the session's own prompt, before anything you type — not a first message."
+                : "What this bot is for. Saved to the session itself and applied from its next turn — not sent as a message."}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">

@@ -209,7 +209,7 @@ test('new-agent creation transfers the chosen model to the created session', asy
   await page.getByRole('button', { name: 'New session in Habit', exact: true }).first().click();
   await expect(page.locator('textarea')).toHaveCount(1);
   // Rail ordering can place the other host's Habit project first; target the host under test explicitly.
-  await page.getByRole('combobox', { name: 'New agent instance' }).click();
+  await page.getByRole('combobox', { name: 'New bot instance' }).click();
   await page.getByRole('option', { name: 'MacBook', exact: true }).click();
   await chooseModel(page, 'new::local');
   await captureSends(page);

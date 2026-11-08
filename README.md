@@ -1,11 +1,11 @@
 # Ember Bots
 
-**An agent workspace designed for high performing humans. Built on pi-durable to help you think, steer and stay organized.**
+**A bot workspace designed for high performing humans. Built on pi-durable to help you think, steer and stay organized.**
 
-Ember is an agent and bot workspace with support for multiple model providers. Visual mnemonics
-and familiar patterns help you manage cognitive load while directing several agents. It works
+Ember is a bot workspace with support for multiple model providers. Visual mnemonics
+and familiar patterns help you manage cognitive load while directing several bots. It works
 out of the box on your own machine, and can connect to a second computer or container that serves
-as an always-on agent hub. Bring those workspaces together in Ember on your primary device, or
+as an always-on bot hub. Bring those workspaces together in Ember on your primary device, or
 access your running desktop workspace from a phone or tablet over a private network like Tailscale.
 
 [Download](#downloads--quick-install) · [First use](#first-use) · [Providers](#model-providers) · [Tailscale](docs/tailscale.md) · [Build from source](#run-from-source) · [Contribute](docs/development.md#contributing)
@@ -35,7 +35,7 @@ the workflow above and trust this build, choose **More info → Run anyway** whe
 Your organisation’s policy or Smart App Control may block installation without that option.
 See [Microsoft’s explanation of signing and SmartScreen](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation).
 
-The desktop app includes **Kiln**, Ember’s agent harness. It starts when Ember starts; you do not
+The desktop app includes **Kiln**, Ember’s bot harness. It starts when Ember starts; you do not
 need to clone a repository, run a server, or paste a local connection token to get started.
 Model access comes from the provider account you connect.
 
@@ -46,18 +46,18 @@ Model access comes from the provider account you connect.
    confirm the default model. You can change this later in **Settings → Providers**.
 3. **Choose your workspace.** Pick the folder where your projects or work already live. Choose a
    project inside it, or work directly in that folder.
-4. **Start a chat.** Choose **New agent**, confirm the project and model, and send a prompt. For
+4. **Start a chat.** Choose **New bot**, confirm the project and model, and send a prompt. For
    example: “Inspect this project and propose a plan before making changes.”
 5. **Review and steer.** Read the response, select a passage to comment on, or send your next
    direction. Comments stay in a draft until you send them.
 
-Quitting Ember stops its included Kiln and active agent work; conversation history stays on disk.
+Quitting Ember stops its included Kiln and active bot work; conversation history stays on disk.
 On macOS, closing the window leaves the app running. For work that should continue after Ember
 quits, use a [standalone Kiln](docs/instances.md#standalone-kiln-with-tinder).
 
 ## Model providers
 
-Configure providers in **Settings → Providers** on the instance that will run your agents.
+Configure providers in **Settings → Providers** on the instance that will run your bots.
 The table describes the current source; older downloads may expose fewer options.
 
 | Provider | Connection available now |
@@ -87,7 +87,7 @@ Keep Ember running on your computer and open the same workspace from your phone,
 another computer over Tailscale. Enable access, set a password, then open the private address.
 Follow the [short Tailscale setup guide](docs/tailscale.md).
 
-For agents that should keep working when you quit the desktop app, use a
+For bots that should keep working when you quit the desktop app, use a
 [standalone Kiln on an always-on computer](docs/instances.md#standalone-kiln-with-tinder), then
 connect it in **Settings → Instances**.
 
@@ -100,7 +100,7 @@ connect it in **Settings → Instances**.
   not mark its messages read. **Go to new messages** finds unread replies; individual bubbles and
   **Mark all as read** let you clear them deliberately. Tool steps need no read receipt.
 - **Give feedback on the exact passage.** Select part of a plan or response, add a comment, and
-  collect several comments before sending them together. The agent gets the quoted text with
+  collect several comments before sending them together. The bot gets the quoted text with
   your feedback.
 - **Follow background work without repeated reports.** In the current source, new Kiln threads
   store their outcomes without copying routine reports into the main chat. A **Threads** tray

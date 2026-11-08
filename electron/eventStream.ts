@@ -190,7 +190,7 @@ const EVENT_DESCRIPTIONS: Record<string, Describer> = {
   },
   'session.agent.selected': (d) => {
     const agent = cap(d.agent, 80);
-    return { summary: agent ? `switched agent to ${agent}` : 'switched agent' };
+    return { summary: agent ? `switched bot to ${agent}` : 'switched bot' };
   },
   // Work
   'session.tool.success': (d) => {

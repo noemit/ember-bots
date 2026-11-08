@@ -90,7 +90,7 @@ export default function CommentTray({
                 <AutoResizeTextarea
                   value={comment.reply}
                   onChange={(event) => onChangeReply(comment.id, event.target.value)}
-                  placeholder="What should the agent do about this?"
+                  placeholder="What should the bot do about this?"
                   aria-label={`Reply to the quoted segment: ${comment.quote.slice(0, 60)}`}
                   rows={1}
                   maxHeight={140}

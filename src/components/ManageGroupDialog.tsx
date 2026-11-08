@@ -127,7 +127,7 @@ export default function ManageGroupDialog({
             {keys.length < MIN_GROUP_MEMBERS ? (
               <p className="text-xs text-muted-foreground">
                 Add at least {MIN_GROUP_MEMBERS} sessions. Choose a primary to decide where new
-                agents for this group start.
+                bots for this group start.
               </p>
             ) : null}
             {members.map((member) => {
@@ -147,7 +147,7 @@ export default function ManageGroupDialog({
                     type="button"
                     onClick={() => setPrimaryKey(key)}
                     aria-pressed={primary}
-                    aria-label={`Make ${member.title ?? member.id} the primary for new agents`}
+                    aria-label={`Make ${member.title ?? member.id} the primary for new bots`}
                     className={
                       primary
                         ? 'flex-none rounded px-1.5 text-[10px] font-semibold uppercase text-highlight'

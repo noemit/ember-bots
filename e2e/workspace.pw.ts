@@ -49,8 +49,8 @@ test('palette searches beyond its initial result limit', async ({ page }) => {
   await page.getByRole('button', { name: 'Open command palette' }).click();
   await page.getByRole('combobox', { name: 'Search commands' }).fill('Performance session 84');
   await expect(page.getByRole('option').filter({ hasText: 'Performance session 84' })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Search commands' }).fill('new agent');
-  await expect(page.getByRole('option').filter({ hasText: 'New agent on MacBook' })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Search commands' }).fill('new bot');
+  await expect(page.getByRole('option').filter({ hasText: 'New bot on MacBook' })).toBeVisible();
 });
 
 test('long history mounts a bounded window and supports finding old messages', async ({ page }) => {

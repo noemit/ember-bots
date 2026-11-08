@@ -26,11 +26,11 @@ export default function MentionSuggest({ names, activeIndex, onPick, onHover }: 
   return (
     <div
       role="listbox"
-      aria-label="Mention an agent"
+      aria-label="Mention a bot"
       className="mx-2 mb-1 overflow-hidden rounded-lg border bg-popover shadow-md"
     >
       <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-        Tag an agent
+        Tag a bot
       </div>
       <ul className="max-h-[180px] overflow-y-auto pb-1">
         {names.map((name, index) => (

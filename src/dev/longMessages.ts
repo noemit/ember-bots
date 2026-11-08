@@ -1,7 +1,7 @@
 /** Synthetic prose for judging long-message layout without changing the everyday demo fixtures. */
 const sections = [
   ['Keep the human’s decision visible',
-    'The first screen should make it easy to understand what the agent is doing, what it has learned, and whether it needs a decision. Those are different kinds of information. A stream of tool output can explain activity without telling the reader what matters. A useful reply should lead with the finding, connect it to the original request, and leave supporting evidence available below.',
+    'The first screen should make it easy to understand what the bot is doing, what it has learned, and whether it needs a decision. Those are different kinds of information. A stream of tool output can explain activity without telling the reader what matters. A useful reply should lead with the finding, connect it to the original request, and leave supporting evidence available below.',
     'For this workspace, I would keep the conversation as the place where the person thinks and steers. Background work can continue elsewhere, but the foreground should remain easy to interrupt. A person should be able to ask a question, change a constraint, or say that a direction is no longer useful without waiting for every worker to finish.'],
   ['Give each module one reason to change',
     'A cohesive module owns a complete concern: its inputs, its decisions, and the small amount of state needed to carry them out. The session naming module should decide how a prompt becomes a relevant name. It should not need to know how the rail renders, how the provider authenticates, or whether a conversation is open in a split view.',
@@ -34,11 +34,11 @@ const sections = [
     'A component can exist in the document while being invisible to the reader. A passing test that finds a check icon does not prove that the check stayed painted long enough to see. The same problem appears with loading states, confirmation toasts, and a creature travelling between the rail and composer.',
     'Tests should observe the property that matters: visible opacity, a stable target, a persisted read mark, or a message that remains available after reload. Manual inspection adds a different kind of evidence. It can reveal that a transition feels abrupt or that an action looks destructive even when the underlying operation is correct. Both forms of verification have a place.'],
   ['Leave room for the person to disagree',
-    'The agent’s recommendation is a proposal. It should make the tradeoff understandable, show what evidence supports it, and preserve the person’s ability to choose another direction. A highly capable assistant can still reduce agency if it turns every uncertain finding into a confident instruction or hides the alternatives that would change the decision.',
+    'The bot’s recommendation is a proposal. It should make the tradeoff understandable, show what evidence supports it, and preserve the person’s ability to choose another direction. A highly capable assistant can still reduce agency if it turns every uncertain finding into a confident instruction or hides the alternatives that would change the decision.',
     'My recommendation is to make the common flow calmer first, then add optional depth where a real task needs it. The workspace should help the human hold the problem in mind. If a new control makes the interface busier without making a decision easier, it probably belongs behind a disclosure or should wait until its purpose is clearer.'],
 ];
 
-export const longDemoPrompt = `Review this agent workspace as if we were preparing it for daily use across a laptop and an always-on computer. I care about high cohesion, low coupling, and an interface that keeps the human in charge of thinking and deciding.
+export const longDemoPrompt = `Review this bot workspace as if we were preparing it for daily use across a laptop and an always-on computer. I care about high cohesion, low coupling, and an interface that keeps the human in charge of thinking and deciding.
 
 Please give me a thorough review rather than a short checklist. Explain how the rail, composer, read acknowledgements, background threads, provider settings, and scheduled output fit together. Use concrete examples, call out the tradeoffs, and finish with an implementation order. Include a small comparison table and a code example so I can see how mixed content reads in a long reply.
 
@@ -66,7 +66,7 @@ The rendering component can ask for a read action without owning persistence:
 \`\`\`tsx
 function Reply({ message, unread, acknowledge }) {
   return (
-    <article aria-label="Agent reply">
+    <article aria-label="Bot reply">
       <MessageReadButton
         unread={unread}
         onRead={() => acknowledge(message.id)}
@@ -93,4 +93,4 @@ export const longDemoFollowUp = `A second long reply lets us inspect the transit
 
 ${sections.slice(0, 7).map(([title, first, second]) => `### ${title}\n\n${second}\n\n${first}`).join('\n\n')}
 
-You can now scroll back to the first review, select a passage to comment on, or acknowledge this reply individually. None of this demo text is a live agent instruction or an action taken on your files.`;
+You can now scroll back to the first review, select a passage to comment on, or acknowledge this reply individually. None of this demo text is a live bot instruction or an action taken on your files.`;

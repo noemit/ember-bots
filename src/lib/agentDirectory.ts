@@ -147,7 +147,7 @@ export const canSendAgentMessage = (
 ): boolean => pruneAgentMessageTimestamps(sentAt, now, windowMs).length < budget;
 
 export const agentMessageBudgetRefusal = (budget = AGENT_MESSAGE_HOURLY_BUDGET): string =>
-  `Refused: this conversation has sent ${budget} agent messages in the last hour. Wait before sending more so two agents cannot loop.`;
+  `Refused: this conversation has sent ${budget} bot messages in the last hour. Wait before sending more so two bots cannot loop.`;
 
 /**
  * Format the window duration in human terms ("last 2 days", "last 5 hours") for the not-found
@@ -201,7 +201,7 @@ export const resolveAddressableAgent = (input: {
   const trimmed = name.trim();
   const wanted = trimmed.toLowerCase();
   if (!wanted) {
-    return { kind: 'unknown', message: 'Provide an agent name to message.' };
+    return { kind: 'unknown', message: 'Provide a bot name to message.' };
   }
 
   // 1. Registry name first (exact bare name or `host/name`).
@@ -214,7 +214,7 @@ export const resolveAddressableAgent = (input: {
     return {
       kind: 'ambiguous',
       rows: registryHit.rows,
-      message: `More than one agent is named "${trimmed}": ${addresses}. Specify the host as host/name.`,
+      message: `More than one bot is named "${trimmed}": ${addresses}. Specify the host as host/name.`,
     };
   }
 
@@ -280,7 +280,7 @@ export const resolveAddressableAgent = (input: {
     return {
       kind: 'outside-window',
       rows,
-      question: `No agent called "${trimmed}" in the ${windowText}. Would you like to search all of your agents — all time, including ones that have been inactive for longer?`,
+      question: `No bot called "${trimmed}" in the ${windowText}. Would you like to search all of your bots — all time, including ones that have been inactive for longer?`,
     };
   }
 
@@ -293,7 +293,7 @@ export const resolveAddressableAgent = (input: {
     return {
       kind: 'silent-hosts',
       silentLabels,
-      message: `${who} didn't answer, so its agents are unknown right now — not absent. Try again once ${silentLabels.length === 1 ? 'it is' : 'they are'} back.`,
+      message: `${who} didn't answer, so its bots are unknown right now — not absent. Try again once ${silentLabels.length === 1 ? 'it is' : 'they are'} back.`,
     };
   }
 
@@ -302,8 +302,8 @@ export const resolveAddressableAgent = (input: {
     kind: 'unknown',
     message:
       !searchAllTime && windowHours > 0
-        ? `No agent called "${trimmed}" in the ${windowText}. Would you like to search all of your agents — all time, including ones that have been inactive for longer?`
-        : `No agent called "${trimmed}".`,
+        ? `No bot called "${trimmed}" in the ${windowText}. Would you like to search all of your bots — all time, including ones that have been inactive for longer?`
+        : `No bot called "${trimmed}".`,
   };
 };
 
@@ -311,13 +311,13 @@ export const resolveAddressableAgent = (input: {
 export const hostDirectoryNote = (directory: HostDirectory): string | null => {
   if (directory.state === 'checking') return null;
   if (directory.state === 'silent') {
-    return 'Not answering, so its agents are unknown right now — not gone. They come back when it does.';
+    return 'Not answering, so its bots are unknown right now — not gone. They come back when it does.';
   }
   if (directory.state === 'unsupported') {
-    return 'This connection serves no agent directory, so nothing here can be addressed by name.';
+    return 'This connection serves no bot directory, so nothing here can be addressed by name.';
   }
   if (directory.agents.length === 0) {
-    return 'No named agents yet. Promote a worker to give it a name — only a person can.';
+    return 'No named bots yet. Promote a worker to give it a name — only a person can.';
   }
   return null;
 };
@@ -325,10 +325,10 @@ export const hostDirectoryNote = (directory: HostDirectory): string | null => {
 /** The whole view's empty line, when even the hosts that answered have nothing. */
 export const directoryEmptyCopy = (groups: readonly DirectoryGroup[]): string => {
   if (groups.length === 0) {
-    return 'No ember-harness endpoints yet. Add one in Settings → Instances and its agents appear here.';
+    return 'No ember-harness endpoints yet. Add one in Settings → Instances and its bots appear here.';
   }
   if (groups.every((group) => group.directory.state !== 'agents')) {
     return 'No host is serving a directory right now. Check Settings → Instances, then come back.';
   }
-  return 'No named agents yet. Promote a worker from its column header to give it a name.';
+  return 'No named bots yet. Promote a worker from its column header to give it a name.';
 };

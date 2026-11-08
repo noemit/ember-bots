@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * Starting a new agent, from the keystroke to the session.
+ * Starting a new bot, from the keystroke to the session.
  *
  * The create is the one request whose answer the person waits on with nothing else to look at, so
  * these tests pin the three promises that make that wait honest: the message is on screen at once,
@@ -15,9 +15,9 @@ import { expect, test } from '@playwright/test';
 
 const newAgent = async (page: import('@playwright/test').Page, query = '') => {
   await page.goto(`/${query}`);
-  await page.getByRole('button', { name: 'New agent' }).first().click();
+  await page.getByRole('button', { name: 'New bot' }).first().click();
   // The draft is ready when its destination row exists.
-  await expect(page.getByRole('button', { name: 'New agent project' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New bot project' })).toBeVisible();
   return page.locator('textarea').first();
 };
 
@@ -44,7 +44,7 @@ test('the message is on screen before the host answers, and the composer stays u
   const conversation = column.getByRole('log', { name: 'Conversation' });
   await expect(conversation).toContainText('check the build output');
   await expect(conversation).toContainText('and then run the tests');
-  await expect(page.getByRole('button', { name: 'New agent project' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'New bot project' })).toHaveCount(0);
   // Each message appears once, in the order it was typed: the draft's bubbles became the session's,
   // they were not sent a second time on the way.
   const rows = conversation.locator('[data-message-id]');
@@ -108,7 +108,7 @@ test('Edit puts the refused message back in the composer', async ({ page }) => {
   await failure.getByRole('button', { name: 'Edit' }).click();
 
   // Back to the draft pane, with the message where it can be changed and sent again.
-  await expect(page.getByRole('button', { name: 'New agent project' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New bot project' })).toBeVisible();
   await expect(page.locator('textarea').first()).toHaveValue('edit me instead');
   await expect(page.getByRole('log', { name: 'Conversation' })).toHaveCount(0);
 });
@@ -152,7 +152,7 @@ test('a refusal that happens while the reader is elsewhere offers the draft back
 
   const failure = page.getByRole('status').filter({ hasText: "didn't start this session" });
   await expect(failure).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New agent project' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New bot project' })).toBeVisible();
   // The attempt is still the one that failed, not a fresh empty draft: Try again reuses its message.
   await expect(page.getByRole('log', { name: 'Conversation' })).toContainText('fails while away');
 });

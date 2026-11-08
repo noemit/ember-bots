@@ -1125,7 +1125,7 @@ export const piApprovalToPermissionRequest = (
   permission: approval.tool,
   patterns: [],
   metadata: {
-    message: `The agent wants to run ${approval.tool}`,
+    message: `The bot wants to run ${approval.tool}`,
     arguments: approval.arguments ?? {},
   },
 });

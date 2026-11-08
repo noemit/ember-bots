@@ -46,7 +46,7 @@ export default function ProjectPicker({ instance, projects, recentDirectories = 
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild><Button type="button" variant="ghost" size="sm" disabled={disabled}
       className="h-8 min-w-0 max-w-[300px] gap-2 px-2 text-xs font-normal"
-      aria-label={workspaceOnly ? 'Choose workspace' : 'New agent project'} title={workspaceOnly ? workspace : value}
+      aria-label={workspaceOnly ? 'Choose workspace' : 'New bot project'} title={workspaceOnly ? workspace : value}
       >
       <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="truncate">{workspaceOnly ? (workspace ? directoryName(workspace) : 'Choose workspace') : value ? directoryName(value) : 'Choose project'}</span>

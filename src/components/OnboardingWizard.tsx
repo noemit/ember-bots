@@ -235,7 +235,7 @@ export default function OnboardingWizard({
               {step.id === 'providers' && providersReady ? (
                 <div className="mb-6 flex flex-col gap-2">
                   <label htmlFor="onboarding-default-model" className="font-semibold">Default model for {instances.find((instance) => instance.id === target)?.label ?? 'this instance'}</label>
-                  <p className="text-muted-foreground">Choose the model Ember will use for new agents on this instance. This does not change Kiln’s own default or existing conversations.</p>
+                  <p className="text-muted-foreground">Choose the model Ember will use for new bots on this instance. This does not change Kiln’s own default or existing conversations.</p>
                   <select id="onboarding-default-model" className="h-10 rounded-md border bg-background px-3" value={defaultModel ? modelRefKey(defaultModel) : ''} onChange={(event) => {
                     const model = models.find((entry) => modelRefKey(entry) === event.target.value);
                     if (!target || !model) return;
@@ -317,7 +317,7 @@ function KilnDiagram() {
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <div className="rounded-lg bg-highlight/10 px-3 py-2.5 text-center">
             <div className="text-base font-semibold">Ember</div>
-            <div className="mt-0.5 text-base text-muted-foreground">Talk to your agents</div>
+            <div className="mt-0.5 text-base text-muted-foreground">Talk to your bots</div>
           </div>
           <ArrowLeftRight className="size-4 text-muted-foreground" aria-hidden="true" />
           <div className="rounded-lg bg-background px-3 py-2.5 text-center">
@@ -359,14 +359,14 @@ function Welcome() {
           <h3 className="text-2xl font-semibold">Where the work happens</h3>
           <p className="text-base leading-relaxed text-muted-foreground">
             Ember takes its name from the embers that glow in a fire. Think of <strong className="text-foreground">Kiln</strong>{' '}
-            as the hot, concentrated space where agents take action: editing files, running commands and carrying out your instructions.{' '}
+            as the hot, concentrated space where bots take action: editing files, running commands and carrying out your instructions.{' '}
             Think of <strong className="text-foreground">Ember</strong> as your connection to the powerful energy inside the kiln.
           </p>
         </div>
       </div>
       <p className="text-base leading-relaxed text-muted-foreground">
-        <strong className="text-foreground">Ember is where you direct agents to do work, and observe the work they do.</strong>{' '}
-        It connects to Kiln using a connection password and gives you a view of your conversations, each agent’s progress,
+        <strong className="text-foreground">Ember is where you direct bots to do work, and observe the work they do.</strong>{' '}
+        It connects to Kiln using a connection password and gives you a view of your conversations, each bot’s progress,
         their specific actions, what images they are looking at, errors they run into, what they are thinking
         (with models that support this), and more.
       </p>
@@ -403,7 +403,7 @@ function Connection({
     <div className="flex flex-col gap-4">
       <h3 className="text-2xl font-semibold">Choose where the work happens</h3>
       <p className="text-base leading-relaxed text-muted-foreground">
-        Ember includes a Kiln on this computer, so you can start here. Agents using it edit files and run
+        Ember includes a Kiln on this computer, so you can start here. Bots using it edit files and run
         commands here. This Kiln stops when you quit Ember; its conversations stay on disk.
       </p>
 
@@ -438,7 +438,7 @@ function Connection({
       )}
 
       <p className="text-base leading-relaxed text-muted-foreground">
-        You can also give agents a separate place to work. A container provides a separate working environment;
+        You can also give bots a separate place to work. A container provides a separate working environment;
         another computer also moves the workload off your personal computer. Kilns running separately can
         keep working after you quit Ember, as long as their computer stays on.
       </p>
@@ -490,7 +490,7 @@ function SetupPrompt() {
   const [result, setResult] = React.useState('');
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <p className="font-medium text-foreground">Ask an agent to help</p>
+      <p className="font-medium text-foreground">Ask a bot to help</p>
       <p className="text-base leading-relaxed">Replace [other computer] with its name or description before using this prompt.</p>
       <p className="select-text rounded-md bg-background p-3 text-base leading-relaxed">{TAILSCALE_PROMPT}</p>
       <Button className="self-start" size="sm" variant="secondary" onClick={async () => {
@@ -544,7 +544,7 @@ function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
           <li>Find that computer’s Tailscale address in the Tailscale app, or run <code>tailscale ip -4</code> there.</li>
           <li>Add the Kiln below using an address such as <code>http://100.x.y.z:3003</code> and the password printed by <code>tinder token</code>. Use the port you chose for Kiln.</li>
         </ol>
-        <p className="mt-2">Tailscale connects the computers; Kiln’s connection password determines who can direct its agents.</p>
+        <p className="mt-2">Tailscale connects the computers; Kiln’s connection password determines who can direct its bots.</p>
         <Button size="sm" variant="link" className="h-auto px-0" onClick={() => void window.ember.openExternal('https://tailscale.com/docs/how-to/quickstart')}>Tailscale setup guide</Button>
         <SetupPrompt />
       </details>
@@ -603,7 +603,7 @@ function Providers({
       <h3 className="text-base font-semibold">{providersReady ? 'Connected AI services' : 'First, connect an AI service'}</h3>
       {!providersReady ? <p className="font-medium">Sign in or save an API key below. Once a provider is connected, choose your default model here.</p> : null}
       <p className="text-base leading-relaxed text-muted-foreground">
-        Your agents need an AI service, such as OpenAI or Anthropic. Use a sign-in option below, or paste
+        Your bots need an AI service, such as OpenAI or Anthropic. Use a sign-in option below, or paste
         an API key — an access code you get from that service. If you use Ollama or LM Studio to run AI on
         your own computer, start it first and Ember will show it here.
       </p>
@@ -651,7 +651,7 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, mod
         Choose your workspace — the folder where you already keep your projects or work.
         You can pick a project inside it for each new chat.
       </p>
-      {!modelReady ? <p className="text-muted-foreground">Open Choose an AI and select a default model before starting your first agent.</p> : null}
+      {!modelReady ? <p className="text-muted-foreground">Open Choose an AI and select a default model before starting your first bot.</p> : null}
       {target ? <div className="rounded-lg border bg-background/60 p-4">
         <p className="mb-2 text-sm text-muted-foreground">Workspace on {target.label}</p>
         <ProjectPicker key={target.id} instance={target} projects={[]} workspaceOnly value={workspace ?? ''} workspace={workspace}
@@ -672,7 +672,7 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, mod
       <p className="text-sm leading-relaxed text-muted-foreground">Nothing is sent until you write your first message.</p>
       <Button className="self-start" disabled={!target || !workspace || !modelReady} onClick={() => {
         if (target && workspace && modelReady) onStart({ instanceId: target.id, directory: project || workspace });
-      }}>New agent<ArrowRight /></Button>
+      }}>New bot<ArrowRight /></Button>
     </div>
   );
 }

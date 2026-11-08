@@ -488,9 +488,9 @@ export const localHarnessNotice = (state: LocalHarnessState, home = defaultHarne
     case 'disabled':
       return null;
     case 'missing':
-      return `This copy of Ember did not ship its local agent server (${path.basename(state.binaryPath)} is missing). Add a host in Settings → Instances, or run \`tinder setup\` to install one here.`;
+      return `This copy of Ember did not ship its local Kiln server (${path.basename(state.binaryPath)} is missing). Add a host in Settings → Instances, or run \`tinder setup\` to install one here.`;
     case 'failed':
-      return `The local agent server did not start: ${state.reason}. You can still add a host in Settings → Instances. Log: ${path.join(home, 'kiln.log')}`;
+      return `The local Kiln server did not start: ${state.reason}. You can still add a host in Settings → Instances. Log: ${path.join(home, 'kiln.log')}`;
   }
 };
 

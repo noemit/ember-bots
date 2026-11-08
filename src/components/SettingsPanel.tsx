@@ -256,7 +256,7 @@ const InstanceDefaultsSettings = ({
               <section className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium">Preferred provider</span>
                 <span className="text-[11px] text-muted-foreground">
-                  When no model is pinned, new agents prefer this provider&apos;s models on this
+                  When no model is pinned, new bots prefer this provider&apos;s models on this
                   instance. Useful for a subscription that exists on some devices only.
                 </span>
                 <Select
@@ -348,7 +348,7 @@ const InstanceDefaultsSettings = ({
                 <div className="flex min-w-0 flex-col">
                   <span className="font-medium">Yolo mode by default</span>
                   <span className="text-[11px] text-muted-foreground">
-                    New agents here start with permission prompts auto-accepted.
+                    New bots here start with permission prompts auto-accepted.
                   </span>
                 </div>
                 <Toggle

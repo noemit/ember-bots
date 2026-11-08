@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 
 const startDraft = async (page: import('@playwright/test').Page) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'New agent', exact: true }).first().click();
-  await page.getByRole('button', { name: 'New agent project' }).click();
+  await page.getByRole('button', { name: 'New bot', exact: true }).first().click();
+  await page.getByRole('button', { name: 'New bot project' }).click();
 };
 
 test('choose an existing workspace, search projects, and remember the workspace', async ({ page }) => {
@@ -19,15 +19,15 @@ test('choose an existing workspace, search projects, and remember the workspace'
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.instanceDefaults['pi:hearth']?.workspaceDirectory))).toBe('/Users/alex/Work');
   await dialog.getByRole('combobox', { name: 'Filter projects' }).fill('Website');
   await dialog.getByRole('option', { name: /Website/ }).click();
-  await expect(page.getByRole('button', { name: 'New agent project' })).toHaveText('Website');
-  await expect(page.getByRole('textbox', { name: 'New agent folder' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'New bot project' })).toHaveText('Website');
+  await expect(page.getByRole('textbox', { name: 'New bot folder' })).toHaveCount(0);
   await page.locator('textarea').first().fill('inspect this project');
   await page.locator('textarea').first().press('Enter');
   await expect(page.locator('main[data-session-key]')).toHaveCount(1);
   await expect(page.locator('main[data-session-key]').getByTitle('/Users/alex/Work/Website')).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name: 'New agent', exact: true }).first().click();
-  await page.getByRole('button', { name: 'New agent project' }).click();
+  await page.getByRole('button', { name: 'New bot', exact: true }).first().click();
+  await page.getByRole('button', { name: 'New bot project' }).click();
   await expect(dialog).toContainText('Choose a project');
   await expect(dialog).toContainText('Workspace · Work');
 });
@@ -50,7 +50,7 @@ test('empty folders remain selectable, and an unreadable path offers recovery', 
   await expect(dialog.getByRole('option', { name: 'Users', exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Back to projects' }).click();
   await dialog.getByRole('button', { name: 'Work in docs' }).click();
-  await expect(page.getByRole('button', { name: 'New agent project' })).toHaveText('docs');
+  await expect(page.getByRole('button', { name: 'New bot project' })).toHaveText('docs');
 });
 
 test('setup requires an explicit workspace choice and preserves the model default', async ({ page }) => {
@@ -66,19 +66,19 @@ test('setup requires an explicit workspace choice and preserves the model defaul
   await modelSelect.selectOption(modelKey);
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local']?.model)).toEqual(chosenModel);
   // An explicit model alone must not bypass the workspace choice.
-  await guide.getByRole('button', { name: /First agent/ }).click();
-  await expect(guide.getByRole('button', { name: 'New agent', exact: true })).toBeDisabled();
+  await guide.getByRole('button', { name: /First bot/ }).click();
+  await expect(guide.getByRole('button', { name: 'New bot', exact: true })).toBeDisabled();
   await guide.getByRole('button', { name: 'Choose workspace' }).click();
   const picker = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Choose your workspace' }) });
   await picker.getByRole('button', { name: 'Use this workspace' }).click();
-  await expect(guide.getByRole('button', { name: 'New agent', exact: true })).toBeEnabled();
+  await expect(guide.getByRole('button', { name: 'New bot', exact: true })).toBeEnabled();
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local'])).toMatchObject({
     model: chosenModel, workspaceDirectory: '/workspace',
   });
   await page.screenshot({ path: '/tmp/ember-workspace-setup.png' });
-  await guide.getByRole('button', { name: 'New agent', exact: true }).click();
+  await guide.getByRole('button', { name: 'New bot', exact: true }).click();
   await expect(guide).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'New agent project' })).toHaveText('workspace');
+  await expect(page.getByRole('button', { name: 'New bot project' })).toHaveText('workspace');
 });
 
 test('project selection works from the keyboard and keeps recent projects visible', async ({ page }) => {
@@ -92,7 +92,7 @@ test('project selection works from the keyboard and keeps recent projects visibl
   await search.press('ArrowDown');
   await search.press('Enter');
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'New agent project' })).toHaveText('channels');
+  await expect(page.getByRole('button', { name: 'New bot project' })).toHaveText('channels');
 });
 
 test('Settings uses the same workspace and project choices', async ({ page }) => {
@@ -103,7 +103,7 @@ test('Settings uses the same workspace and project choices', async ({ page }) =>
   const defaults = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: /mock\) defaults/ }) });
   await defaults.getByRole('button', { name: 'Choose workspace' }).click();
   await page.getByRole('button', { name: 'Use this workspace' }).click();
-  await defaults.getByRole('button', { name: 'New agent project' }).click();
+  await defaults.getByRole('button', { name: 'New bot project' }).click();
   await page.getByRole('option', { name: /channels/ }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.instanceDefaults['pi:hearth']))).toMatchObject({
     workspaceDirectory: '/workspace', directory: '/workspace/channels',

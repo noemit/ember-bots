@@ -545,8 +545,8 @@ const unsupportedAttachmentsError = (files: FileAttachment[]) => ({
   data: {
     error:
       files.length === 1
-        ? `Only images can be attached to an ember-harness message (${files[0].filename} is not one) — save the file and ask the agent to read it.`
-        : `Only images can be attached to an ember-harness message (${files.length} files are not images) — save them and ask the agent to read them.`,
+        ? `Only images can be attached to an ember-harness message (${files[0].filename} is not one) — save the file and ask the bot to read it.`
+        : `Only images can be attached to an ember-harness message (${files.length} files are not images) — save them and ask the bot to read them.`,
   },
 });
 

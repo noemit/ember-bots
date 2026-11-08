@@ -988,7 +988,7 @@ const QuestionCard = ({
         <CardContent className="flex flex-col gap-3 p-3.5">
           <div className="flex items-center gap-2">
             <MessageCircleQuestion className="size-4 flex-none text-highlight" />
-            <span className="font-medium">The agent has a question</span>
+            <span className="font-medium">The bot has a question</span>
           </div>
 
           {request.questions.map((question, index) => {
@@ -1263,7 +1263,7 @@ const AskRecord = ({ call }: { call: ToolCall }) => {
     <div className="flex max-w-[85%] flex-col gap-1.5 self-start rounded-lg border border-highlight/30 bg-highlight/[0.04] px-3.5 py-2.5 text-[12.5px]">
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <MessageCircleQuestion className="size-3.5 flex-none text-highlight" />
-        <span>The agent asked</span>
+        <span>The bot asked</span>
       </div>
       <p className="whitespace-pre-wrap">
         <Linkify text={question} />
