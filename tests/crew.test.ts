@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   threadDescendants,
+  workerKeySet,
   threadShelfStatus,
   blockedWorkersAmong,
   brickStatusSignal,
@@ -22,7 +23,7 @@ import {
 import { BUDDY_COLORS } from '../src/blob/buddy';
 import { contrastRatio, identityPaletteFor } from '../src/blob/contrast';
 import { THEMES } from '../src/themes';
-import type { Session } from '../src/types';
+import { sessionKey, type Session } from '../src/types';
 
 /** A session stub; `instanceId` is fixed so keys read `hearth::<id>`. */
 const session = (id: string, extra: Partial<Session> = {}): Session => ({
@@ -472,4 +473,17 @@ test('thread shelf counts direct and nested blockers once and keeps running stat
   const idle = threadShelfStatus([busy], [], () => 'idle');
   expect(idle.summary).toBe('0 / 1');
   expect(idle.detail).toBe('0 of 1 threads running');
+});
+
+test('worker keys cover the crew and leave leaders and plain chats alone', () => {
+  const leader = worker('1', undefined, { kind: 'leader' });
+  const direct = worker('2', '1');
+  const plain = worker('3', undefined, { kind: 'peer' });
+  const sessions = [leader, direct, plain];
+  const keys = workerKeySet(sessions, crewByLeader(sessions));
+  expect(keys.has(sessionKey(direct))).toBe(true);
+  expect(keys.has(sessionKey(leader))).toBe(false);
+  expect(keys.has(sessionKey(plain))).toBe(false);
+  // A crew roster alone is enough: the same key is found when only the roster knows it.
+  expect(workerKeySet([], crewByLeader(sessions)).has(sessionKey(direct))).toBe(true);
 });

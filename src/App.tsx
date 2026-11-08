@@ -158,7 +158,7 @@ import { instancesWithFreshStates, sessionStates } from './lib/sessionState';
 import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups';
 import { upsertGroup } from './lib/sessionGroups';
 import { recoverStrandedNotes } from './lib/notes';
-import { blockedWorkersUnder, crewByLeader, isWorker, leaderNeedsInput } from './lib/crew';
+import { blockedWorkersUnder, crewByLeader, isWorker, leaderNeedsInput, workerKeySet } from './lib/crew';
 import { InvalidationQueue, invalidationsFor, parseEmberEvent, sessionIsLoaded, type Invalidation } from '@/lib/invalidation';
 import { APPLY_STREAM_DELTAS, applyLiveDeltas } from '@/lib/liveStream';
 import {
@@ -1337,7 +1337,25 @@ export default function App() {
     return keys;
   }, [unreadSessions, unreadDigests.digests, readMarks, settings.mutedSessions]);
 
-  const quietKeys = React.useMemo(() => new Set(settings.mutedSessions ?? []), [settings.mutedSessions]);
+  /**
+   * Sessions with no unread management at all: every worker, at every depth.
+   *
+   * A worker is not a place a person reads; it is a thread a leader reads for them. Its unread state
+   * was invisible everywhere (the rail hides workers, the digest skips them), so the switch that
+   * governed it was a control with no observable effect. `kind` is not always on a worker's summary,
+   * so the crew roster is what decides, exactly as the Threads shelf is drawn from it.
+   */
+  const workerKeys = React.useMemo(
+    () => workerKeySet(Object.values(sessionsByInstance).flat(), crewWorkers),
+    [sessionsByInstance, crewWorkers]
+  );
+
+  const quietKeys = React.useMemo(() => {
+    const keys = new Set(settings.mutedSessions ?? []);
+    // Workers are permanently quiet: no indicator, no per-message read marks, no option.
+    for (const key of workerKeys) keys.add(key);
+    return keys;
+  }, [settings.mutedSessions, workerKeys]);
 
   const failedSessionKeys = React.useMemo(() => {
     const keys = new Set<string>();
@@ -4983,12 +5001,17 @@ export default function App() {
           onSaveInstructions={saveInstructionsFor}
           onBypassChange={(enabled) => void setYolo(ref, enabled, session.directory)}
           onStopProcesses={handleStopProcesses}
-          {...(viewReadMark ? { readMark: viewReadMark } : {})}
-          onMarkMessageRead={handleMarkMessageReadInColumn}
-          onUndoMarkMessageRead={handleUndoMarkMessageReadInColumn}
-          onMarkAllRead={handleMarkAllRead}
-          onQuietChange={handleQuietChange}
-          notificationsMuted={quietKeys.has(sessionKey(session))}
+          // No unread management on a worker: no marks to draw, no control to move them.
+          {...(viewReadMark && !workerKeys.has(key) ? { readMark: viewReadMark } : {})}
+          {...(workerKeys.has(key)
+            ? {}
+            : {
+                onMarkMessageRead: handleMarkMessageReadInColumn,
+                onUndoMarkMessageRead: handleUndoMarkMessageReadInColumn,
+                onMarkAllRead: handleMarkAllRead,
+                onQuietChange: handleQuietChange,
+              })}
+          notificationsMuted={quietKeys.has(key)}
           processExtensions={processExtensions}
           onExtendProcesses={extendProcesses}
           onNewSessionInstanceChange={() => {}}

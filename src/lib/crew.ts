@@ -56,6 +56,23 @@ export const threadDescendants = (leader: Session, crews: ReadonlyMap<string, re
 };
 
 /**
+ * Every worker's key, at any depth.
+ *
+ * A worker has no unread management: it is a thread its leader reads, not a place a person reads.
+ * Its summary does not always carry `kind`, so the crew roster decides too — the same source the
+ * Threads shelf is drawn from.
+ */
+export const workerKeySet = (
+  sessions: readonly Session[],
+  crews: ReadonlyMap<string, readonly Session[]>
+): Set<string> => {
+  const keys = new Set<string>();
+  for (const session of sessions) if (isWorker(session)) keys.add(sessionKey(session));
+  for (const workers of crews.values()) for (const worker of workers) keys.add(sessionKey(worker));
+  return keys;
+};
+
+/**
  * The shelf counts a blocked descendant once even when it is also a direct thread.
  *
  * The tab reads "running / total" — two numbers that answer "how much is happening" and "how much

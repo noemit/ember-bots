@@ -1,6 +1,10 @@
 ## Unreleased
 
 ### Changed
+- Worker threads have no unread management: no notify switch, no per-message read controls. A
+  thread is something its leader reads, not a place a person does.
+
+### Changed
 - The Threads tab above the composer reads running over total ("3 / 8") instead of naming
   "running" and "needs you"; the tray's dot still flags a thread waiting on you.
 
