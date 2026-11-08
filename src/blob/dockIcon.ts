@@ -11,8 +11,8 @@ type BlobComponent = React.ComponentType<{
   interactive?: boolean;
 }>;
 
-export const loadBlobComponent = async (requestedStyle: BlobStyle): Promise<BlobComponent> => {
-  const style = effectiveBlobStyle(requestedStyle);
+export const loadBlobComponent = async (requestedStyle: BlobStyle, identity?: Pick<AvatarIdentity, 'style'>): Promise<BlobComponent> => {
+  const style = effectiveBlobStyle(requestedStyle, identity);
   if (style === 'mosaic') return (await import('./MosaicBlob')).default;
   if (style === 'lava') return (await import('./LavaBlob')).default;
   if (style === 'crystal') return (await import('./CrystalBlob')).default;
@@ -79,7 +79,7 @@ export const renderDockIcon = async (
   mood: BallMood
 ): Promise<string> => {
   const blobSize = TILE * 0.7;
-  const Component = await loadBlobComponent(style);
+  const Component = await loadBlobComponent(style, identity);
   const image = await loadImage(
     `data:image/svg+xml;charset=utf-8,${encodeURIComponent(blobSvg(Component, identity, mood, blobSize))}`
   );

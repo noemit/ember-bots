@@ -1,3 +1,4 @@
+import { effectiveBlobStyle } from './styles';
 import { IDENTITY_COLORS } from './contrast';
 import { BUDDY_COLORS } from './buddy';
 import { hashString, mulberry32, seedIdentity } from './seed';
@@ -11,11 +12,7 @@ import type { AvatarIdentity, BlobStyle } from '../types';
 export const blobColor = (style: BlobStyle, seedOrIdentity: string | AvatarIdentity): string => {
   const identity = typeof seedOrIdentity === 'string' ? seedIdentity(seedOrIdentity) : seedOrIdentity;
   if (identity.color) return identity.color;
-  switch (style) {
-    case 'scribble': {
-      const index = identity.colorIndex ?? hashString(`scribble:${identity.colorSeed}`) % IDENTITY_COLORS.length;
-      return `var(--blob-${Math.abs(index) % IDENTITY_COLORS.length})`;
-    }
+  switch (effectiveBlobStyle(style, identity)) {
     case 'mosaic': {
       const index = identity.colorIndex ?? hashString(`mosaic:${identity.colorSeed}`) % IDENTITY_COLORS.length;
       return `var(--blob-${Math.abs(index) % IDENTITY_COLORS.length})`;

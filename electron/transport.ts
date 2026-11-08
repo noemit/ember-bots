@@ -118,6 +118,9 @@ export type StoredAvatarAssignment = {
 };
 
 export type StoredAvatarOverride = {
+  /** Frozen draft geometry; explicit choices outrank automatic assignments. */
+  shapeSeed?: string;
+  style?: BlobStyle;
   colorIndex?: number;
   /** An explicit custom colour, stored as six-digit hex. */
   color?: string;
@@ -481,6 +484,9 @@ export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvata
       .slice(0, 2000)
       .map(([key, raw]) => {
         const entry = raw as Record<string, unknown>;
+        const style = isBlobStyle(entry.style) ? entry.style : undefined;
+        const shapeSeed = typeof entry.shapeSeed === 'string' && entry.shapeSeed.trim().length > 0 && entry.shapeSeed.length <= 200
+          ? entry.shapeSeed : undefined;
         const colorIndex = Number.isInteger(entry.colorIndex) && Number(entry.colorIndex) >= 0 && Number(entry.colorIndex) < AVATAR_COLOR_COUNT
           ? Number(entry.colorIndex)
           : undefined;
@@ -491,12 +497,14 @@ export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvata
         // Optional traits must stay absent. Explicit undefined properties survive IPC and can
         // otherwise erase a broader scope's colour/shape in the renderer.
         return [key, {
+          ...(style !== undefined ? { style } : {}),
+          ...(shapeSeed !== undefined ? { shapeSeed } : {}),
           ...(colorIndex !== undefined ? { colorIndex } : {}),
           ...(color !== undefined ? { color } : {}),
           ...(shapeName !== undefined ? { shapeName } : {}),
         }] as const;
       })
-      .filter(([, entry]) => entry.colorIndex !== undefined || entry.color !== undefined || entry.shapeName !== undefined)
+      .filter(([, entry]) => entry.shapeSeed !== undefined || entry.style !== undefined || entry.colorIndex !== undefined || entry.color !== undefined || entry.shapeName !== undefined)
   );
 };
 

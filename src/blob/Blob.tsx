@@ -21,7 +21,7 @@ type Props = {
 
 /** Picks the blob renderer for the active style so callers don't care which is on. */
 export default function Blob({ style: requestedStyle, ...rest }: Props) {
-  const style = effectiveBlobStyle(requestedStyle);
+  const style = effectiveBlobStyle(requestedStyle, rest.identity);
   // Renderers memoize on the identity reference; a fresh object per render would defeat that.
   const identity = React.useMemo(
     () => rest.identity ?? seedIdentity(rest.seed),

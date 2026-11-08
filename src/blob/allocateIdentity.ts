@@ -16,8 +16,8 @@ const shapesFor = (style: ActiveBlobStyle): readonly { name: string }[] => ({
 })[style];
 
 /** Same archetype draws as the renderers, without generating their paths or textures. */
-export const identityShape = (requestedStyle: BlobStyle, identity: Pick<AvatarIdentity, 'shapeSeed' | 'shapeName'>): string => {
-  const style = effectiveBlobStyle(requestedStyle);
+export const identityShape = (requestedStyle: BlobStyle, identity: Pick<AvatarIdentity, 'shapeSeed' | 'shapeName' | 'style'>): string => {
+  const style = effectiveBlobStyle(requestedStyle, identity);
   const shapes = shapesFor(style);
   if (shapes.some(shape => shape.name === identity.shapeName)) return identity.shapeName!;
   const seed = hashString(`${style}:${identity.shapeSeed}`);
@@ -40,7 +40,7 @@ export const allocateAvatar = (
   palette: readonly string[] = IDENTITY_COLORS,
   override: AvatarOverride = {},
 ): AvatarAssignment => {
-  const style = effectiveBlobStyle(requestedStyle);
+  const style = effectiveBlobStyle(requestedStyle, override);
   // Poll ordering must not affect floating-point accumulation or deterministic tie breaks.
   const peers = [...active].sort((a, b) => a.sessionKey.localeCompare(b.sessionKey));
   const colors = peers.map(identity => identity.color ?? palette[identity.colorIndex ?? hashString(`avatar-color:${identity.sessionKey}`) % AVATAR_COLOR_COUNT]);
@@ -58,7 +58,9 @@ export const allocateAvatar = (
   // A chosen project/session colour wins; vary shape against that colour, not an unused fallback.
   const chosenColor = override.color ?? palette[override.colorIndex ?? colorIndex];
   const shapes = shapesFor(style);
-  const peerShapes = peers.map(identity => identityShape(style, identity));
+  // Shape names are local to each style; a 'cloud' in another style is not this silhouette.
+  const peerShapes = peers.map(identity => effectiveBlobStyle(requestedStyle, identity) === style
+    ? identityShape(requestedStyle, identity) : undefined);
   const nearby = colors.map(color => perceptualDistance(chosenColor, color) < .15);
   // Once shapes are exhausted, avoid a same-colour/same-shape pair before balancing reuse.
   const rankedShapes = shapes.map(shape => ({

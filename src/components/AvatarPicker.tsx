@@ -4,7 +4,7 @@ import { IDENTITY_COLORS, identityPaletteFor } from '../blob/contrast';
 import { themeById } from '../themes';
 import { CRYSTAL_SHAPES } from '../blob/crystal';
 import { BUDDY_SHAPES } from '../blob/buddy';
-import { effectiveBlobStyle } from '../blob/styles';
+import { ACTIVE_BLOB_STYLES, effectiveBlobStyle, type ActiveBlobStyle } from '../blob/styles';
 import { MOSAIC_SHAPES } from '../blob/mosaic';
 import { LAVA_SHAPES } from '../blob/lava';
 import { cn } from '@/lib/utils';
@@ -33,21 +33,39 @@ type Props = {
   title: string;
   style: BlobStyle;
   theme: string;
+  allowStyleChoice?: boolean;
   resolvePreview: (scopeKey: string, override: AvatarOverride) => AvatarIdentity;
   identity: AvatarIdentity;
   scopes: Scope[];
   overrides: Record<string, AvatarOverride>;
-  onSave: (scopeKey: string, override: AvatarOverride | null) => void;
+  onSave: (scopeKey: string, override: AvatarOverride | null, preview: AvatarIdentity) => void;
   onOpenChange: (open: boolean) => void;
 };
 
 const COLOR_COUNT = IDENTITY_COLORS.length;
+
+const shapesForStyle = (style: ActiveBlobStyle): string[] => {
+  const shapes = style === 'crystal' ? CRYSTAL_SHAPES
+    : style === 'buddy' ? BUDDY_SHAPES
+      : style === 'lava' ? LAVA_SHAPES : MOSAIC_SHAPES;
+  return shapes.map((shape) => shape.name);
+};
+
+/** A style choice belongs to this override, never the global appearance preference. */
+export function pickerStyleDraft(draft: AvatarOverride, style: ActiveBlobStyle, currentShapeName?: string): AvatarOverride {
+  const next = { ...draft, style };
+  const shapeName = draft.shapeName ?? currentShapeName;
+  // Mask the frozen preview base too: deleting this field would inherit its old shape again.
+  if (shapeName !== undefined) next.shapeName = shapesForStyle(style).includes(shapeName) ? shapeName : 'automatic';
+  return next;
+}
 
 export default function AvatarPicker({
   open,
   title,
   style: storedStyle,
   theme,
+  allowStyleChoice = false,
   resolvePreview,
   identity,
   scopes,
@@ -55,21 +73,12 @@ export default function AvatarPicker({
   onSave,
   onOpenChange,
 }: Props) {
-  const style = effectiveBlobStyle(storedStyle);
   const colors = React.useMemo(() => {
     const palette = themeById(theme).palette;
     return identityPaletteFor([palette.panel, palette.elev, palette.bg]);
   }, [theme]);
   const [scopeKey, setScopeKey] = React.useState(scopes[0]?.key ?? '');
   const [draft, setDraft] = React.useState<AvatarOverride>({});
-  const shapes =
-    style === 'crystal'
-      ? CRYSTAL_SHAPES.map((shape) => shape.name)
-      : style === 'buddy'
-        ? BUDDY_SHAPES.map((shape) => shape.name)
-        : style === 'lava'
-          ? LAVA_SHAPES.map((shape) => shape.name)
-          : MOSAIC_SHAPES.map((shape) => shape.name);
 
   const firstScopeKey = scopes[0]?.key ?? '';
   const scopeKind = scopes.find((scope) => scope.key === scopeKey)?.kind ?? 'session';
@@ -90,10 +99,12 @@ export default function AvatarPicker({
   const previewIdentity = (patch: AvatarOverride): AvatarIdentity =>
     resolvePreview(scopeKey, { ...draft, ...patch });
   const preview = previewIdentity({});
+  const style = effectiveBlobStyle(storedStyle, preview);
+  const shapes = shapesForStyle(style);
   const previewColor = preview.color ?? colors[preview.colorIndex ?? 0];
   const chosenColor = draft.color ?? (draft.colorIndex !== undefined ? colors[draft.colorIndex] : previewColor);
   const colorOverridden = scopeKind !== 'session' && chosenColor !== previewColor;
-  const hasOverride = draft.color !== undefined || draft.colorIndex !== undefined || draft.shapeName !== undefined;
+  const hasOverride = draft.style !== undefined || draft.color !== undefined || draft.colorIndex !== undefined || draft.shapeName !== undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -119,7 +130,9 @@ export default function AvatarPicker({
               </Select>
             </div>
             <span className="text-[11px] text-muted-foreground">
-              {scopeKind === 'project'
+              {allowStyleChoice
+                ? 'Only this new bot uses these choices. Existing bots won’t change.'
+                : scopeKind === 'project'
                 ? 'Shared by every session in this project or folder.'
                 : scopeKind === 'task'
                   ? 'Used only by this scheduled task.'
@@ -146,6 +159,28 @@ export default function AvatarPicker({
               ) : null}
             </div>
           </div>
+
+          {allowStyleChoice ? (
+            <div role="group" aria-label="Bot style" className="flex flex-col gap-2">
+              <span className="text-xs font-medium">Bot style</span>
+              <div className="grid grid-cols-4 gap-2">
+                {ACTIVE_BLOB_STYLES.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={style === option}
+                    onClick={() => setDraft((prev) => pickerStyleDraft(prev, option, preview.shapeName))}
+                    className={cn(
+                      'min-h-10 rounded-lg border text-xs transition-colors hover:bg-muted',
+                      style === option && 'border-highlight bg-muted ring-2 ring-highlight/30'
+                    )}
+                  >
+                    {option[0].toUpperCase() + option.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <section className="flex flex-col gap-2">
             <span className="text-xs font-medium">Color</span>
@@ -215,7 +250,7 @@ export default function AvatarPicker({
             variant="outline"
             disabled={!overrides[scopeKey]}
             onClick={() => {
-              onSave(scopeKey, null);
+              onSave(scopeKey, null, resolvePreview(scopeKey, {}));
               onOpenChange(false);
             }}
           >
@@ -224,7 +259,7 @@ export default function AvatarPicker({
           <Button
             disabled={!scopeKey || !hasOverride}
             onClick={() => {
-              onSave(scopeKey, draft);
+              onSave(scopeKey, draft, preview);
               onOpenChange(false);
             }}
           >

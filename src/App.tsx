@@ -9,6 +9,7 @@ import * as React from 'react';
 import { WorkspaceConnection } from './components/workspaceConnection';
 import { blobColor } from './blob/color';
 import { effectiveBlobStyle } from './blob/styles';
+import { withSessionAppearance } from './lib/draftAppearance';
 import { MotionConfig } from 'motion/react';
 import InstanceBar from './components/InstanceBar';
 import LeftRail from './components/LeftRail';
@@ -180,6 +181,7 @@ import { DEFAULT_MODEL, modelRefKey, SESSION_WINDOWS, sessionKey } from './types
 import type {
   AvatarIdentity,
   AvatarOverride,
+  DraftAppearance,
   BallMood,
   BallState,
   ChatMessage,
@@ -277,7 +279,8 @@ const sameIdentity = (a: AvatarIdentity, b: AvatarIdentity): boolean =>
   a.motionSeed === b.motionSeed &&
   a.colorIndex === b.colorIndex &&
   a.color === b.color &&
-  a.shapeName === b.shapeName;
+  a.shapeName === b.shapeName &&
+  a.style === b.style;
 
 const sameStringRecord = (a: Record<string, string>, b: Record<string, string>): boolean => {
   const keys = Object.keys(a);
@@ -398,11 +401,12 @@ export default function App() {
    * `mutatePendingCreates`, so it and the state never disagree.
    */
   const [pendingCreates, setPendingCreates] = React.useState<PendingCreate[]>([]);
+  const [draftAppearance, setDraftAppearance] = React.useState<DraftAppearance | null>(null);
   const pendingCreatesRef = React.useRef<PendingCreate[]>([]);
   // A sent draft reserves its appearance until the host returns its real id (including retries).
   const pendingAvatars = React.useRef(new Map<string, import('./types').AvatarAssignment>());
   const identityDiscovery = React.useRef<SessionDiscoveryState>({});
-  const avatarReservations = React.useRef(new Map<string, { session: Session; assignment: import('./types').AvatarAssignment }>());
+  const avatarReservations = React.useRef(new Map<string, { session: Session; assignment: import('./types').AvatarAssignment; appearance?: AvatarOverride }>());
   const [draftPendingId, setDraftPendingIdState] = React.useState<string | null>(null);
   const draftPendingIdRef = React.useRef<string | null>(null);
   /**
@@ -1472,25 +1476,28 @@ export default function App() {
         current.scheduledSessionBindings, current.avatarOverrides, current.avatarAssignments[key]));
     }
     for (const [key, reservation] of avatarReservations.current) {
-      const { session: reserved, assignment } = reservation;
+      const { session: reserved, assignment, appearance } = reservation;
       pool.set(key, resolveAvatarIdentity(reserved, projectsByInstance[reserved.instanceId] ?? [],
-        current.scheduledSessionBindings, current.avatarOverrides, assignment));
+        current.scheduledSessionBindings, withSessionAppearance(reserved, current.avatarOverrides, appearance), assignment));
     }
     pool.delete(sessionKey(session));
     return allocateAvatar('new-bot', [...pool.values()], current.blobStyle, allocationPalette,
       avatarAppearanceOverride(session, projectsByInstance[session.instanceId] ?? [], current.scheduledSessionBindings, current.avatarOverrides));
   }, [allocationPalette, projectsByInstance, settingsRef]);
-  const reserveIdentity = (session: Session, assignment: import('./types').AvatarAssignment, reservationKey = sessionKey(session)) => {
+  const reserveIdentity = (session: Session, assignment: import('./types').AvatarAssignment, reservationKey = sessionKey(session), appearance?: AvatarOverride) => {
     // Keep inputs, not resolved colours: a folder's override can change while its create waits.
-    avatarReservations.current.set(reservationKey, { session, assignment });
+    avatarReservations.current.set(reservationKey, { session, assignment, appearance });
   };
-  const saveNewAvatarAssignment = useStableCallback((session: Session, assignment?: import('./types').AvatarAssignment) => {
+  const saveNewAvatarAssignment = useStableCallback((session: Session, assignment?: import('./types').AvatarAssignment, appearance?: AvatarOverride) => {
     const key = sessionKey(session);
-    if (!competesForIdentity(session) || settingsRef.current.avatarAssignments[key]) return;
-    const chosen = assignment ?? allocateFor(session);
+    if (!competesForIdentity(session) || (settingsRef.current.avatarAssignments[key] && !appearance)) return;
+    const chosen = settingsRef.current.avatarAssignments[key] ?? assignment ?? allocateFor(session);
     // Synchronous reservation closes the gap before React renders concurrent create/promote replies.
-    reserveIdentity(session, chosen);
-    handleSettings({ avatarAssignments: { ...settingsRef.current.avatarAssignments, [key]: chosen } }, { preserveActionError: true });
+    reserveIdentity(session, chosen, key, appearance);
+    handleSettings({
+      avatarAssignments: { ...settingsRef.current.avatarAssignments, [key]: chosen },
+      ...(appearance ? { avatarOverrides: withSessionAppearance(session, settingsRef.current.avatarOverrides, appearance) } : {}),
+    }, { preserveActionError: true });
   });
   // avatarIdentities keeps stable references, and the fallback is memoized on the key, so this
   // is safe to use directly as an effect dependency.
@@ -1506,11 +1513,11 @@ export default function App() {
     void occupiedIdentities;
     void pendingCreates;
     void settings.blobStyle;
-    return (instanceId: string, directory: string): AvatarIdentity => {
+    return (instanceId: string, directory: string, appearance?: DraftAppearance | null): AvatarIdentity => {
       const session = { id: `draft:${instanceId}`, instanceId, directory };
       return resolveAvatarIdentity(session, projectsByInstance[instanceId] ?? [],
-        settings.scheduledSessionBindings, settings.avatarOverrides,
-        pendingAvatars.current.get(draftPendingId ?? '') ?? allocateFor(session));
+        settings.scheduledSessionBindings, withSessionAppearance(session, settings.avatarOverrides, appearance?.override),
+        appearance?.assignment ?? pendingAvatars.current.get(draftPendingId ?? '') ?? allocateFor(session));
     };
   }, [projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides, settings.blobStyle, draftPendingId, occupiedIdentities, pendingCreates, allocateFor]);
   const avatarPickerIdentity = avatarPickerSession
@@ -3019,6 +3026,7 @@ export default function App() {
 
   const beginNewAgent = React.useCallback((instanceId: string, directory?: string) => {
     showActionError(null);
+    setDraftAppearance(null);
     // Keep the open columns; the draft simply takes the active pane (no session key yet). A
     // project's `+` passes its directory so the draft starts there instead of the instance default.
     setActiveSession(null);
@@ -3060,7 +3068,13 @@ export default function App() {
     // is still being created does not: the session may already exist, and an orphan is worse than
     // the wait. It finishes in the background and says so.
     const id = draftPendingIdRef.current;
+    setDraftAppearance(null);
     if (id) {
+      if (pendingCreateById(id)?.phase === 'failed') {
+        pendingAvatars.current.delete(id);
+        avatarReservations.current.delete(`pending:${id}`);
+        createBaselines.current.delete(id);
+      }
       mutatePendingCreates((previous) =>
         previous.filter((entry) => !(entry.id === id && entry.phase === 'failed'))
       );
@@ -3208,7 +3222,7 @@ export default function App() {
     if (!pending) return;
     const { options } = pending;
     const session = created;
-    saveNewAvatarAssignment(session, pendingAvatars.current.get(id));
+    saveNewAvatarAssignment(session, pendingAvatars.current.get(id), options.appearance?.override);
     avatarReservations.current.delete(`pending:${id}`);
     const ref = { instanceId: options.instanceId, sessionId: session.id };
     const now = Date.now();
@@ -3262,7 +3276,7 @@ export default function App() {
     dropPendingCreate(id);
     // Only drop the pane reference if it still points at *this* attempt: the person may have
     // started another draft while this one was in flight, and that one is not this one's to close.
-    if (draftPendingIdRef.current === id) setDraftPendingId(null);
+    if (draftPendingIdRef.current === id) { setDraftPendingId(null); setDraftAppearance(null); }
     if (showing) {
       openSession(ref, session);
     } else {
@@ -3315,7 +3329,7 @@ export default function App() {
         restartPendingCreate(holdPendingMessage(entry, message), options)
       );
       const assignment = pendingAvatars.current.get(existing.id);
-      if (assignment) reserveIdentity({ id: existing.id, instanceId: options.instanceId, directory: options.directory }, assignment, `pending:${existing.id}`);
+      if (assignment) reserveIdentity({ id: existing.id, instanceId: options.instanceId, directory: options.directory }, assignment, `pending:${existing.id}`, options.appearance?.override);
       void runPendingCreate(existing.id);
       return true;
     }
@@ -3327,9 +3341,9 @@ export default function App() {
       createdAt,
     });
     const pendingSession = { id: pending.id, instanceId: options.instanceId, directory: options.directory };
-    const assignment = allocateFor(pendingSession);
+    const assignment = options.appearance?.assignment ?? allocateFor(pendingSession);
     pendingAvatars.current.set(pending.id, assignment);
-    reserveIdentity(pendingSession, assignment, `pending:${pending.id}`);
+    reserveIdentity(pendingSession, assignment, `pending:${pending.id}`, options.appearance?.override);
     mutatePendingCreates((previous) => [...previous, pending]);
     createBaselines.current.set(
       pending.id,
@@ -3375,7 +3389,7 @@ export default function App() {
     if (!pending) return;
     updatePendingCreate(id, (entry) => restartPendingCreate(entry, options));
     const assignment = pendingAvatars.current.get(id);
-    if (assignment) reserveIdentity({ id, instanceId: options.instanceId, directory: options.directory }, assignment, `pending:${id}`);
+    if (assignment) reserveIdentity({ id, instanceId: options.instanceId, directory: options.directory }, assignment, `pending:${id}`, options.appearance?.override);
     setDraftPendingId(id);
     const orphan = await adoptOrphanedCreate(pending, options);
     if (orphan) {
@@ -3387,6 +3401,7 @@ export default function App() {
 
   /** Put a refused create's message back in the composer to edit; App keeps nothing of it. */
   const handleEditCreate = (id: string) => {
+    setDraftAppearance(pendingCreateById(id)?.options.appearance ?? null);
     avatarReservations.current.delete(`pending:${id}`);
     pendingAvatars.current.delete(id);
     dropPendingCreate(id);
@@ -5362,6 +5377,9 @@ export default function App() {
                   recentModels={recentModels}
                   sending={draftPendingCreate?.phase === 'creating'}
                   pendingCreate={draftPendingCreate}
+                  draftAppearance={draftPendingCreate ? draftPendingCreate.options.appearance ?? null : draftAppearance}
+                  onDraftAppearanceChange={setDraftAppearance}
+                  draftAppearanceTheme={settings.theme}
                   onRetryCreate={handleRetryCreate}
                   onEditCreate={handleEditCreate}
                   onSaveDraftNote={(text) => {

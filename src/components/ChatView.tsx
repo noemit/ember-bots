@@ -8,6 +8,7 @@ import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, EyeOff, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
+import { freezeDraftAppearance, previewDraftAppearance } from '../lib/draftAppearance';
 import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
 import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
@@ -43,6 +44,7 @@ import {
 } from '@/components/ui/select';
 import type {
   AvatarIdentity,
+  DraftAppearance,
   BallState,
   BallMood,
   BlobStyle,
@@ -92,6 +94,7 @@ const ModelPicker = React.lazy(loadModelPicker);
 const Transcript = React.lazy(() => import('./Transcript'));
 const SessionNotes = React.lazy(() => import('./SessionNotes'));
 const ProjectPicker = React.lazy(() => import('./ProjectPicker'));
+const AvatarPicker = React.lazy(() => import('./AvatarPicker'));
 const QueuedMessageList = React.lazy(() => import('./QueuedMessageList'));
 
 const TranscriptFallback = () => (
@@ -148,7 +151,10 @@ type Props = {
    */
   identityFor?: (session: Session) => AvatarIdentity | undefined;
   /** Resolves the blob a new-agent draft will get from its target folder (project colour + override). */
-  resolveDraftIdentity: (instanceId: string, directory: string) => AvatarIdentity;
+  resolveDraftIdentity: (instanceId: string, directory: string, appearance?: DraftAppearance | null) => AvatarIdentity;
+  draftAppearance?: DraftAppearance | null;
+  onDraftAppearanceChange?: (appearance: DraftAppearance | null) => void;
+  draftAppearanceTheme?: string;
   state: BallState;
   mood: BallMood;
   blobStyle: BlobStyle;
@@ -444,6 +450,9 @@ function ChatView({
   identity,
   identityFor,
   resolveDraftIdentity,
+  draftAppearance,
+  onDraftAppearanceChange,
+  draftAppearanceTheme = 'stone',
   state,
   mood,
   blobStyle,
@@ -642,6 +651,8 @@ function ChatView({
    */
   const [instructions, setInstructions] = React.useState('');
   const [instructionsOpen, setInstructionsOpen] = React.useState(false);
+  const [draftAppearanceOpen, setDraftAppearanceOpen] = React.useState(false);
+  const [draftPickerBase, setDraftPickerBase] = React.useState<AvatarIdentity | null>(null);
   const [instructionsDraft, setInstructionsDraft] = React.useState('');
   /** What an existing session has, once the dialog has read it. Keyed, so switching columns is safe. */
   const [instructionsByKey, setInstructionsByKey] = React.useState<Record<string, string>>({});
@@ -702,8 +713,8 @@ function ChatView({
   const [yeet, setYeet] = React.useState(() => readYeet(composerKey));
   // The draft's blob follows the folder picker, so it previews the destination project's blob.
   const draftIdentity = React.useMemo(
-    () => (draftInstance ? resolveDraftIdentity(draftInstance.id, draftDirectory) : undefined),
-    [draftInstance, draftDirectory, resolveDraftIdentity]
+    () => (draftInstance ? resolveDraftIdentity(draftInstance.id, draftDirectory, draftAppearance) : undefined),
+    [draftInstance, draftDirectory, draftAppearance, resolveDraftIdentity]
   );
   const draftTouchedRef = React.useRef<{ directory: boolean; bypass: boolean }>({ directory: false, bypass: false });
 
@@ -1027,6 +1038,7 @@ function ChatView({
           model: model ? { providerID: model.providerID, modelID: model.modelID } : undefined,
           variant: variantValue || undefined,
           bypass: draftBypass,
+          ...(draftAppearance ? { appearance: draftAppearance } : {}),
           ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
         }
       : null;
@@ -1821,7 +1833,11 @@ function ChatView({
           >
             {draftInstance ? (
               <>
-                <Blob style={blobStyle} seed={`new:${draftInstance.id}`} identity={draftIdentity} size={48} interactive />
+                <button type="button" aria-label="Customize new bot appearance"
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4"
+                  onClick={() => { if (draftIdentity) { setDraftPickerBase(draftIdentity); setDraftAppearanceOpen(true); } }}>
+                  <Blob style={blobStyle} seed={`new:${draftInstance.id}`} identity={draftIdentity} size={48} interactive />
+                </button>
                 <div className="flex flex-col items-center gap-1 text-center">
                   <span className="text-[13px] font-medium text-foreground">New bot on {draftInstance.label}</span>
                   <span className="max-w-[420px] truncate text-xs">
@@ -2854,6 +2870,20 @@ function ChatView({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {draftInstance && draftPickerBase && onDraftAppearanceChange ? (
+        <React.Suspense fallback={null}>
+        <AvatarPicker open={draftAppearanceOpen} onOpenChange={setDraftAppearanceOpen}
+          title="New bot" style={blobStyle} theme={draftAppearanceTheme} allowStyleChoice
+          identity={draftPickerBase}
+          scopes={[{ key: 'new-bot', label: 'This new bot', kind: 'session' }]}
+          overrides={draftAppearance ? { 'new-bot': draftAppearance.override } : {}}
+          resolvePreview={(_scope, override) => previewDraftAppearance(draftPickerBase, override)}
+          onSave={(_scope, override, preview) => {
+            onDraftAppearanceChange(override ? freezeDraftAppearance(preview, blobStyle) : null);
+            setDraftAppearanceOpen(false);
+          }} />
+        </React.Suspense>
+      ) : null}
       <Dialog open={instructionsOpen} onOpenChange={setInstructionsOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

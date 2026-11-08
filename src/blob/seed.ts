@@ -139,6 +139,8 @@ export const avatarAppearanceOverride = (
     // Treat missing and undefined identically, including values delivered by older desktops.
     if (choice.color !== undefined) override.color = choice.color;
     if (choice.colorIndex !== undefined) override.colorIndex = choice.colorIndex;
+    if (choice.shapeSeed !== undefined) override.shapeSeed = choice.shapeSeed;
+    if (choice.style !== undefined) override.style = choice.style;
     if (choice.shapeName !== undefined) override.shapeName = choice.shapeName;
   }
   return override;
@@ -162,11 +164,12 @@ export const resolveAvatarIdentity = (
     colorSeed: key,
     // Scheduled runs intentionally share a task silhouette, even if the binding arrives after
     // an automatic assignment. Per-session/task shape overrides still win in the renderer.
-    shapeSeed: taskKey ?? assignment?.shapeSeed ?? key,
+    shapeSeed: override.shapeSeed ?? taskKey ?? assignment?.shapeSeed ?? key,
     motionSeed: key,
     colorIndex: override.colorIndex ?? assignment?.colorIndex ?? hashString(`avatar-color:${key}`) % AVATAR_COLOR_COUNT,
     color: override.color,
     shapeName: override.shapeName,
+    style: override.style,
   };
 };
 

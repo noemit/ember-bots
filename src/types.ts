@@ -68,6 +68,8 @@ export type InstanceDefaults = {
 };
 
 export type NewSessionOptions = {
+  /** Client-only frozen draft appearance, saved locally rather than sent upstream. */
+  appearance?: DraftAppearance;
   instanceId: string;
   directory: string;
   model?: ModelRef;
@@ -251,7 +253,16 @@ export type AvatarAssignment = {
   shapeSeed: string;
 };
 
+/** A saved draft preview: explicit traits plus the automatic colour and geometry assignment. */
+export type DraftAppearance = {
+  override: AvatarOverride;
+  assignment: AvatarAssignment;
+};
+
 export type AvatarOverride = {
+  /** Frozen draft geometry; explicit choices outrank automatic assignments. */
+  shapeSeed?: string;
+  style?: BlobStyle;
   colorIndex?: number;
   /** An explicit custom colour, stored as six-digit hex. */
   color?: string;
@@ -259,6 +270,7 @@ export type AvatarOverride = {
 };
 
 export type AvatarIdentity = {
+  style?: BlobStyle;
   sessionKey: string;
   projectKey?: string;
   taskKey?: string;
