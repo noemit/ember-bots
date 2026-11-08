@@ -94,131 +94,130 @@ export const toolMenuOptions = (
  * bundle their foldable tool calls into a single "Used N tools" rollup.
  */
 export type BundlableToolMessage = {
+  id: string;
   role: 'user' | 'assistant';
   error?: string;
   parts: readonly {
     type: string;
-    call?: {
-      tool: string;
-      images?: unknown[];
-    };
+    text?: string;
+    call?: { id?: string; tool: string; status?: string; images?: unknown[] };
   }[];
 };
 
-/**
- * True when an assistant message has foldable tool calls and no visible prose, file attachments,
- * Q&A (`ask`), image-carrying tools, or visible reasoning — so its only visible representation in
- * `collapsed` mode is a `ToolRollup` line ("Used 1 tool").
- *
- * When several such steps appear one after another before the next prose step, bundling them into
- * the following assistant step (or the last tool step of the run) produces a single "Used 3 tools"
- * line instead of repeating "Used 1 tool" on every step.
- */
+/** Only invisible text/reasoning may accompany a foldable run. Images and errors stay inline. */
 export const isPureFoldableToolStep = (
   message: BundlableToolMessage,
   options: { reasoningHidden?: boolean; showQuestions?: boolean } = {}
 ): boolean => {
   if (message.role !== 'assistant' || message.error) return false;
-  let hasFoldableTool = false;
+  let hasTool = false;
   for (const part of message.parts) {
-    if (part.type === 'text' || part.type === 'file') return false;
-    if (part.type === 'reasoning' && !options.reasoningHidden) return false;
+    if (part.type === 'file' || (part.type === 'text' && part.text?.trim())) return false;
+    if (part.type === 'reasoning' && part.text?.trim() && !options.reasoningHidden) return false;
     if (part.type === 'tool') {
       if (part.call?.tool === 'ask') {
         if (options.showQuestions !== false) return false;
         continue;
       }
-      if ((part.call?.images?.length ?? 0) > 0) return false;
-      hasFoldableTool = true;
+      if (part.call?.images?.length) return false;
+      hasTool = true;
     }
   }
-  return hasFoldableTool;
+  return hasTool;
 };
 
-/**
- * Bundle consecutive pure-tool assistant steps into a single message's tool rollup when
- * `toolDisplay === 'collapsed'`.
- *
- * Each step in a multi-step agent turn is its own `pi.assistant` entry, so an agent that runs three
- * sequential tool calls otherwise renders three separate `MessageRow`s each saying "Used 1 tool".
- * This folds a run of pure-tool steps into the immediately following assistant step (or into the
- * last step of the run if no assistant step follows), so the reader sees one "Used 3 tools" line
- * with all three calls inside it.
- */
+export type ToolPresentationItem<T> = {
+  message: T;
+  index: number;
+  /** Original transcript positions, for navigation/search; never substitute presentation IDs. */
+  sourceIndices?: number[];
+};
+
+/** A call ID survives the live-message → settled-entry handover, unlike the message ID. */
+export const toolRollupIdentity = (message: BundlableToolMessage): string =>
+  message.parts.find(part => part.type === 'tool' && part.call?.tool !== 'ask' && !part.call?.images?.length)?.call?.id ?? message.id;
+
+/** A mixed row may anchor a run only when its visible content ends in foldable tools. */
+const hasTrailingFoldableTools = (
+  message: BundlableToolMessage,
+  options: { reasoningHidden?: boolean; showQuestions?: boolean }
+): boolean => {
+  if (message.role !== 'assistant' || message.error) return false;
+  let trailingTool = false;
+  for (const part of message.parts) {
+    // Keep images, attachments and question cards independent of cross-message rollups.
+    if (part.type === 'file' || (part.type === 'tool' &&
+        (part.call?.images?.length || (part.call?.tool === 'ask' && options.showQuestions !== false)))) return false;
+    if (part.type === 'tool' && part.call?.tool !== 'ask') trailingTool = true;
+    else if ((part.type === 'text' && part.text?.trim()) ||
+        (part.type === 'reasoning' && part.text?.trim() && !options.reasoningHidden)) trailingTool = false;
+  }
+  return trailingTool;
+};
+
+/** Presentation only: new prose/reasoning starts a boundary; trailing tools may anchor the next run. */
 export const bundleConsecutiveToolMessages = <
-  TPart extends { type: string; call?: { tool: string; images?: unknown[] } },
-  TMessage extends { role: 'user' | 'assistant'; error?: string; parts: TPart[] },
+  TPart extends BundlableToolMessage['parts'][number],
+  TMessage extends BundlableToolMessage & { parts: TPart[] },
 >(
-  items: readonly { message: TMessage; index: number }[],
+  items: readonly ToolPresentationItem<TMessage>[],
   options: {
     toolDisplay: ToolDisplay;
     hideToolCalls: boolean;
     reasoningHidden?: boolean;
     showQuestions?: boolean;
   }
-): { message: TMessage; index: number }[] => {
-  if (options.toolDisplay !== 'collapsed' || options.hideToolCalls || items.length < 2) {
-    return items as { message: TMessage; index: number }[];
+): ToolPresentationItem<TMessage>[] => {
+  if (options.toolDisplay !== 'collapsed' || options.hideToolCalls) {
+    return items as ToolPresentationItem<TMessage>[];
   }
-
-  const result: { message: TMessage; index: number }[] = [];
-  let pendingToolParts: TPart[] = [];
-  let pendingLastItem: { message: TMessage; index: number } | null = null;
-
-  const flushPending = () => {
-    if (!pendingLastItem) return;
-    if (pendingToolParts.length === pendingLastItem.message.parts.length) {
-      result.push(pendingLastItem);
-    } else {
-      result.push({
-        index: pendingLastItem.index,
-        message: {
-          ...pendingLastItem.message,
-          parts: [...pendingToolParts],
-        },
-      });
+  const result: ToolPresentationItem<TMessage>[] = [];
+  let run: ToolPresentationItem<TMessage>[] = [];
+  const flush = () => {
+    if (!run.length) return;
+    const parts: TPart[] = [];
+    const calls = new Map<string, number>();
+    const mixedAnchor = !isPureFoldableToolStep(run[0].message, options);
+    if (mixedAnchor && run.length === 1) {
+      result.push(run[0]);
+      run = [];
+      return;
     }
-    pendingToolParts = [];
-    pendingLastItem = null;
-  };
-
-  for (const item of items) {
-    const pureTool = isPureFoldableToolStep(item.message, {
-      reasoningHidden: options.reasoningHidden,
-      showQuestions: options.showQuestions,
+    for (const [position, { message }] of run.entries()) {
+      for (const part of message.parts) {
+        if (part.type !== 'tool' || part.call?.tool === 'ask') {
+          if (mixedAnchor && position === 0) parts.push(part);
+          continue;
+        }
+        const id = part.call?.id;
+        const previous = id ? calls.get(id) : undefined;
+        if (previous === undefined) {
+          if (id) calls.set(id, parts.length);
+          parts.push(part);
+        } else {
+          // A stale live slot may coexist with its settled entry. Never let it replace the result.
+          const status = parts[previous].call?.status;
+          const incoming = part.call?.status;
+          if (!status || status === 'running' || status === 'pending' ||
+              (incoming && incoming !== 'running' && incoming !== 'pending')) parts[previous] = part;
+        }
+      }
+    }
+    result.push({
+      ...run[0],
+      message: { ...run[0].message, parts },
+      sourceIndices: run.flatMap(item => item.sourceIndices ?? [item.index]),
     });
-
-    if (pureTool) {
-      const toolParts = item.message.parts.filter(
-        (part) =>
-          part.type === 'tool' &&
-          part.call?.tool !== 'ask' &&
-          (part.call?.images?.length ?? 0) === 0
-      );
-      pendingToolParts.push(...toolParts);
-      pendingLastItem = item;
-      continue;
+    run = [];
+  };
+  for (const item of items) {
+    if (isPureFoldableToolStep(item.message, options)) run.push(item);
+    else {
+      flush();
+      if (hasTrailingFoldableTools(item.message, options)) run.push(item);
+      else result.push(item);
     }
-
-    // If the next item is an assistant message, fold the accumulated tool calls into it so they
-    // appear in its single ToolRollup ("Used N tools").
-    if (pendingLastItem && item.message.role === 'assistant') {
-      result.push({
-        index: item.index,
-        message: {
-          ...item.message,
-          parts: [...pendingToolParts, ...item.message.parts],
-        },
-      });
-      pendingToolParts = [];
-      pendingLastItem = null;
-      continue;
-    }
-
-    flushPending();
-    result.push(item);
   }
-
-  flushPending();
+  flush();
   return result;
 };

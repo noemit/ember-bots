@@ -40,6 +40,7 @@ import { useImageViewer } from './imageViewerContext';
 import { cn } from '@/lib/utils';
 import {
   bundleConsecutiveToolMessages,
+  toolRollupIdentity,
   countToolCalls,
   foldedToolsLabel,
   foldsIntoRollup,
@@ -486,10 +487,12 @@ const LiveOutputTail = ({ output }: { output?: string }) => {
 const ToolRow = ({
   call,
   defaultOpen = false,
+  fillWidth = false,
   onOpen,
 }: {
   call: ToolCall;
   defaultOpen?: boolean;
+  fillWidth?: boolean;
   onOpen?: (image: ViewerImage) => void;
 }) => {
   const [open, setOpen] = useExpansion(`tool:${call.id}`, defaultOpen);
@@ -502,7 +505,7 @@ const ToolRow = ({
   const summary = toolSummary(call) ?? call.title;
 
   return (
-    <div className="flex max-w-[85%] flex-col self-start">
+    <div className={cn('flex flex-col self-start', fillWidth ? 'w-full min-w-0' : 'max-w-[85%]')}>
       <button
         type="button"
         disabled={!hasDetail}
@@ -621,7 +624,7 @@ const ToolRollup = ({
         ? 'interrupted'
         : 'completed';
   return (
-    <div className="flex flex-col self-start">
+    <div className="flex w-full max-w-[85%] flex-col self-start">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -650,6 +653,7 @@ const ToolRollup = ({
               key={block.id}
               tool={block.tool}
               calls={block.calls}
+              fillWidth
               defaultOpen={expandToolCalls}
               onOpen={onOpen}
             />
@@ -673,15 +677,17 @@ const ToolGroupRow = ({
   tool,
   calls,
   defaultOpen = false,
+  fillWidth = false,
   onOpen,
 }: {
   tool: string;
   calls: ToolCall[];
   defaultOpen?: boolean;
+  fillWidth?: boolean;
   onOpen?: (image: ViewerImage) => void;
 }) => {
   const [open, setOpen] = useExpansion(`group:${calls[0]?.id}`, defaultOpen);
-  if (calls.length === 1) return <ToolRow call={calls[0]} defaultOpen={defaultOpen} onOpen={onOpen} />;
+  if (calls.length === 1) return <ToolRow call={calls[0]} defaultOpen={defaultOpen} fillWidth={fillWidth} onOpen={onOpen} />;
   const status = calls.some((call) => call.status === 'error')
     ? 'error'
     : calls.some((call) => call.status === 'running' || call.status === 'pending')
@@ -691,7 +697,7 @@ const ToolGroupRow = ({
         : 'completed';
 
   return (
-    <div className="flex max-w-[85%] flex-col self-start">
+    <div className={cn('flex flex-col self-start', fillWidth ? 'w-full min-w-0' : 'max-w-[85%]')}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -719,7 +725,7 @@ const ToolGroupRow = ({
       {open ? (
         <div className="ml-3 mt-1 flex flex-col gap-1 border-l pl-2">
           {calls.map((call) => (
-            <ToolRow key={call.id} call={call} defaultOpen={defaultOpen} onOpen={onOpen} />
+            <ToolRow key={call.id} call={call} defaultOpen={defaultOpen} fillWidth={fillWidth} onOpen={onOpen} />
           ))}
         </div>
       ) : null}
@@ -1465,8 +1471,10 @@ type MessageRowProps = {
   onMarkRead?: (message: ChatMessage) => void;
   onReply?: (message: ChatMessage) => void;
   showMessageDetails: boolean;
-  /** This message is the turn currently streaming, so its reasoning follows the stream. */
+  /** Only the original entry's reasoning follows its own live stream. */
   streaming: boolean;
+  /** A merged rollup can include live calls after this entry has settled. */
+  rollupStreaming: boolean;
   /** Every image in the conversation, so the viewer can walk between messages. */
   gallery: ViewerImage[];
   onRetryPendingSend?: (message: ChatMessage) => void;
@@ -1686,6 +1694,7 @@ const MessageRow = React.memo(function MessageRow({
   onReply,
   showMessageDetails,
   streaming,
+  rollupStreaming,
   gallery,
   onRetryPendingSend,
   onDiscardPendingSend,
@@ -1822,11 +1831,12 @@ const MessageRow = React.memo(function MessageRow({
             tool belongs on screen, and folding it into a count would lose it rather than defer it. */}
         {folded.length > 0 ? (
           <ToolRollup
-            messageId={message.id}
+            key={toolRollupIdentity(message)}
+            messageId={toolRollupIdentity(message)}
             blocks={folded}
             expandToolCalls={expandToolCalls}
             onOpen={viewer ? openImage : undefined}
-            streaming={streaming}
+            streaming={rollupStreaming}
           />
         ) : null}
         {message.error ? <MessageError error={message.error} /> : null}
@@ -1941,16 +1951,16 @@ function Transcript({
     const visible = messages
       .map((message, index) => ({ message, index }))
       .filter(({ message }) =>
-        message.error ||
+        message.role === 'user' || message.error ||
         message.parts.some(
           (part) =>
-            part.type === 'text' ||
+            (part.type === 'text' && Boolean(part.text.trim())) ||
             part.type === 'file' ||
             (part.type === 'tool' &&
               (part.call.tool === 'ask'
                 ? showQuestions
                 : !hideToolCalls || Boolean(part.call.images?.length))) ||
-            (part.type === 'reasoning' && reasoningDisplay !== 'hidden')
+            (part.type === 'reasoning' && Boolean(part.text.trim()) && reasoningDisplay !== 'hidden')
         )
       );
     return bundleConsecutiveToolMessages(visible, {
@@ -2066,9 +2076,12 @@ function Transcript({
 
   // One gallery for the whole conversation: the viewer's next/previous cross message boundaries.
   const conversationGallery = React.useMemo(() => galleryForConversation(messages), [messages]);
-  const findMatches = React.useMemo(() => find?.trim() ? items.flatMap(({ message }, index) =>
-    `${message.text}\n${message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('\n')}`.toLowerCase().includes(find.toLowerCase()) ? [index] : []
-  ) : [], [find, items]);
+  const findMatches = React.useMemo(() => find?.trim() ? items.flatMap((item, index) =>
+    (item.sourceIndices ?? [item.index]).some(source => {
+      const message = messages[source];
+      return `${message.text}\n${message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('\n')}`.toLowerCase().includes(find.toLowerCase());
+    }) ? [index] : []
+  ) : [], [find, items, messages]);
   const jumpToIndex = useStableCallback((index: number, align: 'start' | 'center' = 'center') => {
     if (!items[index]) return;
     followRef.current = false;
@@ -2139,17 +2152,19 @@ function Transcript({
   }, [pendingCount, scrollToBottom]);
 
   const focusById = useStableCallback((id: string) => {
-    const index = items.findIndex(({ message }) => message.id === id);
+    const index = items.findIndex(({ message, sourceIndices }) => message.id === id || sourceIndices?.some(source => messages[source]?.id === id));
     if (index >= 0) {
       jumpToIndex(index);
     } else if (hasOlderHistory && onLoadEarlier) {
       onLoadEarlier();
     }
   });
+  const focusTargetIndex = items.findIndex(({ message, sourceIndices }) =>
+    message.id === focusMessageId || sourceIndices?.some(source => messages[source]?.id === focusMessageId));
   React.useEffect(() => {
     if (!focusMessageId || focusRequest === 0) return;
     focusById(focusMessageId);
-  }, [focusMessageId, focusRequest, focusById, items.length]);
+  }, [focusMessageId, focusRequest, focusById, focusTargetIndex]);
   React.useEffect(() => {
     if (!highlightedMessageId) return;
     const timer = window.setTimeout(() => setHighlightedMessageId(null), 5000);
@@ -2262,7 +2277,7 @@ function Transcript({
     scrollToBottom(virtualized ? 'auto' : 'smooth');
   };
 
-  // Folded rows borrow tool parts from earlier steps. Read status belongs to the original reply.
+  // Presentation rows may combine tool steps. Read eligibility still belongs to the original entry.
   const unreadIndices = React.useMemo(() => items.flatMap(({ message, index: sourceIndex }, index) =>
     isUnreadEligible(messages[sourceIndex]) &&
     !isMessageRead(readMark, entryOrdinal(message.id), message.completedAt ?? message.createdAt ?? 0, message.id)
@@ -2543,7 +2558,8 @@ function Transcript({
                 onMarkRead={onMarkRead ? markMessageRead : undefined}
                 onReply={onReply}
                 showMessageDetails={showMessageDetails}
-                streaming={turnPending && index === items.length - 1}
+                streaming={turnPending && index === messages.length - 1}
+                rollupStreaming={turnPending && (items[row.index].sourceIndices ?? [index]).includes(messages.length - 1)}
                 gallery={conversationGallery}
                 onRetryPendingSend={onRetryPendingSend}
                 onDiscardPendingSend={onDiscardPendingSend}

@@ -69,7 +69,8 @@ test('a single unread reply uses its bubble, with reduced-motion confirmation', 
   await expect(column.getByRole('button', { name: /New unread messages/ })).toBeVisible();
   await expect(column.getByRole('button', { name: 'Mark all as read', exact: true })).toHaveCount(0);
   await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  // Leave setup headroom: the browser clock can advance beyond the caller’s current millisecond.
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
   await column.getByRole('button', { name: 'Mark this message as read' }).click();
   await expect(column.getByRole('button', { name: 'Message marked as read' })).toBeVisible();
   const confirmation = column.locator('.message-read-confirmation');
@@ -89,7 +90,8 @@ test('tool steps need no acknowledgement and folded tools preserve the reply rea
   const reply = column.locator('[data-message-id="e9"]');
   await expect(toolStep).toContainText('Reading the auth code now.');
   await expect(toolStep.getByRole('button', { name: 'Mark this message as read' })).toHaveCount(0);
-  await expect(reply).toContainText('Used 1 tool');
+  await expect(toolStep).toContainText('Used 2 tools');
+  await expect(reply).not.toContainText('Used 1 tool');
   await expect(reply.getByRole('button', { name: 'Mark this message as read' })).toBeVisible();
   await expect(column.getByRole('button', { name: 'Mark all as read', exact: true })).toHaveCount(0);
   await column.getByRole('button', { name: /New unread messages/ }).click();

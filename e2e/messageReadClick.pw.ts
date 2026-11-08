@@ -103,8 +103,9 @@ test('links and folded tool disclosures do their own work without marking the re
   });
   await reply.getByRole('link', { name: 'http://localhost:5179' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-opened-link', 'http://localhost:5179');
-  await reply.getByRole('button', { name: /Used 1 tool/ }).click();
-  await expect(reply).toContainText('bun test');
+  const toolStep = column.locator('[data-message-id="e4"]');
+  await toolStep.getByRole('button', { name: /Used 2 tools/ }).click();
+  await expect(toolStep).toContainText('bun test');
   await page.waitForTimeout(400);
   expect(await marks(page)).toEqual(before);
   await reply.locator('p').first().click();

@@ -662,6 +662,13 @@ their existing names; archive references in the implementation notes below descr
   effect in `App.tsx` keyed on selected session, its state, blob style and theme. The mock bridge
   sets the tab favicon instead. `blob/color.ts` exposes `blobColor(style, seed)` for UI that
   wants the blob's dominant colour (the transcript's activity dot uses it).
+- Collapsed tool display combines consecutive tool-only steps into one “Used N tools” row
+  (`bundleConsecutiveToolMessages` in `lib/toolDisplay.ts`). Whitespace-only text is not a separator.
+  A row's leading prose or reasoning stays visible while its trailing tools can join following
+  tool-only steps; new prose, user messages, visible reasoning, images and message errors break runs. The presentation row keeps
+  its source indices for find/jump, while read state still uses the untouched original entries.
+  Rollup expansion is keyed by the first call id so appends and live-to-settled handovers stay open;
+  duplicate call ids count once, preferring settled results over a stale live placeholder.
 - `src/components/Transcript.tsx` — message list: text bubbles, expandable tool rows (input/
   output/diff), collapsed reasoning (opened automatically while that turn is still streaming, so the live stream is
   visible; each block remembers a manual collapse), file parts, permission + question cards,
