@@ -50,6 +50,11 @@ Open `http://localhost:5179`. `?threads` demonstrates source links and quiet int
 ### Packaged code-mode sandbox
 
 `bun run build:harness` and `bun run dist:cli` embed QuickJS WASM and a separate worker entrypoint.
+Both commands then **run the just-built executable with `--self-test-codemode` automatically**.
+Compilation alone is not success: a nonzero exit, launch failure, signal or 20-second timeout fails
+the build, removes the unchecked executable, and stops the packaging command. The check runs with
+an empty temporary working directory and an allowlisted environment, without credentials, models,
+server startup or a live-service restart. There is no skip flag.
 Keep the worker beside both main entrypoints and retain Bun's default entry naming/root: its sibling
 URL must resolve in both source Bun and the compiled module graph. The shared sandbox factory loads
 WASM only when code mode is enabled; never replace its worker sandbox with inline execution.
@@ -59,8 +64,12 @@ isolated temporary directory, and exercise `--self-test-codemode`. This offline 
 server/database startup, calls a host tool from QuickJS, times out an infinite loop while checking
 host responsiveness, and verifies a subsequent execution succeeds. It needs no provider or installed
 `node_modules`, creates no user profile, and the test kills a stuck executable after 20 seconds.
-Run this regression natively on each release platform; cross-compilation alone does not verify worker
-execution. Upstream Bun limitations still apply to built-ins that do not poll QuickJS's interrupt flag.
+Run this regression natively on macOS, Linux and Windows for their respective releases. The shared
+build script supports native targets only and rejects extra arguments, including target/skip flags.
+If cross-compilation is added later, any cannot-execute exception must be explicit and documented;
+the artifact must still pass this check on its target platform before release. Never interpret a
+launch failure as a reason to silently skip verification. `tests/packagingGate.test.ts` also checks
+the script's fail-closed behavior for both binaries and all three platform naming conventions. Upstream Bun limitations still apply to built-ins that do not poll QuickJS's interrupt flag.
 
 Install the browser before running Playwright suites:
 
@@ -120,7 +129,13 @@ separate concepts.
 | `bun run dist:win` | Windows desktop installer |
 | `bun run dist:cli` | Standalone Tinder executable |
 
-Build on the target platform. Outputs go to `release/`. macOS release signing and notarization
+Build on the target platform. Outputs go to `release/`. On **macOS, Linux and Windows**, the included
+Kiln (`build:harness`) and standalone Tinder (`dist:cli`) must pass the automatic packaged codemode
+self-test before distribution. Preserve this gate in every release path; do not ship a binary made
+with a direct `bun build --compile` invocation that bypasses it. See the [sandbox verification
+instructions](#packaged-code-mode-sandbox) above for the offline regression.
+
+macOS release signing and notarization
 require the release credentials; a source build alone does not establish that a published binary
 was signed or notarized.
 

@@ -1,0 +1,66 @@
+import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
+
+// Execute the real script with only its OS boundaries replaced. No production skip switch.
+const script = readFileSync(resolve('scripts/build-binaries.mjs'), 'utf8').replace(/^import .*;\n/gm, '');
+type Outcome = { status: number | null; signal?: string; error?: Error };
+function run(kind: string, build: Outcome, check: Outcome, platform = 'linux', extra: string[] = []) {
+  const calls: { command: string; args: string[]; options: Record<string, unknown> }[] = [];
+  const removed: string[] = [];
+  let error: unknown;
+  try {
+    runInNewContext(script, {
+      process: { argv: ['node', 'build-binaries.mjs', kind, ...extra], platform, env: { SECRET: 'must-not-inherit' } },
+      mkdirSync() {}, mkdtempSync: () => '/isolated', tmpdir: () => '/tmp',
+      rmSync: (path: string) => removed.push(path), join, resolve, console: { log() {} },
+      spawnSync(command: string, args: string[], options: Record<string, unknown>) {
+        calls.push({ command, args, options });
+        return calls.length === 1 ? build : check;
+      },
+    });
+  } catch (caught) { error = caught; }
+  return { calls, removed, error };
+}
+const ok = { status: 0 };
+for (const kind of ['kiln', 'tinder']) {
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    test(`${kind} ${platform} checks the compiled artifact, isolated and bounded`, () => {
+      const result = run(kind, ok, ok, platform);
+      expect(result.error).toBeUndefined();
+      expect(result.calls).toHaveLength(2);
+      const [build, check] = result.calls;
+      expect(build.args).toContain('packages/kiln/src/codemode-worker.ts');
+      expect(check.command).toBe(build.args[build.args.indexOf('--outfile') + 1]);
+      expect(check.command.endsWith('.exe')).toBe(platform === 'win32');
+      expect(check.args).toEqual(['--self-test-codemode']);
+      expect(check.options).toMatchObject({ cwd: '/isolated', timeout: 20_000, killSignal: 'SIGKILL' });
+      expect(check.options.env).not.toHaveProperty('SECRET');
+      expect(check.options.env).not.toHaveProperty('PATH');
+      expect(result.removed).toEqual(['/isolated']);
+    });
+  }
+  for (const failure of [
+    { status: 1 }, { status: null }, { status: null, signal: 'SIGKILL' },
+    { status: null, error: new Error('spawn failed') },
+    { status: null, error: new Error('timed out') },
+  ]) {
+    test(`${kind} rejects failed compilation or self-test: ${JSON.stringify(failure)}`, () => {
+      const buildFailure = run(kind, failure, ok);
+      expect(buildFailure.error).toBeDefined();
+      expect(buildFailure.calls).toHaveLength(1);
+      const checkFailure = run(kind, ok, failure);
+      expect(checkFailure.error).toBeDefined();
+      expect(checkFailure.calls).toHaveLength(2);
+      expect(checkFailure.removed).toEqual([checkFailure.calls[1].command, '/isolated']);
+    });
+  }
+  test(`${kind} does not silently accept target or skip flags`, () => {
+    for (const flag of ['--target=bun-linux-x64', '--skip-self-test']) {
+      const result = run(kind, ok, ok, 'linux', [flag]);
+      expect(result.error).toBeDefined();
+      expect(result.calls).toHaveLength(0);
+    }
+  });
+}

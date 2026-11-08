@@ -14,6 +14,9 @@ for (const [script, artifact] of [['build:harness', 'build/harness/kiln'], ['dis
         cwd: resolve('.'), encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL',
       });
       expect(build.status, build.stdout + build.stderr).toBe(0);
+      // The packaging command itself must execute the diagnostic, not merely compile it.
+      expect(build.stdout).toContain('Codemode self-test passed: callback, worker timeout');
+      expect(build.stdout).toContain('recovery.');
       await copyFile(resolve(artifact + (process.platform === 'win32' ? '.exe' : '')), binary);
       // Run only the copied production binary. No PATH, NODE_PATH, Bun options or credentials;
       // preserve Windows' system directory so its OS libraries remain discoverable.
