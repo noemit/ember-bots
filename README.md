@@ -193,8 +193,28 @@ renderer, desktop process and harness fit together. Repository invariants live i
 
 ## License
 
-[MIT](LICENSE), copyright Noemi Titarenco. The vendored [README Atlas skill](.agents/skills/readme-atlas/LICENSE)
-has its own MIT copyright notice.
+Ember’s software is licensed under [MIT](LICENSE), copyright Noemi Titarenco, with the
+[brand and visual asset exception](#brand-and-visual-assets) below. The software source code,
+including the renderer source, remains MIT-licensed. The vendored
+[README Atlas skill](.agents/skills/readme-atlas/LICENSE) has its own MIT copyright notice.
+
+## Brand and visual assets
+
+Copyright © 2026 Noemi Titarenco. All rights reserved for the Ember branding and visual assets
+described here.
+
+The Ember name, logos, bot character artwork (“blobs”), and related Ember visual assets are
+excluded from the repository’s MIT licence unless explicitly stated otherwise. This reservation
+covers Ember branding and visual designs, including generated character artwork, not the software
+source code that renders them. No trademark rights are granted.
+
+This notice does not revoke permissions already granted for previously distributed copies.
+Third-party names, marks and assets remain subject to their owners’ rights and applicable licences.
+
+For permission to use Ember branding or visual assets, contact
+[em-bot@mail.grokbot.com](mailto:em-bot@mail.grokbot.com).
+
+Official website: [getemberbots.com](https://getemberbots.com).
 
 > Documentation note: this README was drafted with AI assistance and has not yet been proofread
 > by the maintainer.

@@ -1,3 +1,14 @@
+Scope notice
+
+The MIT License below applies to Ember's software, including the renderer source
+code. Ember branding and visual assets are excluded unless explicitly stated
+otherwise; see README.md#brand-and-visual-assets for the scope and permission
+contact. This exception concerns branding and visual designs, including generated
+character artwork, not the software source code that renders them. No trademark
+rights are granted. This notice does not revoke permissions already granted for
+previously distributed copies. Third-party names, marks and assets remain subject
+to their owners' rights and applicable licences.
+
 MIT License
 
 Copyright (c) 2026 Noemi Titarenco
