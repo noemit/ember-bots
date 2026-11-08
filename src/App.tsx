@@ -32,6 +32,7 @@ import {
   sessionAvatarKey,
 } from './blob/seed';
 import { moodFrom } from './blob/mood';
+import { crewAppearanceMood } from './lib/crewMood';
 import {
   abortSession,
   createClientMessageId,
@@ -1380,16 +1381,17 @@ export default function App() {
     Object.entries(sessionsByInstance).forEach(([, list]) =>
       list.forEach((session) => {
         const key = sessionKey(session);
-        map[key] = moodFrom(
+        // Crew activity changes the blob only, never the leader's send/queue/stop state.
+        map[key] = crewAppearanceMood(session, moodFrom(
           states[key] ?? 'unknown',
           promptKinds[key],
           thinkingKeys.has(key),
           unreadKeys.has(key)
-        );
+        ), crewWorkers, states);
       })
     );
     return map;
-  }, [sessionsByInstance, states, promptKinds, thinkingKeys, unreadKeys]);
+  }, [sessionsByInstance, states, promptKinds, thinkingKeys, unreadKeys, crewWorkers]);
   // A retry belongs to the session it failed on; the banner text may still apply.
   React.useEffect(() => {
     clearActionErrorRetry();
