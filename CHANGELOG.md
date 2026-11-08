@@ -43,6 +43,8 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
+- Where a jump landed is now a single hairline above the message, fading out, instead of a tinted
+  box with a ring that read like a selection.
 - Windows packages now bundle a Windows Kiln (`build/harness/kiln.exe`, cross-compiled and checked
   under Wine). Packaging for Windows from a Linux host used to ship with no bundled harness at all.
 - Hiding a bot also stops the programs it left running, and those of every worker under it: a polite stop first, then a force stop for anything that ignores it. The bot is hidden either way; a stop that fails becomes a banner naming the host, with Retry.

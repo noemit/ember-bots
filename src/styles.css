@@ -249,14 +249,23 @@ html.motion-paused *::after {
   .message-read-confirmation { animation: none; }
 }
 
+/*
+ * Where the jump landed: one hairline along the top edge of the message, fading out. It used to be a
+ * tinted box with a ring, which read as a selection rather than an arrival and fought the message's
+ * own surface. A line says "start here" once and then gets out of the way.
+ *
+ * The colour is the theme's foreground at ~38% — the white hairline people asked for on dark themes,
+ * and the same idea inverted on light ones, where pure white would be invisible.
+ */
 .message-jump-highlight {
   position: absolute;
-  inset: 0;
-  z-index: -1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 0;
+  z-index: 0;
   pointer-events: none;
-  border-radius: inherit;
-  background: color-mix(in srgb, var(--highlight) 10%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--highlight) 30%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 38%, transparent);
   animation: message-jump-fade 5s linear both;
 }
 @keyframes message-jump-fade {
