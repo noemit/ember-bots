@@ -1,5 +1,6 @@
 import * as React from 'react';
 import Blob from '../blob/Blob';
+import { useAvatarSize } from '../blob/size';
 import { IDENTITY_COLORS, identityPaletteFor } from '../blob/contrast';
 import { themeById } from '../themes';
 import { CRYSTAL_SHAPES } from '../blob/crystal';
@@ -73,6 +74,9 @@ export default function AvatarPicker({
   onSave,
   onOpenChange,
 }: Props) {
+  // Preview the same configured recognition size as a normal rail/current-bot identity.
+  // Context crosses the dialog portal and updates without resetting an appearance draft.
+  const previewSize = useAvatarSize(55);
   const colors = React.useMemo(() => {
     const palette = themeById(theme).palette;
     return identityPaletteFor([palette.panel, palette.elev, palette.bg]);
@@ -141,12 +145,14 @@ export default function AvatarPicker({
           </div>
 
           <div className="flex items-center gap-4 rounded-xl border bg-muted/30 p-4">
-            <Blob
-              style={style}
-              seed={identity.sessionKey}
-              identity={preview}
-              size={56}
-            />
+            <span data-testid="appearance-primary-preview" className="inline-flex flex-none">
+              <Blob
+                style={style}
+                seed={identity.sessionKey}
+                identity={preview}
+                size={previewSize}
+              />
+            </span>
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-medium">Preview</span>
               <span className="text-xs text-muted-foreground">

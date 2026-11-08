@@ -28,6 +28,7 @@
 ### Fixed
 - A delayed read acknowledgement no longer clears the search highlight on a different message, including merged tool groups in virtualized history.
 - Buddy settles smoothly between working, thinking and resting instead of snapping to a new pose; decision badges stay anchored and reduced motion remains still.
+- The main Customize appearance preview follows the configured bot size, matching normal rail identities and updating live without resetting the appearance draft; shape thumbnails stay compact.
 - Packaged Kiln and Tinder include the QuickJS sandbox and its worker, so code-mode scripts can call tools without an installed checkout while retaining worker-thread timeout isolation.
 - Composer colour and focus halos multiply into light surfaces and dodge dark surfaces instead of adding a greyish wash; the focus halo stays subtle rather than framing the whole composer.
 - Consecutive tool-only assistant steps share one “Used N tools” group, retaining individual results and stable expansion instead of repeating “Used 1 tool”.
