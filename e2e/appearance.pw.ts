@@ -1,7 +1,9 @@
 import { expect, test, type Locator } from '@playwright/test';
 
 const paints = (blob: Locator) => blob.locator('svg').first().locator('[fill], stop').evaluateAll(elements =>
-  elements.map(el => el.tagName === 'stop' ? getComputedStyle(el).stopColor : getComputedStyle(el).fill)
+  // Identity paint must agree; a saved unread bot also has a status badge that the preview omits.
+  elements.filter(el => !el.closest('.blob-badge'))
+    .map(el => el.tagName === 'stop' ? getComputedStyle(el).stopColor : getComputedStyle(el).fill)
     .filter(color => !color.startsWith('url('))
 );
 

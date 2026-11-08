@@ -9,7 +9,7 @@ test('Buddy preserves the visible pose across every mood pair and rapid reversal
   for (const from of moods) for (const to of moods.filter(mood => mood !== from)) {
     await page.getByRole('button', { name: from, exact: true }).click();
     await page.waitForTimeout(320);
-    const jump = await page.evaluate(({ from, to }) => {
+    const jump = await page.getByRole('navigation', { name: 'Mood' }).getByRole('button', { name: to, exact: true }).evaluate((button, { from, to }) => {
       // Include the otherwise rare middle of a somersault, and the top of a hop.
       for (const blob of document.querySelectorAll('.blob-buddy')) {
         for (const animation of blob.getAnimations({ subtree: true })) {
@@ -26,7 +26,8 @@ test('Buddy preserves the visible pose across every mood pair and rapid reversal
       });
       const before = pose();
       (document.querySelector(`button[aria-pressed="false"]`) as HTMLElement)?.blur();
-      [...document.querySelectorAll('button')].find(button => button.textContent === to)!.click();
+      // Resolve the exact control before sampling, but keep capture/click/capture synchronous.
+      button.click();
       const after = pose();
       if (document.querySelector('[data-current-mood]')?.textContent !== to) throw new Error(`Mood did not change from ${from}`);
       return Math.max(...before.map((point, index) => Math.hypot(point.x - after[index].x, point.y - after[index].y)));
@@ -37,14 +38,14 @@ test('Buddy preserves the visible pose across every mood pair and rapid reversal
   }
   // Interrupt the finite bridge itself rather than letting each handoff finish.
   for (const mood of ['busy', 'thinking', 'question', 'busy', 'idle']) {
-    const jump = await page.evaluate(mood => {
+    const jump = await page.getByRole('navigation', { name: 'Mood' }).getByRole('button', { name: mood, exact: true }).evaluate(button => {
       const body = document.querySelector<SVGGraphicsElement>('.blob-body')!;
       const point = () => new DOMPoint(80, 80).matrixTransform(body.getScreenCTM()!);
       const before = point();
-      [...document.querySelectorAll('button')].find(button => button.textContent === mood)!.click();
+      button.click();
       const after = point();
       return Math.hypot(before.x - after.x, before.y - after.y);
-    }, mood);
+    });
     expect(jump, 'interrupted handoff preserves its current pose').toBeLessThan(.5);
     await page.waitForTimeout(60);
   }
@@ -61,14 +62,14 @@ test('Buddy preserves nearby gaze, anchors badges, and settles without hidden or
   await expect(blob).toHaveAttribute('data-pupil-tracking', 'true');
   const pupil = blob.locator('.blob-pupil').first();
   const gaze = await pupil.getAttribute('transform');
-  await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent === 'thinking')!.click());
+  await page.getByRole('navigation', { name: 'Mood' }).getByRole('button', { name: 'thinking', exact: true }).evaluate(button => button.click());
   await expect(pupil).toHaveAttribute('transform', gaze!);
   await expect(blob).toHaveAttribute('data-pupil-tracking', 'true');
   // Pointer takeover during a fresh thinking bridge cancels only the autonomous gaze correction.
   await page.mouse.move(1190, 790);
   await page.getByRole('button', { name: 'idle', exact: true }).click();
   await page.waitForTimeout(320);
-  await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent === 'thinking')!.click());
+  await page.getByRole('navigation', { name: 'Mood' }).getByRole('button', { name: 'thinking', exact: true }).evaluate(button => button.click());
   await page.mouse.move(box.x + box.width + 40, box.y + box.height / 2);
   await expect(blob).toHaveAttribute('data-pupil-tracking', 'true');
   await expect.poll(() => blob.locator('.buddy-gaze').evaluateAll(nodes => nodes.every(node => node.getAnimations().length === 0))).toBe(true);
