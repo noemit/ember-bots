@@ -1,3 +1,11 @@
+## Unreleased
+
+### Added
+- `session models` searches this host's available chat models without codemode, returns exact spawn model IDs and the inherited default, and pages bounded results without exposing credentials or connection metadata.
+
+### Fixed
+- Explicit session spawn models must match the host's available catalogue before a child is created; omitted models still inherit the configured parent model unchanged.
+
 ## 1.9.0
 
 ### Added

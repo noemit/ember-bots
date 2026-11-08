@@ -1,5 +1,5 @@
 import type { Context } from "@earendil-works/chord";
-import { bool, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
+import { bool, num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import {
   configure,
   defineDoc,
@@ -565,6 +565,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 /**
  * The `session` tool. Actions:
+ * - `models` (query?, limit?, offset?): read this host's available chat catalogue and inherited default.
  * - `spawn` (name, brief, kind?, role?, report?): start a crew **worker** (default) or an explicit
  *   **peer**. `report: "on-failure"` makes a routine success settle silently — the worker still
  *   shows as reported in `list` and `results` still has the text, but nothing interrupts the leader.
@@ -579,6 +580,8 @@ export const SessionTool = defineTool({
   name: "session",
   description:
     "Spawn background threads with concrete outcomes. Give each a self-contained brief and an outcome title. " +
+    "models(query?) lists available chat models on this host and your inherited default; copy its exact model value into spawn. " +
+    "Availability means configured credentials, not guaranteed provider access or quota. No codemode required. " +
     "Default report=thread stores a durable result without copying it into your conversation. " +
     "list/status show progress; read(name,cursor?) pages through messages and tool evidence (12 entries/page). " +
     "results(name?) retrieves bounded final outcomes with evidence links, recording retrieval separately from verification. " +
@@ -588,9 +591,12 @@ export const SessionTool = defineTool({
     "Legacy report=always copies reports; on-failure suppresses successful report delivery. " +
     `Caps: depth ${MAX_DEPTH}, ${workerCapsText()}, ${SPAWN_RATE_LIMIT} spawns/minute.`,
   parameters: obj({
-    action: oneOf(["spawn", "list", "status", "message", "stop", "results", "wait", "read"], {
-      description: "spawn: start a session; the rest operate on names from `list`/`results`.",
+    action: oneOf(["spawn", "models", "list", "status", "message", "stop", "results", "wait", "read"], {
+      description: "models: search this host’s available chat models; spawn: start a session; the rest operate on names from `list`/`results`.",
     }),
+    query: opt(str({ description: "models: case-insensitive search of provider, model ID or display name (up to 200 characters)." })),
+    limit: opt(num({ description: "models: page size, an integer from 1 to 100 (default 50)." })),
+    offset: opt(num({ description: "models: zero-based offset from nextOffset (default 0)." })),
     name: opt(str({ description: "A short handle you will use to refer to this session later." })),
     brief: opt(
       str({
@@ -617,7 +623,7 @@ export const SessionTool = defineTool({
     ),
     title: opt(str({ description: "spawn: an explicit session title; it wins over the composed one." })),
     cwd: opt(str({ description: "spawn: working directory (defaults to yours)." })),
-    model: opt(str({ description: "spawn: model as provider/modelId (defaults to yours)." })),
+    model: opt(str({ description: "spawn: exact provider/modelId from models; omission inherits your configured model unchanged." })),
     report: opt(
       oneOf(["thread", "always", "on-failure"], {
         description:
@@ -648,6 +654,35 @@ export const SessionTool = defineTool({
         ? {}
         : { details: { name, conversationId: String(conversationId) } }),
     });
+    // Read-only discovery needs no delegation permission and never starts a sandbox or child.
+    if (action === "models") {
+      const limit = args.limit ?? 50;
+      const offset = args.offset ?? 0;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+          !Number.isSafeInteger(offset) || offset < 0 || (args.query?.length ?? 0) > 200) {
+        return reply("Kiln needs a limit from 1 to 100, a non-negative integer offset, and a query of at most 200 characters. Adjust those fields and try session models again.");
+      }
+      try {
+        const query = (args.query ?? "").trim().toLowerCase();
+        const available = await api.models.getAvailable();
+        const rows = available
+          .filter((item) => [item.provider, item.id, item.name].some((value) => value.toLowerCase().includes(query)))
+          // Allowlist only identifiers and display names: never spread model metadata (headers/base URLs).
+          .map((item) => ({ provider: item.provider, modelId: item.id, name: item.name, model: item.provider + "/" + item.id }))
+          .sort((a, b) => a.model < b.model ? -1 : a.model > b.model ? 1 : 0);
+        const inherited = (await api.agent(context)).model;
+        return reply(JSON.stringify({
+          models: rows.slice(offset, offset + limit),
+          inheritedDefault: inherited ? { provider: inherited.provider, modelId: inherited.modelId } : null,
+          total: rows.length, offset,
+          nextOffset: offset + limit < rows.length ? offset + limit : null,
+          note: "This host's available chat models have configured credentials (or configured keyless access). Provider access and quota are not guaranteed. Omit spawn.model to inherit your configured model unchanged. No matches? Broaden query or ask the host operator to configure the provider and refresh its catalogue.",
+        }));
+      } catch {
+        // Provider/auth exceptions can contain credentials or URLs; never echo them.
+        return reply("Kiln could not check this host's model availability. Try session models again; if it still fails, ask the host operator to check provider configuration.");
+      }
+    }
     const spawner: ConversationId = api.conversationId;
     if (action === "spawn" && delegationRefused(await api.snapshot(MetaDoc, spawner, context))) {
       return reply("Refused: this conversation is set not to delegate (`delegates: false`). Do the work here.");
@@ -898,7 +933,20 @@ export const SessionTool = defineTool({
     // the same model, thinking level and directory. A worker also copies auto-accept.
     const agent = await api.agent(context);
     const inheritedCwd = cwd ?? agent.cwd;
-    const modelRef = model !== undefined ? parseModel(model) : agent.model;
+    let modelRef = agent.model;
+    if (model !== undefined) {
+      const requested = parseModel(model);
+      if (!requested) return reply("Kiln needs an exact provider/modelId for spawn. Call session models and copy a result's model value, or omit model to inherit yours.");
+      try {
+        const available = await api.models.getAvailable();
+        if (!available.some((item) => item.provider === requested.provider && item.id === requested.modelId)) {
+          return reply("Kiln cannot spawn with that model: it is not in this host's available chat catalogue. Call session models and copy an exact model value, or ask the host operator to configure the provider and refresh its catalogue.");
+        }
+      } catch {
+        return reply("Kiln could not check this host's model availability, so no child was created. Try session models again; ask the host operator to check provider configuration if it still fails.");
+      }
+      modelRef = requested;
+    }
     const autoAccept = spawnKind === "worker" ? await api.snapshot(AutoAcceptDoc, spawner, context) : undefined;
     const spawnedAt = now;
     const briefRequestId = `hearth.crew.brief:${spawner}:${name}:${spawnedAt}`;
@@ -1071,6 +1119,7 @@ const crewSection = section(
     "a self-contained brief, acceptance criteria and evidence requirements. Threads retain stable identities. " +
     "You remain the foreground thinker and coordinator: understand the human, answer, plan and steer. " +
     "Small inspections and decisions belong here; heavy execution belongs in threads when delegation helps. " +
+    "Use session models with a query to find this host’s available chat models before an explicit model spawn; omit model to inherit yours. " +
     "Use list/status for progress, read for bounded evidence and results for final outcomes. " +
     "Quote relevant findings with their /threads/<conversationId> links so the human can explore the source. " +
     "Retrieved means available to you, not verified or incorporated. Do not claim checks you have not made. " +

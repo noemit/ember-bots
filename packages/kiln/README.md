@@ -120,6 +120,31 @@ ownerless conversation with `kind: "worker"` and `lead`; a peer (`kind: "peer"`)
 visible chat. Give each thread a concrete outcome `title` and a self-contained `brief`; absent a
 title, its brief's first line supplies one. Identity survives follow-up work and renames.
 
+**Model lookup:** call `session({ action: "models", query: "luna" })` directly — no codemode
+or QuickJS runtime is needed. The same tool is callable from codemode as
+`await tools.session({ action: "models", query: "luna" })`. Search is case-insensitive across
+provider, model ID and display name. Results are JSON text with `models` rows containing only
+`provider`, `modelId`, `name` and the exact `model` string accepted by spawn; `inheritedDefault`
+is this conversation's configured model reference (or null). Copy a returned `model` into
+`session({ action: "spawn", name: "trial", brief: "Reply with a short greeting.", model: "<returned model>" })`.
+Omitting `model` inherits the parent's configured model unchanged, including its existing thinking
+settings; lookup does not silently select a replacement. An explicit model must match this host's
+available chat catalogue or spawn refuses before creating a child.
+
+Both lookup and explicit spawn validation use the harness's `models.getAvailable()` — configured
+credentials (or configured keyless access), **not** a live guarantee of provider access, quota or
+successful inference. No credentials, headers or provider URLs are returned. The action does not
+refresh catalogues or make an inference request. `query` is limited to 200 characters; `limit` is
+1–100 (default 50), `offset` is a non-negative integer (default 0). Results include `total`,
+`offset` and `nextOffset` (null at the end); keep the same query when paging. Pages are sorted by
+exact model string and reflect the current catalogue, not a frozen snapshot. Empty matches suggest
+broadening the search or asking the host operator to configure/refresh the provider.
+
+Lookup is read-only and allowed with `delegates: false` when the session tool is installed; spawn
+still enforces delegation, depth and rate guards. Conversations without the session extension
+(including workers at the depth limit) do not gain it through this action. This is host-local
+discovery, not access to another host or permission to change credentials.
+
 New spawns default to `report: "thread"`. The supervisor records a versioned outcome and its final
 assistant-entry reference in `hearth.sessions`, and appends one content-free `hearth.thread-result`
 event. It does **not** copy the report into the leader's transcript. `results(name?)` retrieves up
