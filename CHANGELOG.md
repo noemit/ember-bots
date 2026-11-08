@@ -7,6 +7,7 @@
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
+- The model picker’s instance-default action and status now live in the right-hand model details pane, not model rows; narrow screens show them in a compact footer naming the inspected model.
 - Session actions now say Hide, Hidden sessions and Unhide, with eye icons instead of trash; Undo and active-work safeguards are unchanged.
 - Conversations offer an upward jump to your last message only when it is above the view, and label unread navigation “New unread messages” without an arrow.
 - Marking a reply read shows a quiet, conversation-scoped confirmation with Undo and a brief background highlight, without a border.

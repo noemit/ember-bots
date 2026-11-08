@@ -229,40 +229,129 @@ test('saving a note does not discard the explicit model selection', async ({ pag
   await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
 });
 
-test('setting an instance default persists independently of the session model', async ({ page }, testInfo) => {
+const defaultAction = 'Set this model as the instance default';
+const savedInstanceDefault = (page: Page) => page.evaluate(async () => {
+  const model = (await window.ember.getSettings()).instanceDefaults.local?.model;
+  return model && `${model.providerID}/${model.modelID}`;
+});
+
+const expectNoRowDefaultControls = async (page: Page) => {
+  const rows = page.getByRole('dialog', { name: 'Choose a model' }).locator('[data-model-key]');
+  await expect(rows.getByRole('button', { name: defaultAction, exact: true })).toHaveCount(0);
+  await expect(rows.getByText('Instance Default', { exact: true })).toHaveCount(0);
+};
+
+test('setting an instance default in Details targets the hovered model, not the selected model', async ({ page }, testInfo) => {
   await captureSends(page);
   const before = await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0']);
   await page.getByRole('button', { name: 'Choose model' }).first().click();
   const picker = page.getByRole('dialog', { name: 'Choose a model' });
-  await picker.getByRole('searchbox', { name: 'Search models' }).fill('');
-  // Expand providers: the same shared row also appears in Recent and search results.
-  const provider = picker.locator('button[aria-expanded]').filter({ hasText: 'Anthropic' });
-  if (await provider.count()) await provider.click();
-  const candidate = picker.locator('[data-model-key]').filter({ has: page.getByRole('button', { name: 'Set this model as the instance default', exact: true }) }).first();
-  const key = await candidate.getAttribute('data-model-key');
-  const row = picker.locator(`[data-model-key="${key}"]`).first();
-  expect(key).toBeTruthy();
-  await row.getByRole('button', { name: 'Set this model as the instance default', exact: true }).click();
-  await expect(row.getByText('Instance Default', { exact: true })).toBeVisible();
+  const details = picker.getByRole('region', { name: 'Model details', exact: true });
+  await expect(details).toContainText('GPT-5');
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill('Claude Opus');
+  const row = picker.locator('[data-model-key="anthropic/claude-opus"]');
+  await row.hover();
+  await expect(details).toContainText('Claude Opus');
+  await expectNoRowDefaultControls(page);
+  // Crossing out of the list must not reset inspection to the selected GPT-5.
+  await details.getByRole('button', { name: defaultAction, exact: true }).hover();
+  await expect(details).toContainText('Claude Opus');
+  await page.screenshot({ path: testInfo.outputPath('instance-default-action-desktop.png') });
+  await details.getByRole('button', { name: defaultAction, exact: true }).click();
+  await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expect(details.getByRole('button', { name: defaultAction, exact: true })).toHaveCount(0);
   await expect(picker).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('instance-default-picker.png') });
-  await expect.poll(() => page.evaluate(async () => {
-    const model = (await window.ember.getSettings()).instanceDefaults.local?.model;
-    return model && `${model.providerID}/${model.modelID}`;
-  })).toBe(key);
+  await expectNoRowDefaultControls(page);
+  await expect.poll(() => savedInstanceDefault(page)).toBe('anthropic/claude-opus');
+  expect(await capturedSends(page)).toEqual([]);
+  expect(await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0'])).toEqual(before);
+  await page.screenshot({ path: testInfo.outputPath('instance-default-details-desktop.png') });
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
+  await expect.poll(() => savedInstanceDefault(page)).toBe('anthropic/claude-opus');
+  await page.getByRole('button', { name: 'Choose model' }).first().click();
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill('Claude Opus');
+  await row.hover();
+  await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expectNoRowDefaultControls(page);
+  expect(await capturedSends(page)).toEqual([]);
+});
+
+test('the default sentinel exposes server default Details before any provider is expanded', async ({ page }) => {
+  // Match the fixture's server default, but keep the composer on the default sentinel.
+  await page.evaluate(async () => {
+    const settings = await window.ember.getSettings();
+    await window.ember.setSettings({
+      instanceDefaults: { ...settings.instanceDefaults, local: { ...settings.instanceDefaults.local, model: { providerID: 'anthropic', modelID: 'claude-sonnet' } } },
+      composerDraftChanges: { 'local::perf-0': { text: '', modelId: 'default', variant: '' } },
+    });
+  });
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('Server default');
+  await page.getByRole('button', { name: 'Choose model' }).first().click();
+  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  const providers = picker.locator('button[aria-expanded]');
+  await expect.poll(() => providers.count()).toBeGreaterThan(0);
+  await expect(picker.locator('button[aria-expanded="true"]')).toHaveCount(0);
+  const details = picker.getByRole('region', { name: 'Model details', exact: true });
+  await expect(details).toContainText('Claude Sonnet');
+  await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expectNoRowDefaultControls(page);
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  // The default row is also an inspectable model when an explicit choice is selected.
+  await chooseModel(page);
+  await captureSends(page);
+  const before = await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0']);
+  await page.getByRole('button', { name: 'Choose model' }).first().click();
+  await expect(details).toContainText('GPT-5');
+  await picker.getByRole('button', { name: 'Anthropic / Claude Sonnet (Server default)', exact: true }).hover();
+  await expect(details).toContainText('Claude Sonnet');
+  await details.hover();
+  await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expectNoRowDefaultControls(page);
+  expect(await capturedSends(page)).toEqual([]);
+  expect(await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0'])).toEqual(before);
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
+});
+
+test('mobile keeps the instance default action and status outside model rows while the picker stays open', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await captureSends(page);
+  const before = await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0']);
+  await page.getByRole('button', { name: 'Choose model' }).first().click();
+  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill('Claude Opus');
+  await picker.getByRole('button', { name: 'Claude Opus', exact: true }).click();
+  const footer = picker.getByRole('region', { name: 'Model default', exact: true });
+  await expect(footer).toContainText('Claude Opus');
+  await expectNoRowDefaultControls(page);
+  await expect(footer.getByRole('button', { name: defaultAction, exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('instance-default-action-mobile.png') });
+  await footer.getByRole('button', { name: defaultAction, exact: true }).click();
+  await expect(footer.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expect(footer.getByRole('button', { name: defaultAction, exact: true })).toHaveCount(0);
+  await expect(picker).toBeVisible();
+  await expect.poll(() => savedInstanceDefault(page)).toBe('anthropic/claude-opus');
+  await expectNoRowDefaultControls(page);
+  await expect.poll(async () => {
+    const bounds = await picker.boundingBox();
+    return bounds !== null && bounds.x >= 0 && bounds.x + bounds.width <= 390;
+  }).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('instance-default-details-mobile.png') });
   expect(await capturedSends(page)).toEqual([]);
   expect(await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0'])).toEqual(before);
   await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.reload();
   await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
+  await expect.poll(() => savedInstanceDefault(page)).toBe('anthropic/claude-opus');
   await page.getByRole('button', { name: 'Choose model' }).first().click();
-  await picker.getByRole('searchbox', { name: 'Search models' }).fill(key!.split('/').slice(1).join('/'));
-  await expect(picker.locator(`[data-model-key="${key}"]`).first().getByText('Instance Default', { exact: true })).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(picker.locator(`[data-model-key="${key}"]`).first().getByText('Instance Default', { exact: true })).toBeVisible();
-  await expect.poll(async () => {
-    const bounds = await picker.boundingBox();
-    return bounds !== null && bounds.x >= 0 && bounds.x + bounds.width <= 390;
-  }).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('instance-default-picker-mobile.png') });
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill('Claude Opus');
+  await picker.getByRole('button', { name: 'Claude Opus', exact: true }).click();
+  await expect(footer.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expectNoRowDefaultControls(page);
+  expect(await capturedSends(page)).toEqual([]);
 });

@@ -60,18 +60,14 @@ const Row = React.memo(function Row({
   model,
   selected,
   active,
-  isDefault,
   onHover,
   onPick,
-  onSetDefault,
 }: {
   model: ModelOption;
   selected: boolean;
   active: boolean;
-  isDefault: boolean;
   onHover: () => void;
   onPick: () => void;
-  onSetDefault?: () => void;
 }) {
   return (
     <div
@@ -93,17 +89,6 @@ const Row = React.memo(function Row({
         ) : null}
         {selected ? <Check aria-hidden="true" className="size-3.5 flex-none text-highlight" /> : null}
       </button>
-      {isDefault ? (
-        <span className="flex flex-none items-center gap-1 text-[10px]" title="Used for new bots on this instance; existing conversations keep their model.">
-          <Check aria-hidden="true" className="size-3" />Instance Default
-        </span>
-      ) : onSetDefault ? (
-        <button type="button" onClick={onSetDefault}
-          title="Used for new bots on this instance; existing conversations keep their model."
-          className="max-w-32 flex-none rounded px-1 py-0.5 text-left text-[10px] leading-tight hover:bg-background focus-visible:ring-2 focus-visible:ring-ring">
-          Set this model as the instance default
-        </button>
-      ) : null}
     </div>
   );
 });
@@ -115,7 +100,29 @@ const Fact = ({ label, value }: { label: string; value: React.ReactNode }) => (
   </div>
 );
 
-const Details = ({ model, instanceId, directory }: { model: ModelOption; instanceId?: string; directory?: string }) => {
+const InstanceDefaultAction = ({ model, isDefault, onSetDefault }: {
+  model: ModelOption;
+  isDefault: boolean;
+  onSetDefault?: (model: ModelOption) => void;
+}) => isDefault ? (
+  <span className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Used for new bots on this instance; existing conversations keep their model.">
+    <Check aria-hidden="true" className="size-3.5" />Instance Default
+  </span>
+) : onSetDefault ? (
+  <Button type="button" size="sm" variant="outline" className="h-auto whitespace-normal text-left"
+    title="Used for new bots on this instance; existing conversations keep their model."
+    onClick={() => onSetDefault(model)}>
+    Set this model as the instance default
+  </Button>
+) : null;
+
+const Details = ({ model, instanceId, directory, isDefault, onSetDefault }: {
+  model: ModelOption;
+  instanceId?: string;
+  directory?: string;
+  isDefault: boolean;
+  onSetDefault?: (model: ModelOption) => void;
+}) => {
   const { details } = model;
   const chips = [
     details.reasoning && 'Reasoning',
@@ -134,6 +141,8 @@ const Details = ({ model, instanceId, directory }: { model: ModelOption; instanc
             {model.modelID}
           </code>
         </div>
+
+        <InstanceDefaultAction model={model} isDefault={isDefault} onSetDefault={onSetDefault} />
 
         {chips.length ? (
           <div className="flex flex-wrap gap-1">
@@ -243,7 +252,9 @@ export default function ModelPicker({
   const selectionError = requireConcreteModel && selectedKey === DEFAULT_MODEL && !defaultModel
     ? 'The instance default model is unavailable. Choose an available model.'
     : resolveComposerModel(selectedKey, selectedVariant, models, defaultModelId).error;
-  const activeKey = hovered && byKey.has(hovered) ? hovered : selectedKey !== DEFAULT_MODEL ? selectedKey : null;
+  // Keep the inspected model when the pointer leaves the list for its details action.
+  const activeKey = hovered === DEFAULT_MODEL ? defaultModelId
+    : hovered && byKey.has(hovered) ? hovered : selectedKey !== DEFAULT_MODEL ? selectedKey : defaultModelId;
   const activeModel = activeKey ? byKey.get(activeKey) ?? null : null;
   const total = groups.reduce((sum, group) => sum + (group.id === 'recent' ? 0 : group.models.length), 0);
 
@@ -304,11 +315,12 @@ export default function ModelPicker({
               ) : null}
             </div>
 
-            <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-1.5" onMouseLeave={() => setHovered(null)}>
+            <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-1.5">
               {!query ? (
                 <button
                   type="button"
-                  onMouseEnter={() => setHovered(null)}
+                  onMouseEnter={() => setHovered(DEFAULT_MODEL)}
+                  onFocus={() => setHovered(DEFAULT_MODEL)}
                   onClick={() => pick(DEFAULT_MODEL)}
                   className={cn(
                     'mb-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px]',
@@ -356,8 +368,6 @@ export default function ModelPicker({
                           model={model}
                           selected={key === selectedKey}
                           active={key === activeKey}
-                          isDefault={key === instanceDefaultModelId}
-                          onSetDefault={onSetInstanceDefault ? () => onSetInstanceDefault(model) : undefined}
                           onHover={() => setHovered(key)}
                           onPick={() => pick(key)}
                         />
@@ -398,15 +408,15 @@ export default function ModelPicker({
               ) : null}
             </div>
 
-            {selectedModel ? <div className="max-h-64 overflow-auto border-t p-3 sm:hidden"><ModelScorecard model={{ ...selectedModel, variant: selectedVariant }} instanceId={instanceId} directory={directory} /></div> : null}
+            {activeModel ? <div className="max-h-64 overflow-auto border-t p-3 sm:hidden"><ModelScorecard model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} /></div> : null}
             <div className="flex-none border-t px-3 py-1.5 text-[10.5px] text-muted-foreground">
               {total} models from {groups.filter((group) => group.id !== 'recent').length} connected providers
             </div>
           </div>
 
-          <div className="hidden min-w-0 flex-1 overflow-y-auto p-5 sm:block">
+          <div role="region" aria-label="Model details" className="hidden min-w-0 flex-1 overflow-y-auto p-5 sm:block">
             {activeModel ? (
-              <Details model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} />
+              <Details model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} isDefault={activeKey === instanceDefaultModelId} onSetDefault={onSetInstanceDefault} />
             ) : (
               <div className="flex h-full flex-col justify-center gap-2 text-center text-muted-foreground">
                 <Sparkles className="mx-auto size-5" />
@@ -420,6 +430,12 @@ export default function ModelPicker({
             )}
           </div>
         </div>
+        {activeModel && (onSetInstanceDefault || activeKey === instanceDefaultModelId) ? (
+          <div role="region" aria-label="Model default" className="flex flex-none flex-col items-start gap-1.5 border-t px-3 py-2 sm:hidden">
+            <span className="max-w-full truncate text-xs font-medium">{activeModel.details.name}</span>
+            <InstanceDefaultAction model={activeModel} isDefault={activeKey === instanceDefaultModelId} onSetDefault={onSetInstanceDefault} />
+          </div>
+        ) : null}
         {selectionError ? <p role="status" className="border-t px-3 py-2 text-xs text-destructive">{selectionError}</p> : null}
         <div className="flex flex-none flex-wrap items-center gap-2 border-t p-2.5">
           <span className="text-[11px] font-medium text-muted-foreground">Reasoning</span>

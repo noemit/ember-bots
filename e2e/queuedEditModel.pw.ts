@@ -126,8 +126,14 @@ test('setting an instance default from a queue picker leaves the queued edit unc
   const picker = page.getByRole('dialog', { name: 'Choose a model' });
   await picker.getByRole('searchbox', { name: 'Search models' }).fill('DeepSeek V4.1 Flash');
   const row = picker.locator('[data-model-key]').first();
-  await row.getByRole('button', { name: 'Set this model as the instance default', exact: true }).click();
-  await expect(row.getByText('Instance Default', { exact: true })).toBeVisible();
+  await row.hover();
+  const details = picker.getByRole('region', { name: 'Model details', exact: true });
+  await expect(details).toContainText('DeepSeek V4.1 Flash');
+  await expect(row.getByRole('button', { name: 'Set this model as the instance default', exact: true })).toHaveCount(0);
+  await details.getByRole('button', { name: 'Set this model as the instance default', exact: true }).click();
+  await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expect(row.getByText('Instance Default', { exact: true })).toHaveCount(0);
+  await expect(picker).toBeVisible();
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:hearth']?.model)).toMatchObject({ providerID: 'faux-hearth', modelID: 'deepseek-v4.1-flash' });
   expect(await calls(page)).toEqual([]);
   await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
