@@ -8,9 +8,10 @@ test('long-message study opens with scrollable full replies and mixed Markdown',
   const second = column.locator('[data-message-id="e4"]');
   await expect(first).toContainText('A small comparison');
   await expect(second).toContainText('A second long reply');
-  expect((await first.boundingBox())!.height).toBeGreaterThan(3000);
   const readingHeight = (await column.getByLabel('Conversation history', { exact: true }).boundingBox())!.height;
-  expect((await second.boundingBox())!.height).toBeGreaterThan(readingHeight * 2);
+  // Wider columns wrap less: both complete replies must still need scrolling, not a fixed pixel height.
+  expect((await first.boundingBox())!.height).toBeGreaterThan(readingHeight * 2);
+  expect((await second.boundingBox())!.height).toBeGreaterThan(readingHeight);
   await expect(first.locator('table')).toHaveCount(1);
   await expect(first.locator('pre')).toHaveCount(1);
   await column.getByRole('button', { name: /Go to new messages/ }).click();

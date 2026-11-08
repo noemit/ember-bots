@@ -1379,7 +1379,7 @@ const renderBlock = (
           'conversation-prose relative',
           mine
             ? 'max-w-[85%] self-end whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-user-bubble px-3.5 py-2 text-user-bubble-foreground'
-            : 'w-full max-w-[780px] self-start py-2 text-foreground'
+            : 'w-full self-start py-2 text-foreground'
         )}
       >
         {mine ? (
@@ -1791,7 +1791,7 @@ const MessageRow = React.memo(function MessageRow({
       }}
       onDoubleClick={() => window.clearTimeout(readClickTimer.current)}
       className={cn(
-        'group/message relative isolate mx-auto flex w-full max-w-[760px] flex-col gap-1.5 rounded-xl px-5 sm:px-7'
+        'group/message relative isolate mx-auto flex w-full flex-col gap-1.5 rounded-xl px-5 sm:px-7'
       )}
     >
       {highlighted ? <span key={highlightRequest} aria-hidden="true" className="message-jump-highlight" /> : null}

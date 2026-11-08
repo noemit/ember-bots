@@ -184,8 +184,13 @@ html.motion-paused *::after {
   border-color: color-mix(in oklab, var(--connection-agent) 22%, var(--border));
   transition: background-color .55s ease, border-color .55s ease;
 }
-.conversation-prose, [data-composer-surface] textarea {
+.conversation-prose {
   font-size: var(--conversation-text-size, 14px);
+  line-height: 1.8;
+}
+/* Composer measurements use the textarea itself, so input and placeholder share these metrics. */
+[data-composer-surface] textarea {
+  font-size: 18px;
   line-height: 1.8;
 }
 .conversation-prose h1, .conversation-prose h2 { font-size: 1.5em; line-height: 1.4; }
