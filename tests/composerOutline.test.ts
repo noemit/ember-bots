@@ -20,6 +20,7 @@ import * as path from 'node:path';
  *     Rejected by the owner: the border must keep its own colour when focused; the focus state is
  *     carried by a soft outer glow alone, plus the send button turning accent.
  */
+const css = fs.readFileSync(path.join(import.meta.dir, '../src/styles.css'), 'utf8');
 const source = fs.readFileSync(path.join(import.meta.dir, '../src/components/ChatView.tsx'), 'utf8');
 
 /** The composer's own class list — the only element in the file with this marker. */
@@ -46,7 +47,12 @@ describe('the composer outline and send button accent', () => {
 
   test('focus is a blurred outer box-shadow glow on has-focus-visible, never a ring or inset-ring', () => {
     const cls = composerClassName();
-    expect(cls).toContain('has-focus-visible:shadow-[');
+    expect(css).toContain('[data-composer-surface]:has(:focus-visible)::before');
+    expect(css).toContain('box-shadow: 0 0 12px');
+    expect(css).toContain('mix-blend-mode: var(--composer-glow-blend)');
+    expect(css).toContain('pointer-events: none');
+    expect(css).toContain('isolation: isolate');
+    expect(css).not.toContain('[data-composer-surface]:focus-within');
     expect(cls).not.toContain('inset-ring');
     expect(cls).not.toMatch(/\bhas-focus-visible:ring-/);
     expect(cls).not.toMatch(/\bhas-focus-visible:outline\b/);

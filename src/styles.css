@@ -163,6 +163,7 @@ html.motion-paused *::after {
 }
 
 .safe-composer {
+  background-color: var(--background);
   padding-bottom: max(0.625rem, env(safe-area-inset-bottom));
 }
 
@@ -248,4 +249,32 @@ html.motion-paused *::after {
 @media (prefers-reduced-motion: reduce) {
   /* A gradual colour fade has no spatial motion and keeps the destination understandable. */
   .message-jump-highlight { animation-duration: 5s !important; }
+}
+
+/* Contain the blend backdrop to this column's footer. The opaque base is required:
+   isolation alone would leave the halo blending against transparent black. */
+.safe-composer {
+  isolation: isolate;
+}
+[data-composer-surface] {
+  position: relative;
+  background-blend-mode: var(--composer-glow-blend);
+}
+[data-composer-surface]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  mix-blend-mode: var(--composer-glow-blend);
+  box-shadow: 0 0 12px 2px var(--composer-glow-color, var(--ring));
+  opacity: 0;
+  transition: opacity 200ms;
+}
+[data-composer-surface]:has(:focus-visible)::before {
+  opacity: .28;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-composer-surface]::before { transition: none; }
 }

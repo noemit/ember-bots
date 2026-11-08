@@ -19,6 +19,7 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
+- Composer colour and focus halos multiply into light surfaces and dodge dark surfaces instead of adding a greyish wash.
 - Eyed bots follow nearby pointers in the composer, groups, settings, appearance picker and onboarding; thinking Buddy yields to the pointer, and gaze refreshes after scrolling or resizing. Reduced motion keeps direct pointer tracking without autonomous animation.
 - The current bot stays aligned beside the composer when a long draft shrinks or is sent, instead of overlapping other bots in the rail.
 - The current bot beside the composer retains Hide session and New bot in this folder actions, including the mini rail and undocked composers; hiding active work still asks first.

@@ -184,6 +184,8 @@ export const applyTheme = (id: string): void => {
   Object.entries(toCssVars(theme.palette)).forEach(([key, value]) =>
     root.style.setProperty(key, value)
   );
+  // Pigment on light paper; emitted colour on dark surfaces, without a grey wash.
+  root.style.setProperty('--composer-glow-blend', theme.dark ? 'color-dodge' : 'multiply');
   root.classList.toggle('dark', theme.dark);
   root.style.colorScheme = theme.dark ? 'dark' : 'light';
 };
