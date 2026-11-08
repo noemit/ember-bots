@@ -28,10 +28,10 @@ export { type ScheduleSpec };
  *
  * The rules it lives by:
  *
- * - **One conversation's own tasks.** The scheduler document is session-scoped (`SchedulerDoc`,
- *   `scope: "session"`), and every action here reads and writes it through the calling
- *   conversation's own harness — so a task started in one chat is invisible to another, and the
- *   tool can never reach across.
+ * - **One Hearth's list, honestly described.** `SchedulerDoc` is a per-Hearth singleton, not a
+ *   per-conversation list: every chat on this host sees the same tasks, and so does the Scheduled
+ *   view. The tool says "this Hearth", never "this conversation", because a model that believed the
+ *   narrower thing would promise a privacy the storage does not provide.
  * - **Validate with the wire's own parsers.** `parseSchedule`/`parseScheduledTaskInput` are what
  *   `POST /scheduled-tasks` already uses; duplicating the rules here would let the two drift. What
  *   this file adds is the part a model needs: *which field* is wrong, in words, and what the
@@ -39,12 +39,15 @@ export { type ScheduleSpec };
  * - **Never store a schedule that cannot be evaluated.** An unknown timezone would make every later
  *   `isDue()` throw, which the tick loop skips forever — a task that silently never runs. It is
  *   refused at creation, where the person who typed it can still be told.
- * - **A bounded list.** Eight tasks per conversation is enough for anyone's real cadence and keeps
- *   the tool's answer short enough to read: the cap is enforced on create and said out loud.
+ * - **A bounded list.** Eight tasks per Hearth is enough for anyone's real cadence and keeps the
+ *   tool's answer short enough to read: the cap is enforced on create and said out loud.
+ * - **Runs get their own session.** A task stores a prompt, not a transcript slot: the first run
+ *   creates the conversation it will keep using, so somebody's working chat is never interrupted by
+ *   a scheduled prompt. The answer says which session ran.
  */
 export type ScheduleToolName = "list" | "create" | "update" | "remove" | "run";
 
-/** The most tasks one conversation may own. Each one is a prompt that runs without anyone watching. */
+/** The most tasks one Hearth may own. Each one is a prompt that runs without anyone watching. */
 export const MAX_SCHEDULES = 8;
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -275,9 +278,9 @@ export type ScheduleStore = {
 };
 
 /**
- * Every action over one store. `now` is injected so a test can say "the past" without waiting; the
- * conversation's own id is not needed because the scheduler document is session-scoped — reading it
- * through this store *is* reading this conversation's tasks.
+ * Every action over one store. `now` is injected so a test can say "the past" without waiting; no
+ * conversation id is involved because the scheduler document is a per-Hearth singleton — reading it
+ * through this store reads every task this Hearth knows about.
  */
 export const createScheduleHandlers = (store: ScheduleStore, now: () => number = Date.now): ScheduleHandlers => {
   const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -296,7 +299,7 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
       const current = now();
       const { tasks } = await state();
       if (tasks.length === 0) {
-        return `No scheduled tasks in this conversation. Use \`create\` to add one (up to ${MAX_SCHEDULES}).`;
+        return `Nothing is scheduled on this Hearth. Use \`create\` to add one (up to ${MAX_SCHEDULES}).`;
       }
       const needle = query?.trim().toLowerCase();
       const matching = needle
@@ -308,7 +311,7 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
       const shown = matching.slice(0, 10);
       const rows = shown.map((task) => describeTask(task, current, zone())).join("\n");
       const more = matching.length > shown.length ? `\n(${matching.length - shown.length} more — narrow the filter.)` : "";
-      return `${shown.length} of ${tasks.length} scheduled task${tasks.length === 1 ? "" : "s"} in this conversation:\n${rows}${more}\nTimes are wall-clock in the zone shown; a run submits the task's prompt to this conversation's own session.`;
+      return `${shown.length} of ${tasks.length} scheduled task${tasks.length === 1 ? "" : "s"} on this Hearth:\n${rows}${more}\nTimes are wall-clock in the zone shown; a run submits the task's prompt to its own session, not to the chat that created it.`;
     },
 
     create: async (args) => {
@@ -325,13 +328,13 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
       const { tasks } = await state();
       if (tasks.length >= MAX_SCHEDULES) {
         return {
-          text: `This conversation already has ${tasks.length} scheduled tasks, the maximum. Remove one with \`remove\` before adding another.`,
+          text: `This Hearth already has ${tasks.length} scheduled tasks, the maximum. Remove one with \`remove\` before adding another.`,
           isError: true,
         };
       }
       if (duplicateName(tasks, name)) {
         return {
-          text: `This conversation already has a scheduled task called "${name.slice(0, 80)}". Choose another name, or use \`update\` to change that one.`,
+          text: `This Hearth already has a scheduled task called "${name.slice(0, 80)}". Choose another name, or use \`update\` to change that one.`,
           isError: true,
         };
       }
@@ -350,7 +353,7 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
         text:
           `Scheduled "${created.name}" (${created.id}): ${describeSchedule(created.schedule, zone())}. ` +
           `Next run: ${describeNextRun(created.schedule, next, zone())}. ` +
-          "The run sends the saved prompt to this conversation's own session.",
+          "Its first run creates the session it will keep using, so this chat is not interrupted.",
       };
     },
 
@@ -468,16 +471,16 @@ const toolText = (text: string, isError?: boolean): { output: Array<{ type: "tex
 export const ScheduleTool = defineTool({
   name: "schedule",
   description:
-    "Create and manage tasks that run on a wall-clock schedule in this conversation: list them, create one, " +
+    "Create and manage tasks that run on a wall-clock schedule: list them, create one, " +
     "change its prompt or schedule, pause it, remove it, or run it now. Use this when a person asks for " +
     "something to happen regularly or at a particular time; do not promise a schedule you have not created.",
   parameters: obj({
     action: oneOf(["list", "create", "update", "remove", "run"] as const, {
-      description: "list: this conversation's scheduled tasks. create/update/remove/run act on one task, named by `task` (id or unique name).",
+      description: "list: this Hearth's scheduled tasks (shared by every chat here). create/update/remove/run act on one task, named by `task` (id or unique name).",
     }),
     task: opt(str({ description: "update/remove/run: the task's id, or its name when that name is unique here." })),
-    name: opt(str({ description: "create: a short title. update: a new title. Must be unique in this conversation." })),
-    prompt: opt(str({ description: "create/update: what the run should do. It is submitted to this conversation's own session." })),
+    name: opt(str({ description: "create: a short title. update: a new title. Must be unique on this Hearth." })),
+    prompt: opt(str({ description: "create/update: what the run should do. It is submitted to the task's own session, where nobody is watching — write it so it still makes sense later." })),
     schedule: opt(
       obj({
         kind: oneOf(["daily", "weekly", "once"] as const, { description: "daily: every day at `time`. weekly: on `weekdays` at `time`. once: at the epoch-ms instant `at`." }),
@@ -548,10 +551,10 @@ export const scheduleSection = section(
   "schedule",
   () =>
     "Use the schedule tool when someone wants something to happen on a clock (every morning, on weekdays, once next " +
-    "Tuesday) rather than in this turn: list, create, update, remove or run a task that belongs to this conversation. " +
-    "Times are wall-clock in the task's timezone, and a run submits the stored prompt to this conversation's own session — " +
-    "so write the prompt as something that will still make sense when nobody is watching. After creating or changing a " +
-    "schedule, tell the person the next run in plain words and check it is what they meant.",
+    "Tuesday) rather than in this turn: list, create, update, remove or run a scheduled task. Tasks belong to this Hearth, " +
+    "not to one chat, and the Scheduled view shows the same list. Times are wall-clock in the task's timezone, and a run " +
+    "submits the stored prompt to the task's own session — so write the prompt so it still makes sense when nobody is " +
+    "watching. After creating or changing a schedule, tell the person the next run in plain words and check it is what they meant.",
   { tag: false }
 );
 

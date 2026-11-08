@@ -179,7 +179,7 @@ describe("schedule: tasks belong to one conversation's document", () => {
     expect(created.text).toContain('Scheduled "Morning deploy check"');
     expect(created.text).toContain("daily 09:00 Europe/Berlin");
     expect(created.text).toContain("Next run: Mon 9 Nov, 09:00 (Europe/Berlin)");
-    expect(created.text).toContain("this conversation's own session");
+    expect(created.text).toContain("first run creates the session it will keep using");
 
     const listed = await api.list();
     expect(listed).toContain("Morning deploy check");
@@ -276,7 +276,7 @@ describe("schedule: tasks belong to one conversation's document", () => {
 
   test("an empty list explains how to add one", async () => {
     await fresh();
-    expect(await handlers().list()).toContain("No scheduled tasks in this conversation");
+    expect(await handlers().list()).toContain("Nothing is scheduled on this Hearth");
   });
 
   test("list filters and says so when the filter matches nothing", async () => {
@@ -382,7 +382,8 @@ describe("schedule: the model-facing tool", () => {
     const rendered = Schedule.sections[0].render({} as never, context) as string;
     expect(rendered.length).toBeLessThan(700);
     expect(rendered).toContain("wall-clock");
-    expect(rendered).toContain("this conversation's own session");
+    expect(rendered).toContain("the task's own session");
+  expect(rendered).toContain("belong to this Hearth");
     expect(rendered).toContain("next run");
   });
 });
