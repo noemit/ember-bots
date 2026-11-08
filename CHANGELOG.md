@@ -13,6 +13,8 @@
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
+- The composer trays sit on a 1% wash of the theme's ink (white on dark themes, black on light),
+  so the Queue/For later/Threads row separates from the transcript without a second panel.
 - The “Marked read” confirmation fades after about a second; hovering it or focusing Undo holds it
   for up to five seconds.
 - Right-clicking a bot reply offers **Mark as unread**, which makes that reply and everything after

@@ -277,6 +277,16 @@ html.motion-paused *::after {
   .message-jump-highlight { animation-duration: 5s !important; }
 }
 
+/*
+ * The composer trays (Queue, For later, Threads) sit on a 1% wash of the theme's own ink: white in
+ * dark themes, black in light ones. It is not a surface — no border, no radius — just enough to
+ * separate the tabs from the transcript without drawing a second panel above the composer. The
+ * element is `empty:hidden`, so a session with no trays shows no tint at all.
+ */
+[data-composer-extras] {
+  background: color-mix(in oklab, var(--foreground) 1%, transparent);
+}
+
 /* Contain the blend backdrop to this column's footer. The opaque base is required:
    isolation alone would leave the halo blending against transparent black. */
 .safe-composer {
