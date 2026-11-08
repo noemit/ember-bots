@@ -139,6 +139,7 @@ import {
   markTimestampRead,
   messageReadReceipt,
   undoMessageRead,
+  markUnreadFrom,
   type MessageReadReceipt,
   pruneSessionReadMarks,
 } from './lib/readState';
@@ -4827,6 +4828,26 @@ export default function App() {
     }
   };
 
+  /**
+   * "Mark as unread": the inverse of a per-message receipt. A read mark is a watermark, so this
+   * rewinds it to just below the pressed reply — that reply and everything after it become unread,
+   * which is what the rail and the unread digest then show. It never goes the other way: a reply
+   * already unread leaves the mark as it is.
+   */
+  const handleMarkMessageUnreadInColumn = (session: Session, message: ChatMessage) => {
+    if (isWorker(session)) return;
+    const key = sessionKey(session);
+    const current = settingsRef.current.readMarks[key];
+    const ordinal = entryOrdinal(message.id);
+    const at = message.completedAt ?? message.createdAt ?? 0;
+    if (ordinal === null && at <= 0) return;
+    const next = markUnreadFrom(current, ordinal, at);
+    if (next === current) return;
+    // The column's own receipt is not an acknowledgement any more; a later read wins again.
+    readUndoReceipts.current.delete(JSON.stringify([key, message.id]));
+    handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
+  };
+
   /** Muting notifications leaves every explicit read mark intact. */
   const handleQuietChange = (session: Session, quiet: boolean) => {
     const key = sessionKey(session);
@@ -5090,6 +5111,7 @@ export default function App() {
             : {
                 onMarkMessageRead: handleMarkMessageReadInColumn,
                 onUndoMarkMessageRead: handleUndoMarkMessageReadInColumn,
+                onMarkMessageUnread: handleMarkMessageUnreadInColumn,
                 onMarkAllRead: handleMarkAllRead,
                 onQuietChange: handleQuietChange,
               })}

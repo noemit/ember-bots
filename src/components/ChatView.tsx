@@ -226,6 +226,15 @@ type Props = {
   /** Mark one message read (the dot beside it). Omitted where marking is not offered. */
   onMarkMessageRead?: (session: Session, message: ChatMessage) => void;
   onUndoMarkMessageRead?: (session: Session, message: ChatMessage) => void;
+  /**
+   * "Mark as unread": that reply and everything after it become unread again.
+   *
+   * Passed only where unread state exists at all — the app withholds every unread control from a
+   * worker thread, whose unread state is invisible everywhere. With no callback the transcript draws
+   * no menu for it; `canManageUnread` says the same thing explicitly so the reply's right-click menu
+   * also stays away from a draft, where the message is not on a host yet.
+   */
+  onMarkMessageUnread?: (session: Session, message: ChatMessage) => void;
   /** Mark the whole session read (the unread navigation bar). */
   onMarkAllRead?: (session: Session) => void;
   /** Set or clear "mark everything read, no notifications" for this session. */
@@ -497,6 +506,7 @@ function ChatView({
   readMark,
   onMarkMessageRead,
   onUndoMarkMessageRead,
+  onMarkMessageUnread,
   onMarkAllRead,
   onQuietChange,
   notificationsMuted = false,
@@ -1497,6 +1507,8 @@ function ChatView({
         {...(readMark ? { readMark } : {})}
         {...(onMarkMessageRead && session ? { onMarkRead: (message: ChatMessage) => onMarkMessageRead(session, message) } : {})}
         {...(onUndoMarkMessageRead && session ? { onUndoMarkRead: (message: ChatMessage) => onUndoMarkMessageRead(session, message) } : {})}
+        {...(onMarkMessageUnread && session ? { onMarkUnread: (message: ChatMessage) => onMarkMessageUnread(session, message) } : {})}
+        canManageUnread={Boolean(session && onMarkMessageUnread && onMarkMessageRead)}
         {...(onMarkAllRead && session ? { onMarkAllRead: () => onMarkAllRead(session) } : {})}
         onReply={session ? replyToMessage : undefined}
         showMessageDetails={view.showMessageDetails}

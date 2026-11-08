@@ -75,6 +75,11 @@ their existing names; archive references in the implementation notes below descr
   Explicit read actions also show a conversation-scoped “Marked read” toast with Undo and a brief
   background-only highlight. The centered “↑ Jump to your last message” pill appears only below the
   latest user message with no user message visible; it never marks messages read.
+  A bot reply's right-click menu also offers **Mark as unread**: a read mark is a watermark, so that
+  reply and everything after it become unread again (`markUnreadFrom` in `lib/readState.ts`); it is
+  never offered on user messages, worker threads, or while text is selected. The receipt's lifetime
+  is the pure policy in `lib/readReceiptTimer.ts` — 1s by default, held up to 5s from appearance by
+  pointer hover or keyboard focus, with a short grace after leaving — never a CSS delay.
   Tool-call steps (including commentary) need no read receipt. Folded tool rows keep the final
   reply’s original eligibility, and tool steps never block advancing a reply’s read mark.
 - Home has been removed. Startup restores the workspace or opens a recent chat; an empty install

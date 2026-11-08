@@ -13,6 +13,10 @@
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
+- The “Marked read” confirmation fades after about a second; hovering it or focusing Undo holds it
+  for up to five seconds.
+- Right-clicking a bot reply offers **Mark as unread**, which makes that reply and everything after
+  it unread again.
 - Worker threads have no unread management: no notify switch and no per-message read controls. A
   thread is something its leader reads, not a place a person does.
 - The Threads tab above the composer reads running over total ("3 / 8") instead of naming what is

@@ -18,6 +18,7 @@ import {
   Loader2,
   Megaphone,
   MessageCircleQuestion,
+  MailOpen,
   Reply,
   ShieldAlert,
   Wrench,
@@ -25,6 +26,13 @@ import {
 } from 'lucide-react';
 import Linkify from './Linkify';
 import CopyButton from './CopyButton';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { isHumanReadingMessage, type ReadingBounds, shouldOfferLastMessageJump } from '../lib/transcriptReadingGeometry';
 import { isTurnLive, outputSignature } from '../lib/turnActivity';
 import { parseCrewReport } from '../lib/crew';
@@ -47,6 +55,7 @@ import {
   type ToolDisplay,
 } from '../lib/toolDisplay';
 import { isMessageRead } from '../lib/readState';
+import { readReceiptDismissIn } from '../lib/readReceiptTimer';
 import { entryOrdinal } from '../lib/piMapping';
 import { copyText } from '@/lib/clipboard';
 import { useStableCallback } from '@/lib/useStableCallback';
@@ -143,6 +152,20 @@ type Props = {
   /** Mark only the message whose bubble was pressed. */
   onMarkRead?: (message: ChatMessage) => void;
   onUndoMarkRead?: (message: ChatMessage) => void;
+  /**
+   * Put a reply back in front of the reader: that reply and everything after it become unread again.
+   * The inverse of `onMarkRead`, offered from the message's right-click menu.
+   */
+  onMarkUnread?: (message: ChatMessage) => void;
+  /**
+   * Whether this conversation manages unread state at all.
+   *
+   * A worker thread has none: its unread state is invisible everywhere (the rail hides workers, the
+   * digest skips them), so the read controls are not passed to it. This says so explicitly rather
+   * than inferring it from a missing callback, because "Mark as unread" must also be withheld from
+   * a draft, where the message does not exist on a host yet.
+   */
+  canManageUnread?: boolean;
   /** Mark the entire session read, including older unloaded messages. */
   onMarkAllRead?: () => void;
   /** Quote this message in the composer's existing reply context. */
@@ -1469,6 +1492,8 @@ type MessageRowProps = {
   showCost: boolean;
   unread?: boolean;
   onMarkRead?: (message: ChatMessage) => void;
+  /** Offer "Mark as unread" from the reply's right-click menu. */
+  onMarkUnread?: (message: ChatMessage) => void;
   onReply?: (message: ChatMessage) => void;
   showMessageDetails: boolean;
   /** Only the original entry's reasoning follows its own live stream. */
@@ -1691,6 +1716,7 @@ const MessageRow = React.memo(function MessageRow({
   showCost,
   unread = false,
   onMarkRead,
+  onMarkUnread,
   onReply,
   showMessageDetails,
   streaming,
@@ -1728,6 +1754,36 @@ const MessageRow = React.memo(function MessageRow({
   // A drag can end with a collapsed selection (or outside the prose), so selection alone is not
   // enough to distinguish acknowledgement from selecting text.
   const readGesture = React.useRef<{ x: number; y: number; dragged: boolean } | null>(null);
+  /**
+   * Whether "Mark as unread" may appear in the menu for this right-click.
+   *
+   * Decided when the press (or the context menu itself) arrives, because Radix reads `menuContent`
+   * when the menu opens: a live text selection means the person is working with the words, so the
+   * native menu is left alone. A state rather than a ref so the content re-renders with the answer.
+   */
+  /**
+   * Whether "Mark as unread" belongs in the menu for this right-click.
+   *
+   * A live text selection means the person is working with the words, so the native menu is left
+   * alone — Copy and Reply stay, because copying a selection is exactly that gesture.
+   *
+   * The selection has to be read at **pointerdown**, not when the menu opens: the browser collapses
+   * a selection when the right button goes down, so by the time `contextmenu` fires the user's drag
+   * has already been forgotten and every right-click looks like a plain one. `selectionAtPress`
+   * remembers the answer from the last press, and a `contextmenu` with no preceding press (a
+   * synthetic event, or a platform that only sends one) judges the live selection instead.
+   *
+   * A ref, because Radix reads the menu's children during the same event that opens it: the decision
+   * has to be visible synchronously, not on the next render.
+   */
+  const menuAllowed = React.useRef(false);
+  const selectionAtPress = React.useRef<boolean | null>(null);
+  const [, setMenuRefresh] = React.useState(0);
+  const setMenuAllowed = React.useCallback((allowed: boolean) => {
+    if (menuAllowed.current === allowed) return;
+    menuAllowed.current = allowed;
+    setMenuRefresh((n) => n + 1);
+  }, []);
   const readClickTimer = React.useRef<number | undefined>(undefined);
   React.useEffect(() => () => window.clearTimeout(readClickTimer.current), []);
   const isInteractive = (target: EventTarget | null, row: HTMLElement) => {
@@ -1766,7 +1822,45 @@ const MessageRow = React.memo(function MessageRow({
       </div>
     ) : null;
 
-  return (
+  /**
+   * The reply's right-click menu: the Copy and Reply that used to live only in the hover footer, plus
+   * "Mark as unread".
+   *
+   * The menu is offered on assistant replies only, and only where unread state exists at all — a
+   * worker thread has none, and an optimistic or draft message is not on a host yet, so there is no
+   * receipt to move. Nothing that would contradict a selection: right-clicking *inside* a selection
+   * (or choosing text with the menu already open) leaves the native menu alone, because the person
+   * is clearly working with the text, not the message.
+   */
+  const menuEnabled = message.role === 'assistant' && Boolean(onMarkUnread);
+  const menuContent = (
+    <ContextMenuContent>
+      {copyable ? (
+        <>
+          <ContextMenuItem onSelect={() => { void copyText(messageMarkdown(message)); }}>
+            Copy as Markdown
+          </ContextMenuItem>
+          {onReply ? (
+            <ContextMenuItem onSelect={() => onReply(message)}>
+              <Reply aria-hidden="true" />
+              Reply
+            </ContextMenuItem>
+          ) : null}
+        </>
+      ) : null}
+      {menuAllowed.current && onMarkUnread ? (
+        <>
+          {copyable ? <ContextMenuSeparator /> : null}
+          <ContextMenuItem onSelect={() => onMarkUnread(message)}>
+            <MailOpen aria-hidden="true" />
+            Mark as unread
+          </ContextMenuItem>
+        </>
+      ) : null}
+    </ContextMenuContent>
+  );
+
+  const rowBody = (
     <motion.div
       ref={ref}
       layout={false}
@@ -1778,6 +1872,21 @@ const MessageRow = React.memo(function MessageRow({
         window.clearTimeout(readClickTimer.current);
         readGesture.current = event.button === 0 && !isInteractive(event.target, event.currentTarget)
           ? { x: event.clientX, y: event.clientY, dragged: false } : null;
+        // The right button's press is the last chance to decide whether "Mark as unread" belongs in
+        // the menu: Radix reads `menuContent` when the menu opens, just after this. A live text
+        // selection means the person is working with the words, so the native menu is left alone.
+        if (event.button === 2) {
+          selectionAtPress.current = Boolean(window.getSelection()?.isCollapsed);
+          setMenuAllowed(selectionAtPress.current);
+        }
+      }}
+      onContextMenu={(event) => {
+        // The press already answered this (and saw the selection the browser is about to drop).
+        // Without one — a synthetic event, or a platform that only sends `contextmenu` — ask now.
+        if (event.defaultPrevented) return;
+        const remembered = selectionAtPress.current;
+        selectionAtPress.current = null;
+        setMenuAllowed(remembered ?? Boolean(window.getSelection()?.isCollapsed));
       }}
       onPointerMove={(event) => {
         const gesture = readGesture.current;
@@ -1851,6 +1960,14 @@ const MessageRow = React.memo(function MessageRow({
       {textBlockIndex < 0 ? <>{renderGutter('left-0')}{unreadBadge}</> : null}
     </motion.div>
   );
+
+  if (!menuEnabled) return rowBody;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{rowBody}</ContextMenuTrigger>
+      {menuContent}
+    </ContextMenu>
+  );
 });
 
 const ActivityLabel = ({ label, since }: { label: ActivityLabelValue; since?: number }) => {
@@ -1899,6 +2016,8 @@ function Transcript({
   readMark,
   onMarkRead,
   onUndoMarkRead,
+  onMarkUnread,
+  canManageUnread = false,
   onMarkAllRead,
   onReply,
   showMessageDetails,
@@ -2284,11 +2403,21 @@ function Transcript({
       ? [index] : []
   ), [items, messages, readMark]);
   const unreadIds = React.useMemo(() => new Set(unreadIndices.map((index) => items[index].message.id)), [items, unreadIndices]);
-  const [receipt, setReceipt] = React.useState<{ message: ChatMessage; version: number } | null>(null);
+  /**
+   * The read receipt currently on screen, and which way it went.
+   *
+   * `read` is the "Marked read" receipt with Undo; `unread` is "Marked unread", which has no Undo
+   * because the inverse action (marking that reply read again) is a click away on the reply itself.
+   * Both share one timer and one appearance time.
+   */
+  const [receipt, setReceipt] = React.useState<{ message: ChatMessage; version: number; appearedAt: number; kind: 'read' | 'unread' } | null>(null);
   const [readHighlight, setReadHighlight] = React.useState(false);
   const receiptVersion = React.useRef(0);
   const [toastHovered, setToastHovered] = React.useState(false);
   const [toastFocused, setToastFocused] = React.useState(false);
+  // Whether this receipt has ever been held. A pointer or focus that arrives and leaves turns a
+  // receipt into a *released* one, which goes on the short grace instead of the plain second.
+  const [toastReleased, setToastReleased] = React.useState(false);
   React.useEffect(() => {
     setReceipt(null);
     setReadHighlight(false);
@@ -2298,12 +2427,32 @@ function Transcript({
     const highlightTimer = window.setTimeout(() => setReadHighlight(false), 1100);
     return () => window.clearTimeout(highlightTimer);
   }, [receipt]);
+  /**
+   * When the receipt leaves, as one timer, driven by `readReceiptTimer`'s policy.
+   *
+   * The previous rule was a flat 5s, reset whenever the pointer moved off — which meant a receipt sat
+   * in front of the transcript long after the reader had moved on, and a keyboard user got no hold at
+   * all. The policy itself is pure (`readReceiptDismissIn`) and tested; this effect only arms the
+   * `setTimeout` it asks for, re-armed whenever the answer can change. No CSS delay is involved, so
+   * reduced motion behaves identically.
+   */
   React.useEffect(() => {
-    if (!receipt) { setToastHovered(false); setToastFocused(false); return; }
-    if (toastHovered || toastFocused) return;
-    const timer = window.setTimeout(() => setReceipt(null), 5000);
+    if (!receipt) { setToastHovered(false); setToastFocused(false); setToastReleased(false); return; }
+    const dismissIn = readReceiptDismissIn({ appearedAt: receipt.appearedAt, now: Date.now(), hovered: toastHovered, focused: toastFocused, released: toastReleased });
+    if (dismissIn === 0) {
+      // The cap is absolute. Everything else is armed below.
+      setReceipt(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setReceipt(null), dismissIn);
     return () => window.clearTimeout(timer);
-  }, [receipt, toastHovered, toastFocused]);
+  }, [receipt, toastHovered, toastFocused, toastReleased]);
+  /** Hold while the pointer is over it, or focus is inside it — and remember that it happened. */
+  const holdReceipt = (held: boolean) => {
+    if (held) { setToastReleased(false); setToastHovered(true); return; }
+    setToastHovered(false);
+    setToastReleased(true);
+  };
   const markMessageRead = useStableCallback((message: ChatMessage) => {
     const original = messages.find((entry) => entry.id === message.id);
     if (original && isUnreadEligible(original) && unreadIds.has(original.id) && onMarkRead) {
@@ -2311,9 +2460,27 @@ function Transcript({
       // A click waits for the selection grace period. Search may have moved to another
       // message meanwhile; clear only this reply's jump styling, not the newer destination.
       setHighlightedMessageId(current => current === original.id ? null : current);
-      setReceipt({ message: original, version: ++receiptVersion.current });
+      // One appearance time for the whole receipt: the 5s cap counts from here, not from the last
+      // hover, so a resting pointer cannot keep it up for ever.
+      setReceipt({ message: original, version: ++receiptVersion.current, appearedAt: Date.now(), kind: 'read' });
+      setToastReleased(false);
       setReadHighlight(true);
     }
+  });
+  /**
+   * "Mark as unread": the inverse receipt. The message it acts on does not have to be unread-eligible
+   * in the *forward* sense (that gate is about what can be marked read), only that it is a real
+   * assistant reply the host owns — which is exactly what the menu offers it for.
+   */
+  const markMessageUnread = useStableCallback((message: ChatMessage) => {
+    const original = messages.find((entry) => entry.id === message.id);
+    if (!original || original.role !== 'assistant' || !onMarkUnread) return;
+    onMarkUnread(original);
+    setHighlightedMessageId(current => current === original.id ? null : current);
+    setReceipt({ message: original, version: ++receiptVersion.current, appearedAt: Date.now(), kind: 'unread' });
+    setToastReleased(false);
+    // The receipt's own fade, not the read highlight: nothing was acknowledged, the opposite was.
+    setReadHighlight(false);
   });
 
   const last = messages[messages.length - 1];
@@ -2494,12 +2661,16 @@ function Transcript({
         <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" onClick={() => jumpToIndex(latestUserIndex, 'start')}>↑ Jump to your last message</Button>
       </div> : null}
       {receipt ? <div data-read-toast=""
-        onPointerEnter={() => setToastHovered(true)} onPointerLeave={() => setToastHovered(false)}
-        onFocusCapture={() => setToastFocused(true)}
-        onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
+        // Pointer and keyboard are the same hold (see `readReceiptTimer`): either one keeps the
+        // receipt up to its cap, and leaving either starts the short grace.
+        onPointerEnter={() => holdReceipt(true)} onPointerLeave={() => holdReceipt(false)}
+        onFocusCapture={() => { setToastReleased(false); setToastFocused(true); }}
+        onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setToastFocused(false); setToastReleased(true); } }}
         className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-secondary px-3 py-1 text-xs text-secondary-foreground shadow-sm">
-        <span role="status" key={receipt.version}>Marked read</span>
-        {onUndoMarkRead ? <button type="button" className="rounded px-1 py-1 underline underline-offset-2 focus-visible:outline-2" onClick={() => {
+        <span role="status" key={receipt.version}>{receipt.kind === 'read' ? 'Marked read' : 'Marked unread'}</span>
+        {/* Undo belongs to the read receipt: it restores the acknowledgement. "Marked unread" needs
+            no undo — the control that reverses it is the reply's own mark-as-read dot. */}
+        {receipt.kind === 'read' && onUndoMarkRead ? <button type="button" className="rounded px-1 py-1 underline underline-offset-2 focus-visible:outline-2" onClick={() => {
           onUndoMarkRead(receipt.message);
           setReceipt(null);
           setReadHighlight(false);
@@ -2558,6 +2729,7 @@ function Transcript({
                 showCost={showCost}
                 unread={unreadIds.has(message.id)}
                 onMarkRead={onMarkRead ? markMessageRead : undefined}
+                onMarkUnread={canManageUnread && onMarkUnread ? markMessageUnread : undefined}
                 onReply={onReply}
                 showMessageDetails={showMessageDetails}
                 streaming={turnPending && index === messages.length - 1}

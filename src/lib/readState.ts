@@ -153,6 +153,74 @@ export const markAllRead = (
   };
 };
 
+/** Whether `ordinal` appears in an out-of-order read list. */
+const isListed = (ids: number[] | undefined, ordinal: number): boolean => {
+  const list: number[] = ids === undefined ? [] : ids;
+  return list.includes(ordinal);
+};
+
+/**
+ * Whether a reply is already unread, so `markUnreadFrom` has nothing to rewind for it.
+ *
+ * Everything at or below `through` is read, so anything above it is unread already. An out-of-order
+ * `ids` entry is read but not yet compacted; the rewind is about to erase it, so it does not make
+ * the reply "already unread" either.
+ */
+const isAlreadyUnread = (current: SessionReadMark, ordinal: number): boolean => {
+  if (ordinal > current.through) return true;
+  return isListed(current.ids, ordinal);
+};
+
+/**
+ * The inverse of a per-message read mark: "unread from here on".
+ *
+ * Right-clicking an assistant reply offers to put it back in front of the reader, and the honest
+ * meaning of that is a watermark move, not a single exception: that reply *and everything after it*
+ * becomes unread, exactly the run "Mark as read" would then clear one reply at a time. The receipt
+ * is the same scalar the rest of this file uses — everything with an ordinal ≤ `through` is read —
+ * so lowering `through` to one below the target is the whole operation:
+ *
+ *   - `through` becomes `ordinal - 1`, dropping every out-of-order mark (`ids`) above it, because
+ *     those replies are unread again and a listing of marks above `through` would be redundant;
+ *   - on a wire without ordinals (`ordinal === null`), the same statement is made with time:
+ *     `readAt` goes to just before the message — `at - 1`, since `isMessageRead` treats `at <=
+ *     readAt` as read — where `at` is the message's own time and must be a positive epoch ms. A
+ *     message with no usable stamp (`at <= 0`) has no "before" to move to, so the mark is returned
+ *     as it is and the caller should not offer the action for it;
+ *   - explicit `unreadOrdinals` exceptions are kept unless the new watermark already makes them
+ *     unread, in which case they are redundant and are dropped; `unreadMessageIds` (ordinal-free
+ *     wires) is untouched, because this watermark says nothing about it. `comments` is untouched —
+ *     comments are not read state.
+ *
+ * It is the mirror of "Mark as read", which only ever advances. Asking twice is safe: when the
+ * reply is already unread nothing moves, so a double right-click cannot keep walking the record
+ * down, and re-marking can never unread replies *below* the target that were read.
+ *
+ * It never mutates its input, and it never returns `undefined`: an unread mark is still a mark.
+ */
+export const markUnreadFrom = (mark: SessionReadMark | undefined, ordinal: number | null, at = 0): SessionReadMark => {
+  const current: SessionReadMark = mark || EMPTY_READ_MARK;
+  const result: SessionReadMark = Object.assign({}, current);
+  if (ordinal === null) {
+    const stamp: number = current.readAt === undefined ? 0 : current.readAt;
+    if (at > 0 && at > stamp) result.readAt = at - 1;
+    return result;
+  }
+  if (isAlreadyUnread(current, ordinal)) return result;
+  const below = ordinal - 1;
+  result.through = below > 0 ? below : 0;
+  result.ids = undefined;
+  const exceptions: number[] = [];
+  const previous: number[] = current.unreadOrdinals === undefined ? [] : current.unreadOrdinals;
+  for (let index = 0; index < previous.length; index += 1) {
+    const entry = previous[index];
+    if (entry > below) exceptions.push(entry);
+  }
+  if (exceptions.length > 0) result.unreadOrdinals = exceptions;
+  else result.unreadOrdinals = undefined;
+  return result;
+};
+
 /** One more comment set sent from Ember on this session; feeds the card's summary bar. */
 export const addComments = (mark: SessionReadMark | undefined, count: number): SessionReadMark => {
   const base = mark ?? EMPTY_READ_MARK;
