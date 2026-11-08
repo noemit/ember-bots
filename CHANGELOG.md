@@ -7,6 +7,7 @@
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
+- Session actions now say Hide, Hidden sessions and Unhide, with eye icons instead of trash; Undo and active-work safeguards are unchanged.
 - Ember calls its assistants bots throughout the interface and product guidance; the composer now invites you to “Message your bot..”.
 - Scribble eyes express each mood with hand-drawn contours, brows and larger pupils, with quiet working glances and blinks that respect reduced motion.
 - Expanded tool calls show their full input and output height instead of trapping content in nested scrolling areas.
@@ -14,6 +15,7 @@
 
 ### Fixed
 - The current bot stays aligned beside the composer when a long draft shrinks or is sent, instead of overlapping other bots in the rail.
+- The current bot beside the composer retains Hide session and New bot in this folder actions, including the mini rail and undocked composers; hiding active work still asks first.
 - Unread notification dots stay at or below 10px across rail sizes and avatar transitions.
 - Mini-rail tooltips use readable foreground text against their tooltip background.
 

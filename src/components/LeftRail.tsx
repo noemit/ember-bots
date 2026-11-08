@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Search,
   Settings,
-  Trash2,
+  EyeOff,
   X,
 } from 'lucide-react';
 import { normalizeDirectory, projectForSession, projectIdentityKey } from '../blob/seed';
@@ -115,7 +115,7 @@ type Props = {
   runningScheduledKeys: Set<string>;
   onRunScheduledTask: (task: ScheduledTask) => void;
   onChangeScheduledTaskModel: (task: ScheduledTask) => void;
-  /** Archived sessions across instances; opens the archive screen. */
+  /** Hidden sessions across instances; opens the archive screen. */
   onOpenArchive: () => void;
   onSelectSession: (session: Session) => void;
   /** Opens a project's sessions (those shown on its card) as the open list. */
@@ -373,7 +373,7 @@ export default function LeftRail({
         ) : null}
         {canSearchArchived ? (
           <Button size="xs" variant="outline" onClick={() => setSearchArchived(true)}>
-            Search archived sessions
+            Search hidden sessions
           </Button>
         ) : null}
       </div>
@@ -804,13 +804,13 @@ export default function LeftRail({
                 variant="outline"
                 size="sm"
                 onClick={onOpenArchive}
-                aria-label="Archived sessions"
+                aria-label="Hidden sessions"
                 className="w-8 justify-center px-0"
               >
-                <Trash2 className="size-4" />
+                <EyeOff className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Archived sessions</TooltipContent>
+            <TooltipContent>Hidden sessions</TooltipContent>
           </Tooltip>
 
         </div>
@@ -882,7 +882,7 @@ export default function LeftRail({
         {archivedMatches.length > 0 ? (
           <div className="mt-2 flex flex-col gap-0.5 border-t pt-2">
             <span className="px-2.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-              Archived
+              Hidden
             </span>
             {archivedMatches.map(renderArchivedSession)}
           </div>
@@ -931,12 +931,14 @@ export default function LeftRail({
             <div ref={dockElement} role="button" tabIndex={0} aria-label={selectedSession.title?.trim() || selectedSession.id} data-selected="true" aria-current="true" title={[selectedSession.title, folderNameOf(selectedSession), instanceLabelOf(selectedSession)].filter(Boolean).join(' · ')} data-mini-session={mode === 'mini' ? selectedKey : undefined}
               onClick={event => { if (!(event.target instanceof Element && event.target.closest('input'))) selectSession(selectedSession); }}
               onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(selectedSession); } }}
-              className="absolute inset-x-0 translate-y-1/2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" style={{ bottom: composerConnection.metrics?.centre ?? 64 }}>
+              className="group/dock absolute inset-x-0 translate-y-1/2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" style={{ bottom: composerConnection.metrics?.centre ?? 64 }}>
               <motion.div key={selectedKey} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .35 }}>
                 <ComposerIdentity docked compact={mode === 'mini'} name={selectedSession.title?.trim() || selectedSession.id}
                   seed={sessionKey(selectedSession)} identity={avatarIdentities[sessionKey(selectedSession)]}
                   topMeta={topMetaFor(selectedSession)}
                   style={blobStyle} mood={moods[sessionKey(selectedSession)] ?? 'unknown'} directory={selectedSession.directory}
+                  onHide={() => archiveSession(selectedSession, true)} hiding={archivingKeys.has(sessionKey(selectedSession))}
+                  onNewBot={() => newAgent(selectedSession.instanceId, selectedSession.directory)}
                   onRename={title => onRenameSession(selectedSession, title)} avatarOverlay={<ProcessIndicator session={selectedSession} overlay />} />
               </motion.div>
             </div>

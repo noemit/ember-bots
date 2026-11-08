@@ -44,6 +44,14 @@ a keep-running-on-quit mode. On macOS, closing the window is not quitting the ap
 entry point for a standalone backend with an independent lifetime. Connecting to a Tinder-managed
 Kiln does not give Ember ownership of it, and quitting Ember must leave it running.
 
+## Session visibility terminology
+
+User-facing session actions are **Hide session** (EyeOff), **Hidden sessions**, and
+**Unhide session** (Eye). Hiding offers Undo and retains the busy-session confirmation;
+it does not delete history. Trash icons remain for genuinely destructive actions such as deleting
+notes or removing queued messages. Internal archive API, settings, types and filenames retain
+their existing names; archive references in the implementation notes below describe that contract.
+
 ## Product direction (1.9.0)
 
 - Project selection is one anchored menu shared by setup, the composer and Settings. A per-instance
@@ -406,8 +414,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   (`Ask a side question`) that opens a one-line input to ask a side question (`POST /conversations/:id/btw`):
   Kiln forks the conversation into a hidden `Aside #N` worker carrying the leader's full context,
   runs the question there without interrupting the leader's turn, and reports the answer back as a
-  "Side question" card in the leader's transcript. As a workspace column it shows minimize and archive controls in the
-  header (`onMinimize`/`onArchive`; × archives through App's `requestArchive`, which routes busy,
+  "Side question" card in the leader's transcript. As a workspace column it shows minimize and Hide controls in the
+  header (`onMinimize`/`onArchive`; EyeOff hides through App's `requestArchive`, which routes busy,
   queued or input-blocked sessions through `ArchiveSessionDialog.tsx` first and always offers
   Undo — it never sends an abort), and calls `onActivate` on pointer-down so the active session
   (and the rail's row highlight) follows the column the user is working in. The active column's
@@ -483,8 +491,8 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   respected. There is no scheduled rail *mode* any more (0.78.0):
   a clock toggle used to swap the whole list for the latest run of each task, which hid the sessions
   the person was working in. Search is scoped to the rail by default; when it comes up empty it offers
-  "Search all time" and "Search archived sessions", the latter listing archived hits as individual
-  rows under an Archived heading (clearing the box resets the scope). Empty configured projects also
+  "Search all time" and "Search hidden sessions", the latter listing archived hits as individual
+  rows under a Hidden heading (clearing the box resets the scope). Empty configured projects also
   appear in search results when their name or path matches, listed after projects that have sessions.
   The selected session is pinned into the list even when filters hide it. Above the sessions, one
   dashed row per host that is not answering names it and offers **Retry** and **Dismiss**
@@ -499,7 +507,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   beneath it as a two-line chip (hard-clipped, no ellipsis), so `blobStripLayout`
   counts each item at `LABEL_WIDTH` (56px) even when blobs shrink below it. Clicking the project name/body opens the
   project; clicking a blob opens just that session; right-clicking a blob still offers the per-session
-  menu. Right-clicking the `+N` chip opens a tidy-up menu ("Archive N inactive" plus "older than 1
+  menu. Right-clicking the `+N` chip opens a tidy-up menu ("Hide N inactive" plus "older than 1
   day / 3 days / 1 week / 2 weeks / 1 month" with counts), driven by `src/lib/bulkArchive.ts`. Bulk
   actions never touch a busy/thinking/needs-input session and share one Undo notice
   (`handleArchiveMany`). Separately, `sweepStaleScheduledRuns` in App auto-archives scheduled-task

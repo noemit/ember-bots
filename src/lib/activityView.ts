@@ -107,7 +107,11 @@ export const entryLine = (entry: ActivityEntry): string => {
       entry.detail.status ??
       Object.values(entry.detail)[0])
     : undefined;
-  return detail ? `${entry.summary} · ${detail}` : entry.summary;
+  // Older activity files retain the wire's archive wording; translate only this known milestone.
+  const summary = entry.type === 'openchamber:session-archived' && entry.summary === 'session archived'
+    ? 'session hidden'
+    : entry.summary;
+  return detail ? `${summary} · ${detail}` : summary;
 };
 
 // ---- Timeline grouping -------------------------------------------------------------

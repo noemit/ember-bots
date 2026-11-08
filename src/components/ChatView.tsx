@@ -6,7 +6,7 @@ import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, Trash2, UserPlus, X, Zap } from 'lucide-react';
+import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, EyeOff, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
 import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
@@ -279,6 +279,8 @@ type Props = {
   onMinimize?: () => void;
   /** Column chrome: archive this session (Undo is offered by the app-level notice). */
   onArchive?: () => void;
+  /** Start a draft on this session’s host in its current folder. */
+  onNewBotInFolder?: () => void;
   /**
    * Promote this worker to a named peer. Rendered only on an unpromoted
    * worker column; the app opens `PromoteWorkerDialog` and calls Hearth.
@@ -516,6 +518,7 @@ function ChatView({
   onActivate,
   onOpenProviders,
   onArchive,
+  onNewBotInFolder,
   onPromote,
   onRename,
   active = true,
@@ -1721,12 +1724,12 @@ function ChatView({
                           variant="ghost"
                           size="icon-sm"
                           onClick={onArchive}
-                          aria-label="Archive session"
+                          aria-label="Hide session"
                         >
-                          <Trash2 className="size-3.5" />
+                          <EyeOff className="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Archive session</TooltipContent>
+                      <TooltipContent>Hide session</TooltipContent>
                     </Tooltip>
                   ) : null}
                 </div>
@@ -2220,7 +2223,7 @@ function ChatView({
               style={session ? { backgroundImage: `radial-gradient(ellipse at top left, color-mix(in oklab, ${blobColor(blobStyle, identity)} 10%, transparent), transparent 75%)` } : undefined}
               className="group/composer flex flex-col rounded-xl border bg-background transition-shadow duration-200 has-focus-visible:shadow-[0_0_12px_-2px_color-mix(in_oklab,var(--ring)_28%,transparent)]"
             >
-            {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} /> : null}
+            {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} onHide={onArchive} onNewBot={onNewBotInFolder} /> : null}
             {replyContext ? (
               /* A left accent carries "this is quoted" without drawing a rectangle inside the
                  composer's rectangle. */

@@ -230,7 +230,7 @@ const EVENT_DESCRIPTIONS: Record<string, Describer> = {
     }),
   }),
   'openchamber:session-created': (d) => ({ summary: 'session created', detail: detailOf({ title: sessionTitleOf(d) }) }),
-  'openchamber:session-archived': () => ({ summary: 'session archived' }),
+  'openchamber:session-archived': () => ({ summary: 'session hidden' }),
   'openchamber:notification': (d) => {
     const title = cap(d.title, 160) ?? cap(d.name, 160);
     return {

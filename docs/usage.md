@@ -6,8 +6,14 @@
 
 Choose a project or chat in the rail. The current chat sits beside the composer; other chats remain
 in the rail. Enable Split view to show more than one conversation. Minimize closes a column without
-archiving the chat. Archive puts the chat away and offers Undo; a working, queued or input-blocked
-chat asks for confirmation first. Archiving does not send a stop command.
+hiding the chat. **Hide session** (the crossed-out eye) puts the chat away and offers **Undo**;
+a working, queued or input-blocked chat asks for confirmation first. Ember does not send a stop
+command, but hiding a leader also hides its workers and stops any working workers. Open
+**Hidden sessions** in the rail to find it again; **Unhide session** (the eye) brings it back.
+
+The current bot beside the composer keeps both actions: hover it or tab to **Hide session** and
+**New bot in this folder**. New bot opens a draft on that bot’s instance in the same folder; nothing
+is created until you send. These actions also work in the mini rail and beside an undocked composer.
 
 Draft text and model choices persist across launches. Attachments and reply context stay in memory.
 An unavailable model or reasoning level keeps your draft and choice visible: refresh the catalogue
@@ -64,6 +70,6 @@ These are personal observations, not a benchmark or an automatic model router. C
 to chats Ember has seen; missing costs remain unknown, and reported durations may include tools or
 waiting. Helpful / Not helpful ratings reflect your assessment of a reply.
 
-Scheduled runs can archive themselves a day after finishing, controlled by **Settings → Sessions →
-Auto-archive scheduled runs**. Working or open runs remain available, and archived runs can be
-found through the scheduled view.
+Scheduled runs can hide themselves a day after finishing, controlled by **Settings → Sessions →
+Auto-hide scheduled runs**. Working or open runs remain available, and hidden runs can be
+found through Scheduled or Hidden sessions.

@@ -1,4 +1,5 @@
 import { questionKey, questionsFromThreads } from './lib/threadQuestions';
+import { sessionVisibilityFailure } from './lib/sessionVisibility';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { threadDescendants } from './lib/crew';
 import { hasUnreadMessages } from './lib/sessionUnread';
@@ -3772,7 +3773,7 @@ export default function App() {
       const ok = await setSessionArchived(session, archived);
       if (!ok) {
         showActionError(
-          archived ? 'Could not archive this session.' : 'Could not restore this session.',
+          sessionVisibilityFailure(instances.find((entry) => entry.id === session.instanceId)?.label, archived),
           () => void handleArchive(session, archived)
         );
         return;
@@ -3811,7 +3812,7 @@ export default function App() {
       setActionNotice(
         archived
           ? {
-              message: 'Session archived.',
+              message: 'Session hidden.',
               actionLabel: 'Undo',
               // Undo restores the session on the instance and reopens it if the archive closed it.
               action: () => {
@@ -3823,15 +3824,11 @@ export default function App() {
                 })();
               },
             }
-          : { message: 'Session restored.' }
+          : { message: 'Session unhidden.' }
       );
-    } catch (err) {
+    } catch {
       showActionError(
-        err instanceof Error
-          ? err.message
-          : archived
-            ? 'Could not archive this session.'
-            : 'Could not restore this session.',
+        sessionVisibilityFailure(instances.find((entry) => entry.id === session.instanceId)?.label, archived),
         () => void handleArchive(session, archived)
       );
     } finally {
@@ -3957,14 +3954,14 @@ export default function App() {
     });
     if (failed > 0) {
       showActionError(
-        `${failed} of ${targets.length} sessions could not be ${archived ? 'archived' : 'restored'}.`
+        `Ember could not ${archived ? 'hide' : 'unhide'} ${failed} of ${targets.length} sessions on their hosts. Try again from each session’s menu.`
       );
     }
     if (succeeded.length > 0) {
       setActionNotice({
         message: archived && notice
           ? notice(succeeded.length)
-          : `${archived ? 'Archived' : 'Restored'} ${succeeded.length} session${succeeded.length === 1 ? '' : 's'}.`,
+          : `${archived ? 'Hidden' : 'Unhidden'} ${succeeded.length} session${succeeded.length === 1 ? '' : 's'}.`,
         actionLabel: 'Undo',
         action: () => void handleArchiveMany(succeeded, !archived),
       });
@@ -4002,7 +3999,7 @@ export default function App() {
       void handleArchiveMany(
         targets,
         true,
-        (count) => `Auto-archived ${count} finished scheduled run${count === 1 ? '' : 's'}.`
+        (count) => `Auto-hidden ${count} finished scheduled run${count === 1 ? '' : 's'}.`
       );
     }
   });
@@ -4882,6 +4879,7 @@ export default function App() {
             setSettingsOpen(true);
           }}
           onArchive={session.kind === 'worker' ? undefined : () => requestArchive(session)}
+          onNewBotInFolder={modal ? undefined : () => beginNewAgent(session.instanceId, session.directory)}
           onRename={(title) => void handleRenameSession(session, title)}
           crew={crewWorkers.get(key) ?? []}
           threadTargets={threadDescendants(session, crewWorkers)}
@@ -5153,7 +5151,7 @@ export default function App() {
                 setMobileRailOpen(false);
               }}
               onReload={(session) => void handleReloadSession(session)}
-              onArchive={(session, archived) => void handleArchive(session, archived)}
+              onArchive={(session, archived) => archived ? requestArchive(session) : void handleArchive(session, false)}
               onArchiveMany={(sessions) => void handleArchiveMany(sessions, true)}
               onCustomizeAppearance={setAvatarPickerSession}
               onMarkAllRead={handleMarkAllRead}
@@ -5360,7 +5358,7 @@ export default function App() {
           ) : null}
 
           {archiveOpen ? (
-            <React.Suspense fallback={<DialogFallback label="Loading archive…" />}>
+            <React.Suspense fallback={<DialogFallback label="Loading hidden sessions…" />}>
               <ArchiveDialog
                 open
                 onOpenChange={setArchiveOpen}

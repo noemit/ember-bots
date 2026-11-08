@@ -1,7 +1,7 @@
 import { useAvatarSize } from '../blob/size';
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { Box, Plus, Trash2 } from 'lucide-react';
+import { Box, Plus, EyeOff } from 'lucide-react';
 import { blobStripLayout } from '@/lib/projectGroups';
 import { ARCHIVE_AGE_OPTIONS, bulkArchiveTargets } from '@/lib/bulkArchive';
 import {
@@ -206,11 +206,11 @@ export default function ProjectCard({
                 disabled={inactiveTargets.length === 0}
                 onSelect={() => onArchiveMany(inactiveTargets)}
               >
-                <Trash2 />
-                Archive {inactiveTargets.length} inactive
+                <EyeOff />
+                Hide {inactiveTargets.length} inactive
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuLabel className="text-[11px] text-muted-foreground">Older than…</ContextMenuLabel>
+              <ContextMenuLabel className="text-[11px] text-muted-foreground">Hide older than…</ContextMenuLabel>
               {ARCHIVE_AGE_OPTIONS.map((option) => {
                 const targets = bulkArchiveTargets(sessions, moods, {
                   olderThanHours: option.hours,
@@ -222,7 +222,7 @@ export default function ProjectCard({
                     disabled={targets.length === 0}
                     onSelect={() => onArchiveMany(targets)}
                   >
-                    <span>{option.label}</span>
+                    <EyeOff /><span>{option.label}</span>
                     <span className="ml-auto pl-3 tabular-nums text-muted-foreground">{targets.length}</span>
                   </ContextMenuItem>
                 );

@@ -85,7 +85,7 @@ describe('event hints', () => {
         type: 'openchamber:session-archived',
         properties: { sessionID: 'ses_7' },
       }), NOW)
-    ).toMatchObject({ id: `local:openchamber:session-archived:ses_7:${NOW}`, at: NOW, summary: 'session archived' });
+    ).toMatchObject({ id: `local:openchamber:session-archived:ses_7:${NOW}`, at: NOW, summary: 'session hidden' });
   });
 
   test('describes Hearth milestones by type and ignores streaming deltas', () => {

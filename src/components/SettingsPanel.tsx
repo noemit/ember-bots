@@ -535,9 +535,9 @@ export default function SettingsPanel({
                   </div>
                   <div className="flex items-center justify-between gap-3 border-t pt-3">
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="font-medium">Auto-archive scheduled runs</span>
+                      <span className="font-medium">Auto-hide scheduled runs</span>
                       <span className="text-[11px] text-muted-foreground">
-                        Finished task runs archive after a day, once you’ve marked their messages read. They stay in Scheduled.
+                        Finished task runs are hidden after a day, once you’ve marked their messages read. They stay in Scheduled.
                       </span>
                     </div>
                     <Toggle
@@ -545,7 +545,7 @@ export default function SettingsPanel({
                       onPressedChange={(enabled) => onChange({ autoArchiveScheduledRuns: enabled })}
                       variant="outline"
                       size="sm"
-                      aria-label="Auto-archive scheduled runs"
+                      aria-label="Auto-hide scheduled runs"
                     >
                       {settings.autoArchiveScheduledRuns ? 'On' : 'Off'}
                     </Toggle>

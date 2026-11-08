@@ -1,7 +1,7 @@
 import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
-import { Box, Group as GroupIcon, Plus, Trash2 } from 'lucide-react';
+import { Box, Group as GroupIcon, Plus, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
   ContextMenu,
@@ -171,7 +171,7 @@ export default function GroupRow({
                         event.stopPropagation();
                         onOpenSession(member);
                       }}
-                      title={`${member.title?.trim() || member.id}${member.archived ? ' (archived)' : ''}`}
+                      title={`${member.title?.trim() || member.id}${member.archived ? ' (hidden)' : ''}`}
                       className={cn(
                         'flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-background/70 focus-visible:outline-2 focus-visible:outline-highlight',
                         active && 'bg-muted/60'
@@ -246,14 +246,14 @@ export default function GroupRow({
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuLabel className="text-[11px] text-muted-foreground">
-                  Archive inactive bots
+                  Hide inactive bots
                 </ContextMenuLabel>
                 <ContextMenuItem onSelect={() => onArchiveMany(inactiveTargets)}>
-                  <Trash2 />
-                  Archive {inactiveTargets.length} inactive
+                  <EyeOff />
+                  Hide {inactiveTargets.length} inactive
                 </ContextMenuItem>
                 <ContextMenuSeparator />
-                <ContextMenuLabel className="text-[11px] text-muted-foreground">Older than…</ContextMenuLabel>
+                <ContextMenuLabel className="text-[11px] text-muted-foreground">Hide older than…</ContextMenuLabel>
                 {ARCHIVE_AGE_OPTIONS.map((option) => {
                   const targets = bulkArchiveTargets(entry.members, moods, {
                     olderThanHours: option.hours,
@@ -265,7 +265,7 @@ export default function GroupRow({
                       disabled={targets.length === 0}
                       onSelect={() => onArchiveMany(targets)}
                     >
-                      <span>{option.label}</span>
+                      <EyeOff /><span>{option.label}</span>
                       <span className="ml-auto pl-3 tabular-nums text-muted-foreground">{targets.length}</span>
                     </ContextMenuItem>
                   );

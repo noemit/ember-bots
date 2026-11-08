@@ -92,7 +92,7 @@ test('long history with uneven row heights opens on, and keeps following, the la
 
 test('project cleanup and shortcut hints are discoverable', async ({ page }) => {
   await page.getByRole('button', { name: 'Project actions for Habit' }).first().click();
-  await expect(page.getByRole('menuitem', { name: /Archive .* inactive/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /Hide .* inactive/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Project actions for Habit' }).first()).toBeFocused();
   await page.locator('textarea').first().fill('A note');

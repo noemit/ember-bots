@@ -1,4 +1,4 @@
-import { Ellipsis, Trash2 } from 'lucide-react';
+import { Ellipsis, EyeOff } from 'lucide-react';
 import { ARCHIVE_AGE_OPTIONS, bulkArchiveTargets } from '@/lib/bulkArchive';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -28,14 +28,14 @@ export default function ProjectCleanupMenu({ name, sessions, moods, onArchiveMan
       <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
         <DropdownMenuLabel>Tidy up {name}</DropdownMenuLabel>
         <DropdownMenuItem disabled={!inactive} onSelect={() => onArchiveMany(targets())}>
-          <Trash2 /> Archive {inactive} inactive
+          <EyeOff /> Hide {inactive} inactive
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel>Older than…</DropdownMenuLabel>
+        <DropdownMenuLabel>Hide older than…</DropdownMenuLabel>
         {ARCHIVE_AGE_OPTIONS.map(({ label, hours }) => {
           const count = targets(hours).length;
           return <DropdownMenuItem key={label} disabled={!count} onSelect={() => onArchiveMany(targets(hours))}>
-            {label}<span className="ml-auto pl-3 tabular-nums">{count}</span>
+            <EyeOff />{label}<span className="ml-auto pl-3 tabular-nums">{count}</span>
           </DropdownMenuItem>;
         })}
       </DropdownMenuContent>

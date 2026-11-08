@@ -5,7 +5,7 @@
  * nothing in it.** Before this, every list (rail, palette, archive, Home) was built from the
  * `attachable` instances only, so an outage subtracted a host's sessions from every surface at once
  * and each empty state confidently asserted absence — "No instances connected." / "No sessions or
- * commands match." / "No archived sessions." / "Everything is idle". The rail then showed exactly
+ * commands match." / "No hidden sessions." / "Everything is idle". The rail then showed exactly
  * one session, the open one (pinned back in), which reads as "the rest were deleted".
  *
  * Two things fix that, and both are pure so the wording is pinned by tests:
@@ -213,13 +213,13 @@ export const paletteEmptyCopy = (input: {
 export const archiveEmptyCopy = (input: { state: EndpointState; endpointCount: number }): string => {
   const { state, endpointCount } = input;
   if (state === 'no-endpoints') {
-    return 'No ember-harness endpoints yet, so there is nothing to archive. Add one in Settings → Instances.';
+    return 'No ember-harness endpoints yet, so there is nothing to hide. Add one in Settings → Instances.';
   }
-  if (state === 'checking') return 'Waiting for your ember-harness endpoints to answer — archived sessions appear here after that.';
+  if (state === 'checking') return 'Waiting for your ember-harness endpoints to answer — hidden sessions appear here after that.';
   if (state === 'no-answers') {
-    return `Your ${endpoints(endpointCount)} ${verb(endpointCount)} not answering, so Ember can’t list archived sessions. Retry from the Instances menu once a host is back.`;
+    return `Your ${endpoints(endpointCount)} ${verb(endpointCount)} not answering, so Ember can’t list hidden sessions. Retry from the Instances menu once a host is back.`;
   }
-  return 'Nothing archived here. Sessions you archive show up in this list.';
+  return 'No hidden sessions here. Use Hide session on a session’s menu to put it here; Unhide session brings it back.';
 };
 
 /** The Home screen's one-line status, when it has no cards to count. */

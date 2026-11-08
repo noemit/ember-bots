@@ -24,7 +24,7 @@ import type {
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Archived sessions, across every connected instance. */
+  /** Hidden sessions, across every connected instance. */
   sessions: Session[];
   projectsByInstance: Record<string, Project[]>;
   instances: Instance[];
@@ -103,9 +103,9 @@ export default function ArchiveDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Archived sessions</DialogTitle>
+          <DialogTitle>Hidden sessions</DialogTitle>
           <DialogDescription>
-            Restore a session to bring it back to the rail.
+            Unhide a session to bring it back to the rail.
           </DialogDescription>
         </DialogHeader>
 

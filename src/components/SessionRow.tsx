@@ -2,7 +2,7 @@ import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { ArchiveRestore, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { Eye, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, EyeOff } from 'lucide-react';
 import Blob from '../blob/Blob';
 import ProjectCleanupMenu from './ProjectCleanupMenu';
 import { normalizeDirectory } from '../blob/seed';
@@ -132,11 +132,10 @@ export const SessionContextMenuContent = ({
   onQuietChange,
 }: SessionMenuProps) => {
   const archived = Boolean(session.archived);
-  const archiveLabel = archived ? 'Restore session' : 'Archive session';
-  const archiveBusyLabel = archived ? 'Restoring…' : 'Archiving…';
-  // Archiving is a delete-shaped action everywhere else, so it wears the same trashcan here;
-  // restoring is a different action and keeps its own arrow.
-  const ArchiveIcon = archived ? ArchiveRestore : Trash2;
+  const archiveLabel = archived ? 'Unhide session' : 'Hide session';
+  const archiveBusyLabel = archived ? 'Unhiding…' : 'Hiding…';
+  // Session visibility is reversible, not deletion: a closed eye hides, an open eye unhides.
+  const ArchiveIcon = archived ? Eye : EyeOff;
   return (
     <ContextMenuContent onPointerUpCapture={event => {
       // A menu near the bottom edge can open upward under the pointer. Releasing the
@@ -246,12 +245,12 @@ const SessionRow = React.memo(function SessionRow({
   // empty row, which reads as a broken session rather than an untitled one.
   const title = titleOverride?.trim() || session.title?.trim() || session.id;
   // Per row, not per view: the selected session is pinned into the active list even when
-  // it's archived, and its button must offer "Restore" rather than archiving it again.
+  // it's archived, and its button must offer "Unhide" rather than hiding it again.
   const avatarSize = useAvatarSize(compact ? 40 : 55);
   const archived = Boolean(session.archived);
-  const archiveLabel = archived ? 'Restore session' : 'Archive session';
-  const archiveBusyLabel = archived ? 'Restoring…' : 'Archiving…';
-  const ArchiveIcon = archived ? ArchiveRestore : Trash2;
+  const archiveLabel = archived ? 'Unhide session' : 'Hide session';
+  const archiveBusyLabel = archived ? 'Unhiding…' : 'Hiding…';
+  const ArchiveIcon = archived ? Eye : EyeOff;
   const actionsAlwaysVisible = Boolean(archiving || scheduledRunning || onArchiveMany);
   const actionSpace = 26 * (1 + Number(Boolean(onNewAgent)) + Number(Boolean(scheduledTask)) + Number(Boolean(onArchiveMany))) + 8;
 

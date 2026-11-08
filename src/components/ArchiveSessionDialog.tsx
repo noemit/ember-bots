@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { Session } from '../types';
@@ -40,19 +41,19 @@ export default function ArchiveSessionDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Archive active session?</DialogTitle>
+          <DialogTitle>Hide active session?</DialogTitle>
           <DialogDescription>
             {why}
-            Archiving hides it from active sessions. Ember will not send a stop command.
-            You can restore it from the archive or use Undo.
+            Hiding removes it from active sessions. Ember will not send a stop command.
+            You can unhide it from Hidden sessions or use Undo.
             {crewCount > 0
-              ? ` This leader's ${crewCount === 1 ? 'worker' : `${crewCount} workers`} archive with it, and any that are working stop first.`
+              ? ` This leader's ${crewCount === 1 ? 'worker' : `${crewCount} workers`} ${crewCount === 1 ? 'is' : 'are'} hidden with it, and any that are working stop first.`
               : ''}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button ref={keepRef} variant="secondary" onClick={onCancel}>Keep session</Button>
-          <Button onClick={onConfirm}>Archive anyway</Button>
+          <Button onClick={onConfirm}><EyeOff />Hide anyway</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
