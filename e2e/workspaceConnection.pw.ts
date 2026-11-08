@@ -53,11 +53,14 @@ test('the active identity joins the composer, replies are unboxed, and chat draf
 test('conversation size persists and mobile retains its composer identity', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByLabel('Conversation text size', { exact: true }).selectOption('18');
+  await page
+    .getByRole('group', { name: 'Chat text size', exact: true })
+    .getByRole('button', { name: 'Large', exact: true })
+    .click();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
   const reply = page.locator('main[data-session-key="pi:hearth::10"] .conversation-prose').filter({ hasText: 'step counter shows' });
-  await expect(reply).toHaveCSS('font-size', '18px');
+  await expect(reply).toHaveCSS('font-size', '16px');
   await page.reload();
   await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
   await expect(reply).toHaveCSS('font-size', '18px');

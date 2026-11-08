@@ -1,4 +1,5 @@
 import type { ToolDisplay } from './lib/toolDisplay';
+import type { TextSize } from './lib/textSize';
 /** `pi` endpoints are Hearth hosts (the transition target); the rest are OpenChamber. */
 export type InstanceKind = 'local' | 'remote' | 'ssh' | 'relay' | 'pi';
 
@@ -567,8 +568,12 @@ export type EmberSettings = {
   blobStyle: BlobStyle;
   /** Avatar size on the rail and beside the composer. */
   blobSize: BlobSize;
-  /** Reading and composing text in CSS pixels. */
+  /** Conversation prose in CSS pixels. */
   conversationFontSize: number;
+  /** Composer textarea preset; medium is the 18px it has always used. */
+  composerSize: TextSize;
+  /** App chrome (rail, headers, menus, settings) preset. */
+  interfaceSize: TextSize;
   /** Only list sessions active within this many hours; 0 means show everything. */
   sessionWindowHours: number;
   /**

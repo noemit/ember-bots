@@ -527,6 +527,13 @@ export const isBlobSize = (value: unknown): value is BlobSize =>
 export const isConversationFontSize = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 12 && value <= 20;
 
+/** The named sizes the interface, chat and composer settings offer. */
+export type TextSize = 'small' | 'medium' | 'large';
+
+const TEXT_SIZES: TextSize[] = ['small', 'medium', 'large'];
+export const isTextSize = (value: unknown): value is TextSize =>
+  typeof value === 'string' && (TEXT_SIZES as string[]).includes(value);
+
 export const migrateBlobStyle = (value: unknown): BlobStyle | undefined =>
   value === 'pip' ? 'mosaic' : isBlobStyle(value) ? value : undefined;
 
@@ -620,8 +627,12 @@ export type EmberSettings = {
   blobStyle: BlobStyle;
   /** Avatar size on the rail and beside the composer. */
   blobSize: BlobSize;
-  /** Reading and composing text in CSS pixels. */
+  /** Conversation prose in CSS pixels. */
   conversationFontSize: number;
+  /** Composer textarea preset; medium is the 18px it has always used. */
+  composerSize: TextSize;
+  /** App chrome (rail, headers, menus, settings) preset. */
+  interfaceSize: TextSize;
   /** Only list sessions active within this many hours; 0 means no limit. */
   sessionWindowHours: number;
   /** Instances switched off in the Instances menu; their sessions are filtered out everywhere. */

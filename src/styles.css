@@ -119,6 +119,16 @@ html.motion-paused *::after {
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-size: 13px;
+    /*
+     * Interface scale. Every surface in Ember is written in px, so the chrome is scaled as a layout
+     * zoom rather than through the root font size — a rem-only change would leave almost all of it
+     * alone. The compensating width/height keep the zoomed body exactly one viewport: without them
+     * a shrunken interface leaves a strip of background at the right and bottom. Portalled dialogs
+     * and tooltips live in this body, so they scale with everything else.
+     */
+    zoom: var(--interface-zoom, 1);
+    width: calc(100% / var(--interface-zoom, 1));
+    height: calc(100dvh / var(--interface-zoom, 1));
     overflow: hidden;
     transition:
       background-color 0.35s var(--ease-spring),
@@ -191,7 +201,7 @@ html.motion-paused *::after {
 }
 /* Composer measurements use the textarea itself, so input and placeholder share these metrics. */
 [data-composer-surface] textarea {
-  font-size: 18px;
+  font-size: var(--composer-text-size, 18px);
   line-height: 1.8;
 }
 .conversation-prose h1, .conversation-prose h2 { font-size: 1.5em; line-height: 1.4; }

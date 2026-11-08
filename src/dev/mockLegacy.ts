@@ -285,6 +285,8 @@ let settings: EmberSettings = {
   blobStyle: 'buddy',
   blobSize: 'standard',
   conversationFontSize: 14,
+  composerSize: 'medium',
+  interfaceSize: 'medium',
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],

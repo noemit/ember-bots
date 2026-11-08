@@ -44,6 +44,14 @@ import { suggestMarkerColor } from '../lib/instanceMarker';
 import type { ModelList } from '../api';
 import ProjectPicker from './ProjectPicker';
 import { ACTIVE_BLOB_STYLES, effectiveBlobStyle } from '../blob/styles';
+import {
+  CHAT_PX,
+  TEXT_SIZES,
+  composerSizeOf,
+  nearestChatSize,
+  textSizeLabel,
+  type TextSize,
+} from '../lib/textSize';
 import type { EmberSettings, EmberSettingsPatch, Instance, InstanceDefaults, Project, RemoteAccessState } from '../types';
 
 type Props = {
@@ -77,6 +85,38 @@ type Props = {
  * characters with nothing on screen explaining why.
  */
 const REMOTE_PASSWORD_MIN = 8;
+
+/**
+ * A three-way size choice. Buttons rather than a select because all three options fit on one line
+ * and comparing them is the whole point — a dropdown hides the choice you did not make.
+ */
+const SizeChoices = ({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: TextSize;
+  onChange: (size: TextSize) => void;
+}) => (
+  <div role="group" aria-label={label} className="flex flex-none items-center gap-0.5 rounded-md border p-0.5">
+    {TEXT_SIZES.map((size) => (
+      <button
+        key={size}
+        type="button"
+        aria-pressed={value === size}
+        onClick={() => onChange(size)}
+        className={
+          value === size
+            ? 'rounded-sm bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground'
+            : 'rounded-sm px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground'
+        }
+      >
+        {textSizeLabel(size)}
+      </button>
+    ))}
+  </div>
+);
 
 const BLOB_STYLE_COPY = {
   buddy: { name: 'Buddy', hint: 'Flat, soft shapes' },
@@ -694,14 +734,44 @@ export default function SettingsPanel({
               </Card>
 
               <Card>
-                <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Conversation text</CardTitle></CardHeader>
-                <CardContent className="p-3">
-                  <label className="flex items-center justify-between gap-3 text-xs">Text size
-                    <select aria-label="Conversation text size" value={settings.conversationFontSize ?? 14} onChange={event => onChange({ conversationFontSize: Number(event.target.value) })} className="rounded-md border bg-background px-2 py-1.5">
-                      {[12, 13, 14, 15, 16, 18, 20].map(size => <option key={size} value={size}>{size}px{size === 14 ? ' · Default' : ''}</option>)}
-                    </select>
-                  </label>
-                  <p className="mt-3 leading-[1.8]" style={{ fontSize: settings.conversationFontSize ?? 14 }}>Messages appear at this size.</p>
+                <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Text size</CardTitle></CardHeader>
+                <CardContent className="flex flex-col gap-3 p-3">
+                  {/* Three sizes with three homes, because one setting could not serve them: the
+                      chrome, the conversation and what you type are read at different distances.
+                      Each row states what it changes, so nobody has to guess what "Medium" means. */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium">Interface</span>
+                      <SizeChoices
+                        label="Interface text size"
+                        value={settings.interfaceSize ?? 'medium'}
+                        onChange={(size) => onChange({ interfaceSize: size })}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">The rail, headers, menus and settings.</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium">Chat</span>
+                      <SizeChoices
+                        label="Chat text size"
+                        value={nearestChatSize(settings.conversationFontSize)}
+                        onChange={(size) => onChange({ conversationFontSize: CHAT_PX[size] })}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Messages in the conversation.</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium">Composer</span>
+                      <SizeChoices
+                        label="Composer text size"
+                        value={composerSizeOf(settings.composerSize)}
+                        onChange={(size) => onChange({ composerSize: size })}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">What you type before sending.</span>
+                  </div>
                 </CardContent>
               </Card>
 

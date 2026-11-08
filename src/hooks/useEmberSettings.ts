@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { DEFAULT_THEME_ID } from '../themes';
+import type { TextSize } from '../lib/textSize';
 import type { EmberSettings, EmberSettingsPatch } from '../types';
 import { mergeDraftChanges } from '../lib/composerDrafts';
 import { AvatarAssignmentWrites } from './avatarAssignmentWrites';
@@ -9,6 +10,8 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   blobStyle: 'buddy',
   blobSize: 'standard',
   conversationFontSize: 14,
+  composerSize: 'medium' as TextSize,
+  interfaceSize: 'medium' as TextSize,
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],

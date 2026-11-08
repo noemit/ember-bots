@@ -43,9 +43,10 @@ test('composer text and placeholder stay 18px independently of transcript size, 
     expect(await input.evaluate(el => getComputedStyle(el, '::placeholder').fontSize)).toBe('18px');
   };
   await assertInput();
-  for (const size of ['12', '20']) {
+  for (const [choice, size] of [['Small', '13'], ['Large', '16']] as const) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await page.getByLabel('Conversation text size', { exact: true }).selectOption(size);
+    const chat = page.getByRole('group', { name: 'Chat text size', exact: true });
+    await chat.getByRole('button', { name: choice, exact: true }).click();
     await page.keyboard.press('Escape');
     await expect(reply).toHaveCSS('font-size', size + 'px');
     await assertInput();

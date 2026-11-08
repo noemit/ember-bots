@@ -1785,6 +1785,8 @@ let settings: EmberSettings = {
   blobStyle: storedRead.blobStyle ?? 'buddy',
   blobSize: 'standard',
   conversationFontSize: storedRead.conversationFontSize ?? 14,
+  composerSize: 'medium',
+  interfaceSize: 'medium',
   sessionWindowHours: 48,
   hiddenInstances: [],
   dismissedOutages: [],

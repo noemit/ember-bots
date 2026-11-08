@@ -5,6 +5,7 @@ import { threadDescendants } from './lib/crew';
 import { hasUnreadMessages } from './lib/sessionUnread';
 import { AvatarSizeContext } from './blob/size';
 import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from './lib/instanceDefaultModel';
+import { applyTextSizes } from './lib/textSize';
 import * as React from 'react';
 import { WorkspaceConnection } from './components/workspaceConnection';
 import { blobColor } from './blob/color';
@@ -495,9 +496,15 @@ export default function App() {
   const clearActionError = React.useCallback(() => showActionError(null), [showActionError]);
   const { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings } =
     useEmberSettings({ onError: showActionError, onBeforeSave: clearActionError });
+  // One effect owns every text-size variable, so the three settings and a theme change can't
+  // disagree about who writes the root style properties.
   React.useEffect(() => {
-    document.documentElement.style.setProperty('--conversation-text-size', `${settings.conversationFontSize ?? 14}px`);
-  }, [settings.conversationFontSize]);
+    applyTextSizes(document.documentElement, {
+      chatPx: settings.conversationFontSize,
+      composer: settings.composerSize,
+      interface: settings.interfaceSize,
+    });
+  }, [settings.conversationFontSize, settings.composerSize, settings.interfaceSize]);
 
   // The remote web client's session can end under it (the desktop restarted, the password changed,
   // or the 12-hour idle window passed). The bridge reports that as one event so the user gets a
