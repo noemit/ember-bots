@@ -11,6 +11,7 @@ import { spawnGuard } from "./crew";
 import { hearthConfig } from "./config";
 import { Diagnostics } from "./diagnostics";
 import { View } from "./view";
+import { Schedule } from "./schedule";
 
 /** The ask tool bundled as its own extension so conversations can deselect it. */
 const Ask = {
@@ -25,9 +26,9 @@ export type HearthRegistryOptions = {
 
 /**
  * Hearth's registry: code mode (`codemode`, `tool_search`, `scratchpad`), the built-in coding
- * tools (gated by approvals behind the wraps), the `view` tool, the ask tool, the AGENTS.md
- * section for the conversation's cwd, the agent directory/messaging tools, and provider-failure
- * diagnostics. Extensions resolve by name, so a stored selection survives restarts and code
+ * tools (gated by approvals behind the wraps), the `view` tool, the ask tool, the crew (`session`)
+ * and `schedule` tools, the AGENTS.md section for the conversation's cwd, the agent
+ * directory/messaging tools, and provider-failure diagnostics. Extensions resolve by name, so a stored selection survives restarts and code
  * changes.
  *
  * Code mode goes in first: a `codemode` script calls its nested tools as `tools.read(...)` and
@@ -66,6 +67,8 @@ export const hearthRegistry = (
   registry.install(Ask);
   // The `session` tool: start and manage sibling sessions a human can see in Ember.
   registry.install(Sessions);
+  // `schedule`: this conversation's own wall-clock tasks (the Hearth scheduler, model-facing).
+  registry.install(Schedule);
   registry.install({
     name: "agents-md",
     sections: [createAgentsMdSection(home)],

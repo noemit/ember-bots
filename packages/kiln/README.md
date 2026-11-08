@@ -120,6 +120,15 @@ ownerless conversation with `kind: "worker"` and `lead`; a peer (`kind: "peer"`)
 visible chat. Give each thread a concrete outcome `title` and a self-contained `brief`; absent a
 title, its brief's first line supplies one. Identity survives follow-up work and renames.
 
+**Schedules (`schedule` tool):** a conversation can keep its own wall-clock tasks — daily, weekly or
+a single future instant — with `schedule({ action: "create" | "list" | "update" | "remove" | "run" })`.
+The tasks live in Hearth's scheduler document (`src/scheduler.ts`), so they survive restarts, and a
+run submits the stored prompt to that task's own session. Schedules are validated by the same
+`parseSchedule` the HTTP wire uses, so a task made by an agent and one made in Ember's Scheduled
+view are the same object; an unknown timezone or a past one-off instant is refused with the field
+named. A conversation holds at most eight tasks and cannot use a name twice. The prompt section is
+short and asks the model to say the next run back in plain words.
+
 **Model lookup:** call `session({ action: "models", query: "luna" })` directly — no codemode
 or QuickJS runtime is needed. The same tool is callable from codemode as
 `await tools.session({ action: "models", query: "luna" })`. Search is case-insensitive across
@@ -436,7 +445,9 @@ agent.
 - `src/models.ts` — provider set + credential bridge + default agent.
 - `src/orcarouter.ts`: the dynamic orcarouter slot's env knobs and catalog-entry mapping (pure).
 - `src/model-discovery.ts` — live `opencode-go` / `opencode` (Zen) catalogs (the service's id list, over pi-ai's catalog).
-- `src/registry.ts` — CodingTools + approvals + ask + sessions + the AGENTS.md section.
+- `src/registry.ts` — CodingTools + approvals + ask + sessions + schedule + the AGENTS.md section.
+- `src/schedule.ts` — the `schedule` tool (list/create/update/remove/run over this host's scheduler
+  document), its validation copy and its prompt section.
 - `src/approvals.ts` — the approval gate (wrapTool) + pending/auto-accept docs.
 - `src/ask.ts` — the ask tool + parked-question doc.
 - `src/sessions.ts` — the `session` tool (spawn/manage sibling conversations) + `hearth.sessions` doc.

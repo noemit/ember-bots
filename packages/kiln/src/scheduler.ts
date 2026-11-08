@@ -157,11 +157,20 @@ export type RunOutcome = {
 };
 
 /** Submit one task's prompt to its conversation (creating it on first use). */
+/**
+ * The slice of a harness running a task needs: its own conversations, reads and commits.
+ *
+ * A tool's `api` is this slice plus task plumbing, minus `createConversation` — which is why `run`
+ * refuses from the tool rather than crashing mid-submit (see `schedule.ts`).
+ */
+export type TaskRunner = Pick<Harness, "createConversation" | "conversation" | "snapshot" | "commit">;
+
 export const runTask = async (
-  harness: Harness,
+  harness: TaskRunner,
   task: ScheduledTask,
   occurrence: number,
-  context: Context = BACKGROUND_CONTEXT
+  context: Context = BACKGROUND_CONTEXT,
+  creator: TaskRunner = harness
 ): Promise<RunOutcome> => {
   try {
     let conversationId = task.conversationId as ConversationId | undefined;
@@ -174,7 +183,7 @@ export const runTask = async (
           ? { thinkingLevel: task.thinkingLevel as NonNullable<AgentChange["thinkingLevel"]> }
           : {}),
       };
-      const conversation = await harness.createConversation(
+      const conversation = await creator.createConversation(
         { ownership: { kind: "ownerless" }, ...(Object.keys(change).length > 0 ? { agent: change } : {}) },
         context
       );
@@ -282,7 +291,7 @@ export const startScheduler = (
 // ---- Wire helpers ---------------------------------------------------------------------
 
 export const listScheduledTasks = async (
-  harness: Harness,
+  harness: Pick<Harness, "snapshot">,
   context: Context = BACKGROUND_CONTEXT
 ): Promise<SchedulerState> => (await harness.snapshot(SchedulerDoc, context)) ?? { tasks: [], sequence: 0 };
 
@@ -440,9 +449,10 @@ export const deleteScheduledTask = async (
  * `lastRunAt` alone so the refusal does not consume a real occurrence.
  */
 export const runScheduledTaskNow = async (
-  harness: Harness,
+  harness: TaskRunner,
   id: string,
-  context: Context = BACKGROUND_CONTEXT
+  context: Context = BACKGROUND_CONTEXT,
+  creator: TaskRunner = harness
 ): Promise<RunOutcome | undefined> => {
   const state = await listScheduledTasks(harness, context);
   const task = state.tasks.find((entry) => entry.id === id);
@@ -459,7 +469,7 @@ export const runScheduledTaskNow = async (
     }
   }
   const occurrence = Date.now();
-  const outcome = await runTask(harness, task, occurrence, context);
+  const outcome = await runTask(harness as Harness, task, occurrence, context, creator);
   await harness.commit(async (tx) => {
     const doc = await tx.doc(SchedulerDoc);
     const stored = doc.tasks.find((entry) => entry.id === id);

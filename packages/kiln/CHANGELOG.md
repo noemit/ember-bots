@@ -1,6 +1,7 @@
 ## Unreleased
 
 ### Added
+- A `schedule` tool lets a conversation list, create, update, remove and run wall-clock tasks (daily, weekly or once) in the host's scheduler; schedules are validated by the same rules as the HTTP wire, times are wall-clock in the task's zone, and each run submits the stored prompt to that task's own session. A conversation holds at most eight tasks and cannot reuse a name.
 - DeepInfra is a first-class provider (OpenAI-compatible, `https://api.deepinfra.com/v1/openai`, `DEEPINFRA_API_KEY`), with its chat catalogue, context windows and per-million-token pricing read from `GET /models` and cached so boot never needs the network.
 - `session models` searches this host's available chat models without codemode, returns exact spawn model IDs and the inherited default, and pages bounded results without exposing credentials or connection metadata.
 
