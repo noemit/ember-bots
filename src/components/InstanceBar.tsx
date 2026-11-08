@@ -158,7 +158,7 @@ export default function InstanceBar({
     <div
       data-testid="window-toolbar"
       className={cn(
-        'safe-top-bar drag-region flex flex-none items-center gap-2 border-b bg-card pr-[max(0.75rem,env(safe-area-inset-right))]',
+        'safe-top-bar drag-region flex flex-none items-center gap-2 overflow-x-clip border-b bg-card pr-[max(0.75rem,env(safe-area-inset-right))]',
         nativeTitlebar ? 'pl-[96px]' : 'pl-[max(0.75rem,env(safe-area-inset-left))]'
       )}
     >
@@ -264,14 +264,14 @@ export default function InstanceBar({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="flex h-7 items-center gap-1.5 rounded-full border bg-muted/60 px-2.5 text-[12px] transition-colors hover:bg-muted"
+            className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border bg-muted/60 px-2.5 text-[12px] transition-colors hover:bg-muted"
             aria-label="Instances"
           >
-            <span className={cn('size-1.5 rounded-full', connected > 0 ? 'bg-success' : 'bg-muted-foreground/50')} />
-            <span className="tabular-nums">
+            <span className={cn('size-1.5 flex-none rounded-full', connected > 0 ? 'bg-success' : 'bg-muted-foreground/50')} />
+            <span className="truncate tabular-nums">
               {instances.length === 0 ? 'No instances' : `${connected}/${instances.length} instances`}
             </span>
-            <ChevronDown className="size-3.5 text-muted-foreground" />
+            <ChevronDown className="size-3.5 flex-none text-muted-foreground" />
           </button>
         </DropdownMenuTrigger>
 

@@ -20,6 +20,15 @@ async function expectSettingsPosition(page: Page) {
   expect(tab.x + tab.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+  // A viewport-width page can still be nudged out by one wide control: the toolbar's chips and
+  // badges must share the room they have instead of pushing the document sideways.
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth))
+    .toBeLessThanOrEqual(0);
+  const bar = toolbar(page);
+  expect(await bar.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
+}
+
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   test(`Settings stays before Sessions in every view at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
@@ -27,6 +36,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     for (const view of ['Sessions', 'Usage', 'Scheduled']) {
       await toolbar(page).getByRole('button', { name: new RegExp('^' + view + ' —') }).click();
       await expectSettingsPosition(page);
+      await expectNoHorizontalOverflow(page);
       await settings(page).click();
       const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
       await expect(dialog).toBeVisible();
