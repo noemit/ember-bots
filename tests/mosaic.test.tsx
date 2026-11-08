@@ -37,12 +37,14 @@ test('Mosaic identities are stable, varied, and keep eyes inside every silhouett
   expect(signatures.size).toBeGreaterThan(20);
 });
 
-test('custom colour drives both the pixels and the surrounding identity colour', () => {
+test('custom colour seeds a multicolour body while blobColor keeps the identity colour', () => {
   const identity = { ...seedIdentity('chat'), color: '#15a5ba' };
   expect(blobColor('mosaic', identity)).toBe(identity.color);
   const html = renderToStaticMarkup(<Blob style="mosaic" seed="chat" identity={identity} />);
-  expect(html).toContain('#15a5ba');
+  const fills = [...html.matchAll(/<rect[^>]+fill="(#[0-9a-f]{6})"/g)].map(match => match[1]);
+  expect(new Set(fills).size).toBeGreaterThan(20);
   expect(html).toContain('crispEdges');
+  expect(html).not.toContain('color-mix');
   expect(html).not.toContain('<filter');
 });
 

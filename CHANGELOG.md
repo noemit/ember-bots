@@ -8,6 +8,7 @@
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
+- Mosaic bodies use smooth multicolour gradients with no abrupt adjacent tiles, while keeping their pixel eyes, shapes and bold colour range.
 - Rail bot names and descriptions have up to two lines, with timestamps beside the final description line. Group members show the same readable previews, composer identities wrap their names, and hover actions keep clear of the text.
 - Documented the Ember brand and visual asset reservation, permission contact and official website, while retaining MIT for software source and preserving permissions already granted.
 - Settings now sits in the top bar immediately before Sessions, and the rail’s New bot button uses the theme accent in every rail width.

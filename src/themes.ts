@@ -178,6 +178,15 @@ const toCssVars = (palette: ThemePalette): Record<string, string> => ({
   '--diff-del': palette.diffDel,
 });
 
+let themeRevision = 0;
+const themeListeners = new Set<() => void>();
+/** Lets a renderer that must do colour maths on applied CSS variables re-run after a theme change. */
+export const subscribeTheme = (listener: () => void): (() => void) => {
+  themeListeners.add(listener);
+  return () => themeListeners.delete(listener);
+};
+export const getThemeRevision = (): number => themeRevision;
+
 export const applyTheme = (id: string): void => {
   const theme = themeById(id);
   const root = document.documentElement;
@@ -188,4 +197,6 @@ export const applyTheme = (id: string): void => {
   root.style.setProperty('--composer-glow-blend', theme.dark ? 'color-dodge' : 'multiply');
   root.classList.toggle('dark', theme.dark);
   root.style.colorScheme = theme.dark ? 'dark' : 'light';
+  themeRevision += 1;
+  themeListeners.forEach((listener) => listener());
 };

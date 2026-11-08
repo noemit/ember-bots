@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { seedIdentity, hashString } from './seed';
-import { blobColor } from './color';
-import { mosaicActivityPixels, mosaicGeometry, mosaicTileColor } from './mosaic';
+import { mosaicActivityPixels, mosaicBaseHex, mosaicField, mosaicGeometry, mosaicSurfaces } from './mosaic';
+import { getThemeRevision, subscribeTheme } from '../themes';
 import { usePupilTracking } from './usePupilTracking';
 import { MoodBadge } from './overlays';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
@@ -14,16 +14,26 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
   const wrapper = React.useRef<HTMLDivElement>(null);
   const left = React.useRef<SVGGElement>(null);
   const right = React.useRef<SVGGElement>(null);
+  // The field needs concrete theme colours, so a theme change has to re-run this math.
+  const themeRevision = React.useSyncExternalStore(subscribeTheme, getThemeRevision, getThemeRevision);
   const art = React.useMemo(() => {
     const resolved = identity ?? seedIdentity(seed);
-    const base = blobColor('mosaic', resolved);
     const geometry = mosaicGeometry(resolved);
-    return { ...geometry, base,
-      tiles: geometry.cells.map(cell => ({ ...cell, fill: mosaicTileColor(base, cell.band, cell.y, resolved.colorSeed) })),
-      pixels: mosaicActivityPixels(geometry.cells).map(pixel => ({ ...pixel, fill: mosaicTileColor(base, Math.max(0, Math.min(11, pixel.x)), pixel.y, resolved.colorSeed) })),
+    const field = mosaicField(mosaicBaseHex(resolved), geometry.cells, resolved.colorSeed, mosaicSurfaces(themeRevision));
+    return { ...geometry,
+      tiles: geometry.cells.map((cell, i) => ({ ...cell, fill: field.colors[i] })),
+      // Side pixels keep their existing flicker; borrowing the nearest body pigment keeps them in
+      // the same colour family without adding them to the neighbour-cap measurements.
+      pixels: mosaicActivityPixels(geometry.cells).map(pixel => {
+        let nearest = 0;
+        geometry.cells.forEach((cell, i) => {
+          if (Math.hypot(cell.x - pixel.x, cell.y - pixel.y) < Math.hypot(geometry.cells[nearest].x - pixel.x, geometry.cells[nearest].y - pixel.y)) nearest = i;
+        });
+        return { ...pixel, fill: field.colors[nearest] };
+      }),
       delay: -(hashString(resolved.motionSeed) % 2400) / 1000,
       eyeDelay: -(hashString(`mosaic-eyes:${resolved.motionSeed}`) % 10800) / 1000 };
-  }, [identity, seed]);
+  }, [identity, seed, themeRevision]);
   // A two-cell white has only two legal pupil positions. No interpolation off the grid.
   const snapGaze = React.useCallback((x: number): [number, number] =>
     [(x >= 0 ? 1 : 0) - (art.lookRight ? 1 : 0), 0], [art.lookRight]);

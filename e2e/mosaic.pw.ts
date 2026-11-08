@@ -1,6 +1,7 @@
+import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 
-test('Mosaic replaces Pip in settings and keeps custom shape and colour in the rail', async ({ page }) => {
+test('Mosaic replaces Pip in settings and keeps custom shape and colour in the rail', async ({ page }, testInfo) => {
   await page.goto('/?noDock');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('button', { name: /Pip/ })).toHaveCount(0);
@@ -20,10 +21,10 @@ test('Mosaic replaces Pip in settings and keeps custom shape and colour in the r
   await expect(page.locator('main[data-session-key="pi:hearth::10"] [data-agent-glow]')).toHaveAttribute('style', /rgb\(21, 140, 186\)/);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await row.locator('.mosaic-step').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
-  await page.screenshot({ path: '/tmp/ember-mosaic-rail.png' });
+  await page.screenshot({ path: testInfo.outputPath('mosaic-rail-custom.png') });
 });
 
-test('every style rasterises its body and overlay as a valid dock image', async ({ page }) => {
+test('every style rasterises its body and overlay as a valid dock image', async ({ page }, testInfo) => {
   await page.goto('/?noDock');
   await expect(page.locator('aside')).toBeVisible();
   const images = await page.evaluate(async () => {
@@ -35,6 +36,36 @@ test('every style rasterises its body and overlay as a valid dock image', async 
     return results;
   });
   for (const image of images) expect(image).toMatch(/^data:image\/png;base64,/);
+  fs.writeFileSync(testInfo.outputPath('mosaic-dock-icon.png'), Buffer.from(images[2].split(',')[1], 'base64'));
+});
+
+test('smooth Mosaic colours follow the theme and hold up at rail, 69 and 83px', async ({ page }, testInfo) => {
+  await page.goto('/blob-gallery.html');
+  const blob = page.locator('[data-style="mosaic"] .blob').nth(1);
+  const fills = () => blob.locator('[data-mosaic-grid] > rect').evaluateAll(nodes => nodes.map(node => node.getAttribute('fill')));
+  const stone = await fills();
+  expect(new Set(stone).size).toBeGreaterThan(20);
+  expect(stone.every(fill => /^#[0-9a-f]{6}$/i.test(fill ?? ''))).toBe(true);
+  expect(stone.join()).not.toContain('color-mix');
+  await page.getByLabel('Theme', { exact: true }).selectOption('clay');
+  await expect.poll(async () => (await fills()).join()).not.toBe(stone.join());
+  const clayFills = await fills();
+  expect(clayFills.every(fill => /^#[0-9a-f]{6}$/i.test(fill ?? ''))).toBe(true);
+  const region = page.getByRole('region', { name: 'Mosaic states', exact: true });
+  for (const size of ['Rail · 55px', 'Extra large · 83px']) {
+    await page.getByRole('button', { name: size, exact: true }).click();
+    await region.scrollIntoViewIfNeeded();
+    await region.screenshot({ path: testInfo.outputPath(`mosaic-${size.startsWith('Rail') ? '55' : '83'}-clay.png`) });
+  }
+  await page.getByLabel('Blob size', { exact: true }).evaluate(element => {
+    const input = element as HTMLInputElement;
+    input.value = '69';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await region.screenshot({ path: testInfo.outputPath('mosaic-69-clay.png') });
+  await page.getByLabel('Theme', { exact: true }).selectOption('stone');
+  await expect.poll(async () => (await fills()).join()).not.toBe(clayFills.join());
+  await region.screenshot({ path: testInfo.outputPath('mosaic-69-stone.png') });
 });
 
 test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood', async ({ page }) => {
