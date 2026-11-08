@@ -2025,6 +2025,9 @@ function ChatView({
                           key={composerKey ?? 'none'}
                           queue={queue}
                           models={models}
+                          instanceId={session?.instanceId}
+                          defaultModelId={defaultModelId}
+                          onModelsRefresh={onModelsRefresh}
                           onSendQueued={onSendQueued}
                           onMoveQueued={onMoveQueued}
                           onRemoveQueued={onRemoveQueued}

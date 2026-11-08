@@ -20,6 +20,9 @@ import type { MessageQueueSession, ModelOption, QueuedMessage } from '../types';
 type Props = {
   queue: MessageQueueSession | null;
   models: ModelOption[];
+  instanceId?: string;
+  defaultModelId?: string | null;
+  onModelsRefresh?: () => Promise<unknown> | void;
   onSendQueued: (itemId: string) => Promise<boolean>;
   onMoveQueued: (itemId: string, direction: -1 | 1) => Promise<boolean>;
   onRemoveQueued: (itemId: string) => Promise<boolean>;
@@ -59,6 +62,9 @@ const queuedWhen = (at: number | undefined): string | null => {
 export default function QueuedMessageList({
   queue,
   models,
+  instanceId,
+  defaultModelId,
+  onModelsRefresh,
   onSendQueued,
   onMoveQueued,
   onRemoveQueued,
@@ -388,15 +394,16 @@ export default function QueuedMessageList({
       {editingItem ? (
         <EditQueuedMessageDialog
           item={editingItem}
+          models={models} instanceId={instanceId} directory={queue?.directory} defaultModelId={defaultModelId} onModelsRefresh={onModelsRefresh}
           modelLabel={queuedModelLabel(editingItem)}
           busy={busyQueueItemId !== null}
           onCancel={() => setEditing(null)}
-          onSave={(next) => {
+          onSave={(next, modelSelection) => {
             // Close first: the replacement is in flight and a second Save would enqueue twice.
             const target = editingItem.id;
             setEditing(null);
             void runQueueAction(target, () =>
-              onReplaceQueued({ itemIds: [target], text: next, survivorId: target })
+              onReplaceQueued({ itemIds: [target], text: next, survivorId: target, modelSelection })
             );
           }}
         />

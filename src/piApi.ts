@@ -122,7 +122,7 @@ const piConfigureForSend = async (
       ...(input.model
         ? { model: { provider: input.model.providerID, modelId: input.model.modelID } }
         : {}),
-      ...(input.variant ? { thinkingLevel: input.variant } : {}),
+      ...(input.variant !== undefined ? { thinkingLevel: input.variant || null } : {}),
     },
   });
 };

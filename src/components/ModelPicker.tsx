@@ -27,6 +27,8 @@ type Props = {
   defaultModelId?: string | null;
   collapseProviders?: boolean;
   requireConcreteModel?: boolean;
+  /** Queue edits must make an incompatible effort explicit instead of silently clearing it. */
+  preserveVariantOnModelChange?: boolean;
   onSelect: (key: string, variant: string) => void;
   onOpenChange: (open: boolean) => void;
   /** Re-fetch the instance's catalogue. The picker already refreshes on open; this is the manual one. */
@@ -163,6 +165,7 @@ export default function ModelPicker({
   defaultModelId = null,
   collapseProviders = false,
   requireConcreteModel = false,
+  preserveVariantOnModelChange = false,
   onSelect,
   onOpenChange,
   onRefresh,
@@ -231,7 +234,7 @@ export default function ModelPicker({
   const pick = (key: string) => {
     const nextModel = key === DEFAULT_MODEL ? defaultModel : byKey.get(key) ?? null;
     setSelectedKey(key);
-    if (key !== selectedKey) setSelectedVariant((current) => canonicalVariant(nextModel?.details.variants, current) ?? '');
+    if (key !== selectedKey && !preserveVariantOnModelChange) setSelectedVariant((current) => canonicalVariant(nextModel?.details.variants, current) ?? '');
     setHovered(key === DEFAULT_MODEL ? null : key);
   };
 

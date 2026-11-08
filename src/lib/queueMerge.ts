@@ -1,5 +1,9 @@
+import { canonicalVariant } from './modelSelection';
+import { modelRefKey } from '../types';
 import type {
   FileAttachment,
+  ModelOption,
+  QueuedMessageSendConfig,
   QueuedMessage,
   QueuedMessageContext,
 } from '../types';
@@ -44,6 +48,8 @@ export const mergeAll = (items: readonly QueuedMessage[]): string =>
 /** What the UI asks the queue hook to replace: an edit (one id) or a merge (two or more). */
 export type QueueReplaceRequest = {
   itemIds: readonly string[];
+  /** Absent keeps the original config; an empty variant explicitly clears the old effort. */
+  modelSelection?: { modelId: string; variant: string };
   /** Overrides the joined text (the edit dialog's Save); omit to merge the rows. */
   text?: string;
   /** The row whose queue position the replacement keeps. Defaults to the upper item. */
@@ -142,4 +148,19 @@ export const queueOrderAfterMerge = (
     .filter((item) => !consumed.has(item.id)).length;
   const kept = items.map((item) => item.id).filter((id) => !consumed.has(id));
   return [...kept.slice(0, before), newId, ...kept.slice(before)];
+};
+
+/** Validate an explicit edit against this host's catalogue without substituting a model or effort. */
+export const queueReplacementConfig = (
+  original: QueuedMessageSendConfig,
+  selection: QueueReplaceRequest['modelSelection'],
+  models: readonly ModelOption[]
+): { config: QueuedMessageSendConfig; error: string | null } => {
+  const key = selection?.modelId ?? modelRefKey(original);
+  const model = models.find((entry) => modelRefKey(entry) === key);
+  if (!model) return { config: original, error: `Selected model ${key} is unavailable. Refresh models or choose another model; Ember will not substitute one.` };
+  const variant = selection ? selection.variant : original.variant ?? '';
+  const canonical = canonicalVariant(model.details.variants, variant);
+  if (canonical === undefined) return { config: original, error: `Selected reasoning level ${variant} is unavailable for ${key}. Choose a supported level; Ember will not change it automatically.` };
+  return { config: selection ? { ...original, providerID: model.providerID, modelID: model.modelID, variant: canonical } : original, error: null };
 };

@@ -15,6 +15,7 @@ import { shareValue } from '../lib/structuralSharing';
 import { selectedModelError } from '../lib/modelSelection';
 import {
   planQueueMerge,
+  queueReplacementConfig,
   queueOrderAfterMerge,
   sameQueuedMessage,
   type QueueReplaceRequest,
@@ -510,6 +511,10 @@ export const useMessageQueue = ({
       landedIdsRef.current
     );
     const requestText = (request.text ?? '').trim();
+    if (pendingId && request.modelSelection && pendingInputsRef.current.has(pendingId)) {
+      showActionError('The host is still queueing this message. Wait for it to finish, then edit its model.');
+      return false;
+    }
 
     // A row that is still queueing has no server id, so there is nothing to replace yet, and
     // enqueueing the new text now would submit the message twice once the original lands. Record it
@@ -543,12 +548,17 @@ export const useMessageQueue = ({
 
     // The replacement inherits the upper item's mode, model and variant: an edit keeps its own, and
     // a merge never silently changes who answers or how hard it thinks.
-    const model = queuedMessageModel(instanceId, plan.leader);
+    const replacement = request.modelSelection
+      ? queueReplacementConfig(plan.leader.sendConfig, request.modelSelection, modelsByInstance[instanceId]?.models ?? [])
+      : { config: plan.leader.sendConfig, error: null };
+    if (replacement.error) { showActionError(replacement.error); return false; }
+    const sendConfig = replacement.config;
+    const model = queuedMessageModel(instanceId, { ...plan.leader, sendConfig });
     const input: QueueMessageInput = {
       text,
       model,
-      mode: plan.leader.sendConfig.agent,
-      variant: plan.leader.sendConfig.variant,
+      mode: sendConfig.agent,
+      variant: sendConfig.variant,
       attachments: plan.attachments,
       queuedContext: plan.queuedContext,
       agentMention: plan.leader.agentMention,
@@ -568,7 +578,7 @@ export const useMessageQueue = ({
         dataUrl: file.url,
       })),
       context: plan.queuedContext,
-      sendConfig: { ...plan.leader.sendConfig },
+      sendConfig: { ...sendConfig },
       mode: plan.leader.mode,
       pending: true,
     });
