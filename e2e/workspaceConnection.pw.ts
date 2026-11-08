@@ -173,7 +173,23 @@ for (const mode of ['normal', 'wide', 'mini'] as const) {
           const b = band.getBoundingClientRect(), a = avatar.getBoundingClientRect();
           return a.top >= b.top && a.bottom <= b.bottom;
         })), { timeout: 2000 }).toBe(true);
-        expect(geometry.overlaps).toBe(false);
+        // The dock is measured after both bands agree; a clipped rail row can still be mid-handover.
+        await expect.poll(async () => (await page.evaluate(() => {
+          const band = document.querySelector('[data-active-chat]')!.getBoundingClientRect();
+          const footer = document.querySelector('[data-connection-composer]')!.getBoundingClientRect();
+          return Math.abs(band.top - footer.top) + Math.abs(band.height - footer.height);
+        })), { timeout: 2500 }).toBeLessThan(2);
+        const overlaps = await page.evaluate(() => {
+          const a = document.querySelector('[data-active-chat] [data-composer-identity] .blob')!.getBoundingClientRect();
+          const scroller = document.querySelector('[data-rail-scroll]')!.getBoundingClientRect();
+          return [...document.querySelectorAll('[data-rail-scroll] .blob')].some(r => {
+            const rect = r.getBoundingClientRect();
+            // A row scrolled out of the rail's own viewport is clipped, not overlapping the dock.
+            if (rect.bottom <= scroller.top || rect.top >= scroller.bottom) return false;
+            return rect.left < a.right && rect.right > a.left && rect.top < a.bottom && rect.bottom > a.top;
+          });
+        });
+        expect(overlaps).toBe(false);
       };
       await assertGeometry();
       const initialHeight = (await band.boundingBox())!.height;
