@@ -1,12 +1,4 @@
-## Unreleased
-
-### Changed
-- Worker threads have no unread management: no notify switch, no per-message read controls. A
-  thread is something its leader reads, not a place a person does.
-
-### Changed
-- The Threads tab above the composer reads running over total ("3 / 8") instead of naming
-  "running" and "needs you"; the tray's dot still flags a thread waiting on you.
+## 1.21.0
 
 ### Added
 - Customize a new bot’s colour, style and shape from its draft avatar before sending; the choice follows it through creation and retries without changing other bots.
@@ -17,6 +9,12 @@
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
 ### Changed
+- Worker threads have no unread management: no notify switch and no per-message read controls. A
+  thread is something its leader reads, not a place a person does.
+- The Threads tab above the composer reads running over total ("3 / 8") instead of naming what is
+  running and what needs you; the tray's dot still flags a thread waiting on you.
+- Promoting a thread reads “Promote to a persistent bot”: the header keeps a short Promote button,
+  and the dialog, tooltip and crew badge say what the thread becomes.
 - Settings offers three text sizes — Interface for the rail, headers, menus and settings; Chat for conversation prose; Composer for what you type — each applied immediately and remembered.
 - Mosaic bodies use smooth multicolour gradients with no abrupt adjacent tiles, while keeping their pixel eyes, shapes and bold colour range.
 - Rail bot names and descriptions have up to two lines, with timestamps beside the final description line. Group members show the same readable previews, composer identities wrap their names, and hover actions keep clear of the text.
@@ -201,7 +199,6 @@
 ### Changed
 - New chats combine the first human prompt's topic with a whimsical character, such as Login Locksmith. Collisions retain the topic; vague prompts retain the seeded character fallback. Names are set once at creation, preserving human renames and blob identities without an extra model call.
 
-
 ## 1.16.0
 
 ### Changed
@@ -212,7 +209,6 @@
 - Agent replies sit directly on the conversation surface; user messages retain their bubbles.
   Conversation text defaults to 14px with more open spacing. Settings → General offers sizes
   from 12px to 20px for reading and composing, saved across restarts.
-
 
 ## 1.15.9
 
