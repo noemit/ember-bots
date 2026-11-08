@@ -36,3 +36,42 @@ test('every style rasterises its body and overlay as a valid dock image', async 
   });
   for (const image of images) expect(image).toMatch(/^data:image\/png;base64,/);
 });
+
+test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood', async ({ page }) => {
+  await page.goto('/blob-gallery.html');
+  await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
+  for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'unread', 'unknown']) {
+    const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).first();
+    await blob.scrollIntoViewIfNeeded();
+    const box = (await blob.boundingBox())!;
+    const positions = [];
+    for (const side of [-1, 1]) {
+      await page.mouse.move(box.x + box.width / 2 + side * 70, box.y + box.height / 2 - 25);
+      await expect(blob).toHaveAttribute('data-pupil-tracking', 'true');
+      positions.push(await blob.locator('.mosaic-pupil').evaluateAll(nodes => nodes.map(node => {
+        const pupil = node.querySelector('rect')!;
+        const offset = (node as SVGGElement).transform.baseVal.consolidate()!.matrix;
+        const eye = node.closest('.mosaic-eye-open')!.querySelector('[data-mosaic-eye]')!;
+        return { x: Number(pupil.getAttribute('x')) + offset.e - Number(eye.getAttribute('x')), y: offset.f,
+          animation: getComputedStyle(node).animationName };
+      })));
+    }
+    expect(positions).toEqual([
+      [{ x: 0, y: 0, animation: 'none' }, { x: 0, y: 0, animation: 'none' }],
+      [{ x: 1, y: 0, animation: 'none' }, { x: 1, y: 0, animation: 'none' }],
+    ]);
+    await page.mouse.move(1590, 0);
+    await expect(blob).not.toHaveAttribute('data-pupil-tracking');
+  }
+  await page.getByRole('region', { name: 'Mosaic states', exact: true }).screenshot({ path: '/tmp/ember-mosaic-pixel-large.png' });
+  await page.getByRole('button', { name: 'Rail · 55px', exact: true }).click();
+  await page.getByRole('region', { name: 'Mosaic states', exact: true }).screenshot({ path: '/tmp/ember-mosaic-pixel-rail-gallery.png' });
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  for (const mood of ['busy', 'thinking']) {
+    const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).first();
+    expect(await blob.evaluate(node => node.getAnimations({ subtree: true }).every(animation => animation.playState === 'paused'))).toBe(true);
+  }
+});

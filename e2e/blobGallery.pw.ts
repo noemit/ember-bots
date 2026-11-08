@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 
-test('Mosaic and Scribble follow nearby pointers, stay inside their eyes, and release their gaze', async ({ page }) => {
+test('Scribble follows nearby pointers, stays inside its eyes, and releases its gaze', async ({ page }) => {
   await page.goto('/blob-gallery.html');
   await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
-  for (const style of ['mosaic', 'scribble']) {
+  for (const style of ['scribble']) {
     let captured = false;
     for (const mood of ['idle', 'busy']) {
       for (const blob of await page.locator(`[data-style="${style}"][data-state="${mood}"] .blob`).all()) {
@@ -343,8 +343,8 @@ test('Mosaic glances and briefly blinks while working and thinking, keeping pupi
         const elapsed = element.getAnimations()[0]?.currentTime;
         (element as SVGElement).style.animationDelay = `${-duration * phase + (typeof elapsed === 'number' ? elapsed / 1000 : 0)}s`;
       });
-      const pupils = [...node.querySelectorAll<SVGCircleElement>('.mosaic-pupil > circle:first-child')];
-      const eyes = [...node.querySelectorAll<SVGPathElement>('[data-mosaic-eye]')];
+      const pupils = [...node.querySelectorAll<SVGRectElement>('.mosaic-pupil > rect')];
+      const eyes = [...node.querySelectorAll<SVGRectElement>('[data-mosaic-eye]')];
       return {
         gaze: getComputedStyle(node.querySelector('.mosaic-pupil')!).transform,
         peek: getComputedStyle(node.querySelector('.mosaic-eyes')!).transform,
@@ -353,15 +353,19 @@ test('Mosaic glances and briefly blinks while working and thinking, keeping pupi
         inside: pupils.every((pupil, index) => {
           const eye = eyes[index];
           const relative = eye.getScreenCTM()!.inverse().multiply(pupil.getScreenCTM()!);
-          return Array.from({ length: 16 }, (_, point) => point * Math.PI / 8).every(angle =>
-            eye.isPointInFill(new DOMPoint(pupil.r.baseVal.value * Math.cos(angle), pupil.r.baseVal.value * Math.sin(angle)).matrixTransform(relative)));
+          return [[0, 0], [1, 0], [0, 1], [1, 1]].every(([dx, dy]) => {
+            const point = new DOMPoint(pupil.x.baseVal.value + dx, pupil.y.baseVal.value + dy).matrixTransform(relative);
+            return point.x >= eye.x.baseVal.value - .001 && point.x <= eye.x.baseVal.value + 2.001
+              && point.y >= eye.y.baseVal.value - .001 && point.y <= eye.y.baseVal.value + 1.001;
+          });
         }),
       };
     }));
-    expect(new Set(frames.map(frame => frame.gaze)).size).toBeGreaterThan(3);
+    expect(new Set(frames.map(frame => frame.gaze)).size).toBe(2);
     const offsets = frames.map(frame => frame.gaze.match(/matrix\(([^)]+)\)/)![1].split(',').map(Number));
-    expect(Math.max(...offsets.map(matrix => matrix[4])) - Math.min(...offsets.map(matrix => matrix[4]))).toBeGreaterThan(3);
-    expect(Math.max(...offsets.map(matrix => matrix[5])) - Math.min(...offsets.map(matrix => matrix[5]))).toBeGreaterThan(2);
+    expect(offsets.every(matrix => Number.isInteger(matrix[4]) && Number.isInteger(matrix[5]))).toBe(true);
+    expect(Math.max(...offsets.map(matrix => matrix[4])) - Math.min(...offsets.map(matrix => matrix[4]))).toBe(1);
+    expect(Math.max(...offsets.map(matrix => matrix[5])) - Math.min(...offsets.map(matrix => matrix[5]))).toBe(0);
     expect(frames.every(frame => frame.inside)).toBe(true);
     expect(frames.map(frame => frame.open)).toEqual(['1', '1', '1', '0', '0', '1', '1']);
     expect(frames.map(frame => frame.lid)).toEqual(['0', '0', '0', '1', '1', '0', '0']);
