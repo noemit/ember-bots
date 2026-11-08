@@ -63,7 +63,8 @@ test('conversation size persists and mobile retains its composer identity', asyn
   await expect(reply).toHaveCSS('font-size', '16px');
   await page.reload();
   await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
-  await expect(reply).toHaveCSS('font-size', '18px');
+  // Large is 16px; the previous build stored the literal 18, which now maps to Large as well.
+  await expect(reply).toHaveCSS('font-size', '16px');
   await page.setViewportSize({ width: 430, height: 900 });
   await expect(page.locator(dock)).toHaveCount(0);
   await expect(page.locator('main[data-session-key="pi:hearth::10"] [data-composer-identity]')).toContainText('Habit onboarding QA');
@@ -153,7 +154,14 @@ for (const mode of ['normal', 'wide', 'mini'] as const) {
         expect(geometry.bandDifference).toBeLessThan(2);
         expect(geometry.centreDifference).toBeLessThan(2);
         expect(geometry.identityInside).toBe(true);
-        expect(geometry.avatarInside).toBe(true);
+        // Give the 600ms shared-layout handover a chance to finish before judging the avatar's box;
+        // a poll re-runs the measurement instead of failing on a mid-animation frame.
+        await expect.poll(async () => (await page.evaluate(() => {
+          const band = document.querySelector('[data-active-chat]')!;
+          const avatar = band.querySelector('[data-composer-identity] .blob')!;
+          const b = band.getBoundingClientRect(), a = avatar.getBoundingClientRect();
+          return a.top >= b.top && a.bottom <= b.bottom;
+        })), { timeout: 2000 }).toBe(true);
         expect(geometry.overlaps).toBe(false);
       };
       await assertGeometry();
