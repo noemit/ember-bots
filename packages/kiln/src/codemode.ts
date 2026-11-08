@@ -14,7 +14,7 @@
  * model can look at (or seed, or clear) what its scripts kept, without writing a script for it.
  */
 import { Buffer } from "node:buffer";
-import { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import { createCodemodeSandbox } from "./codemodeSandbox";
 import { obj, oneOf, opt, str, unknown } from "@earendil-works/pi-schema";
 import {
   defineExtension,
@@ -220,7 +220,7 @@ export const hearthCodemodeExtensions = (
   if (!codemodeEnabled(env)) {
     return { extensions: [Scratchpad], close: () => undefined };
   }
-  const sandbox = new CodemodeSandbox({});
+  const sandbox = createCodemodeSandbox();
   const extensions: Extension[] = [
     createCodemodeExtension({
       sandbox,

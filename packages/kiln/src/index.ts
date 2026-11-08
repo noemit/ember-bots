@@ -278,7 +278,17 @@ export const runKiln = async (): Promise<void> => {
   }
 };
 
-if (import.meta.main) void runKiln().catch((error: unknown) => {
+// Diagnostics run before configuration, storage, listeners or background services start.
+const main = async (): Promise<void> => {
+  if (process.argv.includes('--self-test-codemode')) {
+    const { selfTestCodemode } = await import('./codemodeSelfTest');
+    await selfTestCodemode();
+    return;
+  }
+  await runKiln();
+};
+
+if (import.meta.main) void main().catch((error: unknown) => {
   console.error("[hearth] fatal:", error instanceof Error ? (error.stack ?? error.message) : error);
   process.exit(1);
 });

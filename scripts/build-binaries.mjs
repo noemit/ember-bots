@@ -9,6 +9,6 @@ const directory = kind === 'kiln' ? 'build/harness' : 'release';
 const entry = kind === 'kiln' ? 'packages/kiln/src/index.ts' : 'packages/kiln/src/tinder.ts';
 const name = kind === 'kiln' ? 'kiln' : 'tinder-cli';
 mkdirSync(directory, { recursive: true });
-const result = spawnSync('bun', ['build', '--compile', entry, '--outfile', join(directory, `${name}${process.platform === 'win32' ? '.exe' : ''}`)], { stdio: 'inherit' });
+const result = spawnSync('bun', ['build', '--compile', entry, 'packages/kiln/src/codemode-worker.ts', '--outfile', join(directory, `${name}${process.platform === 'win32' ? '.exe' : ''}`)], { stdio: 'inherit' });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

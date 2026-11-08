@@ -3,6 +3,11 @@
 import { parseArgs, runCli } from '../../../cli/ember';
 
 const main = async (): Promise<void> => {
+  if (process.argv.includes('--self-test-codemode')) {
+    const { selfTestCodemode } = await import('./codemodeSelfTest');
+    await selfTestCodemode();
+    return;
+  }
   const { command, flags } = parseArgs(process.argv.slice(2));
   if (command === 'serve') {
     if (flags.harnessDir) throw new Error('Tinder includes Kiln. Omit --harness-dir to start it, or use the source CLI for a custom checkout.');

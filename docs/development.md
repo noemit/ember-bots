@@ -47,6 +47,21 @@ Open `http://localhost:5179`. `?threads` demonstrates source links and quiet int
 | `bun run test:native` | Build and test Electron IPC and authenticated remote access with isolated fixtures |
 | `bun run buddy-arena` | Run the Buddy avatar development playground |
 
+### Packaged code-mode sandbox
+
+`bun run build:harness` and `bun run dist:cli` embed QuickJS WASM and a separate worker entrypoint.
+Keep the worker beside both main entrypoints and retain Bun's default entry naming/root: its sibling
+URL must resolve in both source Bun and the compiled module graph. The shared sandbox factory loads
+WASM only when code mode is enabled; never replace its worker sandbox with inline execution.
+
+Run `bun test ./tests/packagedCodemode.test.ts` to build both production binaries, copy each into an
+isolated temporary directory, and exercise `--self-test-codemode`. This offline diagnostic runs before
+server/database startup, calls a host tool from QuickJS, times out an infinite loop while checking
+host responsiveness, and verifies a subsequent execution succeeds. It needs no provider or installed
+`node_modules`, creates no user profile, and the test kills a stuck executable after 20 seconds.
+Run this regression natively on each release platform; cross-compilation alone does not verify worker
+execution. Upstream Bun limitations still apply to built-ins that do not poll QuickJS's interrupt flag.
+
 Install the browser before running Playwright suites:
 
 ```sh
