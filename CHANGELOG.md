@@ -1,6 +1,10 @@
 ## 1.21.0
 
 ### Added
+- DeepInfra joins the providers: paste a key in Settings → Providers and its chat models appear in the
+  picker, with context windows and per-million-token prices read from DeepInfra's own catalogue. A
+  refresh that fails keeps the last known list, and Ember never waits on the network to start.
+- OpenRouter is verified end to end — key, row, catalogue and picker models — alongside DeepInfra.
 - Customize a new bot’s colour, style and shape from its draft avatar before sending; the choice follows it through creation and retries without changing other bots.
 - Setup ends with a privacy and support introduction, including a direct way to contact Em before opening your first draft.
 - Answer pending thread questions directly in the leader’s conversation, including nested threads, with replies routed to the asking thread.
