@@ -4,7 +4,10 @@ import {
   MIN_TIMELINE_TICKS,
   shouldShowTimeline,
   timelineTicks,
+  timelineTicksForItems,
 } from '../src/lib/transcriptTimeline';
+import { bundleConsecutiveToolMessages } from '../src/lib/toolDisplay';
+import { isUnreadEligible } from '../src/lib/unreadDigest';
 import type { ChatMessage } from '../src/types';
 
 const tool = (name: string, status: 'completed' | 'error' | 'running' = 'completed') =>
@@ -77,5 +80,60 @@ describe('timelineTicks', () => {
     const enough = Array.from({ length: MIN_TIMELINE_TICKS }, () => assistant());
     expect(shouldShowTimeline(timelineTicks(enough))).toBe(true);
     expect(timelineTicks([])).toEqual([]);
+  });
+});
+
+
+describe('merged tool timeline', () => {
+  const bundle = (messages: ChatMessage[]) => bundleConsecutiveToolMessages(
+    messages.map((message, index) => ({ message, index })),
+    { toolDisplay: 'collapsed', hideToolCalls: false },
+  );
+  const steps = (completed = false): ChatMessage[] => [
+    assistant({ id: 'e1', text: '', parts: [tool('read')] }),
+    assistant({ id: 'e2', text: '', completed, live: !completed,
+      parts: [tool('bash', completed ? 'completed' : 'running')] }),
+  ];
+
+  test('a settled anchor retains its identity and read eligibility while its live source marks the row live', () => {
+    const messages = steps();
+    const items = bundle(messages);
+    const before = structuredClone({ messages, items });
+    expect(items).toHaveLength(1);
+    expect(items[0].sourceIndices).toEqual([0, 1]);
+    expect(timelineTicksForItems(items, messages)[0]).toMatchObject({ index: 0, kind: 'live', summary: 'running now' });
+    expect(items[0].message.id).toBe('e1');
+    expect(items[0].message.completed).toBe(true);
+    expect(isUnreadEligible(items[0].message)).toBe(isUnreadEligible(messages[0]));
+    expect({ messages, items }).toEqual(before);
+  });
+
+  test('the live marker settles when its source completes, and unmerged rows retain the existing API behavior', () => {
+    const messages = steps();
+    const items = bundle(messages);
+    expect(timelineTicksForItems(items, messages)[0].kind).toBe('live');
+    const settled = steps(true);
+    // Even an unchanged anchor must consult the current source records.
+    expect(timelineTicksForItems(items, settled)[0].kind).toBe('tool');
+    expect(timelineTicksForItems(bundle(settled), settled)[0].kind).toBe('tool');
+    const ordinary = [user(), assistant(), assistant({ completed: false })];
+    expect(timelineTicksForItems(ordinary.map((message, index) => ({ message, index })), ordinary)).toEqual(timelineTicks(ordinary));
+  });
+
+  test('a failed tool retains failure precedence over a later live source', () => {
+    const messages = steps();
+    messages[0] = assistant({ text: '', parts: [tool('read', 'error')] });
+    expect(timelineTicksForItems(bundle(messages), messages)[0].kind).toBe('failure');
+  });
+
+  test('sampling keeps a merged live row off the ordinary sampling stride', () => {
+    const messages = Array.from({ length: 599 }, () => assistant());
+    messages.push(...steps());
+    const items = bundle(messages);
+    const ticks = timelineTicksForItems(items, messages);
+    expect(items).toHaveLength(600);
+    expect(599 % Math.ceil(items.length / MAX_TIMELINE_TICKS)).not.toBe(0);
+    expect(ticks.find(tick => tick.index === 599)?.kind).toBe('live');
+    expect(ticks.length).toBeLessThanOrEqual(MAX_TIMELINE_TICKS + 1);
   });
 });

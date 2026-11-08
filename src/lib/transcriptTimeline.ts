@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../types';
+import type { ToolPresentationItem } from './toolDisplay';
 
 /**
  * The whisper timeline: one mark per assistant turn, sized and coloured by what happened, so a long
@@ -77,6 +78,31 @@ export const timelineTicks = (items: readonly ChatMessage[]): TimelineTick[] => 
     marks.push({ index, at: message.createdAt, kind, tools });
   });
 
+  return sampleMarks(marks);
+};
+
+/** Live status belongs to every source in a merged row, not just its settled anchor.
+ * Keep the presentation message untouched: its identity and read eligibility are independent.
+ */
+export const timelineTicksForItems = (
+  items: readonly ToolPresentationItem<ChatMessage>[],
+  sources: readonly ChatMessage[],
+): TimelineTick[] => {
+  const marks: Array<Omit<TimelineTick, 'summary'>> = [];
+  items.forEach(({ message, sourceIndices }, index) => {
+    if (message.role !== 'assistant') return;
+    const classification = classifyCached(message);
+    const liveSource = sourceIndices?.some(source => {
+      const entry = sources[source];
+      return entry?.role === 'assistant' && !entry.completed;
+    });
+    const kind = classification.kind !== 'failure' && liveSource ? 'live' : classification.kind;
+    marks.push({ index, at: message.createdAt, kind, tools: classification.tools });
+  });
+  return sampleMarks(marks);
+};
+
+const sampleMarks = (marks: Array<Omit<TimelineTick, 'summary'>>): TimelineTick[] => {
   let kept = marks;
   if (marks.length > MAX_TIMELINE_TICKS) {
     // Sample evenly, but never drop a failure or the live tick: those are the marks you look for.

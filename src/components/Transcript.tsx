@@ -35,7 +35,7 @@ import { modelLabel } from '../lib/modelLabel';
 import SessionStatusLine from './SessionStatusLine';
 import { galleryForConversation, isRenderableImage, type ViewerImage } from '../lib/gallery';
 import TranscriptTimeline from './TranscriptTimeline';
-import { shouldShowTimeline, timelineTicks } from '../lib/transcriptTimeline';
+import { shouldShowTimeline, timelineTicksForItems } from '../lib/transcriptTimeline';
 import { useImageViewer } from './imageViewerContext';
 import { cn } from '@/lib/utils';
 import {
@@ -2068,8 +2068,8 @@ function Transcript({
   // Marks for the scrub rail, derived from the same visible items the list renders (so a tick's
   // index is directly a `jumpToIndex` argument).
   const railTicks = React.useMemo(
-    () => (showActivityRail ? timelineTicks(items.map(({ message }) => message)) : []),
-    [items, showActivityRail]
+    () => (showActivityRail ? timelineTicksForItems(items, messages) : []),
+    [items, messages, showActivityRail]
   );
   const railVisible = showActivityRail && shouldShowTimeline(railTicks);
   const railActiveIndex = focusedIndex >= 0 ? focusedIndex : highlightedIndex >= 0 ? highlightedIndex : null;
