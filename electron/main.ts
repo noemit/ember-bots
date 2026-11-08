@@ -10,6 +10,8 @@ import {
   localInstanceUrl,
   normalizeApiMethod,
   parseAvatarOverrides,
+  parseAvatarAssignments,
+  mergeAvatarAssignments,
   parseMutedSessions,
   parseColorAssignments,
   parseComposerDrafts,
@@ -465,6 +467,7 @@ const readEmberSettings = (): EmberSettings => {
     scheduledSessionBindings: parseStringRecord(root.scheduledSessionBindings),
     autoArchiveScheduledRuns: root.autoArchiveScheduledRuns !== false,
     avatarOverrides: parseAvatarOverrides(root.avatarOverrides),
+    avatarAssignments: parseAvatarAssignments(root.avatarAssignments),
     projectColorAssignments: parseColorAssignments(root.projectColorAssignments),
     openSessions: parseStringArray(root.openSessions),
     activeSession:
@@ -1079,6 +1082,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   }
   if (value.scheduledSessionBindings !== undefined) settings.scheduledSessionBindings = parseStringRecord(value.scheduledSessionBindings);
   if (typeof value.autoArchiveScheduledRuns === 'boolean') settings.autoArchiveScheduledRuns = value.autoArchiveScheduledRuns;
+  if (value.avatarAssignments !== undefined) settings.avatarAssignments = mergeAvatarAssignments(settings.avatarAssignments, value.avatarAssignments);
   if (value.avatarOverrides !== undefined) settings.avatarOverrides = parseAvatarOverrides(value.avatarOverrides);
   if (value.projectColorAssignments !== undefined) settings.projectColorAssignments = parseColorAssignments(value.projectColorAssignments);
   if (value.openSessions !== undefined) settings.openSessions = parseStringArray(value.openSessions);

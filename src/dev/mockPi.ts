@@ -7,7 +7,7 @@
  * The legacy OpenCode mock stays reachable at `?legacy` (see `src/dev/mockBridge.ts`).
  */
 import { longDemoPrompt, longDemoReview, longDemoFollowUp } from './longMessages';
-import { parseAvatarOverrides } from '../../electron/transport';
+import { parseAvatarOverrides, parseAvatarAssignments, mergeAvatarAssignments } from '../../electron/transport';
 import { generateToken } from '../../electron/tokenWords';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
 
@@ -1737,7 +1737,7 @@ const mockFolders: Record<string, string[]> = {
  */
 const READ_STATE_KEY = 'ember-pi-read-state';
 
-const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
+const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'avatarAssignments' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
   try {
     return JSON.parse(window.localStorage.getItem(READ_STATE_KEY) ?? 'null') ?? {};
   } catch {
@@ -1780,6 +1780,7 @@ let settings: EmberSettings = {
   scheduledSessionBindings: {},
   autoArchiveScheduledRuns: true,
   avatarOverrides: parseAvatarOverrides(storedRead.avatarOverrides),
+  avatarAssignments: parseAvatarAssignments(storedRead.avatarAssignments),
   projectColorAssignments: {},
   openSessions: fixtureParam === 'long-messages' ? ['pi:hearth::10'] : [],
   activeSession: fixtureParam === 'long-messages' ? 'pi:hearth::10' : null,
@@ -1841,11 +1842,11 @@ export const bridge: EmberBridge = {
       if (draft === null) delete drafts[key];
       else drafts[key] = draft;
     }
-    settings = { ...settings, ...safe, ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
-    if (patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
+    settings = { ...settings, ...safe, avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
+    if (patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,
-        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults, avatarOverrides: settings.avatarOverrides, theme: settings.theme, blobStyle: settings.blobStyle, conversationFontSize: settings.conversationFontSize })
+        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults, avatarOverrides: settings.avatarOverrides, avatarAssignments: settings.avatarAssignments, theme: settings.theme, blobStyle: settings.blobStyle, conversationFontSize: settings.conversationFontSize })
       );
     }
     return settings;

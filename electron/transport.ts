@@ -111,6 +111,12 @@ export const resolveHealthUrl = (baseValue: string): string | null => {
   return resolved.origin === base.origin ? resolved.toString() : null;
 };
 
+/** Durable automatic identity; existing assignments never change on a settings patch. */
+export type StoredAvatarAssignment = {
+  colorIndex: number;
+  shapeSeed: string;
+};
+
 export type StoredAvatarOverride = {
   colorIndex?: number;
   /** An explicit custom colour, stored as six-digit hex. */
@@ -440,6 +446,26 @@ export const parseMutedSessions = (value: unknown, legacyMarks: unknown): string
     ? parseStringArray(value)
     : Object.entries(parseReadMarks(legacyMarks)).filter(([, mark]) => mark.quiet).map(([key]) => key);
 
+/** No count cap: dropping an archived chat's identity would recolour it on restore. */
+export const parseAvatarAssignments = (value: unknown): Record<string, StoredAvatarAssignment> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([key, raw]) => {
+    if (UNSAFE_RECORD_KEYS.has(key) || !key.length || key.length > 500 ||
+        !raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+    const entry = raw as Record<string, unknown>;
+    if (typeof entry.colorIndex !== 'number' || !Number.isInteger(entry.colorIndex) ||
+        entry.colorIndex < 0 || entry.colorIndex >= AVATAR_COLOR_COUNT ||
+        typeof entry.shapeSeed !== 'string' || !entry.shapeSeed.trim() || entry.shapeSeed.length > 500) return [];
+    return [[key, { colorIndex: entry.colorIndex, shapeSeed: entry.shapeSeed }]];
+  }));
+};
+
+/** Run inside main's serialized settings write: the first saved identity wins. */
+export const mergeAvatarAssignments = (stored: unknown, incoming: unknown): Record<string, StoredAvatarAssignment> => ({
+  ...parseAvatarAssignments(incoming),
+  ...parseAvatarAssignments(stored),
+});
+
 export const parseAvatarOverrides = (value: unknown): Record<string, StoredAvatarOverride> => {
   if (!value || typeof value !== 'object') return {};
   return Object.fromEntries(
@@ -632,6 +658,7 @@ export type EmberSettings = {
   /** Archive finished scheduled-task runs once they're a day old. */
   autoArchiveScheduledRuns: boolean;
   avatarOverrides: Record<string, StoredAvatarOverride>;
+  avatarAssignments: Record<string, StoredAvatarAssignment>;
   projectColorAssignments: Record<string, number>;
   /** Workspace: ordered open session keys ("instance::session"). */
   openSessions: string[];

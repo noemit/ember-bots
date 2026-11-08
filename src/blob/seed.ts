@@ -1,6 +1,6 @@
 import { sessionKey } from '../types';
 import { AVATAR_COLOR_COUNT } from './contrast';
-import type { AvatarIdentity, AvatarOverride, Project, Session } from '../types';
+import type { AvatarAssignment, AvatarIdentity, AvatarOverride, Project, Session } from '../types';
 
 export const hashString = (value: string): number => {
   let hash = 2166136261 >>> 0;
@@ -118,13 +118,12 @@ export const avatarColorKeys = (
   return [...new Set(keys.filter((key): key is string => Boolean(key)))].sort();
 };
 
-export const resolveAvatarIdentity = (
+export const avatarAppearanceOverride = (
   session: Session,
   projects: Project[],
   scheduledBindings: Record<string, string>,
   overrides: Record<string, AvatarOverride>,
-  _projectColors: Record<string, number> = {}
-): AvatarIdentity => {
+): AvatarOverride => {
   const key = sessionKey(session);
   const projectKey = projectAvatarKey(session, projectForSession(session, projects));
   const taskKey = scheduledBindings[key];
@@ -142,14 +141,30 @@ export const resolveAvatarIdentity = (
     if (choice.colorIndex !== undefined) override.colorIndex = choice.colorIndex;
     if (choice.shapeName !== undefined) override.shapeName = choice.shapeName;
   }
+  return override;
+};
+
+export const resolveAvatarIdentity = (
+  session: Session,
+  projects: Project[],
+  scheduledBindings: Record<string, string>,
+  overrides: Record<string, AvatarOverride>,
+  assignment?: AvatarAssignment
+): AvatarIdentity => {
+  const key = sessionKey(session);
+  const projectKey = projectAvatarKey(session, projectForSession(session, projects));
+  const taskKey = scheduledBindings[key];
+  const override = avatarAppearanceOverride(session, projects, scheduledBindings, overrides);
   return {
     sessionKey: key,
     projectKey,
     taskKey,
     colorSeed: key,
-    shapeSeed: taskKey ?? key,
+    // Scheduled runs intentionally share a task silhouette, even if the binding arrives after
+    // an automatic assignment. Per-session/task shape overrides still win in the renderer.
+    shapeSeed: taskKey ?? assignment?.shapeSeed ?? key,
     motionSeed: key,
-    colorIndex: override.colorIndex ?? hashString(`avatar-color:${key}`) % AVATAR_COLOR_COUNT,
+    colorIndex: override.colorIndex ?? assignment?.colorIndex ?? hashString(`avatar-color:${key}`) % AVATAR_COLOR_COUNT,
     color: override.color,
     shapeName: override.shapeName,
   };

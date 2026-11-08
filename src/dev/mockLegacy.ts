@@ -6,6 +6,7 @@
  * pi transition builds parity. New work targets the pi mock
  * (`src/dev/mockPi.ts`), which is the default.
  */
+import { mergeAvatarAssignments } from '../../electron/transport';
 import type { ActivityEntry, ActivityPage, ActivityQuery, EmberBridge, EmberSettings, EmberSettingsPatch } from '../types';
 import type { ModelObservation } from '../lib/modelStats';
 import { activityDayKey } from '@/lib/activityView';
@@ -323,6 +324,7 @@ let settings: EmberSettings = {
     'local::ses_a7': 'task:local::p1::daily-channel-brief',
   },
   autoArchiveScheduledRuns: true,
+  avatarAssignments: {},
   avatarOverrides: {
     'task:local::p1::daily-channel-brief': { shapeName: 'dumpling' },
     'session:local::ses_a5': { shapeName: 'splat' },
@@ -722,6 +724,7 @@ export const bridge: EmberBridge = {
     settings = {
       ...settings,
       ...safePatch,
+      avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments),
       ...(composerDraftChanges ? { composerDrafts: drafts } : {}),
       ...(remotePassword !== undefined
         ? { remotePasswordConfigured: typeof remotePassword === 'string' && remotePassword.length >= 8 }

@@ -12,6 +12,7 @@
 - Marking a reply read shows a quiet, conversation-scoped confirmation with Undo and a brief background highlight, without a border.
 - Transcripts no longer display bot avatars or offer an avatar toggle; regular bot identities remain in the rail and composer.
 - Waiting-on-workers status aligns with message content and uses the same readable size as tool rows.
+- Bots created in Ember and newly discovered Kiln bots receive saved automatic colours and shapes chosen to stand apart from active bots, while existing identities, custom appearance choices and scheduled-task silhouettes stay intact.
 - Ember calls its assistants bots throughout the interface and product guidance; the composer now invites you to “Message your bot..”.
 - Scribble eyes express each mood with hand-drawn contours, brows and larger pupils, with quiet working glances and blinks that respect reduced motion.
 - Expanded tool calls show their full input and output height instead of trapping content in nested scrolling areas.

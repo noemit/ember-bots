@@ -245,6 +245,12 @@ export type RailMode = 'mini' | 'normal' | 'wide';
 /** How assistant thinking blocks render: fully open, collapsed rows, or not at all. */
 export type ReasoningDisplay = 'expanded' | 'collapsed' | 'hidden';
 
+/** Durable automatic identity; existing assignments never change on a settings patch. */
+export type AvatarAssignment = {
+  colorIndex: number;
+  shapeSeed: string;
+};
+
 export type AvatarOverride = {
   colorIndex?: number;
   /** An explicit custom colour, stored as six-digit hex. */
@@ -627,6 +633,7 @@ export type EmberSettings = {
   /** Archive finished scheduled-task runs once they're a day old. */
   autoArchiveScheduledRuns: boolean;
   avatarOverrides: Record<string, AvatarOverride>;
+  avatarAssignments: Record<string, AvatarAssignment>;
   projectColorAssignments: Record<string, number>;
   /** Workspace: ordered open session keys ("instance::session"). */
   openSessions: string[];

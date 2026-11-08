@@ -2,6 +2,7 @@ import * as React from 'react';
 import { DEFAULT_THEME_ID } from '../themes';
 import type { EmberSettings, EmberSettingsPatch } from '../types';
 import { mergeDraftChanges } from '../lib/composerDrafts';
+import { AvatarAssignmentWrites } from './avatarAssignmentWrites';
 
 export const DEFAULT_SETTINGS: EmberSettings = {
   theme: DEFAULT_THEME_ID,
@@ -33,6 +34,7 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   scheduledSessionBindings: {},
   autoArchiveScheduledRuns: true,
   avatarOverrides: {},
+  avatarAssignments: {},
   projectColorAssignments: {},
   openSessions: [],
   activeSession: null,
@@ -62,6 +64,7 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
   const [settings, setSettings] = React.useState<EmberSettings>(DEFAULT_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = React.useState(false);
   const revisionRef = React.useRef(0);
+  const assignmentWritesRef = React.useRef(new AvatarAssignmentWrites());
   const writesRef = React.useRef<Promise<unknown>>(Promise.resolve());
   const pendingDraftsRef = React.useRef(new Map<string, { revision: number; value: import('../lib/composerDrafts').DraftChanges[string] }>());
   // Live copy for callbacks that must read the latest value without re-subscribing.
@@ -69,7 +72,10 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
   settingsRef.current = settings;
 
   const hydrateSettings = React.useCallback((stored: Partial<EmberSettings>) => {
-    setSettings({ ...DEFAULT_SETTINGS, ...stored });
+    assignmentWritesRef.current.acknowledge(stored.avatarAssignments);
+    const next = { ...DEFAULT_SETTINGS, ...stored, avatarAssignments: assignmentWritesRef.current.visible() };
+    settingsRef.current = next;
+    setSettings(next);
     setSettingsLoaded(true);
   }, []);
 
@@ -89,25 +95,39 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
     function updateSettings(patch: EmberSettingsPatch, options?: { preserveActionError?: boolean }) {
       if (!options?.preserveActionError) onBeforeSave();
       const revision = ++revisionRef.current;
-      const { composerDraftChanges, ...values } = patch;
+      const { composerDraftChanges, avatarAssignments, ...values } = patch;
+      const assignments = assignmentWritesRef.current;
+      assignments.stage(avatarAssignments);
       for (const [key, value] of Object.entries(composerDraftChanges ?? {})) pendingDraftsRef.current.set(key, { revision, value });
       const pendingDrafts = () => Object.fromEntries([...pendingDraftsRef.current].map(([key, entry]) => [key, entry.value]));
       const adoptStored = (stored: EmberSettings) => {
-        const next = { ...DEFAULT_SETTINGS, ...stored, composerDrafts: mergeDraftChanges(stored.composerDrafts, pendingDrafts()) };
+        assignments.acknowledge(stored.avatarAssignments);
+        const next = { ...DEFAULT_SETTINGS, ...stored, avatarAssignments: assignments.visible(), composerDrafts: mergeDraftChanges(stored.composerDrafts, pendingDrafts()) };
         settingsRef.current = next;
         setSettings(next);
       };
       const next = {
         ...settingsRef.current,
         ...values,
+        avatarAssignments: assignments.visible(),
         ...(composerDraftChanges ? { composerDrafts: mergeDraftChanges(settingsRef.current.composerDrafts, composerDraftChanges) } : {}),
       };
       settingsRef.current = next;
       setSettings(next);
-      const save = writesRef.current.catch(() => {}).then(() => window.ember.setSettings(patch));
+      const save = writesRef.current.catch(() => {}).then(() => {
+        // Include unacknowledged additions in every write, not just the original allocation.
+        // A failed save followed by an unrelated preference change must not lose an identity.
+        const additions = assignments.additions();
+        return window.ember.setSettings({
+          ...values,
+          ...(composerDraftChanges ? { composerDraftChanges } : {}),
+          ...(Object.keys(additions).length ? { avatarAssignments: additions } : {}),
+        });
+      });
       writesRef.current = save;
       void save
         .then((stored) => {
+          assignments.acknowledge(stored.avatarAssignments);
           for (const key of Object.keys(composerDraftChanges ?? {})) {
             if (pendingDraftsRef.current.get(key)?.revision === revision) pendingDraftsRef.current.delete(key);
           }

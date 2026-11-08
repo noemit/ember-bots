@@ -18,10 +18,14 @@ import PromoteWorkerDialog from './components/PromoteWorkerDialog';
 import { ImageViewerContext, type ImageViewerApi } from './components/imageViewerContext';
 import type { ViewerImage } from './lib/gallery';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { applyTheme } from './themes';
+import { applyTheme, themeById } from './themes';
+import { allocateAvatar, competesForIdentity } from './blob/allocateIdentity';
+import { observeSessionDiscovery, type SessionDiscoveryState } from './lib/sessionDiscovery';
+import { identityPaletteFor } from './blob/contrast';
 import {
   projectForSession,
   projectIdentityKey,
+  avatarAppearanceOverride,
   resolveAvatarIdentity,
   seedIdentity,
   sessionAvatarKey,
@@ -393,6 +397,10 @@ export default function App() {
    */
   const [pendingCreates, setPendingCreates] = React.useState<PendingCreate[]>([]);
   const pendingCreatesRef = React.useRef<PendingCreate[]>([]);
+  // A sent draft reserves its appearance until the host returns its real id (including retries).
+  const pendingAvatars = React.useRef(new Map<string, import('./types').AvatarAssignment>());
+  const identityDiscovery = React.useRef<SessionDiscoveryState>({});
+  const avatarReservations = React.useRef(new Map<string, { session: Session; assignment: import('./types').AvatarAssignment }>());
   const [draftPendingId, setDraftPendingIdState] = React.useState<string | null>(null);
   const draftPendingIdRef = React.useRef<string | null>(null);
   /**
@@ -1420,7 +1428,8 @@ export default function App() {
             session,
             projectsByInstance[instanceId] ?? [],
             settings.scheduledSessionBindings,
-            settings.avatarOverrides
+            settings.avatarOverrides,
+            settings.avatarAssignments[key]
           );
           const before = previous[key];
           return [key, before && sameIdentity(before, identity) ? before : identity];
@@ -1429,32 +1438,86 @@ export default function App() {
     );
     avatarIdentitiesRef.current = next;
     return next;
-  }, [sessionsByInstance, projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides ]);
+  }, [sessionsByInstance, projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides, settings.avatarAssignments]);
+  const allocationPalette = React.useMemo(() => {
+    const palette = themeById(settings.theme).palette;
+    return identityPaletteFor([palette.panel, palette.elev, palette.bg]);
+  }, [settings.theme]);
+  const occupiedIdentities = React.useMemo(() => {
+    const visibleKeys = new Set([...sessions.map(sessionKey), ...openSessions]);
+    // Compare with the active rail and any open columns pinned outside its recency window,
+    // not archived history or sessions on hidden/removed hosts.
+    return Object.values(sessionsByInstance).flat()
+      .filter(session => competesForIdentity(session) && visibleKeys.has(sessionKey(session)))
+      .map(session => avatarIdentities[sessionKey(session)]);
+  }, [sessionsByInstance, sessions, openSessions, avatarIdentities]);
+  const occupiedIdentitiesRef = React.useRef(occupiedIdentities);
+  occupiedIdentitiesRef.current = occupiedIdentities;
+  React.useEffect(() => {
+    // Once a real bot is in the ordinary identity pool, its temporary reservation is redundant.
+    for (const key of avatarReservations.current.keys()) {
+      if (settings.avatarAssignments[key] && avatarIdentities[key]) avatarReservations.current.delete(key);
+    }
+  }, [settings.avatarAssignments, avatarIdentities]);
+  const allocateFor = React.useCallback((session: Session, arriving: readonly Session[] = []) => {
+    const current = settingsRef.current;
+    const pool = new Map(occupiedIdentitiesRef.current.map(identity => [identity.sessionKey, identity]));
+    for (const peer of arriving) {
+      if (!competesForIdentity(peer)) continue;
+      const key = sessionKey(peer);
+      if (!pool.has(key)) pool.set(key, resolveAvatarIdentity(peer, projectsByInstance[peer.instanceId] ?? [],
+        current.scheduledSessionBindings, current.avatarOverrides, current.avatarAssignments[key]));
+    }
+    for (const [key, reservation] of avatarReservations.current) {
+      const { session: reserved, assignment } = reservation;
+      pool.set(key, resolveAvatarIdentity(reserved, projectsByInstance[reserved.instanceId] ?? [],
+        current.scheduledSessionBindings, current.avatarOverrides, assignment));
+    }
+    pool.delete(sessionKey(session));
+    return allocateAvatar('new-bot', [...pool.values()], current.blobStyle, allocationPalette,
+      avatarAppearanceOverride(session, projectsByInstance[session.instanceId] ?? [], current.scheduledSessionBindings, current.avatarOverrides));
+  }, [allocationPalette, projectsByInstance, settingsRef]);
+  const reserveIdentity = (session: Session, assignment: import('./types').AvatarAssignment, reservationKey = sessionKey(session)) => {
+    // Keep inputs, not resolved colours: a folder's override can change while its create waits.
+    avatarReservations.current.set(reservationKey, { session, assignment });
+  };
+  const saveNewAvatarAssignment = useStableCallback((session: Session, assignment?: import('./types').AvatarAssignment) => {
+    const key = sessionKey(session);
+    if (!competesForIdentity(session) || settingsRef.current.avatarAssignments[key]) return;
+    const chosen = assignment ?? allocateFor(session);
+    // Synchronous reservation closes the gap before React renders concurrent create/promote replies.
+    reserveIdentity(session, chosen);
+    handleSettings({ avatarAssignments: { ...settingsRef.current.avatarAssignments, [key]: chosen } }, { preserveActionError: true });
+  });
   // avatarIdentities keeps stable references, and the fallback is memoized on the key, so this
   // is safe to use directly as an effect dependency.
   const selectedIdentity = React.useMemo(
     () => (selectedKey ? avatarIdentities[selectedKey] ?? seedIdentity(selectedKey) : seedIdentity('')),
     [selectedKey, avatarIdentities]
   );
-  // The blob a new-agent draft will get: resolve it from the folder being used, so the draft shows
-  // the destination project's colour (and its override) rather than a generic placeholder.
-  const resolveDraftIdentity = React.useCallback(
-    (instanceId: string, directory: string): AvatarIdentity =>
-      resolveAvatarIdentity(
-        { id: `draft:${instanceId}`, instanceId, directory },
-        projectsByInstance[instanceId] ?? [],
-        settings.scheduledSessionBindings,
-        settings.avatarOverrides
-      ),
-    [projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides ]
-  );
+  // Preview the next distinct automatic identity, then layer explicit folder/project choices over it.
+  // Once sent, a draft keeps its reservation instead of changing as other bots arrive.
+  const resolveDraftIdentity = React.useMemo(() => {
+    // Invalidate the preview when its competition changes, but do no allocation until a draft
+    // actually renders. Ordinary session polls need not score colours and shapes.
+    void occupiedIdentities;
+    void pendingCreates;
+    void settings.blobStyle;
+    return (instanceId: string, directory: string): AvatarIdentity => {
+      const session = { id: `draft:${instanceId}`, instanceId, directory };
+      return resolveAvatarIdentity(session, projectsByInstance[instanceId] ?? [],
+        settings.scheduledSessionBindings, settings.avatarOverrides,
+        pendingAvatars.current.get(draftPendingId ?? '') ?? allocateFor(session));
+    };
+  }, [projectsByInstance, settings.scheduledSessionBindings, settings.avatarOverrides, settings.blobStyle, draftPendingId, occupiedIdentities, pendingCreates, allocateFor]);
   const avatarPickerIdentity = avatarPickerSession
     ? avatarIdentities[sessionKey(avatarPickerSession)] ??
       resolveAvatarIdentity(
         avatarPickerSession,
         projectsByInstance[avatarPickerSession.instanceId] ?? [],
         settings.scheduledSessionBindings,
-        settings.avatarOverrides
+        settings.avatarOverrides,
+        settings.avatarAssignments[sessionKey(avatarPickerSession)]
       )
     : seedIdentity('');
   const avatarPickerProject = avatarPickerSession
@@ -2100,6 +2163,33 @@ export default function App() {
           setHistoryIncomplete((prev) => ({ ...prev, [id]: isPartialSessionList(next[id]) }));
         }
         const now = Date.now();
+        if (next[id]) {
+          const discovered = observeSessionDiscovery(identityDiscovery.current, id, next[id], {
+            // Kiln's route scans every conversation, including archived chats and workers. Legacy
+            // directory-scoped pages cannot prove absence, even when their own cursor is exhausted.
+            completeSnapshot: isPiInstance(id) && !isPartialSessionList(next[id]),
+          });
+          identityDiscovery.current = discovered.state;
+          if (settingsLoaded && !hidden.has(id)) {
+            const assignments: Record<string, import('./types').AvatarAssignment> = {};
+            const arriving = [...discovered.eligible].sort((a, b) => sessionKey(a).localeCompare(sessionKey(b)));
+            for (const session of arriving) {
+              if (settingsRef.current.avatarAssignments[sessionKey(session)]) continue;
+              // A local create owns its draft reservation, including an ambiguous lost response.
+              // Discovery offers it again on the next poll if this was merely a concurrent request.
+              if (pendingCreatesRef.current.some(pending => pending.options.instanceId === id &&
+                (pending.phase === 'creating' || (pending.title === session.title && pending.options.directory === session.directory)))) continue;
+              const assignment = allocateFor(session, arriving);
+              reserveIdentity(session, assignment);
+              assignments[sessionKey(session)] = assignment;
+            }
+            // One settings write for a whole arriving batch, with synchronous reservations between
+            // choices so later members compare against the colours already chosen for earlier ones.
+            if (Object.keys(assignments).length) handleSettings({
+              avatarAssignments: { ...settingsRef.current.avatarAssignments, ...assignments },
+            }, { preserveActionError: true });
+          }
+        }
         prunePendingCreated(
           (pending) =>
             pending.expiresAt <= now ||
@@ -3115,6 +3205,8 @@ export default function App() {
     if (!pending) return;
     const { options } = pending;
     const session = created;
+    saveNewAvatarAssignment(session, pendingAvatars.current.get(id));
+    avatarReservations.current.delete(`pending:${id}`);
     const ref = { instanceId: options.instanceId, sessionId: session.id };
     const now = Date.now();
     prunePendingCreated((entry) => entry.expiresAt <= now);
@@ -3180,6 +3272,7 @@ export default function App() {
       });
     }
     createBaselines.current.delete(id);
+    pendingAvatars.current.delete(id);
   };
 
   /**
@@ -3218,6 +3311,8 @@ export default function App() {
       updatePendingCreate(existing.id, (entry) =>
         restartPendingCreate(holdPendingMessage(entry, message), options)
       );
+      const assignment = pendingAvatars.current.get(existing.id);
+      if (assignment) reserveIdentity({ id: existing.id, instanceId: options.instanceId, directory: options.directory }, assignment, `pending:${existing.id}`);
       void runPendingCreate(existing.id);
       return true;
     }
@@ -3228,6 +3323,10 @@ export default function App() {
       message,
       createdAt,
     });
+    const pendingSession = { id: pending.id, instanceId: options.instanceId, directory: options.directory };
+    const assignment = allocateFor(pendingSession);
+    pendingAvatars.current.set(pending.id, assignment);
+    reserveIdentity(pendingSession, assignment, `pending:${pending.id}`);
     mutatePendingCreates((previous) => [...previous, pending]);
     createBaselines.current.set(
       pending.id,
@@ -3272,6 +3371,8 @@ export default function App() {
     const pending = pendingCreateById(id);
     if (!pending) return;
     updatePendingCreate(id, (entry) => restartPendingCreate(entry, options));
+    const assignment = pendingAvatars.current.get(id);
+    if (assignment) reserveIdentity({ id, instanceId: options.instanceId, directory: options.directory }, assignment, `pending:${id}`);
     setDraftPendingId(id);
     const orphan = await adoptOrphanedCreate(pending, options);
     if (orphan) {
@@ -3283,6 +3384,8 @@ export default function App() {
 
   /** Put a refused create's message back in the composer to edit; App keeps nothing of it. */
   const handleEditCreate = (id: string) => {
+    avatarReservations.current.delete(`pending:${id}`);
+    pendingAvatars.current.delete(id);
     dropPendingCreate(id);
     setDraftPendingId(null);
   };
@@ -4450,6 +4553,7 @@ export default function App() {
       showActionError('Could not promote this worker.', () => void handlePromoteWorker(worker, input));
       return;
     }
+    saveNewAvatarAssignment(peer);
     const now = Date.now();
     setSessionsByInstance((prev) => ({
       ...prev,
@@ -5493,7 +5597,8 @@ export default function App() {
                   avatarPickerSession,
                   projectsByInstance[avatarPickerSession.instanceId] ?? [],
                   settings.scheduledSessionBindings,
-                  { ...settings.avatarOverrides, [scopeKey]: override }
+                  { ...settings.avatarOverrides, [scopeKey]: override },
+                  settings.avatarAssignments[sessionKey(avatarPickerSession)]
                 )}
                 identity={avatarPickerIdentity}
                 scopes={avatarPickerScopes}
