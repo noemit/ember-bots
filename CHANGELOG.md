@@ -26,6 +26,7 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
+- The top bar shares its width with the instance chip on phone-sized screens instead of pushing the page sideways.
 - A delayed read acknowledgement no longer clears the search highlight on a different message, including merged tool groups in virtualized history.
 - Buddy settles smoothly between working, thinking and resting instead of snapping to a new pose; decision badges stay anchored and reduced motion remains still.
 - The main Customize appearance preview follows the configured bot size, matching normal rail identities and updating live without resetting the appearance draft; shape thumbnails stay compact.
