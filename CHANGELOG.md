@@ -24,7 +24,7 @@
 ### Fixed
 - Buddy settles smoothly between working, thinking and resting instead of snapping to a new pose; decision badges stay anchored and reduced motion remains still.
 - Packaged Kiln and Tinder include the QuickJS sandbox and its worker, so code-mode scripts can call tools without an installed checkout while retaining worker-thread timeout isolation.
-- Composer colour and focus halos multiply into light surfaces and dodge dark surfaces instead of adding a greyish wash.
+- Composer colour and focus halos multiply into light surfaces and dodge dark surfaces instead of adding a greyish wash; the focus halo stays subtle rather than framing the whole composer.
 - Eyed bots follow nearby pointers in the composer, groups, settings, appearance picker and onboarding; thinking Buddy yields to the pointer, and gaze refreshes after scrolling or resizing. Reduced motion keeps direct pointer tracking without autonomous animation.
 - The current bot stays aligned beside the composer when a long draft shrinks or is sent, instead of overlapping other bots in the rail.
 - The current bot beside the composer retains Hide session and New bot in this folder actions, including the mini rail and undocked composers; hiding active work still asks first.

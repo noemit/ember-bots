@@ -273,7 +273,8 @@ html.motion-paused *::after {
   transition: opacity 200ms;
 }
 [data-composer-surface]:has(:focus-visible)::before {
-  opacity: .28;
+  /* A quiet colour cue, not a luminous frame around the whole composer. */
+  opacity: .16;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-composer-surface]::before { transition: none; }

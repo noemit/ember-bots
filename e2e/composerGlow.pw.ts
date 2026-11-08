@@ -1,4 +1,17 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
+
+const expectSubtleFocus = async (surface: Locator) => {
+  const opacity = () => surface.evaluate(el => Number(getComputedStyle(el, '::before').opacity));
+  await expect.poll(opacity).toBeGreaterThan(0);
+  // Check the settled halo, not an early low-opacity frame during the fade-in.
+  await surface.evaluate(async el => {
+    await Promise.all(el.getAnimations({ subtree: true })
+      .filter(animation => animation instanceof CSSTransition && animation.transitionProperty === 'opacity')
+      .map(animation => animation.finished.catch(() => undefined)));
+  });
+  expect(await opacity()).toBeGreaterThan(0);
+  expect(await opacity()).toBeLessThanOrEqual(.2);
+};
 
 for (const theme of ['stone', 'clay', 'graphite']) {
   test(theme + ` composer blends colour without changing focus geometry`, async ({ page }) => {
@@ -24,14 +37,14 @@ for (const theme of ['stone', 'clay', 'graphite']) {
     expect(before.pointer).toBe('none');
     expect(before.isolation).toBe('isolate');
     expect(before.color).toMatch(/var\(--blob-/);
-    await page.screenshot({ path: `/tmp/ember-composer-glow/` + theme + `-unfocused.png` });
+    await page.screenshot({ path: `/tmp/ember-composer-glow-subtle/` + theme + `-unfocused.png` });
     await surface.locator('textarea').focus();
-    await expect.poll(async () => (await state()).opacity).toBe('0.28');
+    await expectSubtleFocus(surface);
     const after = await state();
     expect(after.border).toBe(before.border);
     expect(after.width).toBe(before.width);
     expect(after.height).toBe(before.height);
-    await page.screenshot({ path: `/tmp/ember-composer-glow/` + theme + `-focused.png` });
+    await page.screenshot({ path: `/tmp/ember-composer-glow-subtle/` + theme + `-focused.png` });
   });
 }
 
@@ -46,5 +59,5 @@ test('an avatar-free worker keeps the accent fallback and no identity tint', asy
   await expect(surface).toHaveCSS('background-image', 'none');
   expect(await surface.evaluate(el => (el as HTMLElement).style.getPropertyValue('--composer-glow-color'))).toBe('');
   await surface.locator('textarea').focus();
-  await expect.poll(() => surface.evaluate(el => getComputedStyle(el, '::before').opacity)).toBe('0.28');
+  await expectSubtleFocus(surface);
 });
