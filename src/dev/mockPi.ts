@@ -112,6 +112,8 @@ type MockConversation = {
    * `docs=1` tail read sees mid-turn.
    */
   liveGeneration?: { provider: string; model: string; thinking: string; text: string };
+  /** Programs this conversation left running, as Hearth's `processes` summary carries them. */
+  processes?: Array<{ pid: number; command: string; rssBytes: number; startedAt: number }>;
   timers: number[];
 };
 
@@ -1044,11 +1046,10 @@ const summaryOf = (conversation: MockConversation): Record<string, unknown> => (
   // Hearth sends `cost` on every summary; the mock has to as well, or the badge's "never ran" and
   // "unknown" states are indistinguishable in dev:web.
   cost: ledgerCostOf(conversation),
-  ...(fixtureParam === 'processes' && conversation.id === 10 ? { processes: {
-    count: 2, rssBytes: 32 * 1024 * 1024, items: [
-      { pid: 91001, command: 'vite --host 127.0.0.1', rssBytes: 20 * 1024 * 1024, startedAt: Date.now() },
-      { pid: 91002, command: 'bun run api', rssBytes: 12 * 1024 * 1024, startedAt: Date.now() },
-    ],
+  ...(conversation.processes?.length ? { processes: {
+    count: conversation.processes.length,
+    rssBytes: conversation.processes.reduce((sum, entry) => sum + entry.rssBytes, 0),
+    items: conversation.processes.slice(0, 5),
   } } : {}),
 });
 
@@ -1128,6 +1129,20 @@ const cursorBeforeOf = (raw: string | null): number | undefined => {
     return undefined;
   }
 };
+
+// `?fixture=hide-processes`: a leader and a worker, each with one program, so hiding the leader must
+// stop both. `?processStopFail` makes the leader's stop answer 503 — the banner's Retry case — and
+// `?processStopRefused` makes programs take SIGTERM and stay, which is the force question.
+const hideProcessesFixture = fixtureParam === 'hide-processes';
+const hideStopFailure = new URLSearchParams(window.location.search).has('processStopFail');
+/** Programs that take SIGTERM and stay: the force question's state. */
+const processStopRefused = new URLSearchParams(window.location.search).has('processStopRefused');
+/** Every stop request the UI made, so a test can assert what was and was not asked for. */
+const processStopCalls: Array<{ conversationId: number; pids: number[]; force: boolean }> = [];
+if (hideProcessesFixture) {
+  fixtureA.processes = [{ pid: 71001, command: 'vite --host 127.0.0.1', rssBytes: 20 * 1024 * 1024, startedAt: Date.now() }];
+  fixtureH.processes = [{ pid: 71002, command: 'bun run parse --watch', rssBytes: 12 * 1024 * 1024, startedAt: Date.now() }];
+}
 
 const conversationById = (raw: string): MockConversation | undefined =>
   conversations.find((conversation) => String(conversation.id) === raw);
@@ -1489,6 +1504,24 @@ const piRequest = async (
       return ok({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'followUp' }, 201);
     }
     return ok({ submissionId: startRun(conversation, content), status: 'placed', mode: whenBusy === 'steer' ? 'steer' : 'followUp' }, 201);
+  }
+  if (action === 'processes/stop' && method === 'POST') {
+    const pids = Array.isArray(body.pids) ? body.pids.filter((pid): pid is number => typeof pid === 'number') : [];
+    const force = body.force === true;
+    processStopCalls.push({ conversationId: conversation.id, pids, force });
+    if (hideStopFailure && conversation.id === 10) return fail(503, 'mock: the host did not answer');
+    const live = conversation.processes ?? [];
+    const known = new Set(live.map((entry) => entry.pid));
+    // `force` ends what it names. A polite stop is the host's SIGTERM: a program listed here is
+    // normally gone by the time the answer is written, and only `?processStopRefused` says it is not
+    // — that is the state the two-step question exists for.
+    const results = pids.map((pid) => ({
+      pid,
+      outcome: !known.has(pid) ? 'gone' as const : force || !processStopRefused ? 'stopped' as const : 'refused' as const,
+    }));
+    if (force || !processStopRefused) conversation.processes = live.filter((entry) => !pids.includes(entry.pid));
+    emit(conversation.id, 'run_end');
+    return ok({ results, processes: conversation.processes ?? [] });
   }
   if (action === 'abort' && method === 'POST') {
     conversation.timers.forEach((timer) => window.clearTimeout(timer));
@@ -1884,6 +1917,11 @@ export const bridge: EmberBridge = {
   },
   request: async () => ({ ok: false, status: 404, data: { error: 'This mock serves the Hearth (pi) wire.' } }),
   piRequest: piRequest as EmberBridge['piRequest'],
+  // `?fixture=hide-processes` only: what the UI asked to stop, so a test can read the wire back
+  // instead of inferring it from what disappeared.
+  ...(hideProcessesFixture
+    ? { mockProcessStopCalls: () => processStopCalls.map((call) => ({ ...call })) }
+    : {}),
   onEvent: (listener) => {
     eventListeners.add(listener);
     listener({ instanceId: ENDPOINT_ID, type: 'ember:stream-status', connected: true });
@@ -1902,4 +1940,4 @@ export const bridge: EmberBridge = {
 };
 
 // Keep the exported helpers referenced for tests/fixtures.
-export const mockInternals = { conversations };
+export const mockInternals = { conversations, processStopCalls };

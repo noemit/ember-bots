@@ -159,6 +159,8 @@ import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups
 import { upsertGroup } from './lib/sessionGroups';
 import { recoverStrandedNotes } from './lib/notes';
 import { blockedWorkersUnder, crewByLeader, isWorker, leaderNeedsInput, workerKeySet } from './lib/crew';
+import { processesToStopOnHide } from './lib/hideProcesses';
+import { hideElsewhereNote, hideForceStopAsk, hideStopFailure, refusedPids } from './lib/hideStopCopy';
 import { InvalidationQueue, invalidationsFor, parseEmberEvent, sessionIsLoaded, type Invalidation } from '@/lib/invalidation';
 import { APPLY_STREAM_DELTAS, applyLiveDeltas } from '@/lib/liveStream';
 import {
@@ -3903,6 +3905,72 @@ export default function App() {
     });
   };
 
+  /**
+   * Stop what a hidden bot and its crew left running.
+   *
+   * Polite first, force for anything the host says ignored it — the Processes tray's own two steps,
+   * not a second policy. Nothing here can fail the hide: the caller has already archived, so every
+   * outcome becomes a sentence in front of the person instead of a silent swallow or a rollback.
+   * A session with no listed programs makes no request at all.
+   */
+  const stopProcessesOnHide = useStableCallback(async (session: Session): Promise<void> => {
+    const { targets, elsewhere } = processesToStopOnHide(session, Object.values(sessionsByInstanceRef.current).flat());
+    const hostLabel = instances.find((entry) => entry.id === session.instanceId)?.label;
+    if (targets.length === 0) {
+      if (elsewhere > 0) showActionError(hideElsewhereNote(elsewhere), undefined);
+      return;
+    }
+    const failed: Session[] = [];
+    const refused: Array<{ session: Session; pids: number[] }> = [];
+    for (const target of targets) {
+      // Straight to the transport: `handleStopProcesses` folds its answer into the session list,
+      // and these rows are about to be rewritten by the archive's own update anyway.
+      const answer = await stopSessionProcesses(target.session.instanceId, target.session.id, {
+        pids: target.pids,
+      }).catch(() => null);
+      if (!answer) {
+        failed.push(target.session);
+        continue;
+      }
+      const leftRunning = refusedPids(answer.results);
+      if (leftRunning.length > 0) refused.push({ session: target.session, pids: leftRunning });
+    }
+    const note = elsewhere > 0 ? ` ${hideElsewhereNote(elsewhere)}` : '';
+    if (failed.length > 0) {
+      showActionError(hideStopFailure(hostLabel) + note, () => {
+        void stopProcessesOnHide(session);
+      });
+      return;
+    }
+    if (refused.length > 0) {
+      const pids = refused.flatMap((entry) => entry.pids);
+      showActionError(hideForceStopAsk(pids, hostLabel) + note, () => {
+        void forceProcessesAfterHide(refused);
+      }, 'Force stop');
+    }
+  });
+
+  /** The second step of the same two-step stop: SIGKILL for what took SIGTERM and stayed. */
+  const forceProcessesAfterHide = useStableCallback(
+    async (entries: Array<{ session: Session; pids: number[] }>): Promise<void> => {
+      const failed: Array<{ session: Session; pids: number[] }> = [];
+      for (const entry of entries) {
+        const answer = await stopSessionProcesses(entry.session.instanceId, entry.session.id, {
+          pids: entry.pids,
+          force: true,
+        }).catch(() => null);
+        if (!answer) failed.push(entry);
+      }
+      if (failed.length > 0) {
+        const hostLabel = instances.find((entry) => entry.id === failed[0].session.instanceId)?.label;
+        showActionError(hideStopFailure(hostLabel), () => void forceProcessesAfterHide(failed), 'Force stop');
+        return;
+      }
+      // Done: the question the last banner asked has been answered, so it goes away.
+      showActionError(null);
+    }
+  );
+
   // Archive/restore on the source OpenChamber instance, then mirror locally so the
   // row leaves the current view without waiting for the next poll.
   const handleArchive = async (session: Session, archived: boolean) => {
@@ -3968,6 +4036,9 @@ export default function App() {
             }
           : { message: 'Session unhidden.' }
       );
+      // After the hide, and after the row is out of the way of the notice: the stop is never
+      // allowed to hold up the hiding itself. Unhiding starts nothing back up.
+      if (archived) void stopProcessesOnHide(session);
     } catch {
       showActionError(
         sessionVisibilityFailure(instances.find((entry) => entry.id === session.instanceId)?.label, archived),
