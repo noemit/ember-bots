@@ -8,6 +8,7 @@ import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from './lib/i
 import * as React from 'react';
 import { WorkspaceConnection } from './components/workspaceConnection';
 import { blobColor } from './blob/color';
+import { effectiveBlobStyle } from './blob/styles';
 import { MotionConfig } from 'motion/react';
 import InstanceBar from './components/InstanceBar';
 import LeftRail from './components/LeftRail';
@@ -4927,7 +4928,7 @@ export default function App() {
           resolveDraftIdentity={resolveDraftIdentity}
           state={states[key] ?? 'unknown'}
           mood={moods[key] ?? 'unknown'}
-          blobStyle={settings.blobStyle}
+          blobStyle={effectiveBlobStyle(settings.blobStyle)}
           messages={transcript?.messages ?? cached ?? []}
           messagesStatus={transcript?.status ?? (cached ? 'ready' : 'loading')}
           transcriptFailure={transcript?.failure}
@@ -5173,7 +5174,7 @@ export default function App() {
     <AvatarSizeContext.Provider value={settings.blobSize}>
     <ImageViewerContext.Provider value={imageViewerApi}>
     <MotionConfig reducedMotion="user">
-    <WorkspaceConnection activeKey={!newSessionInstanceId && !usageOpen && !scheduledOpen ? selectedKey : null} color={blobColor(settings.blobStyle, selectedIdentity)}>
+    <WorkspaceConnection activeKey={!newSessionInstanceId && !usageOpen && !scheduledOpen ? selectedKey : null} color={blobColor(effectiveBlobStyle(settings.blobStyle), selectedIdentity)}>
       <TooltipProvider delayDuration={300}>
         <div className="flex h-full flex-col">
           <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -5246,7 +5247,7 @@ export default function App() {
               selectedKey={selectedKey}
               selectedSession={selectedSession}
               avatarIdentities={avatarIdentities}
-              blobStyle={settings.blobStyle}
+              blobStyle={effectiveBlobStyle(settings.blobStyle)}
               compact={settings.compactRail}
               loading={loading}
               startupMessage={startupMessage}
@@ -5345,7 +5346,7 @@ export default function App() {
                   resolveDraftIdentity={resolveDraftIdentity}
                   state="idle"
                   mood={selectedMood}
-                  blobStyle={settings.blobStyle}
+                  blobStyle={effectiveBlobStyle(settings.blobStyle)}
                   messages={[]}
                   messagesStatus="ready"
                   permissions={[]}
@@ -5498,7 +5499,7 @@ export default function App() {
                 moods={moods}
                 previews={previews}
                 avatarIdentities={avatarIdentities}
-                blobStyle={settings.blobStyle}
+                blobStyle={effectiveBlobStyle(settings.blobStyle)}
                 instanceDefaults={settings.instanceDefaults}
                 reloadingKeys={reloadingKeys}
                 archivingKeys={archivingKeys}
@@ -5591,7 +5592,7 @@ export default function App() {
               <AvatarPicker
                 open
                 title={avatarPickerSession.title ?? avatarPickerSession.id}
-                style={settings.blobStyle}
+                style={effectiveBlobStyle(settings.blobStyle)}
                 theme={settings.theme}
                 resolvePreview={(scopeKey, override) => resolveAvatarIdentity(
                   avatarPickerSession,

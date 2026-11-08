@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import Blob from '../blob/Blob';
+import ScribbleBlob from '../blob/ScribbleBlob';
 import { galleryExamples } from './blobGalleryExamples';
 import { applyTheme, THEMES } from '../themes';
 import { useMotionPause } from '../lib/useMotionPause';
@@ -9,7 +10,7 @@ import '../styles.css';
 import './blobGallery.css';
 
 const styles: { id: BlobStyle; name: string; description: string }[] = [
-  { id: 'scribble', name: 'Scribble', description: 'A restless tangle of wires, needles and loops.' },
+  { id: 'scribble', name: 'Scribble (retired)', description: 'A restless tangle of wires, needles and loops.' },
   { id: 'mosaic', name: 'Mosaic', description: 'Colourful tiles, with a little activity at the edges.' },
   { id: 'buddy', name: 'Buddy', description: 'The original round companion.' },
   { id: 'lava', name: 'Lava', description: 'Soft shapes and flowing colour.' },
@@ -45,7 +46,9 @@ function BlobGallery() {
   // let them survive a later reduced-motion choice. All app renderers stay unchanged.
   const jump = (phase: number) => setPreview(previous => ({ phase, revision: (previous?.revision ?? 0) + 1 }));
   const renderBlob = (style: BlobStyle, mood: BallMood, previewSize = size, example = 0) =>
-    <Blob key={style === 'scribble' && mood === 'busy' ? preview?.revision ?? 0 : 0} style={style} mood={mood} seed={seed} identity={examples[style][example]} size={previewSize} interactive={!paused} />;
+    style === 'scribble'
+      ? <ScribbleBlob key={mood === 'busy' ? preview?.revision ?? 0 : 0} mood={mood} seed={seed} identity={examples[style][example]} size={previewSize} interactive={!paused} />
+      : <Blob style={style} mood={mood} seed={seed} identity={examples[style][example]} size={previewSize} interactive={!paused} />;
   const renderExamples = (style: BlobStyle, mood: BallMood, previewSize = size) =>
     examples[style].map((identity, index) => <div key={index} className="gallery-example" data-example={index + 1} data-shape={identity.shapeName}>
       {renderBlob(style, mood, previewSize, index)}

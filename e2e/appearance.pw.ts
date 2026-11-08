@@ -5,7 +5,7 @@ const paints = (blob: Locator) => blob.locator('svg').first().locator('[fill], s
     .filter(color => !color.startsWith('url('))
 );
 
-for (const style of ['Buddy', 'Crystal', 'Mosaic', 'Lava', 'Scribble']) {
+for (const style of ['Buddy', 'Crystal', 'Mosaic', 'Lava']) {
   test(`${style}: colour choices match preview, saved avatar, reopened picker and restart`, async ({ page }) => {
     await page.goto('/?noDock');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -85,4 +85,36 @@ test('changing only a shape keeps the folder colour through desktop validation a
   await expect(dialog.locator('.blob-buddy').first().locator('path[fill="#158cba"]')).toHaveCount(1);
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(row.locator('path[fill="#158cba"]')).toHaveCount(1);
+});
+
+test('retired Scribble stays stored while settings and appearance use Buddy', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('ember-pi-read-state')) {
+      localStorage.setItem('ember-pi-read-state', JSON.stringify({ blobStyle: 'scribble' }));
+    }
+  });
+  await page.goto('/?noDock');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Scribble/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Buddy/ })).toHaveAttribute('aria-pressed', 'true');
+  for (const style of ['Crystal', 'Mosaic', 'Lava']) {
+    await expect(page.getByRole('button', { name: new RegExp('^' + style) })).toBeVisible();
+  }
+  await expect(page.getByRole('button', { name: 'Standard avatars' }).locator('.blob-buddy')).toHaveCount(1);
+  // An unrelated settings write must not migrate the retired choice.
+  await page.getByRole('button', { name: 'Graphite', exact: true }).click();
+  await page.keyboard.press('Escape');
+  const row = page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ });
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: /Customize appearance/ }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('.blob-scribble')).toHaveCount(0);
+  await expect(dialog.locator('.blob-buddy').first()).toBeVisible();
+  await dialog.getByRole('button', { name: 'cloud', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('ember-pi-read-state')!).blobStyle)).toBe('scribble');
+  await page.reload();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Buddy/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /^Scribble/ })).toHaveCount(0);
 });

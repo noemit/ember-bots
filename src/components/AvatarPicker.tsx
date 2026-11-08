@@ -4,7 +4,7 @@ import { IDENTITY_COLORS, identityPaletteFor } from '../blob/contrast';
 import { themeById } from '../themes';
 import { CRYSTAL_SHAPES } from '../blob/crystal';
 import { BUDDY_SHAPES } from '../blob/buddy';
-import { SCRIBBLE_SHAPES } from '../blob/scribble';
+import { effectiveBlobStyle } from '../blob/styles';
 import { MOSAIC_SHAPES } from '../blob/mosaic';
 import { LAVA_SHAPES } from '../blob/lava';
 import { cn } from '@/lib/utils';
@@ -46,7 +46,7 @@ const COLOR_COUNT = IDENTITY_COLORS.length;
 export default function AvatarPicker({
   open,
   title,
-  style,
+  style: storedStyle,
   theme,
   resolvePreview,
   identity,
@@ -55,6 +55,7 @@ export default function AvatarPicker({
   onSave,
   onOpenChange,
 }: Props) {
+  const style = effectiveBlobStyle(storedStyle);
   const colors = React.useMemo(() => {
     const palette = themeById(theme).palette;
     return identityPaletteFor([palette.panel, palette.elev, palette.bg]);
@@ -68,9 +69,7 @@ export default function AvatarPicker({
         ? BUDDY_SHAPES.map((shape) => shape.name)
         : style === 'lava'
           ? LAVA_SHAPES.map((shape) => shape.name)
-          : style === 'scribble'
-            ? SCRIBBLE_SHAPES.map((shape) => shape.name)
-            : MOSAIC_SHAPES.map((shape) => shape.name);
+          : MOSAIC_SHAPES.map((shape) => shape.name);
 
   const firstScopeKey = scopes[0]?.key ?? '';
   const scopeKind = scopes.find((scope) => scope.key === scopeKey)?.kind ?? 'session';

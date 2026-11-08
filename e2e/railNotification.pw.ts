@@ -40,7 +40,7 @@ function measureRailNotifications() {
   });
 }
 
-for (const style of ['Buddy', 'Crystal', 'Mosaic', 'Lava', 'Scribble']) {
+for (const style of ['Buddy', 'Crystal', 'Mosaic', 'Lava']) {
   test(style + ' rail unread anchors and stroke-inclusive caps survive every size and animated rail mode', async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     await page.emulateMedia({ reducedMotion: 'no-preference' });

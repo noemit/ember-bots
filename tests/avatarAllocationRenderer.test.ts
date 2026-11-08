@@ -8,7 +8,6 @@ import LavaBlob from '../src/blob/LavaBlob';
 import { BUDDY_SHAPES } from '../src/blob/buddy';
 import { CRYSTAL_SHAPES, crystalForSeeds } from '../src/blob/crystal';
 import { mosaicGeometry } from '../src/blob/mosaic';
-import { scribbleGeometry } from '../src/blob/scribble';
 
 test('allocation archetypes match independent renderer geometry and actual markup', () => {
   for (let index = 0; index < 40; index++) {
@@ -18,6 +17,6 @@ test('allocation archetypes match independent renderer geometry and actual marku
     expect(renderToStaticMarkup(createElement(LavaBlob, { seed: '', identity }))).toContain(`data-shape="${identityShape('lava', identity)}"`);
     expect(crystalForSeeds(`crystal:${identity.shapeSeed}`, `crystal:${identity.motionSeed}`).rimCount).toBe(CRYSTAL_SHAPES.find(shape => shape.name === identityShape('crystal', identity))!.sides);
     expect(mosaicGeometry(identity).name).toBe(identityShape('mosaic', identity));
-    expect(scribbleGeometry(identity).name).toBe(identityShape('scribble', identity));
+    expect(identityShape('scribble', identity)).toBe(identityShape('buddy', identity));
   }
 });

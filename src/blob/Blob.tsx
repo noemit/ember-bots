@@ -4,7 +4,7 @@ import BuddyBlob from './BuddyBlob';
 import CrystalBlob from './CrystalBlob';
 import MosaicBlob from './MosaicBlob';
 import LavaBlob from './LavaBlob';
-import ScribbleBlob from './ScribbleBlob';
+import { effectiveBlobStyle } from './styles';
 import { moodFrom, stateFromMood } from './mood';
 import { seedIdentity } from './seed';
 import type { AvatarIdentity, BallMood, BallState, BlobStyle } from '../types';
@@ -20,7 +20,8 @@ type Props = {
 };
 
 /** Picks the blob renderer for the active style so callers don't care which is on. */
-export default function Blob({ style, ...rest }: Props) {
+export default function Blob({ style: requestedStyle, ...rest }: Props) {
+  const style = effectiveBlobStyle(requestedStyle);
   // Renderers memoize on the identity reference; a fresh object per render would defeat that.
   const identity = React.useMemo(
     () => rest.identity ?? seedIdentity(rest.seed),
@@ -35,8 +36,6 @@ export default function Blob({ style, ...rest }: Props) {
       <BuddyBlob {...props} />
     ) : style === 'mosaic' ? (
       <MosaicBlob {...props} />
-    ) : style === 'scribble' ? (
-      <ScribbleBlob {...props} />
     ) : style === 'lava' ? (
       <LavaBlob {...props} />
     ) : (

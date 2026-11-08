@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import Blob from '../src/blob/Blob';
+import ScribbleBlob from '../src/blob/ScribbleBlob';
 import { SCRIBBLE_SHAPES, scribbleGeometry } from '../src/blob/scribble';
 import { seedIdentity } from '../src/blob/seed';
 import { blobColor } from '../src/blob/color';
@@ -30,7 +30,7 @@ test('pale and dark custom colours keep the same clearly outlined eyes', () => {
   expect(contrastRatio('#fffdf5', '#29212f')).toBeGreaterThan(10);
   for (const color of ['#fff4c2', '#111111', '#f8cddd', '#158bb2']) {
     const identity = { ...seedIdentity('chat'), color };
-    const html = renderToStaticMarkup(<Blob style="scribble" seed="chat" identity={identity} />);
+    const html = renderToStaticMarkup(<ScribbleBlob seed="chat" identity={identity} />);
     expect(blobColor('scribble', identity)).toBe(color);
     expect(html).toContain(`fill="${color}"`);
     expect(html.match(/data-scribble-eye/g)).toHaveLength(2);
@@ -41,16 +41,16 @@ test('pale and dark custom colours keep the same clearly outlined eyes', () => {
 
 test('Scribble keeps decisions and unread indicators while thinking belongs to the creature', () => {
   for (const mood of ['input', 'question', 'error'] as const) {
-    expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood={mood} />)).toContain('blob-badge');
+    expect(renderToStaticMarkup(<ScribbleBlob seed="chat" mood={mood} />)).toContain('blob-badge');
   }
-  expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="thinking" />)).not.toContain('blob-arc');
-  expect(renderToStaticMarkup(<Blob style="scribble" seed="chat" mood="unread" />)).toContain('data-badge="unread"');
+  expect(renderToStaticMarkup(<ScribbleBlob seed="chat" mood="thinking" />)).not.toContain('blob-arc');
+  expect(renderToStaticMarkup(<ScribbleBlob seed="chat" mood="unread" />)).toContain('data-badge="unread"');
 });
 
 
 test('the raised hand belongs only to a question', () => {
   for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'error', 'unread', 'unknown'] as const) {
-    const html = renderToStaticMarkup(<Blob style="scribble" seed="chat" mood={mood} />);
+    const html = renderToStaticMarkup(<ScribbleBlob seed="chat" mood={mood} />);
     expect(html.includes('class="scribble-wave"')).toBe(mood === 'question');
   }
 });

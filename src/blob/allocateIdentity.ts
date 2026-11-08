@@ -5,22 +5,22 @@ import { BUDDY_SHAPES } from './buddy';
 import { CRYSTAL_SHAPES } from './crystal';
 import { LAVA_SHAPES } from './lava';
 import { MOSAIC_SHAPES } from './mosaic';
-import { SCRIBBLE_SHAPES } from './scribble';
+import { effectiveBlobStyle, type ActiveBlobStyle } from './styles';
 
 /** Active means unarchived top-level bots, including idle bots, not hidden worker threads. */
 export const competesForIdentity = (session: Session): boolean =>
   !session.archived && session.kind !== 'worker' && !session.parentId && (!session.lead || session.kind === 'peer');
 
-const shapesFor = (style: BlobStyle): readonly { name: string }[] => ({
-  buddy: BUDDY_SHAPES, crystal: CRYSTAL_SHAPES, lava: LAVA_SHAPES, mosaic: MOSAIC_SHAPES, scribble: SCRIBBLE_SHAPES,
+const shapesFor = (style: ActiveBlobStyle): readonly { name: string }[] => ({
+  buddy: BUDDY_SHAPES, crystal: CRYSTAL_SHAPES, lava: LAVA_SHAPES, mosaic: MOSAIC_SHAPES,
 })[style];
 
 /** Same archetype draws as the renderers, without generating their paths or textures. */
-export const identityShape = (style: BlobStyle, identity: Pick<AvatarIdentity, 'shapeSeed' | 'shapeName'>): string => {
+export const identityShape = (requestedStyle: BlobStyle, identity: Pick<AvatarIdentity, 'shapeSeed' | 'shapeName'>): string => {
+  const style = effectiveBlobStyle(requestedStyle);
   const shapes = shapesFor(style);
   if (shapes.some(shape => shape.name === identity.shapeName)) return identity.shapeName!;
   const seed = hashString(`${style}:${identity.shapeSeed}`);
-  if (style === 'scribble') return shapes[seed % shapes.length].name;
   const rng = mulberry32(seed);
   if (style === 'buddy') rng();
   return shapes[Math.floor(rng() * shapes.length)].name;
@@ -36,10 +36,11 @@ export const identityShape = (style: BlobStyle, identity: Pick<AvatarIdentity, '
 export const allocateAvatar = (
   key: string,
   active: AvatarIdentity[],
-  style: BlobStyle,
+  requestedStyle: BlobStyle,
   palette: readonly string[] = IDENTITY_COLORS,
   override: AvatarOverride = {},
 ): AvatarAssignment => {
+  const style = effectiveBlobStyle(requestedStyle);
   // Poll ordering must not affect floating-point accumulation or deterministic tie breaks.
   const peers = [...active].sort((a, b) => a.sessionKey.localeCompare(b.sessionKey));
   const colors = peers.map(identity => identity.color ?? palette[identity.colorIndex ?? hashString(`avatar-color:${identity.sessionKey}`) % AVATAR_COLOR_COUNT]);

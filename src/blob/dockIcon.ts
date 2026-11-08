@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AvatarIdentity, BallMood, BlobStyle } from '../types';
+import { effectiveBlobStyle } from './styles';
 
 type BlobComponent = React.ComponentType<{
   seed: string;
@@ -10,8 +11,8 @@ type BlobComponent = React.ComponentType<{
   interactive?: boolean;
 }>;
 
-const loadBlobComponent = async (style: BlobStyle): Promise<BlobComponent> => {
-  if (style === 'scribble') return (await import('./ScribbleBlob')).default;
+export const loadBlobComponent = async (requestedStyle: BlobStyle): Promise<BlobComponent> => {
+  const style = effectiveBlobStyle(requestedStyle);
   if (style === 'mosaic') return (await import('./MosaicBlob')).default;
   if (style === 'lava') return (await import('./LavaBlob')).default;
   if (style === 'crystal') return (await import('./CrystalBlob')).default;
