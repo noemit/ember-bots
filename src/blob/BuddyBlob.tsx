@@ -54,7 +54,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
   const isError = mood === 'error';
   // A blob with no host answer does not follow the pointer: tracking reads as "awake and watching",
   // which is exactly the claim an unknown status cannot make.
-  usePupilTracking(wrapperRef, [leftPupil, rightPupil], interactive && !isError && mood !== 'unknown' && mood !== 'thinking', 5.5);
+  usePupilTracking(wrapperRef, [leftPupil, rightPupil], interactive && !isError && mood !== 'unknown', 5.5);
 
   const renderEye = (offsetX: number, pupilRef: React.RefObject<SVGGElement | null>) => (
     <g transform={`translate(${shape.eyeX + offsetX} ${shape.eyeY}) scale(${shape.eyeScale})`}>

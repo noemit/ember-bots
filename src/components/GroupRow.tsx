@@ -187,7 +187,6 @@ export default function GroupRow({
                           identity={avatarIdentities[key]}
                           size={avatarSize}
                           mood={moods[key] ?? 'unknown'}
-                          interactive={false}
                         />
                         {active ? (
                           <span

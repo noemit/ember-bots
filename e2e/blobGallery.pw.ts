@@ -56,7 +56,8 @@ test('Scribble follows nearby pointers, stays inside its eyes, and releases its 
   await page.getByRole('button', { name: 'Play animations', exact: true }).click();
   await page.getByLabel('Reduced motion', { exact: true }).check();
   await buddy.hover();
-  await expect(buddy).not.toHaveAttribute('data-pupil-tracking');
+  await expect(buddy).toHaveAttribute('data-pupil-tracking', 'true');
+  expect(await buddy.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
 });
 
 test('notification circles align with question badges and Clay uses readable, distinct status colours', async ({ page }) => {

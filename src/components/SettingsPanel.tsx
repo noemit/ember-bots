@@ -654,7 +654,7 @@ export default function SettingsPanel({
                       {AVATAR_SIZES.map(option => <button key={option.id} type="button" aria-label={`${option.label} avatars`}
                         aria-pressed={settings.blobSize === option.id} onClick={() => onChange({ blobSize: option.id })}
                         className={cn('flex min-w-0 flex-col items-center justify-end gap-1 rounded-lg border p-2 hover:bg-muted', settings.blobSize === option.id && 'border-highlight bg-muted/50')}>
-                        <Blob style={settings.blobStyle} seed="avatar-size-preview" size={avatarPixels(40, option.id)} interactive={false} />
+                        <Blob style={settings.blobStyle} seed="avatar-size-preview" size={avatarPixels(40, option.id)} />
                         <span className="text-xs">{option.label}</span>
                       </button>)}
                     </div>
@@ -675,8 +675,8 @@ export default function SettingsPanel({
                           )}
                         >
                           <div className="flex -space-x-1.5">
-                            <Blob style={option.id} seed="settings one" size={30} interactive={false} />
-                            <Blob style={option.id} seed="settings two" size={30} interactive={false} />
+                            <Blob style={option.id} seed="settings one" size={30} />
+                            <Blob style={option.id} seed="settings two" size={30} />
                           </div>
                           <div className="flex min-w-0 flex-col">
                             <span className="font-medium">{option.name}</span>

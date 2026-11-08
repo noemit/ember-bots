@@ -45,7 +45,7 @@ function BlobGallery() {
   // let them survive a later reduced-motion choice. All app renderers stay unchanged.
   const jump = (phase: number) => setPreview(previous => ({ phase, revision: (previous?.revision ?? 0) + 1 }));
   const renderBlob = (style: BlobStyle, mood: BallMood, previewSize = size, example = 0) =>
-    <Blob key={style === 'scribble' && mood === 'busy' ? preview?.revision ?? 0 : 0} style={style} mood={mood} seed={seed} identity={examples[style][example]} size={previewSize} interactive={!paused && !reduced} />;
+    <Blob key={style === 'scribble' && mood === 'busy' ? preview?.revision ?? 0 : 0} style={style} mood={mood} seed={seed} identity={examples[style][example]} size={previewSize} interactive={!paused} />;
   const renderExamples = (style: BlobStyle, mood: BallMood, previewSize = size) =>
     examples[style].map((identity, index) => <div key={index} className="gallery-example" data-example={index + 1} data-shape={identity.shapeName}>
       {renderBlob(style, mood, previewSize, index)}

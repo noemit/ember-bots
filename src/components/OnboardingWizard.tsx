@@ -353,7 +353,7 @@ function Welcome() {
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-4">
         <div className="flex-none p-2">
-          <Blob style="buddy" seed="onboarding" size={56} mood="thinking" interactive={false} />
+          <Blob style="buddy" seed="onboarding" size={56} mood="thinking" />
         </div>
         <div className="flex flex-col gap-1">
           <h3 className="text-2xl font-semibold">Where the work happens</h3>
@@ -609,7 +609,7 @@ function Providers({
       </p>
       <div className="flex items-center gap-3">
         <span aria-hidden="true" className="relative inline-flex size-20 flex-none">
-          <Blob style="buddy" seed={tipSeed} size={80} mood="thinking" interactive={false} />
+          <Blob style="buddy" seed={tipSeed} size={80} mood="thinking" />
           <svg viewBox="0 0 100 100" className="pointer-events-none absolute inset-0 size-full"><MoodBadge mood="question" /></svg>
         </span>
         <aside className="rounded-lg bg-muted/40 px-3 py-2 text-muted-foreground" aria-label="Tip for getting started">

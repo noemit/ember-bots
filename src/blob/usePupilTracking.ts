@@ -1,49 +1,71 @@
 import * as React from 'react';
 
-type Subscriber = (x: number, y: number) => void;
+type Pointer = { x: number; y: number };
+type Subscriber = (pointer: Pointer | null, remeasure: boolean) => void;
 
-// One window listener shared by every blob, throttled to the frame rate.
+// One set of window listeners and one animation frame shared by every blob.
 const subscribers = new Set<Subscriber>();
 let frame = 0;
-let last = { x: 0, y: 0 };
-let attached = false;
+let last: Pointer | null = null;
+let dirty = false;
 
 const flush = () => {
   frame = 0;
-  subscribers.forEach((subscriber) => subscriber(last.x, last.y));
+  const remeasure = dirty;
+  dirty = false;
+  subscribers.forEach(subscriber => subscriber(last, remeasure));
 };
 
+const schedule = (remeasure = false) => {
+  dirty ||= remeasure;
+  if (last && !frame) frame = window.requestAnimationFrame(flush);
+};
 const onMove = (event: MouseEvent) => {
   last = { x: event.clientX, y: event.clientY };
-  if (!frame) frame = window.requestAnimationFrame(flush);
+  schedule();
+};
+const onGeometryChange = () => schedule(true);
+const release = () => {
+  // A later resize/scroll must not resurrect the last gaze after blur or pointer exit.
+  last = null;
+  if (frame) window.cancelAnimationFrame(frame);
+  frame = 0;
+  dirty = false;
+  subscribers.forEach(subscriber => subscriber(null, true));
 };
 
 const subscribe = (subscriber: Subscriber): (() => void) => {
   subscribers.add(subscriber);
-  if (!attached) {
+  if (subscribers.size === 1) {
     window.addEventListener('mousemove', onMove, { passive: true });
-    attached = true;
+    window.addEventListener('scroll', onGeometryChange, { capture: true, passive: true });
+    window.addEventListener('resize', onGeometryChange);
+    window.addEventListener('blur', release);
+    document.documentElement.addEventListener('mouseleave', release);
   }
+  schedule(true);
   return () => {
     subscribers.delete(subscriber);
-    if (subscribers.size === 0 && attached) {
+    if (subscribers.size === 0) {
       window.removeEventListener('mousemove', onMove);
-      attached = false;
+      window.removeEventListener('scroll', onGeometryChange, { capture: true });
+      window.removeEventListener('resize', onGeometryChange);
+      window.removeEventListener('blur', release);
+      document.documentElement.removeEventListener('mouseleave', release);
+      release();
     }
   };
 };
 
 /** Cursor distance (px) within which the pupils react; farther away they settle back to centre. */
 const NEAR_RADIUS = 260;
-/** Re-measure a blob at most this often while the cursor moves, so scroll/layout shifts don't stale it. */
+/** Catch layout shifts that don't emit a resize/scroll while the cursor moves. */
 const RECT_TTL_MS = 500;
 
 /**
- * Moves pupils toward the cursor, but only when it's nearby: within `NEAR_RADIUS` the pull ramps
- * up smoothly and past it the pupils settle back to centre. `reach` is the max offset in viewBox
- * units. `mapOffset` can constrain that movement to a style's eye geometry. The wrapper's tracking
- * attribute lets an autonomous gaze yield while the cursor is near. The page box is cached so a
- * long session list doesn't force layout on every move.
+ * Moves pupils toward the nearby cursor, in viewBox units, optionally constrained by eye geometry.
+ * The tracking attribute lets autonomous gaze yield. Cached layout boxes are refreshed together
+ * on scroll/resize (even with a stationary cursor), or when a wrapper changes size.
  */
 export const usePupilTracking = (
   wrapperRef: React.RefObject<HTMLElement | null>,
@@ -54,40 +76,28 @@ export const usePupilTracking = (
 ): void => {
   const pupils = React.useRef(pupilRefs);
   pupils.current = pupilRefs;
-  const rectRef = React.useRef<{ rect: DOMRect; at: number } | null>(null);
 
   React.useEffect(() => {
     if (!enabled) return;
-    const measure = () => {
-      const rect = wrapperRef.current?.getBoundingClientRect();
-      if (rect) rectRef.current = { rect, at: performance.now() };
-    };
-    measure();
-    window.addEventListener('scroll', measure, { capture: true, passive: true });
-    window.addEventListener('resize', measure);
-    return () => {
-      window.removeEventListener('scroll', measure, { capture: true });
-      window.removeEventListener('resize', measure);
-      rectRef.current = null;
-    };
-  }, [enabled, wrapperRef]);
-
-  React.useEffect(() => {
-    if (!enabled) return;
+    const wrapper = wrapperRef.current;
+    let cached: { rect: DOMRect; at: number } | null = null;
     const reset = () => {
-      wrapperRef.current?.removeAttribute('data-pupil-tracking');
+      wrapper?.removeAttribute('data-pupil-tracking');
       pupils.current.forEach(ref => ref.current?.removeAttribute('transform'));
     };
-    const unsubscribe = subscribe((clientX, clientY) => {
-      let cached = rectRef.current;
+    const unsubscribe = subscribe((pointer, remeasure) => {
+      if (remeasure) cached = null;
+      if (!pointer) {
+        reset();
+        return;
+      }
       if (!cached || performance.now() - cached.at > RECT_TTL_MS) {
-        const rect = wrapperRef.current?.getBoundingClientRect();
+        const rect = wrapper?.getBoundingClientRect();
         if (!rect) return;
         cached = { rect, at: performance.now() };
-        rectRef.current = cached;
       }
-      const dx = clientX - (cached.rect.left + cached.rect.width / 2);
-      const dy = clientY - (cached.rect.top + cached.rect.height / 2);
+      const dx = pointer.x - (cached.rect.left + cached.rect.width / 2);
+      const dy = pointer.y - (cached.rect.top + cached.rect.height / 2);
       const distance = Math.hypot(dx, dy) || 1;
       const near = distance < NEAR_RADIUS ? 1 - distance / NEAR_RADIUS : 0;
       if (!near) {
@@ -98,17 +108,15 @@ export const usePupilTracking = (
       const x = (dx / distance) * reach * pull;
       const y = (dy / distance) * reach * pull;
       const [offsetX, offsetY] = mapOffset?.(x, y) ?? [x, y];
-      wrapperRef.current?.setAttribute('data-pupil-tracking', 'true');
+      wrapper?.setAttribute('data-pupil-tracking', 'true');
       const transform = `translate(${offsetX.toFixed(2)} ${offsetY.toFixed(2)})`;
-      pupils.current.forEach((ref) => ref.current?.setAttribute('transform', transform));
+      pupils.current.forEach(ref => ref.current?.setAttribute('transform', transform));
     });
-    // Reset on disable as well as pointer exit, so unavailable/error states cannot retain a glance.
-    window.addEventListener('blur', reset);
-    document.documentElement.addEventListener('mouseleave', reset);
+    const observer = new ResizeObserver(onGeometryChange);
+    if (wrapper) observer.observe(wrapper);
     return () => {
+      observer.disconnect();
       unsubscribe();
-      window.removeEventListener('blur', reset);
-      document.documentElement.removeEventListener('mouseleave', reset);
       reset();
     };
   }, [enabled, reach, wrapperRef, mapOffset]);

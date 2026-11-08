@@ -134,7 +134,6 @@ export default function AvatarPicker({
               seed={identity.sessionKey}
               identity={preview}
               size={56}
-              interactive={false}
             />
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-medium">Preview</span>
@@ -203,7 +202,6 @@ export default function AvatarPicker({
                         seed={identity.sessionKey}
                         identity={previewIdentity({ shapeName })}
                         size={30}
-                        interactive={false}
                       />
                     </button>
                   );

@@ -65,6 +65,8 @@
 .blob-buddy[data-mood='thinking'] .blob-eyes {
   animation: buddy-concentrate 4.8s ease-in-out infinite;
 }
+/* Direct pointer input owns the gaze; pondering body motion can continue. */
+.blob-buddy[data-pupil-tracking] .buddy-gaze { animation: none; transform: none; }
 @keyframes buddy-ponder {
   0%, 100% { transform: rotate(-9deg) translate(-2%, 0) scale(1.03, .97); }
   20% { transform: rotate(-12deg) translate(-3%, -5%) scale(.96, 1.06); }
@@ -396,6 +398,8 @@
   .blob .blob-heat {
     animation: none !important;
   }
+
+  .blob .blob-eyes .blob-pupil { transition: none; }
 
   /* Keep the same restrained heat when motion is reduced. */
   .blob-crystal[data-mood='busy'] .blob-heat {
