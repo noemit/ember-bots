@@ -24,11 +24,11 @@ import type { AvatarIdentity, BallState, BlobStyle, Session } from '../types';
 type Props = {
   /** The leader's workers, newest activity first as the session list returns them. */
   workers: Session[];
-  /** Open a worker: the lead renders it as a transient column. */
+  /** Inspect a thread in its modal, or open its promoted bot in the workspace. */
   onOpenWorker: (session: Session) => void;
   /** Resolve a promoted worker's peer session (same instance) so the brick links to it. */
   peerFor?: (worker: Session) => Session | null;
-  /** Blob renderer style, from settings (needed to draw each worker's blob). */
+  /** Blob renderer style for promoted bot links; unpromoted threads have no avatar. */
   blobStyle: BlobStyle;
   /** Coarse ball state per worker, from the instance's status poll; missing reads as idle. */
   stateFor?: (session: Session) => BallState;
@@ -43,16 +43,14 @@ type Props = {
    */
   nestedBlocked?: BlockedWorker[];
   /**
-   * The blob identity the rail resolves for a session (project colour, avatar override, scheduled
-   * binding). Without it a brick derives one from the key alone and draws a different blob at 16px
-   * than the column draws at full size for the same worker.
+   * The blob identity the rail resolves for a promoted bot (project colour, avatar override,
+   * scheduled binding), so its chip matches its workspace avatar. Threads draw no blob.
    */
   identityFor?: (session: Session) => AvatarIdentity | undefined;
   /**
    * The **leader's** own identity, used for one thing only: the colour family of the bricks. It
    * washes each brick's surface and tints its edge (`blobColor` → `leaderBrickStyle`), so a crew
-   * reads as its leader's family while every worker's *blob* still draws the identity its column
-   * draws — the two must never disagree (see the comment in `WorkerBrick`).
+   * reads as its leader's family. A promoted bot retains its own avatar identity.
    *
    * Absent, the bricks stay untinted: a standalone strip should not invent a colour it was not
    * given.
@@ -157,10 +155,8 @@ const WorkerBrick = React.memo(function WorkerBrick({
   // A promoted brick is a link to the peer fork; without the peer loaded it still opens the worker.
   const promoted = worker.promotedTo !== undefined;
   const linkTarget = peer ?? worker;
-  // Ask the caller for the identity its column uses; derive one only when it has none to give. The
-  // brick used to always seed from the key, so any worker with a project colour or an avatar
-  // override wore one blob here and a different one the moment it opened as a column. The brick's
-  // tint comes from the *leader* precisely so this stays true: nothing here recolours a blob.
+  // Only promoted bots draw an avatar. Resolve the same identity their workspace uses;
+  // the thread chip's inherited leader tint must not recolour that bot.
   const identity = React.useMemo(
     () => identityFor?.(linkTarget) ?? seedIdentity(sessionKey(linkTarget)),
     [identityFor, linkTarget]
@@ -205,14 +201,14 @@ const WorkerBrick = React.memo(function WorkerBrick({
         aria-describedby={statusId}
         className="flex min-w-0 items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <Blob
+        {promoted ? <Blob
           style={blobStyle}
           seed={sessionKey(linkTarget)}
           identity={identity}
           size={16}
           mood={mood}
           interactive={false}
-        />
+        /> : null}
         <span className="min-w-0 truncate">{title}</span>
         {/* Exactly one node carries the status word, and it is the one `aria-describedby` points at:
             the word itself when the state prints it, a hidden word beside the dot when it does not.
@@ -338,14 +334,14 @@ const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
         aria-label={`${title} needs input — open the conversation to answer`}
         className="flex min-w-0 items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <Blob
+        {worker.promotedTo ? <Blob
           style={blobStyle}
           seed={sessionKey(worker)}
           identity={identity}
           size={16}
           mood={mood}
           interactive={false}
-        />
+        /> : null}
         <span className="min-w-0 truncate">{title}</span>
         {nested ? (
           <span
@@ -365,14 +361,12 @@ const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
 
 /**
  * The crew strip: the only place a leader's workers appear (they are hidden from the rail). A
- * sibling of the queue/notes cards above the composer; one **brick** per worker — its blob, its
- * title and a compact status signal — wrapping into a few short lines instead of a scrolling
- * column of full-width rows. Whole bricks are buttons: clicking one opens that worker as a
- * transient column. Renders nothing when the leader has no workers.
+ * sibling of the queue/notes cards above the composer; one **brick** per worker — its title and
+ * a compact status signal — wrapping into a few short lines instead of a scrolling column.
+ * Threads open in a modal and have no avatar; promoted bots keep their workspace avatar.
+ * Renders nothing when the leader has no workers.
  *
- * The bricks carry the leader's colour (`leaderIdentity`) as a wash and an edge tint, which is what
- * makes a crew read as one family; each brick's blob is untouched, so it still matches the blob the
- * worker wears when opened. Without a leader identity the bricks stay neutral.
+ * The bricks inherit the leader's colour (`leaderIdentity`) as a wash. Without one they stay neutral.
  */
 const CrewStrip = React.memo(function CrewStrip({
   workers,

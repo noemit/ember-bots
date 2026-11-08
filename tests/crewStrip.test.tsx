@@ -106,12 +106,12 @@ describe('the crew strip is bricks, not rows', () => {
     expect(html).not.toContain('overflow-y-auto');
   });
 
-  test('the brick is the shape: small blob inside a compact, bounded chip', () => {
+  test('the worker chip stays compact without allocating an avatar', () => {
     const html = render({ workers: [worker('a')], stateFor: () => 'active' });
     expect(html).toContain('max-w-[170px]');
     expect(html).toContain('text-[11px]');
-    // The avatar shrank to 16px so the brick reads, not the blob.
-    expect(html).toContain('width:16px;height:16px');
+    expect(html).not.toMatch(/class="blob(?: |")/);
+    expect(html).not.toContain('width:16px;height:16px');
   });
 
   test('each brick is a real button that opens its worker', () => {
@@ -131,6 +131,28 @@ describe('the crew strip is bricks, not rows', () => {
     expect(html).toContain(`id="${described}"`);
     expect(html).toContain('class="sr-only"');
     expect(html).toContain('>working</span>');
+  });
+});
+
+describe('only promoted peer links retain an avatar', () => {
+  for (const state of ['active', 'needs-input', 'error', 'unknown'] as const) {
+    test(`an unpromoted ${state} worker has no avatar DOM`, () => {
+      const html = render({ workers: [worker('a')], stateFor: () => state });
+      expect(html).not.toMatch(/class="blob(?: |")/);
+      expect(bricks(html)).toBe(1);
+    });
+  }
+
+  test('crew membership is enough when the host omits kind', () => {
+    const html = render({ workers: [worker('a', { kind: undefined })], stateFor: () => 'active' });
+    expect(html).not.toMatch(/class="blob(?: |")/);
+    expect(html).toContain('aria-label="Worker a"');
+  });
+
+  test('a promoted peer link keeps its blob and peer badge', () => {
+    const html = render({ workers: [worker('a', { promotedTo: 'peer-1' })], stateFor: () => 'idle' });
+    expect(html).toMatch(/class="blob(?: |")/);
+    expect(html).toContain('>peer<');
   });
 });
 
@@ -193,7 +215,7 @@ describe('status without a word per brick', () => {
   });
 });
 
-describe('the leader tints the brick, never the blob', () => {
+describe('the leader tints the avatar-free worker chip', () => {
   const crew = [worker('a'), worker('b', { needsInput: true })];
 
   test('no leader identity means no invented colour', () => {
@@ -218,15 +240,13 @@ describe('the leader tints the brick, never the blob', () => {
   });
 
   test('the leader colour changes the surface and nothing else', () => {
-    // The identity rule: a worker's blob here looks exactly like the blob its column draws. If a
-    // tint ever reached a blob, these two renders would stop matching outside their tints.
+    // Family colour belongs to the surface; workers have no separate avatar identity.
     const other: AvatarIdentity = { ...leader, colorSeed: 'a-different-colour', projectKey: 'other' };
     const a = render({ workers: crew, leaderIdentity: leader, stateFor: () => 'active' });
     const b = render({ workers: crew, leaderIdentity: other, stateFor: () => 'active' });
     expect(a).not.toBe(b);
     expect(withoutTint(a)).toBe(withoutTint(b));
-    // And the blob itself is still drawn from the worker's own seed, at the small size.
-    expect(a).toContain('class="blob blob-buddy"');
+    expect(a).not.toMatch(/class="blob(?: |")/);
   });
 
   test('a failed brick keeps its own surface: a warning is not washed into the family', () => {
@@ -366,6 +386,8 @@ describe('the parts that must survive the layout change', () => {
     expect(html).toContain('›2');
     expect(html).toContain('title="2 levels below this bot"');
     expect(html).toContain('aria-label="Deep ask needs input — open the conversation to answer"');
+    expect(html).not.toMatch(/class="blob(?: |")/);
+    expect(html).toContain('>needs input<');
   });
 
   test('a crew with nobody in it renders nothing at all', () => {

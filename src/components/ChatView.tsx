@@ -1199,6 +1199,9 @@ function ChatView({
       !session.promotedTo &&
       (session.kind === 'worker' || crew.some((worker) => worker.id === session.id))
   );
+  // A thread can be inspected and replied to without acquiring a bot avatar. The promotion
+  // callback also covers summaries whose role is known by their leader rather than `kind`.
+  const showSessionAvatar = !session || Boolean(session.promotedTo) || (session.kind !== 'worker' && !onPromote);
   const sessionFolder = session?.directory
     ? normalizeDirectory(session.directory).split(/[\\/]/).filter(Boolean).pop() ?? ''
     : '';
@@ -1511,7 +1514,7 @@ function ChatView({
    * a `var(--blob-N)` reference, which is why `color-mix` can grade it without knowing the value.
    */
   const connection = useComposerConnection(session ? seed : null);
-  const cornerTint = session
+  const cornerTint = session && showSessionAvatar
     ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, identity ?? seed)} 10%, transparent), transparent 56%)`
     : undefined;
 
@@ -2217,10 +2220,10 @@ function ChatView({
               // `:focus-visible` stay distinct: clicking a row control does not trigger the glow).
               ref={connection.surface}
               data-composer-surface
-              style={session ? { backgroundImage: `radial-gradient(ellipse at top left, color-mix(in oklab, ${blobColor(blobStyle, identity)} 10%, transparent), transparent 75%)` } : undefined}
+              style={session && showSessionAvatar ? { backgroundImage: `radial-gradient(ellipse at top left, color-mix(in oklab, ${blobColor(blobStyle, identity)} 10%, transparent), transparent 75%)` } : undefined}
               className="group/composer flex flex-col rounded-xl border bg-background transition-shadow duration-200 has-focus-visible:shadow-[0_0_12px_-2px_color-mix(in_oklab,var(--ring)_28%,transparent)]"
             >
-            {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} onHide={onArchive} onNewBot={onNewBotInFolder} /> : null}
+            {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} showAvatar={showSessionAvatar} onHide={onArchive} onNewBot={onNewBotInFolder} /> : null}
             {replyContext ? (
               /* A left accent carries "this is quoted" without drawing a rectangle inside the
                  composer's rectangle. */

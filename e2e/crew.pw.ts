@@ -30,6 +30,11 @@ test('the rail hides crew workers; the leader shows its crew strip', async ({ pa
   await expect(column).toBeVisible();
   await expect(column.getByRole('button', { name: 'Parse config', exact: true })).toBeVisible();
   await expect(column.getByRole('button', { name: 'Migrate schema', exact: true })).toBeVisible();
+  // Avatar-free threads retain their title, action and status signal.
+  await expect(column.locator('[data-crew-brick] .blob')).toHaveCount(0);
+  await expect(column.getByRole('button', { name: 'Parse config', exact: true })).toHaveAttribute('title', /working/);
+  await expect(column.getByRole('log', { name: 'Conversation' }).locator('.blob')).toHaveCount(0);
+  await expect(page.locator('[data-composer-identity] .blob')).not.toHaveCount(0);
   // The parked worker's need shows as a badge in the strip.
   await expect(column.getByText('needs input')).toBeVisible();
 });
@@ -77,6 +82,8 @@ test('a worker dialog leaves the main workspace and draft intact through Close a
     await expect(dialog).toBeVisible();
     await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Parse the config and report back.');
     await expect(worker.locator('textarea')).toBeEnabled();
+    await expect(worker.locator('.blob')).toHaveCount(0);
+    await expect(worker.locator('[data-composer-identity] .blob')).toHaveCount(0);
     await expect.poll(async () => {
       const bounds = await dialog.boundingBox();
       return bounds !== null && Math.round(bounds.width) === 1200 && Math.round(bounds.height) === 900;
@@ -111,18 +118,21 @@ test('the worker dialog fits a narrow viewport with its composer and Close contr
       && bounds.x + bounds.width <= 390 && bounds.y + bounds.height <= 844;
   }).toBe(true);
   await expect(dialog.locator('textarea')).toBeInViewport();
+  await expect(dialog.locator('.blob')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('thread-modal-mobile.png') });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
 
-test('an open worker dialog refreshes host output and accepts a new message', async ({ page }) => {
+test('an open worker dialog refreshes host output and accepts a new message', async ({ page }, testInfo) => {
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
   await leader.getByRole('button', { name: 'Parse config', exact: true }).click();
   const worker = page.getByTestId('thread-session-modal').locator('main[data-session-key="pi:hearth::17"]');
   await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Parsing the config now…');
+  // This includes the live activity avatar, not merely the composer identity.
+  await expect(worker.locator('.blob')).toHaveCount(0);
   // Mutate the mock host, not App state: the modal must participate in event-driven reads.
   const stopped = await page.evaluate(() => window.ember.piRequest!('pi:hearth', '/conversations/17/abort', { method: 'POST' }));
   expect(stopped.ok).toBe(true);
@@ -131,6 +141,10 @@ test('an open worker dialog refreshes host output and accepts a new message', as
   await worker.getByRole('textbox', { name: 'Message your bot' }).fill('Verify modal delivery');
   await worker.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Echo from Hearth: Verify modal delivery');
+  // The settled reply must not reintroduce the latest-message avatar.
+  await expect(worker.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
+  await expect(worker.locator('.blob')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('thread-modal-settled-desktop.png') });
   await worker.locator('input[type="file"]').setInputFiles({
     name: 'thread.png', mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC', 'base64'),
@@ -161,11 +175,16 @@ test('an already promoted worker links to its peer, and the peer shows in the ra
   await expect(rail.getByRole('button', { name: /Harness improver/ }).first()).toBeVisible();
   await expect(rail.getByRole('button', { name: /^Harness audit/ })).toHaveCount(0);
   await expect(leader.getByRole('button', { name: 'Harness audit', exact: true })).toBeVisible();
+  await expect(leader.getByRole('button', { name: 'Harness audit', exact: true }).locator('.blob')).toHaveCount(1);
+  await expect(leader.getByRole('button', { name: 'Parse config', exact: true }).locator('.blob')).toHaveCount(0);
   // The row is a peer link, not a live worker: it carries the `peer` badge instead of a status.
   await expect(leader.getByText('peer', { exact: true })).toBeVisible();
   await leader.getByRole('button', { name: 'Harness audit', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.locator('main[data-session-key="pi:hearth::20"]')).toBeVisible();
+  const peer = page.locator('main[data-session-key="pi:hearth::20"]');
+  await expect(peer).toBeVisible();
+  await expect(peer.getByRole('log', { name: 'Conversation' }).locator('.blob')).toHaveCount(0);
+  await expect(page.locator('[data-composer-identity] .blob')).not.toHaveCount(0);
   await expect.poll(async () => (await persistedWorkspace(page)).activeSession).toBe('pi:hearth::20');
 });
 
