@@ -273,3 +273,12 @@ test('held steers remain withdrawable but cannot be edited, sent again, parked o
   await expect(row).toHaveCount(0);
   await expect(worker.getByRole('tab', { name: /^Queue/ })).toHaveCount(0);
 });
+
+test('the Threads tab reads running over total, with the long form spoken', async ({ page }) => {
+  const column = await openChat(page, true);
+  const threads = column.getByRole('group', { name: 'Composer trays', exact: true }).getByRole('tab', { name: /^Threads/ });
+  // Two numbers, not a phrase: the count of running threads over every thread in the crew.
+  await expect(threads.locator('span.tabular-nums').first()).toHaveText(/^\d+ \/ \d+$/);
+  // The full sentence stays available to a tooltip and a screen reader.
+  await expect(threads.getByText(/\d+ of \d+ threads running/)).toHaveCount(1);
+});

@@ -55,10 +55,16 @@ export const threadDescendants = (leader: Session, crews: ReadonlyMap<string, re
   return found;
 };
 
-/** The shelf counts a blocked descendant once even when it is also a direct thread. */
+/**
+ * The shelf counts a blocked descendant once even when it is also a direct thread.
+ *
+ * The tab reads "running / total" — two numbers that answer "how much is happening" and "how much
+ * is there" at a glance. A thread waiting on a person is not running, so it counts in the total
+ * only; the tray's own attention dot is what says a person is needed.
+ */
 export const threadShelfStatus = (
   workers: readonly Session[], blocked: readonly BlockedWorker[], stateFor?: (worker: Session) => BallState
-): { total: number; running: number; needsHuman: number; summary?: string } => {
+): { total: number; running: number; needsHuman: number; summary: string; detail?: string } => {
   const all = new Map([...workers, ...blocked.map((entry) => entry.worker)].map((worker) => [sessionKey(worker), worker]));
   const blockedKeys = new Set(blocked.map((entry) => sessionKey(entry.worker)));
   let running = 0;
@@ -67,8 +73,11 @@ export const threadShelfStatus = (
     if (worker.needsInput || stateFor?.(worker) === 'needs-input' || blockedKeys.has(sessionKey(worker))) needsHuman += 1;
     else if (stateFor?.(worker) === 'active') running += 1;
   }
-  const summary = [running ? `${running} running` : '', needsHuman ? `${needsHuman} needs you` : ''].filter(Boolean).join(' · ');
-  return { total: all.size, running, needsHuman, summary: summary || undefined };
+  // Named in full for a tooltip and a screen reader, where a bare ratio would be cryptic.
+  const detail = needsHuman
+    ? `${running} of ${all.size} threads running · ${needsHuman} needs you`
+    : `${running} of ${all.size} threads running`;
+  return { total: all.size, running, needsHuman, summary: `${running} / ${all.size}`, detail };
 };
 
 /**

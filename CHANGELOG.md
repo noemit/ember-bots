@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Changed
+- The Threads tab above the composer reads running over total ("3 / 8") instead of naming
+  "running" and "needs you"; the tray's dot still flags a thread waiting on you.
+
 ### Added
 - Customize a new bot’s colour, style and shape from its draft avatar before sending; the choice follows it through creation and retries without changing other bots.
 - Setup ends with a privacy and support introduction, including a direct way to contact Em before opening your first draft.

@@ -2124,6 +2124,7 @@ function ChatView({
                           id: 'crew' as const,
                           label: 'Threads',
                           summary: threadStatus.summary,
+                          summaryLabel: threadStatus.detail,
                           count: threadStatus.total,
                           alert: crewNeedsInput,
                           content: (

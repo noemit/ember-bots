@@ -461,5 +461,15 @@ test('thread shelf counts direct and nested blockers once and keeps running stat
     { worker: blocked, title: 'Blocked', depth: 1 },
     { worker: nested, title: 'Nested', depth: 2 },
   ], () => 'active');
-  expect(status).toEqual({ total: 3, running: 1, needsHuman: 2, summary: '1 running · 2 needs you' });
+  expect(status).toEqual({
+    total: 3,
+    running: 1,
+    needsHuman: 2,
+    summary: '1 / 3',
+    detail: '1 of 3 threads running · 2 needs you',
+  });
+  // A quiet crew says "0 / n" rather than omitting the tab's numbers.
+  const idle = threadShelfStatus([busy], [], () => 'idle');
+  expect(idle.summary).toBe('0 / 1');
+  expect(idle.detail).toBe('0 of 1 threads running');
 });
