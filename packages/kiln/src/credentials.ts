@@ -44,6 +44,7 @@ export const PROVIDER_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
   "github-copilot": ["GITHUB_TOKEN"],
   meta: ["META_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
+  deepinfra: ["DEEPINFRA_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY"],
   google: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
   fireworks: ["FIREWORKS_API_KEY"],

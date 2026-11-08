@@ -33,6 +33,42 @@ is above the view and none of your messages is visible; jumping never marks anyt
 Select part of a response or plan to comment on it. Comments remain drafts in a tray until you send
 them together. Internal thread-result retrieval does not change your read marks.
 
+## Providers
+
+Open **Settings → Providers**, choose the Kiln instance, and paste a key. Credentials stay on that
+instance (in its `auth.json`) and are never sent back to the Ember window; a connected provider shows
+the credential type beside its name, and **Remove credential** forgets it. Ember offers the
+provider's models in the composer picker once the key is saved and the instance's catalogue refresh
+completes — usually within a second, in the background.
+
+Sign-in is offered only where the flow can finish. Everything else, including both providers below,
+is an API key.
+
+### OpenRouter
+
+- Provider row: **OpenRouter**. Key from <https://openrouter.ai/keys>.
+- Environment variable for a standalone Kiln: `OPENROUTER_API_KEY`.
+- Model ids are OpenRouter's own routes, `vendor/model`, for example `anthropic/claude-sonnet-5.5`.
+  With a key, the list is filtered by `GET /models/user`, so a model your account cannot use is not
+  offered.
+- Hearth ships OpenRouter's catalogue, so the picker is populated offline as well; the account read
+  only narrows it.
+
+### DeepInfra
+
+- Provider row: **DeepInfra**. Key from <https://deepinfra.com/dash/api_keys>.
+- Environment variable for a standalone Kiln: `DEEPINFRA_API_KEY`.
+- Endpoint: `https://api.deepinfra.com/v1/openai` (OpenAI-compatible).
+- Model ids are DeepInfra's routes, `vendor/model`, for example `Qwen/Qwen3-32B` or
+  `anthropic/claude-opus-4-7`. The id is what is sent on the wire; the picker shows the part after
+  the slash.
+- The list is read from `GET /models` and cached on the instance, so it survives a restart and a
+  refresh failure. Only chat models are listed — DeepInfra's embeddings, rerankers, image, video and
+  speech models are not chat models and would fail on send.
+- Context window, output limit and pricing come from the same response (prices are US dollars per
+  million tokens). A model whose entry is missing one of those reports 0 cost or a stated default
+  rather than an invented number.
+
 ## Keyboard controls
 
 Use Cmd on macOS and Ctrl elsewhere. Tooltips show shortcuts on the relevant controls.

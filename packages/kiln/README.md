@@ -283,7 +283,7 @@ graceful restart over the wire, so a client like Ember can offer a Restart butto
 ## Providers
 
 `src/models.ts` registers opencode-go, **opencode (OpenCode Zen)**, xai, openai, deepseek, google
-(Gemini) and fireworks, plus orcarouter (custom baseURL + env key + a fetched dynamic catalog) when
+(Gemini), fireworks and **deepinfra** (pi-ai ships none; see below), plus orcarouter (custom baseURL + env key + a fetched dynamic catalog) when
 `ORCAROUTER_BASE_URL` + `ORCAROUTER_API_KEY` are set, plus the two Kimi slots below when either
 holds a key.
 
@@ -331,6 +331,38 @@ takes effect on the next restart; later credential changes need no restart. Use 
 `orcarouter` for Kimi: the ids stay the provider's own (`kimi-k3`), the 1M window and image input
 come from the catalog, and a conversation started on one host's Kimi entry is the same model id
 on another host's.
+
+### DeepInfra (`deepinfra`)
+
+Not in pi-ai, so Hearth registers it itself: an OpenAI-compatible endpoint at
+`https://api.deepinfra.com/v1/openai`, listed always (so the key field exists) and served only once a
+credential resolves. It is mapped in `src/deepinfra.ts`; no `*_REASONING`-style env knobs exist
+because the catalog already describes each model.
+
+```sh
+scripts/hearth.sh provider set deepinfra <DEEPINFRA_API_KEY>
+```
+
+or `DEEPINFRA_API_KEY` in the environment (a stored credential wins). Keys come from
+<https://deepinfra.com/dash/api_keys>.
+
+`GET /models` is read on refresh and cached by pi-ai's model store, so boot never needs the network:
+a failed or offline refresh keeps the previous list, and a first boot offline lists no DeepInfra
+models until a refresh succeeds. From each entry, Hearth keeps only `chat` models (the same endpoint
+also lists embeddings, rerankers, image/video and speech models, which cannot hold a turn) and maps:
+
+| Catalog field | Becomes |
+| `id` | the wire model id (`Qwen/Qwen3-32B`); the picker shows the part after `/` |
+| `metadata.context_length` | `contextWindow` |
+| `metadata.max_tokens` | `maxTokens` |
+| `metadata.pricing.input_tokens` / `output_tokens` / `cache_read_tokens` | `cost` in USD per million tokens (an unpublished component is 0, never a guess) |
+| `metadata.tags` `chat` | required: everything else is skipped |
+| `metadata.tags` `reasoning` | `reasoning: true` |
+| `metadata.tags` `reasoning_effort` | adds the standard `reasoning_effort` level map |
+| `metadata.tags` `vision` / `vlm` | image input, with the usual 2000px / 4.5 MiB resize |
+
+A chat model that reports no limit is named in the log and gets 32,768 / 8,192, so a default never
+masquerades as DeepInfra's own number.
 
 ### orcarouter (a dynamic OpenAI-compatible endpoint)
 

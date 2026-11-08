@@ -26,6 +26,12 @@ import {
   type KimiOptions,
   type MoonshotCatalogEntry,
 } from "./kimi";
+import {
+  DEEPINFRA_BASE_URL,
+  DEEPINFRA_ENV_VAR,
+  deepinfraModel,
+  type DeepInfraCatalogEntry,
+} from "./deepinfra";
 import { orcarouterModel, orcarouterOptions, routerLimits, type RouterCatalogEntry } from "./orcarouter";
 import { lmStudioProvider, ollamaProvider, probeLocalRuntimes, type LocalRuntimeProbe } from "./local-models";
 
@@ -96,6 +102,50 @@ export const orcarouterProvider = (env: Record<string, string | undefined> = pro
   });
   return router;
 };
+
+/**
+ * DeepInfra: pi-ai ships no provider for it, so Hearth registers an OpenAI-compatible one with
+ * DeepInfra's own catalog read (`GET /models`, see ./deepinfra.ts for the field mapping).
+ *
+ * Registered always, like every keyed built-in: the row has to exist before a key does, or there
+ * is no field to paste one into. The last good list is persisted by the model store, and the read
+ * runs in the background (`refreshModels`), so boot never depends on the network. A refresh that
+ * fails keeps the previous list; a first boot offline starts with none and fills in later.
+ */
+export const deepinfraProvider = () =>
+  createProvider({
+    id: "deepinfra",
+    name: "DeepInfra",
+    baseUrl: DEEPINFRA_BASE_URL,
+    auth: { apiKey: envApiKeyAuth("DeepInfra API key", [DEEPINFRA_ENV_VAR]) },
+    models: [],
+    api: openAICompletionsApi(),
+    fetchModels: async (ctx) => {
+      const response = await fetch(`${DEEPINFRA_BASE_URL}/models`, {
+        headers: catalogAuth(ctx.credential),
+        signal: ctx.signal,
+      });
+      if (!response.ok) throw new Error(`deepinfra /models failed: ${response.status}`);
+      const body = (await response.json()) as { data?: DeepInfraCatalogEntry[] };
+      const entries = Array.isArray(body.data) ? body.data : [];
+      const models: Model<"openai-completions">[] = [];
+      const guessed: string[] = [];
+      for (const entry of entries) {
+        const mapped = deepinfraModel(entry);
+        if (!mapped) continue;
+        models.push(mapped.model);
+        if (mapped.guessed.length > 0) guessed.push(`${entry.id} (${mapped.guessed.join(', ')})`);
+      }
+      // Say what the catalog did not report rather than let a default look like DeepInfra's number.
+      if (guessed.length > 0) {
+        console.log(
+          `[hearth] deepinfra: ${guessed.length} model(s) report no limit, using built-in defaults: ${guessed.join('; ')}`
+        );
+      }
+      console.log(`[hearth] deepinfra: ${models.length} chat model(s) of ${entries.length} listed`);
+      return models;
+    },
+  });
 
 /**
  * The Moonshot platform provider (`moonshotai`), reading `/models` at boot or refresh and falling
@@ -260,6 +310,8 @@ export const hearthModels = async (
   models.setProvider(githubCopilotProvider());
   models.setProvider(metaProvider());
   models.setProvider(openrouterProvider());
+  // pi-ai has no DeepInfra provider (see ./deepinfra.ts); Hearth registers its own.
+  models.setProvider(deepinfraProvider());
   models.setProvider(deepseekProvider());
   models.setProvider(googleProvider());
   models.setProvider(fireworksProvider());

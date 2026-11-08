@@ -1165,7 +1165,14 @@ const piRequest = async (
   }
   if (url.pathname === '/health' && method === 'GET') return ok({ ok: true, service: 'hearth', version: 'mock' });
   if (url.pathname === '/models' && method === 'GET') {
-    return ok({ models, default: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' } });
+    // A provider's models appear once its key is saved, the way Hearth's refresh does it: an
+    // unkeyed provider contributes nothing to the picker.
+    const keyed = (id: string) => providerCredentials.has(id);
+    const providerModels = [
+      ...(keyed('openrouter') ? OPENROUTER_MODELS : []),
+      ...(keyed('deepinfra') ? DEEPINFRA_MODELS : []),
+    ];
+    return ok({ models: [...models, ...providerModels], default: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' } });
   }
   if (url.pathname === '/providers' && method === 'GET') {
     return ok({
@@ -1735,11 +1742,57 @@ const models = [
   },
 ];
 
+/**
+ * What each keyed provider contributes to `/models`. Ids are the providers' own routes (the wire
+ * format documented in docs/usage.md); costs are per million tokens, as Hearth reports them.
+ */
+const OPENROUTER_MODELS = [
+  {
+    id: 'anthropic/claude-sonnet-5.5',
+    name: 'Claude Sonnet 5.5',
+    provider: 'openrouter',
+    type: 'chat',
+    reasoning: true,
+    input: ['text', 'image'],
+    cost: { input: 2, output: 10 },
+    contextWindow: 1_000_000,
+    maxTokens: 64_000,
+  },
+];
+const DEEPINFRA_MODELS = [
+  {
+    id: 'Qwen/Qwen3-32B',
+    name: 'Qwen3-32B',
+    provider: 'deepinfra',
+    type: 'chat',
+    reasoning: true,
+    input: ['text'],
+    cost: { input: 0.08, output: 0.28 },
+    contextWindow: 40_960,
+    maxTokens: 40_960,
+  },
+  {
+    id: 'anthropic/claude-opus-4-7',
+    name: 'claude-opus-4-7',
+    provider: 'deepinfra',
+    type: 'chat',
+    reasoning: true,
+    input: ['text', 'image'],
+    cost: { input: 5, output: 25 },
+    contextWindow: 1_000_000,
+    maxTokens: 1_000_000,
+  },
+];
+
 // The providers the mock host reports on `/providers`; a credential map backs set/remove.
 const providers = [
   { id: 'faux-hearth', name: 'Faux Harness', signIn: null },
   { id: 'opencode', name: 'OpenCode Zen', signIn: null },
   { id: 'deepseek', name: 'DeepSeek', signIn: null },
+  // Both are key-only in Hearth: pi-ai ships the OpenRouter catalogue, and DeepInfra is registered
+  // by Hearth itself. The mock mirrors the real rows so a saved key can be seen reaching the picker.
+  { id: 'openrouter', name: 'OpenRouter', signIn: null },
+  { id: 'deepinfra', name: 'DeepInfra', signIn: null },
   {
     id: 'xai',
     name: 'xAI',

@@ -83,7 +83,7 @@ test('a custom chat colour follows its blob and background without recolouring i
 
 test('adding a provider offers an explicit instance-default decision', async ({ page }) => {
   await page.goto('/');
-  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
   const field = page.getByRole('textbox', { name: 'API key for DeepSeek' });
   await field.fill('mock-test-key');
@@ -110,7 +110,7 @@ test('approval choices identify the same YOLO mode as the composer', async ({ pa
 
 test('the confirmed instance default seeds the next chat without changing existing chats', async ({ page }) => {
   await page.goto('/');
-  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
   const field = page.getByRole('textbox', { name: 'API key for DeepSeek' });
   await field.fill('mock-test-key');
@@ -130,7 +130,7 @@ test('the confirmed instance default seeds the next chat without changing existi
 
 test('provider sign-in also offers the default decision after the credential lands', async ({ page }) => {
   await page.goto('/');
-  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
   await page.getByRole('button', { name: 'Sign in with SuperGrok or X Premium' }).click();
   const signIn = page.getByRole('dialog', { name: 'Sign in to xAI' });

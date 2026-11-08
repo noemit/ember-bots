@@ -1,6 +1,7 @@
 ## Unreleased
 
 ### Added
+- DeepInfra is a first-class provider (OpenAI-compatible, `https://api.deepinfra.com/v1/openai`, `DEEPINFRA_API_KEY`), with its chat catalogue, context windows and per-million-token pricing read from `GET /models` and cached so boot never needs the network.
 - `session models` searches this host's available chat models without codemode, returns exact spawn model IDs and the inherited default, and pages bounded results without exposing credentials or connection metadata.
 
 ### Fixed

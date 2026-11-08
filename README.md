@@ -68,6 +68,7 @@ The table describes the current source; older downloads may expose fewer options
 | xAI / Grok | API key or account sign-in |
 | DeepSeek, NVIDIA NIM, Fireworks | API key |
 | OpenRouter | API key or account sign-in |
+| DeepInfra | API key |
 | OpenCode Zen | API key; models are discovered from the service |
 | Kimi / Moonshot | Moonshot API key; Kimi Coding key or account sign-in |
 | Meta | API key or account sign-in |
