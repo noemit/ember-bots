@@ -46,6 +46,8 @@ import ProjectPicker from './ProjectPicker';
 import { ACTIVE_BLOB_STYLES, effectiveBlobStyle } from '../blob/styles';
 import {
   CHAT_PX,
+  COMPOSER_PX,
+  INTERFACE_SCALE,
   TEXT_SIZES,
   composerSizeOf,
   nearestChatSize,
@@ -749,6 +751,9 @@ export default function SettingsPanel({
                       />
                     </div>
                     <span className="text-[11px] text-muted-foreground">The rail, headers, menus and settings.</span>
+                    <p data-testid="text-size-preview-interface" className="text-[11px] text-muted-foreground" style={{ zoom: INTERFACE_SCALE[settings.interfaceSize ?? 'medium'] }}>
+                      <span className="font-medium text-foreground">Rail · Header · Settings</span> — this sheet scales with the rest.
+                    </p>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between gap-3">
@@ -760,6 +765,9 @@ export default function SettingsPanel({
                       />
                     </div>
                     <span className="text-[11px] text-muted-foreground">Messages in the conversation.</span>
+                    <p data-testid="text-size-preview-chat" className="text-muted-foreground" style={{ fontSize: CHAT_PX[nearestChatSize(settings.conversationFontSize)], lineHeight: 1.8 }}>
+                      Messages appear at this size.
+                    </p>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between gap-3">
@@ -771,6 +779,9 @@ export default function SettingsPanel({
                       />
                     </div>
                     <span className="text-[11px] text-muted-foreground">What you type before sending.</span>
+                    <p data-testid="text-size-preview-composer" className="text-muted-foreground" style={{ fontSize: COMPOSER_PX[composerSizeOf(settings.composerSize)], lineHeight: 1.8 }}>
+                      Message your bot…
+                    </p>
                   </div>
                 </CardContent>
               </Card>
