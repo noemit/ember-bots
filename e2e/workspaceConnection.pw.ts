@@ -74,12 +74,20 @@ test('split columns keep their own composers and reduced motion uses a still han
   await page.getByRole('button', { name: 'Split view', exact: true }).click();
   await page.keyboard.press('Escape');
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
-  await leader.getByRole('button', { name: 'Parse config', exact: true }).click();
+  await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
   await expect(page.locator('main[data-session-key]')).toHaveCount(2);
-  await expect(page.locator(dock)).toContainText('Parse config');
+  await expect(page.locator(dock)).toContainText('Habit onboarding QA');
   await expect(page.locator('[data-connection-composer]')).toHaveCount(1);
   await expect(leader.locator('[data-composer-identity]')).toContainText('Crew: auth refactor');
   await page.screenshot({ path: '/tmp/ember-layout-split.png' });
+  // Inspecting a worker must not add a workspace column or hand over the connected identity.
+  await leader.getByRole('button', { name: 'Parse config', exact: true }).click();
+  await expect(page.getByTestId('thread-session-modal')).toBeVisible();
+  await expect(page.locator(dock)).toContainText('Habit onboarding QA');
+  await expect(page.locator('main[data-session-key]')).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('main[data-session-key]')).toHaveCount(2);
+  await expect(page.locator(dock)).toContainText('Habit onboarding QA');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   await expect(page.locator(dock)).toContainText('Crew: auth refactor');

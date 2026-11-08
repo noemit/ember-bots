@@ -423,7 +423,7 @@ Kiln does not give Ember ownership of it, and quitting Ember must leave it runni
   the accessible boundary. It used to be a bordered card around bordered chips — the "chip in a
   card" report — and then a bordered strip of bordered chips; both are gone, and the shelf owns
   opening and folding, so the strip draws no fold control and never collapses itself. Clicking a
-  chip opens the worker as a **transient column** — live while open, never persisted (the workspace-save effect drops worker keys). Because the strip is
+  chip opens the worker in a **session dialog** — a live ChatView with its own composer and prompt controls, while the main workspace and selected session stay unchanged. The dialog key is never persisted; its transcript joins visible-column event refresh, polling and cache protection. Closing or Escape returns to the same workspace. Promoted workers link to their peer in the normal workspace, and promotion from an open dialog hands over to that peer. Because the strip is
   the only place a worker is visible, it also carries a row for every worker blocked on the human
   **below** the direct crew, at any depth (`blockedCrewByLeader` in App, one `blockedWorkersUnder`
   per leader), marked with its depth and opening the conversation that is actually waiting — a

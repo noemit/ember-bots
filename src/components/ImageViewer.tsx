@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createPortal } from 'react-dom';
+import { Dialog } from 'radix-ui';
 import { ChevronLeft, ChevronRight, Download, Minus, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -42,8 +42,9 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
   const [view, setView] = React.useState<ImageView>(FIT_VIEW);
   const [natural, setNatural] = React.useState<{ w: number; h: number } | null>(null);
   const [box, setBox] = React.useState<{ w: number; h: number } | null>(null);
-  const surfaceRef = React.useRef<HTMLDivElement>(null);
+  const [surface, setSurface] = React.useState<HTMLDivElement | null>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const movedRef = React.useRef(false);
   /** True for the gesture that captured the pointer, so its click is not read as a backdrop hit. */
@@ -56,12 +57,9 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
     setNatural(null);
   }, [index, image?.id]);
 
-  // A modal that is keyboard-honest: everything behind it leaves the tab order and the a11y tree.
-  React.useEffect(() => {
-    const root = document.getElementById('root');
-    root?.setAttribute('inert', '');
-    return () => root?.removeAttribute('inert');
-  }, []);
+  // This viewer is opened imperatively, without a Dialog.Trigger. Restore its originating
+  // image button (including one inside a worker dialog) when the topmost modal closes.
+  const [returnFocus] = React.useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   /**
    * The ratio between the fitted box and the image's natural size. `>= 1` means the image is small
@@ -74,14 +72,14 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
 
   // Track the available surface so fitScale follows the window.
   React.useEffect(() => {
-    const el = surfaceRef.current;
+    const el = surface;
     if (!el) return;
     const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [surface]);
 
   /** Zoom while holding the point under the pointer still. */
   const zoomAt = React.useCallback((pointerX: number, pointerY: number, rawScale: number) => {
@@ -100,51 +98,38 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
 
   const zoomTo = React.useCallback(
     (next: number) => {
-      const el = surfaceRef.current;
+      const el = surface;
       const cx = el ? (el.clientWidth / 2 - view.x) / view.scale : 0;
       const cy = el ? (el.clientHeight / 2 - view.y) / view.scale : 0;
       zoomAt(cx, cy, next);
     },
-    [view.x, view.y, view.scale, zoomAt]
+    [surface, view.x, view.y, view.scale, zoomAt]
   );
 
-  /**
-   * Keyboard: Escape closes, arrows page through the conversation's images, and +/-/0/1 control zoom.
-   *
-   * This is a modal, so the keys belong to the window rather than to whichever child happens to have
-   * focus: a lightbox that only responds while its surface is focused is unusable. The listener was
-   * lost once during a rewrite of this file and caught by the e2e suite, which is why it is spelled
-   * out here rather than folded into a surface handler.
-   */
-  React.useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-      } else if (event.key === 'ArrowLeft' && images.length > 1) {
-        event.preventDefault();
-        onIndex(neighborIndex(images.length, index, -1));
-      } else if (event.key === 'ArrowRight' && images.length > 1) {
-        event.preventDefault();
-        onIndex(neighborIndex(images.length, index, 1));
-      } else if (event.key === '+' || event.key === '=') {
-        event.preventDefault();
-        zoomTo(view.scale * 1.25);
-      } else if (event.key === '-' || event.key === '_') {
-        event.preventDefault();
-        zoomTo(view.scale / 1.25);
-      } else if (event.key === '0') {
-        event.preventDefault();
-        setView(FIT_VIEW);
-      } else if (event.key === '1') {
-        event.preventDefault();
-        zoomTo(1 / (fitScale || 1));
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [images.length, index, onIndex, onClose, zoomTo, view.scale, fitScale]);
+  // Scope navigation and zoom to this focus-trapped dialog. Escape belongs to Radix's
+  // topmost dismissable layer, so it never closes the worker dialog underneath as well.
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === 'ArrowLeft' && images.length > 1) {
+      event.preventDefault();
+      onIndex(neighborIndex(images.length, index, -1));
+    } else if (event.key === 'ArrowRight' && images.length > 1) {
+      event.preventDefault();
+      onIndex(neighborIndex(images.length, index, 1));
+    } else if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      zoomTo(view.scale * 1.25);
+    } else if (event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      zoomTo(view.scale / 1.25);
+    } else if (event.key === '0') {
+      event.preventDefault();
+      setView(FIT_VIEW);
+    } else if (event.key === '1') {
+      event.preventDefault();
+      zoomTo(1 / (fitScale || 1));
+    }
+  };
 
   /** The percentage a person should see: 100% is the image's actual pixel size. */
   const actualPercent = Math.round(view.scale * fitScale * 100);
@@ -152,13 +137,25 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
   /** True at 1:1 with the image's own pixels. */
   const atActual = Math.abs(view.scale * fitScale - 1) < 0.005;
 
-  return createPortal(
-    <div
+  return (
+    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog.Portal>
+    <Dialog.Content
+      ref={contentRef}
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        contentRef.current?.focus();
+      }}
       className="fixed inset-0 z-[100] flex flex-col bg-black/90 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
+      aria-describedby={undefined}
+      onKeyDown={onKeyDown}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        if (returnFocus?.isConnected) returnFocus.focus();
+      }}
       aria-label={`Image: ${image.filename}`}
     >
+      <Dialog.Title className="sr-only">Image: {image.filename}</Dialog.Title>
       <div className="flex flex-none items-center gap-2 px-3 py-2 text-white/90">
         <span className="min-w-0 flex-1 truncate text-[12.5px]" title={image.filename}>
           {image.filename}
@@ -248,7 +245,7 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
       </div>
 
       <div
-        ref={surfaceRef}
+        ref={setSurface}
         tabIndex={-1}
         className={cn(
           'relative flex min-h-0 flex-1 items-center justify-center overflow-hidden outline-none',
@@ -314,7 +311,7 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
           onLoad={(event) => {
             const el = event.currentTarget;
             setNatural({ w: el.naturalWidth, h: el.naturalHeight });
-            setBox((current) => current ?? { w: surfaceRef.current?.clientWidth ?? 0, h: surfaceRef.current?.clientHeight ?? 0 });
+            setBox((current) => current ?? { w: surface?.clientWidth ?? 0, h: surface?.clientHeight ?? 0 });
           }}
           className="max-h-full max-w-full select-none object-contain transition-transform duration-75 ease-out"
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
@@ -357,7 +354,8 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
         <span>{atActual ? 'actual size' : atFit ? 'fitted to window' : `${actualPercent}% of actual size`}</span>
         <span className="hidden sm:inline">Double-click to toggle · Esc to close</span>
       </div>
-    </div>,
-    document.body
+    </Dialog.Content>
+    </Dialog.Portal>
+    </Dialog.Root>
   );
 }

@@ -87,3 +87,37 @@ test('next and previous step through every image in the conversation', async ({ 
   await page.getByRole('dialog', { name: 'Image: screenshot.png' }).getByRole('button', { name: 'Next image' }).click();
   await expect(page.getByRole('dialog', { name: 'Image: image.png' })).toContainText('2 / 2');
 });
+
+test('keyboard zoom and gallery controls stay inside the viewer and closing restores focus', async ({ page }) => {
+  await page.getByRole('button', { name: /Screenshot review/ }).first().click();
+  const column = page.locator('main[data-session-key="pi:hearth::15"]');
+  // Wait for the full conversation gallery, not just its first arriving image.
+  await expect(column.locator('img[alt="image.png"]')).toBeVisible();
+  const opener = column.locator('button').filter({ has: page.locator('img[alt="image.png"]') });
+  await opener.focus();
+  await page.keyboard.press('Enter');
+  const viewer = page.getByRole('dialog', { name: /^Image:/ });
+  await expect(viewer).toBeVisible();
+  const fitted = await zoomPercent(viewer);
+  await page.keyboard.press('+');
+  await expect.poll(() => zoomPercent(viewer)).toBeGreaterThan(fitted);
+  await page.keyboard.press('0');
+  await expect.poll(() => zoomPercent(viewer)).toBe(fitted);
+  await page.keyboard.press('ArrowRight');
+  await expect(viewer).toHaveAccessibleName('Image: screenshot.png');
+  await page.keyboard.press('ArrowLeft');
+  await expect(viewer).toHaveAccessibleName('Image: image.png');
+  // Tab traversal must not reach the workspace beneath the lightbox.
+  await viewer.getByRole('button', { name: 'Close image' }).focus();
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab');
+    await expect.poll(() => viewer.evaluate(node => node.contains(document.activeElement))).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(viewer).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  await page.keyboard.press('Enter');
+  await viewer.getByRole('button', { name: 'Close image' }).click();
+  await expect(viewer).toHaveCount(0);
+  await expect(opener).toBeFocused();
+});

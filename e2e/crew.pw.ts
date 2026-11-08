@@ -1,10 +1,17 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Coagent crews in the pi mock: a leader's workers are hidden from the rail, surfaced only in
- * the crew strip, openable as transient columns, and a worker's pending question rolls up to the
+ * the crew strip, openable in transient dialogs, and a worker's pending question rolls up to the
  * leader. The `[crew]` wake renders as a system card, not a user bubble.
  */
+
+async function persistedWorkspace(page: Page) {
+  return page.evaluate(async () => {
+    const settings = await window.ember.getSettings();
+    return { openSessions: settings.openSessions, activeSession: settings.activeSession };
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -54,15 +61,93 @@ test('the [crew] wake renders as a Crew report card, not a user bubble', async (
   await expect(log.getByText(/^\[crew\]/)).toHaveCount(0);
 });
 
-test('opening a worker from the strip opens a transient column, still out of the rail', async ({ page }) => {
+test('a worker dialog leaves the main workspace and draft intact through Close and Escape', async ({ page }, testInfo) => {
+  await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
+  const leader = page.locator('main[data-session-key="pi:hearth::16"]');
+  await leader.locator('textarea').fill('Keep this leader draft');
+  await expect.poll(async () => (await persistedWorkspace(page)).activeSession).toBe('pi:hearth::16');
+  const workspace = await persistedWorkspace(page);
+  // A retained attribute distinguishes the original DOM node from a replacement with the same key.
+  await leader.evaluate((node) => node.setAttribute('data-modal-retention-probe', 'original'));
+
+  for (const dismissal of ['button', 'escape'] as const) {
+    await leader.getByRole('button', { name: 'Parse config', exact: true }).click();
+    const dialog = page.getByRole('dialog').filter({ has: page.locator('main[data-session-key="pi:hearth::17"]') });
+    const worker = dialog.locator('main[data-session-key="pi:hearth::17"]');
+    await expect(dialog).toBeVisible();
+    await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Parse the config and report back.');
+    await expect(worker.locator('textarea')).toBeEnabled();
+    await expect.poll(async () => {
+      const bounds = await dialog.boundingBox();
+      return bounds !== null && Math.round(bounds.width) === 1200 && Math.round(bounds.height) === 900;
+    }).toBe(true);
+    if (dismissal === 'button') await page.screenshot({ path: testInfo.outputPath('thread-modal-desktop.png') });
+    await expect(leader).toHaveAttribute('data-modal-retention-probe', 'original');
+    await expect(leader.locator('textarea')).toHaveValue('Keep this leader draft');
+    await expect.poll(() => persistedWorkspace(page)).toEqual(workspace);
+    await expect(page.locator('[data-active-chat]')).toContainText('Crew: auth refactor');
+
+    if (dismissal === 'escape') await page.keyboard.press('Escape');
+    else await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(leader.getByRole('button', { name: 'Parse config', exact: true })).toBeFocused();
+    await expect(leader).toBeVisible();
+    await expect(leader).toHaveAttribute('data-modal-retention-probe', 'original');
+    await expect(leader.locator('textarea')).toHaveValue('Keep this leader draft');
+    await expect.poll(() => persistedWorkspace(page)).toEqual(workspace);
+    await expect(page.locator('[data-rail-scroll]').getByRole('button', { name: /^Parse config/ })).toHaveCount(0);
+  }
+});
+
+test('the worker dialog fits a narrow viewport with its composer and Close control visible', async ({ page }, testInfo) => {
+  await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
+  await page.locator('main[data-session-key="pi:hearth::16"]').getByRole('button', { name: 'Parse config', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect.poll(async () => {
+    const bounds = await dialog.boundingBox();
+    return bounds !== null && bounds.x >= 0 && bounds.y >= 0
+      && bounds.x + bounds.width <= 390 && bounds.y + bounds.height <= 844;
+  }).toBe(true);
+  await expect(dialog.locator('textarea')).toBeInViewport();
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('thread-modal-mobile.png') });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test('an open worker dialog refreshes host output and accepts a new message', async ({ page }) => {
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
   await leader.getByRole('button', { name: 'Parse config', exact: true }).click();
-  const worker = page.locator('main[data-session-key="pi:hearth::17"]');
-  await expect(worker).toBeVisible();
-  await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Parse the config and report back.');
-  await expect(page.locator('[data-rail-scroll]').getByRole('button', { name: /^Parse config/ })).toHaveCount(0);
-  await expect(page.locator('[data-active-chat]')).toContainText('Parse config');
+  const worker = page.getByTestId('thread-session-modal').locator('main[data-session-key="pi:hearth::17"]');
+  await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Parsing the config now…');
+  // Mutate the mock host, not App state: the modal must participate in event-driven reads.
+  const stopped = await page.evaluate(() => window.ember.piRequest!('pi:hearth', '/conversations/17/abort', { method: 'POST' }));
+  expect(stopped.ok).toBe(true);
+  await worker.getByRole('button', { name: 'Used 1 tool', exact: true }).click();
+  await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText(/aborted|interrupted/i);
+  await worker.getByRole('textbox', { name: 'Message the agent' }).fill('Verify modal delivery');
+  await worker.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText('Echo from Hearth: Verify modal delivery');
+  await worker.locator('input[type="file"]').setInputFiles({
+    name: 'thread.png', mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC', 'base64'),
+  });
+  await worker.getByRole('textbox', { name: 'Message the agent' }).fill('Review this image');
+  await worker.getByRole('button', { name: 'Send', exact: true }).click();
+  await worker.getByRole('log', { name: 'Conversation' }).locator('img').first().click();
+  const viewer = page.getByRole('dialog', { name: /^Image:/ });
+  await expect(viewer).toBeVisible();
+  await viewer.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect(viewer.getByRole('button', { name: /Zoom level 125 percent/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(viewer).toHaveCount(0);
+  await expect(page.getByTestId('thread-session-modal')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('thread-session-modal')).toHaveCount(0);
+  await expect.poll(async () => (await persistedWorkspace(page)).activeSession).toBe('pi:hearth::16');
 });
 
 test('an already promoted worker links to its peer, and the peer shows in the rail', async ({ page }) => {
@@ -78,6 +163,10 @@ test('an already promoted worker links to its peer, and the peer shows in the ra
   await expect(leader.getByRole('button', { name: 'Harness audit', exact: true })).toBeVisible();
   // The row is a peer link, not a live worker: it carries the `peer` badge instead of a status.
   await expect(leader.getByText('peer', { exact: true })).toBeVisible();
+  await leader.getByRole('button', { name: 'Harness audit', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('main[data-session-key="pi:hearth::20"]')).toBeVisible();
+  await expect.poll(async () => (await persistedWorkspace(page)).activeSession).toBe('pi:hearth::20');
 });
 
 test('the directory lists every spawned session automatically', async ({ page }) => {
@@ -144,7 +233,7 @@ test('promoting an idle worker from its header opens the peer in the rail', asyn
   await expect(worker).toBeVisible();
 
   await worker.getByRole('button', { name: 'Promote to peer' }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByRole('dialog', { name: 'Promote worker to peer' });
   await expect(dialog.getByRole('heading', { name: 'Promote worker to peer' })).toBeVisible();
   await dialog.getByLabel('Name', { exact: true }).fill('Schema guardian');
   await dialog.getByRole('button', { name: 'Promote', exact: true }).click();
@@ -152,6 +241,9 @@ test('promoting an idle worker from its header opens the peer in the rail', asyn
   const rail = page.locator('aside');
   await expect(rail.getByRole('button', { name: /Schema guardian/ }).first()).toBeVisible({ timeout: 10_000 });
   await expect(rail.getByRole('button', { name: /^Migrate schema/ })).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('main[data-session-key="pi:hearth::18"]')).toHaveCount(0);
+  await expect(page.locator('[data-active-chat]')).toContainText('Schema guardian');
 });
 
 test('a worker running at "off" reasoning is not reported as an unavailable level', async ({ page }) => {
@@ -167,5 +259,5 @@ test('a worker running at "off" reasoning is not reported as an unavailable leve
   await expect(worker.getByText(/Your draft is kept/)).toHaveCount(0);
 
   await worker.getByRole('button', { name: 'Choose model' }).click();
-  await expect(page.getByRole('dialog').locator('[aria-label="Reasoning level"]')).toContainText('off');
+  await expect(page.locator('[role="dialog"] [aria-label="Reasoning level"]')).toContainText('off');
 });

@@ -1,3 +1,4 @@
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { threadDescendants } from './lib/crew';
 import { hasUnreadMessages } from './lib/sessionUnread';
 import { AvatarSizeContext } from './blob/size';
@@ -326,6 +327,11 @@ export default function App() {
   const [summaries, setSummaries] = React.useState<Record<string, SessionMessageSummary>>({});
   const [openSessions, setOpenSessions] = React.useState<string[]>([]);
   const [activeSession, setActiveSession] = React.useState<string | null>(null);
+  // Inspection is not workspace navigation. This key is deliberately never persisted.
+  const [threadModalKey, setThreadModalKey] = React.useState<string | null>(null);
+  const threadModalKeyRef = React.useRef<string | null>(null);
+  threadModalKeyRef.current = threadModalKey;
+  const threadReturnFocus = React.useRef<{ element: HTMLElement; workspaceKey: string | null } | null>(null);
   const [minimizedSessions, setMinimizedSessions] = React.useState<Set<string>>(() => new Set());
   const [newSessionInstanceId, setNewSessionInstanceId] = React.useState<string | null>(null);
   const [newSessionDirectory, setNewSessionDirectory] = React.useState<string | null>(null);
@@ -878,7 +884,7 @@ export default function App() {
   const applyStreamDeltas = useStableCallback(
     (instanceId: string, sessionId: string, deltas: LiveDelta[]): boolean => {
       const key = sessionKey({ instanceId, sessionId });
-      if (!sessionIsLoaded({ instanceId, sessionId }, columnsRef.current, activeSessionRef.current, document.hidden)) {
+      if (!sessionIsLoaded({ instanceId, sessionId }, watchedSessionKeysRef.current, activeSessionRef.current, document.hidden)) {
         return false;
       }
       const transcript = transcriptsRef.current[key];
@@ -1647,7 +1653,19 @@ export default function App() {
    * or restored one); it is not otherwise needed here, because the key alone is what gets opened.
    */
   const openSession = React.useCallback((ref: SessionRef, known?: Session | null) => {
-    void known;
+    const session = known ?? (sessionsByInstanceRef.current[ref.instanceId] ?? []).find((entry) => entry.id === ref.sessionId);
+    if (session && isWorker(session)) {
+      if (!session.promotedTo) {
+        if (!threadModalKeyRef.current && document.activeElement instanceof HTMLElement) {
+          threadReturnFocus.current = { element: document.activeElement, workspaceKey: activeKeyRef.current };
+        }
+        setThreadModalKey(sessionKey(ref));
+        return;
+      }
+      // Promotion forks a peer; references to the old worker now open that top-level session.
+      ref = { instanceId: session.instanceId, sessionId: session.promotedTo };
+    }
+    setThreadModalKey(null);
     const key = sessionKey(ref);
     // Split view is the answer to "how many columns", so it decides here too: with it on, opening a
     // session adds a column whether or not the session shares a project with what is already open
@@ -1850,12 +1868,18 @@ export default function App() {
   );
   const columnsRef = React.useRef<string[]>([]);
   columnsRef.current = columns;
+  const watchedSessionKeys = React.useMemo(
+    () => threadModalKey ? [...new Set([...columns, threadModalKey])] : columns,
+    [columns, threadModalKey]
+  );
+  const watchedSessionKeysRef = React.useRef<string[]>([]);
+  watchedSessionKeysRef.current = watchedSessionKeys;
   // The active session may render in the tab strip (sticky-minimized) rather than as a column, but
   // it is still the session the user is watching, so stream hints for it must fetch its transcript.
   const activeSessionRef = React.useRef<string | null>(null);
   activeSessionRef.current = activeSession;
   const columnKeySet = React.useMemo(() => new Set(columns), [columns]);
-  protectedTranscriptKeys.current = columnKeySet;
+  protectedTranscriptKeys.current = new Set(watchedSessionKeys);
 
   /**
    * The session list's three widths, in order. One control walks them: mini (a blob dock) → normal
@@ -1885,6 +1909,7 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const slot = numberShortcutSlot(event);
       if (slot === null) return;
+      if (threadModalKeyRef.current) return;
       const key = openSessionsRef.current[slot];
       if (!key) return;
       event.preventDefault();
@@ -1898,8 +1923,7 @@ export default function App() {
   // (empty defaults) from clobbering what main just handed back.
   React.useEffect(() => {
     if (!workspaceHydratedRef.current) return;
-    // Workers open as transient columns: they work while open, but the layout that persists is
-    // the human's own. A worker key is dropped from open/minimized here (and so never restored).
+    // Workers use a separate modal. Also drop any legacy worker column keys from saved layouts.
     const workerKey = (key: string): boolean => {
       const ref = parseSessionKey(key);
       if (!ref) return false;
@@ -2015,7 +2039,7 @@ export default function App() {
     // Every open session (columns and tabs), not just the active one: OpenCode scopes prompts by
     // directory, so a question in a background column must still be listed for its card to appear.
     add(selectedSessionRef.current?.instanceId, selectedSessionRef.current?.directory);
-    openSessionsRef.current.forEach((key) => {
+    [...openSessionsRef.current, ...(threadModalKeyRef.current ? [threadModalKeyRef.current] : [])].forEach((key) => {
       const ref = parseSessionKey(key);
       if (!ref) return;
       const session = (sessionsByInstanceRef.current[ref.instanceId] ?? []).find(
@@ -2460,7 +2484,7 @@ export default function App() {
     const isLoaded = (instanceId: string, sessionId: string) =>
       sessionIsLoaded(
         { instanceId, sessionId },
-        columnsRef.current,
+        watchedSessionKeysRef.current,
         activeSessionRef.current,
         document.hidden
       );
@@ -2470,7 +2494,7 @@ export default function App() {
       (['sessions', 'states', 'permissions', 'questions', 'queues', 'autoAccept'] as const).forEach((resource) =>
         invalidationQueue.push({ instanceId, resource })
       );
-      columnsRef.current.forEach((key) => {
+      watchedSessionKeysRef.current.forEach((key) => {
         const ref = parseSessionKey(key);
         if (ref?.instanceId === instanceId) {
           invalidationQueue.push({
@@ -2760,7 +2784,7 @@ export default function App() {
   const previouslyVisible = React.useRef(new Set<string>());
   React.useEffect(() => {
     const known = new Set<string>();
-    for (const key of columns) {
+    for (const key of watchedSessionKeys) {
       const ref = parseSessionKey(key);
       const session = ref && (sessionsByInstance[ref.instanceId] ?? []).find((entry) => entry.id === ref.sessionId);
       if (!ref || !session) continue;
@@ -2769,7 +2793,7 @@ export default function App() {
       if (!previouslyVisible.current.has(key) || behind) showTranscript(ref);
     }
     previouslyVisible.current = known;
-  }, [columns, sessionsByInstance, showTranscript]);
+  }, [watchedSessionKeys, sessionsByInstance, showTranscript]);
 
   // Only the columns actually on screen poll their transcripts; overflow/minimized tabs rely on
   // the preview cache and the session list's `updated`.
@@ -2777,16 +2801,16 @@ export default function App() {
     (ref: SessionRef | null): boolean => (ref ? liveInstances[ref.instanceId] === true : false),
     [liveInstances]
   );
-  const columnsLive = columns.length > 0 && columns.every((key) => columnIsLive(parseSessionKey(key)));
+  const columnsLive = watchedSessionKeys.length > 0 && watchedSessionKeys.every((key) => columnIsLive(parseSessionKey(key)));
   // A turn in flight is the one case where a single dropped hint leaves a reply unseen, and the
   // wire has no sequence number that would let a reader notice the gap. So a busy column keeps the
   // fast cadence even when its instance streams: the safety net's job is to miss less, and that is
   // when it matters. Idle sessions -- the common case -- take the slow cadence.
-  const anyColumnBusy = columns.some((key) => states[key] === 'active');
+  const anyColumnBusy = watchedSessionKeys.some((key) => states[key] === 'active');
   usePoll(
     async () => {
       await Promise.all(
-        columnsRef.current.map((key) => {
+        watchedSessionKeysRef.current.map((key) => {
           const ref = parseSessionKey(key);
           if (!ref || document.hidden || !(sessionsByInstanceRef.current[ref.instanceId] ?? []).some((session) => session.id === ref.sessionId)) return Promise.resolve();
           const busy = states[key] === 'active';
@@ -2802,7 +2826,7 @@ export default function App() {
       );
     },
     anyColumnBusy || !columnsLive ? STATE_POLL_MS : MESSAGES_POLL_LIVE_MS,
-    columns.length > 0
+    watchedSessionKeys.length > 0
   );
 
   const toggleInstance = (instanceId: string) => {
@@ -4683,6 +4707,12 @@ export default function App() {
     return map;
   }, [sessionsByInstance]);
 
+  const inspectedThread = threadModalKey ? sessionByKey.get(threadModalKey) : undefined;
+  React.useEffect(() => {
+    if (!inspectedThread?.promotedTo) return;
+    openSession({ instanceId: inspectedThread.instanceId, sessionId: inspectedThread.promotedTo });
+  }, [inspectedThread, openSession]);
+
   const archiveConfirmSession = archiveConfirmKey ? sessionByKey.get(archiveConfirmKey) ?? null : null;
 
   // The column the user is working in: whichever they last clicked, focused or scrolled. Before
@@ -4712,7 +4742,7 @@ export default function App() {
   }, [activeSession, columns, sessionByKey, states]);
 
   /** One side-by-side column for an open session, with its own transcript, queue and handlers. */
-  const renderColumn = (key: string) => {
+  const renderColumn = (key: string, modal = false) => {
     const ref = parseSessionKey(key);
     const session = sessionByKey.get(key);
     if (!ref || !session) return null;
@@ -4742,13 +4772,13 @@ export default function App() {
         style={{ flexGrow: key === featuredKey ? 1.12 : 1 }}
         className="flex min-h-0 min-w-0 flex-1 basis-0 border-r transition-[flex-grow] duration-200 ease-out last:border-r-0"
         onWheelCapture={() => {
-          if (key !== activeSession) activateSession(key);
+          if (!modal && key !== activeSession) activateSession(key);
         }}
       >
         <ChatView
           session={session}
           instance={instance}
-          active={key === featuredKey}
+          active={modal || key === featuredKey}
           instanceMarkerColor={instanceMarkerColor(ref.instanceId, settings.instanceDefaults[ref.instanceId])}
           newSessionInstanceId={null}
           newSessionPrefill={null}
@@ -4832,8 +4862,8 @@ export default function App() {
               ? (question) => handleAskSideQuestion(session, question)
               : undefined
           }
-          onMinimize={() => minimizeSession(key)}
-          onActivate={() => activateSession(key)}
+          onMinimize={modal ? undefined : () => minimizeSession(key)}
+          onActivate={modal ? undefined : () => activateSession(key)}
           // The picker's "Add providers…" opens the host's own Providers screen. Which endpoint is
           // being configured is a property of that screen, so the id comes along.
           onOpenProviders={(instanceId) => {
@@ -4863,7 +4893,7 @@ export default function App() {
           // and that is also the role the crew strip already draws for it.
           onPromote={
             !session.promotedTo &&
-            (session.kind === 'worker' || crewWorkers.get(key)?.some((worker) => worker.id === session.id))
+            (isWorker(session) || [...crewWorkers.values()].some((workers) => workers.some((worker) => sessionKey(worker) === key)))
               ? () => setPromoteTarget(session)
               : undefined
           }
@@ -5233,7 +5263,7 @@ export default function App() {
                   onCompact={() => {}}
                 />
               ) : (
-                columns.map(renderColumn)
+                columns.map((key) => renderColumn(key))
               )}
               </div>
             </div>
@@ -5283,6 +5313,28 @@ export default function App() {
                 void handleArchive(confirmed, true);
               }}
             />
+          ) : null}
+
+          {threadModalKey ? (
+            <Dialog open onOpenChange={(open) => { if (!open) setThreadModalKey(null); }}>
+              <DialogContent className="flex h-[calc(100dvh-1rem)] max-h-[900px] w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[min(90dvh,900px)] sm:w-[min(1200px,94vw)] sm:max-w-[1200px]" data-testid="thread-session-modal"
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  const target = threadReturnFocus.current;
+                  // Promotion deliberately navigates away; never focus the outgoing workspace then.
+                  if (target?.element.isConnected && target.workspaceKey === activeKeyRef.current) target.element.focus();
+                  threadReturnFocus.current = null;
+                }}
+              >
+                <div className="flex-none border-b px-4 py-3 pr-12">
+                  <DialogTitle className="text-sm">Thread · {inspectedThread?.title || 'Worker'}</DialogTitle>
+                  <DialogDescription className="sr-only">Inspect and reply to this thread. Closing returns to your unchanged workspace.</DialogDescription>
+                </div>
+                {inspectedThread ? renderColumn(threadModalKey, true) : (
+                  <p className="p-4 text-sm text-muted-foreground">This host no longer lists the thread. Close this window and refresh its leader’s conversation to check again.</p>
+                )}
+              </DialogContent>
+            </Dialog>
           ) : null}
 
           {promoteTarget ? (
