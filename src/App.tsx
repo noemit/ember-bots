@@ -1,3 +1,4 @@
+import { questionKey, questionsFromThreads } from './lib/threadQuestions';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { threadDescendants } from './lib/crew';
 import { hasUnreadMessages } from './lib/sessionUnread';
@@ -2046,6 +2047,10 @@ export default function App() {
         (entry) => entry.id === ref.sessionId
       );
       add(ref.instanceId, session?.directory);
+      if (session) {
+        const all = Object.values(sessionsByInstanceRef.current).flat();
+        threadDescendants(session, crewByLeader(all)).forEach((worker) => add(worker.instanceId, worker.directory));
+      }
     });
     // The exact directory a pending prompt event reported, when it differs from the session folder.
     instanceIds.forEach((instanceId) => {
@@ -4074,7 +4079,7 @@ export default function App() {
   const dropQuestion = (request: QuestionRequest) =>
     setQuestionsByInstance((prev) => ({
       ...prev,
-      [request.instanceId]: (prev[request.instanceId] ?? []).filter((entry) => entry.id !== request.id),
+      [request.instanceId]: (prev[request.instanceId] ?? []).filter((entry) => questionKey(entry) !== questionKey(request)),
     }));
 
   const handleQuestion = async (
@@ -4082,6 +4087,9 @@ export default function App() {
     answers: QuestionAnswers | null
   ): Promise<boolean> => {
     showActionError(null);
+    const host = instances.find((instance) => instance.id === request.instanceId)?.label || 'The host';
+    const source = sessionByKey.get(sessionKey(request))?.title?.trim() || 'this conversation';
+    const failure = `${host} did not confirm the ${answers ? 'answer' : 'dismissal'} for ${source}. Your answer is still in the question card; try again there.`;
     try {
       const directory = request.directory ?? sessionDirectory(request.instanceId, request.sessionId);
       const ok = answers
@@ -4089,20 +4097,20 @@ export default function App() {
         : await rejectQuestion(request, directory);
       if (!ok) {
         showActionError(
-          answers ? 'Could not submit this answer.' : 'Could not dismiss this question.',
+          failure,
           () => void handleQuestion(request, answers)
         );
         return false;
       }
       dropQuestion(request);
+      // Refresh the origin, not whichever leader column currently has focus.
+      void refreshStates([request.instanceId]);
+      void refreshSessions([request.instanceId]);
+      void refreshQuestions([request.instanceId]);
       return true;
-    } catch (err) {
+    } catch {
       showActionError(
-        err instanceof Error
-          ? err.message
-          : answers
-            ? 'Could not submit this answer.'
-            : 'Could not dismiss this question.',
+        failure,
         () => void handleQuestion(request, answers)
       );
       return false;
@@ -4803,6 +4811,7 @@ export default function App() {
           instanceLabel={instance?.label}
           permissions={columnPermissions}
           questions={columnQuestions}
+          threadQuestions={questionsFromThreads(threadDescendants(session, crewWorkers), questions)}
           models={models?.models ?? []}
           onModelsRefresh={() => void refreshModels(ref.instanceId)}
           defaultModelId={models?.defaultModelId ?? null}

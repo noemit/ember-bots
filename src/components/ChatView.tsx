@@ -1,3 +1,4 @@
+import type { ThreadQuestion } from '../lib/threadQuestions';
 import { threadShelfStatus } from '../lib/crew';
 import { ThreadLinkContext } from './threadLinkContext';
 import { useComposerConnection } from './workspaceConnection';
@@ -168,6 +169,7 @@ type Props = {
   instanceLabel?: string;
   permissions: PermissionRequest[];
   questions: QuestionRequest[];
+  threadQuestions?: ThreadQuestion[];
   models: ModelOption[];
   defaultModelId: string | null;
   instanceDefaultModelId?: string | null;
@@ -451,6 +453,7 @@ function ChatView({
   instanceLabel,
   permissions,
   questions,
+  threadQuestions,
   models,
   defaultModelId,
   instanceDefaultModelId,
@@ -1458,6 +1461,8 @@ function ChatView({
         fetchNotice={pane.messages.length === 0 ? fetchNotice : undefined}
         permissions={pane.permissions}
         questions={pane.questions}
+        threadQuestions={session ? threadQuestions : undefined}
+        onOpenThread={onOpenWorker}
         state={pane.state}
         sending={pane.sending}
         creating={pane.creating}

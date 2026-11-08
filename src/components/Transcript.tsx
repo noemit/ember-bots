@@ -1,3 +1,4 @@
+import { questionKey, type ThreadQuestion } from '../lib/threadQuestions';
 import YoloLabel from './YoloLabel';
 import MessageReadButton from './MessageReadButton';
 import { isUnreadEligible } from '../lib/unreadDigest';
@@ -117,6 +118,8 @@ type Props = {
   compacting?: boolean;
   permissions: PermissionRequest[];
   questions: QuestionRequest[];
+  threadQuestions?: ThreadQuestion[];
+  onOpenThread?: (source: Session) => void;
   state: BallState;
   sending: boolean;
   /** The session's title, as the column header shows it; names the chat in the activity line. */
@@ -938,11 +941,16 @@ type Draft = { picked: string[]; custom: string };
 const QuestionCard = ({
   request,
   onAnswer,
+  source,
+  onOpenThread,
 }: {
+  source?: Session;
+  onOpenThread?: (source: Session) => void;
   request: QuestionRequest;
   onAnswer: (answers: QuestionAnswers | null) => Promise<boolean>;
 }) => {
   const [busy, setBusy] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
   const [drafts, setDrafts] = React.useState<Draft[]>(() =>
     request.questions.map(() => ({ picked: [], custom: '' }))
   );
@@ -967,13 +975,15 @@ const QuestionCard = ({
 
   const submit = async () => {
     if (!complete) return;
+    setFailed(false);
     setBusy(true);
-    if (!(await onAnswer(drafts.map(answerFor)))) setBusy(false);
+    if (!(await onAnswer(drafts.map(answerFor)))) { setBusy(false); setFailed(true); }
   };
 
   const dismiss = async () => {
+    setFailed(false);
     setBusy(true);
-    if (!(await onAnswer(null))) setBusy(false);
+    if (!(await onAnswer(null))) { setBusy(false); setFailed(true); }
   };
 
   return (
@@ -988,7 +998,8 @@ const QuestionCard = ({
         <CardContent className="flex flex-col gap-3 p-3.5">
           <div className="flex items-center gap-2">
             <MessageCircleQuestion className="size-4 flex-none text-highlight" />
-            <span className="font-medium">The bot has a question</span>
+            <span className="font-medium">{source ? `Thread: ${source.title?.trim() || source.id}` : 'The bot has a question'}</span>
+            {source && onOpenThread ? <Button size="xs" variant="ghost" className="ml-auto" onClick={() => onOpenThread(source)}>Open thread</Button> : null}
           </div>
 
           {request.questions.map((question, index) => {
@@ -1057,6 +1068,7 @@ const QuestionCard = ({
             );
           })}
 
+          {failed ? <p role="alert" className="text-xs text-destructive">The host did not confirm this question’s reply. Your answer is still here; try Answer or Dismiss again.</p> : null}
           <div className="flex items-center gap-1.5">
             <Button
               size="xs"
@@ -1886,6 +1898,8 @@ function Transcript({
   compacting = false,
   permissions,
   questions,
+  threadQuestions = [],
+  onOpenThread,
   state,
   sending,
   sessionTitle,
@@ -2106,7 +2120,7 @@ function Transcript({
     );
   }, []);
 
-  const pendingCount = permissions.length + questions.length;
+  const pendingCount = permissions.length + questions.length + threadQuestions.length;
   React.useEffect(() => {
     if (pendingCount > previousPendingCountRef.current) {
       // A new approval or question has to be seen, so it gets one scroll — but it does not re-arm
@@ -2518,10 +2532,17 @@ function Transcript({
 
             {questions.map((request) => (
               <QuestionCard
-                key={request.id}
+                key={questionKey(request)}
                 request={request}
                 onAnswer={(answers) => onQuestion(request, answers)}
               />
+            ))}
+
+            {threadQuestions.map(({ request, source }) => (
+              <section key={questionKey(request)} data-testid="thread-question" aria-label={`Question from thread ${source.title?.trim() || source.id}`}>
+                <QuestionCard request={request} source={source} onOpenThread={onOpenThread}
+                  onAnswer={(answers) => onQuestion(request, answers)} />
+              </section>
             ))}
 
             {activity ? (

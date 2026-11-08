@@ -1365,8 +1365,9 @@ export const loadAllQuestions = async (
       if (successful.length === 0) return null;
       const byId = new Map<string, QuestionRequest>();
       successful.flat().forEach((request) => {
-        const existing = byId.get(request.id);
-        if (!existing || (!existing.directory && request.directory)) byId.set(request.id, request);
+        const key = JSON.stringify([request.sessionId, request.id]);
+        const existing = byId.get(key);
+        if (!existing || (!existing.directory && request.directory)) byId.set(key, request);
       });
       return [instanceId, [...byId.values()]] as const;
     })

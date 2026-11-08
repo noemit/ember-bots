@@ -772,6 +772,18 @@ describe('form loading (v2 questions)', () => {
     expect(paths).toEqual(['/api/form', '/api/form?location[directory]=%2Fworkspace%2Fember']);
   });
 
+  test('keeps same-id forms from separate conversations and hosts', async () => {
+    setRequest(async () => ({
+      ok: true, status: 200,
+      data: { data: [form, { ...form, sessionID: 'worker_2' }] },
+    }));
+    const result = await loadAllQuestions(['local', 'remote']);
+    for (const host of ['local', 'remote']) {
+      expect(result[host].map((request) => request.sessionId)).toEqual(['ses_1', 'worker_2']);
+      expect(result[host].every((request) => request.instanceId === host)).toBe(true);
+    }
+  });
+
   test('encodes picked labels into a keyed form answer on the session route', async () => {
     let requestPath = '';
     let requestBody: unknown;

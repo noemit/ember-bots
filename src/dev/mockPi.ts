@@ -580,6 +580,27 @@ const fixtureI = makeConversation({
 
 conversations.push(fixtureA, fixtureB, fixtureC, fixtureD, fixtureE, fixtureF, fixtureG, fixtureH, fixtureI);
 
+// Opt-in grandchild question: the root leader must surface decisions at any depth without
+// exposing unrelated conversations' questions or changing the default crew fixtures.
+if (fixtureParam === 'thread-questions') {
+  fixtureI.delegates = true;
+  conversations.push(makeConversation({
+    id: 21,
+    cwd: '/workspace/hearth',
+    title: 'Audit migration',
+    kind: 'worker',
+    lead: { conversationId: 18, host: 'local' },
+    entries: [
+      { id: 210, kind: 'pi.user', model: [userMessage('Audit the migration.', minutes(2))] },
+      { id: 211, kind: 'pi.assistant', model: [assistantMessage(toolCall(
+        'call_fixture_nested_ask', 'ask', { question: 'Keep the migration backup?', options: ['Keep', 'Remove'] }
+      ), 'toolUse', minutes(2))] },
+    ],
+    questions: [{ key: 'nested-question', question: 'Keep the migration backup?', options: ['Keep', 'Remove'], status: 'pending' }],
+    parked: { kind: 'question', callId: 'call_fixture_nested_ask' },
+  }));
+}
+
 // A worker a human already promoted (`?promoted`): the strip row links to the peer fork and the
 // peer shows in the rail, while the worker itself stays hidden.
 const fixturePromotedWorker = makeConversation({

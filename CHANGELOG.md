@@ -1,6 +1,7 @@
 ## Unreleased
 
 ### Added
+- Answer pending thread questions directly in the leader’s conversation, including nested threads, with replies routed to the asking thread.
 - Inspect worker threads in a roomy live conversation dialog without replacing the main workspace. Promoted peers still open as normal sessions.
 - Set an instance’s default model directly from the model picker without changing the current conversation.
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
