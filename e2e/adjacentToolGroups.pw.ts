@@ -162,6 +162,33 @@ test('search jumps to a later source step inside a virtualized merged rollup', a
   const column = await fixture(page, 'virtual');
   const history = column.getByRole('log', { name: 'Conversation' });
   await expect(history.getByText('Finished inspecting', { exact: true })).toBeVisible();
+  // Hold the row's click-to-read grace period so it settles after find navigation.
+  await page.evaluate(() => {
+    const originalSet = window.setTimeout.bind(window);
+    const originalClear = window.clearTimeout.bind(window);
+    const pending = new Map<number, () => void>();
+    window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay !== 300 || typeof callback !== 'function') return originalSet(callback, delay, ...args);
+      const id = originalSet(() => {}, 60000);
+      pending.set(id, () => callback(...args));
+      return id;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = (id?: number) => { if (id !== undefined) pending.delete(id); originalClear(id); };
+    Object.assign(window, { __releaseAdjacentReadGrace: () => {
+      window.setTimeout = originalSet;
+      window.clearTimeout = originalClear;
+      const callbacks = [...pending.entries()];
+      pending.clear();
+      for (const [id, callback] of callbacks) { originalClear(id); callback(); }
+      return callbacks.length;
+    }});
+  });
+  const clickedId = await history.locator('..').evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    return document.elementFromPoint(bounds.left + 40, bounds.top + 40)?.closest('[data-message-id]')?.getAttribute('data-message-id');
+  });
+  expect(clickedId).toBeTruthy();
+  expect(clickedId).not.toBe('e102');
   await history.locator('..').click({ position: { x: 40, y: 40 } });
   await page.keyboard.press('ControlOrMeta+f');
   await column.getByRole('textbox', { name: 'Find in conversation' }).fill('Hidden source navigation marker');
@@ -169,6 +196,12 @@ test('search jumps to a later source step inside a virtualized merged rollup', a
   await expect(combined).toBeVisible();
   // Revisit the match after virtual measurement; the transient highlight expires after five seconds.
   await column.getByRole('textbox', { name: 'Find in conversation' }).press('Enter');
+  const target = history.locator('[data-message-id="e102"]');
+  await expect(target).toHaveAttribute('data-highlighted', 'true');
+  expect(await page.evaluate(() => (window as unknown as { __releaseAdjacentReadGrace: () => number }).__releaseAdjacentReadGrace())).toBe(1);
+  // The earlier click acknowledges its own reply, not the merged search target e102.
+  await expect(history.locator(`[data-message-id="${clickedId}"]`)).toHaveAttribute('data-read-highlighted', 'true');
+  await expect(target).toHaveAttribute('data-highlighted', 'true');
   await expect(history.locator('[data-highlighted="true"]')).toContainText('Used 2 tools');
   expect(await history.locator('[data-index]').count()).toBeLessThan(100);
 });

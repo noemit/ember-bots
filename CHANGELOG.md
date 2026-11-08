@@ -23,6 +23,7 @@
 - The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
 
 ### Fixed
+- A delayed read acknowledgement no longer clears the search highlight on a different message, including merged tool groups in virtualized history.
 - Buddy settles smoothly between working, thinking and resting instead of snapping to a new pose; decision badges stay anchored and reduced motion remains still.
 - Packaged Kiln and Tinder include the QuickJS sandbox and its worker, so code-mode scripts can call tools without an installed checkout while retaining worker-thread timeout isolation.
 - Composer colour and focus halos multiply into light surfaces and dodge dark surfaces instead of adding a greyish wash; the focus halo stays subtle rather than framing the whole composer.

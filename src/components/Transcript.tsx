@@ -2308,7 +2308,9 @@ function Transcript({
     const original = messages.find((entry) => entry.id === message.id);
     if (original && isUnreadEligible(original) && unreadIds.has(original.id) && onMarkRead) {
       onMarkRead(original);
-      setHighlightedMessageId(null);
+      // A click waits for the selection grace period. Search may have moved to another
+      // message meanwhile; clear only this reply's jump styling, not the newer destination.
+      setHighlightedMessageId(current => current === original.id ? null : current);
       setReceipt({ message: original, version: ++receiptVersion.current });
       setReadHighlight(true);
     }
