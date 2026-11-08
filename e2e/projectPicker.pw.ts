@@ -57,16 +57,24 @@ test('setup requires an explicit workspace choice and preserves the model defaul
   await page.goto('/?fixture=onboarding');
   const guide = page.getByTestId('onboarding');
   await expect(guide).toBeVisible();
-  await page.evaluate(() => window.ember.setSettings({ instanceDefaults: { 'pi:local': { model: { providerID: 'openai', modelID: 'gpt-5' } } } }));
-  // Refresh settings from the bridge so setup uses the same saved choices as the app.
-  await page.reload();
+  await guide.getByRole('button', { name: /Choose an AI/ }).click();
+  const modelSelect = guide.getByLabel('Default model for');
+  await expect(modelSelect).toHaveValue('');
+  await expect.poll(() => modelSelect.locator('option').count()).toBeGreaterThan(1);
+  const modelKey = (await modelSelect.locator('option').nth(1).getAttribute('value'))!;
+  const chosenModel = { providerID: modelKey.split('/')[0], modelID: modelKey.slice(modelKey.indexOf('/') + 1) };
+  await modelSelect.selectOption(modelKey);
+  await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local']?.model)).toEqual(chosenModel);
+  // An explicit model alone must not bypass the workspace choice.
   await guide.getByRole('button', { name: /First agent/ }).click();
   await expect(guide.getByRole('button', { name: 'New agent', exact: true })).toBeDisabled();
   await guide.getByRole('button', { name: 'Choose workspace' }).click();
   const picker = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Choose your workspace' }) });
   await picker.getByRole('button', { name: 'Use this workspace' }).click();
   await expect(guide.getByRole('button', { name: 'New agent', exact: true })).toBeEnabled();
-  expect(await page.evaluate(() => window.ember.getSettings().then(s => s.instanceDefaults['pi:local']?.model?.modelID))).toBe('gpt-5');
+  await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:local'])).toMatchObject({
+    model: chosenModel, workspaceDirectory: '/workspace',
+  });
   await page.screenshot({ path: '/tmp/ember-workspace-setup.png' });
   await guide.getByRole('button', { name: 'New agent', exact: true }).click();
   await expect(guide).toHaveCount(0);

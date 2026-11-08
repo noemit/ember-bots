@@ -1,6 +1,7 @@
 import { threadDescendants } from './lib/crew';
 import { hasUnreadMessages } from './lib/sessionUnread';
 import { AvatarSizeContext } from './blob/size';
+import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from './lib/instanceDefaultModel';
 import * as React from 'react';
 import { WorkspaceConnection } from './components/workspaceConnection';
 import { blobColor } from './blob/color';
@@ -483,6 +484,10 @@ export default function App() {
     return () => window.removeEventListener('ember:session-expired', onExpired);
   }, [showActionError]);
   const handleSettings = updateSettings;
+  const setInstanceDefaultModel = (instanceId: string, model: import('./types').ModelRef) => {
+    const current = settingsRef.current.instanceDefaults;
+    handleSettings({ instanceDefaults: { ...current, [instanceId]: withInstanceDefaultModel(current[instanceId], model) } });
+  };
   // Hidden instances live in settings, not in memory: unticking a host in the Instances menu is
   // "remove it from my list", and it used to be forgotten on the next launch.
   const hidden = React.useMemo(() => new Set(settings.hiddenInstances), [settings.hiddenInstances]);
@@ -4771,6 +4776,8 @@ export default function App() {
           models={models?.models ?? []}
           onModelsRefresh={() => void refreshModels(ref.instanceId)}
           defaultModelId={models?.defaultModelId ?? null}
+          instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[ref.instanceId], models?.defaultModelId)}
+          onSetInstanceDefault={(model) => setInstanceDefaultModel(ref.instanceId, model)}
           recentModels={recentModelKeys(sessionsByInstance[ref.instanceId] ?? [])}
           sending={sendingKeys.has(key)}
           stopping={stoppingKeys.has(key)}
@@ -5179,6 +5186,8 @@ export default function App() {
                   models={selectedModels?.models ?? []}
                   onModelsRefresh={() => { if (newSessionInstanceId) void refreshModels(newSessionInstanceId); }}
                   defaultModelId={selectedModels?.defaultModelId ?? null}
+                  instanceDefaultModelId={effectiveInstanceDefaultModel(modelInstanceId ? settings.instanceDefaults[modelInstanceId] : undefined, selectedModels?.defaultModelId)}
+                  onSetInstanceDefault={modelInstanceId ? (model) => setInstanceDefaultModel(modelInstanceId, model) : undefined}
                   recentModels={recentModels}
                   sending={draftPendingCreate?.phase === 'creating'}
                   pendingCreate={draftPendingCreate}
@@ -5344,6 +5353,8 @@ export default function App() {
                 open={onboardingOpen}
                 startAtWelcome={Boolean(settings.onboardingStartedAt)}
                 state={onboardingState}
+                models={modelsByInstance[onboardingState.targetInstanceId ?? ""]?.models ?? []}
+                onRefreshModels={(id) => void refreshModels(id)}
                 localProblem={onboardingProblem}
                 instances={instances}
                 endpoints={settings.piEndpoints}
@@ -5419,6 +5430,8 @@ export default function App() {
                 value={scheduledModelTarget.model ? modelRefKey(scheduledModelTarget.model) : ''}
                 variant={scheduledModelTarget.model?.variant ?? ''}
                 defaultModelId={modelsByInstance[scheduledModelTarget.instanceId]?.defaultModelId ?? null}
+                instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[scheduledModelTarget.instanceId], modelsByInstance[scheduledModelTarget.instanceId]?.defaultModelId)}
+                onSetInstanceDefault={(model) => setInstanceDefaultModel(scheduledModelTarget.instanceId, model)}
                 collapseProviders
                 onSelect={(key, variant) => void handleScheduledModelSelect(scheduledModelTarget, key, variant)}
                 onOpenChange={(open) => {

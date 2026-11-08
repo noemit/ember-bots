@@ -22,6 +22,8 @@ type Props = {
   models: ModelOption[];
   instanceId?: string;
   defaultModelId?: string | null;
+  instanceDefaultModelId?: string | null;
+  onSetInstanceDefault?: (model: ModelOption) => void;
   onModelsRefresh?: () => Promise<unknown> | void;
   onSendQueued: (itemId: string) => Promise<boolean>;
   onMoveQueued: (itemId: string, direction: -1 | 1) => Promise<boolean>;
@@ -64,6 +66,8 @@ export default function QueuedMessageList({
   models,
   instanceId,
   defaultModelId,
+  instanceDefaultModelId,
+  onSetInstanceDefault,
   onModelsRefresh,
   onSendQueued,
   onMoveQueued,
@@ -394,7 +398,7 @@ export default function QueuedMessageList({
       {editingItem ? (
         <EditQueuedMessageDialog
           item={editingItem}
-          models={models} instanceId={instanceId} directory={queue?.directory} defaultModelId={defaultModelId} onModelsRefresh={onModelsRefresh}
+          models={models} instanceId={instanceId} directory={queue?.directory} defaultModelId={defaultModelId} instanceDefaultModelId={instanceDefaultModelId} onSetInstanceDefault={onSetInstanceDefault} onModelsRefresh={onModelsRefresh}
           modelLabel={queuedModelLabel(editingItem)}
           busy={busyQueueItemId !== null}
           onCancel={() => setEditing(null)}

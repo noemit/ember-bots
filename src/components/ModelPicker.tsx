@@ -25,6 +25,9 @@ type Props = {
   variant?: string;
   /** Default key OpenCode resolves when value is DEFAULT_MODEL. */
   defaultModelId?: string | null;
+  /** Effective Ember new-agent default, separate from the server-default selection sentinel. */
+  instanceDefaultModelId?: string | null;
+  onSetInstanceDefault?: (model: ModelOption) => void;
   collapseProviders?: boolean;
   requireConcreteModel?: boolean;
   /** Queue edits must make an incompatible effort explicit instead of silently clearing it. */
@@ -60,6 +63,7 @@ const Row = React.memo(function Row({
   isDefault,
   onHover,
   onPick,
+  onSetDefault,
 }: {
   model: ModelOption;
   selected: boolean;
@@ -67,30 +71,40 @@ const Row = React.memo(function Row({
   isDefault: boolean;
   onHover: () => void;
   onPick: () => void;
+  onSetDefault?: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <div
       data-active={active}
+      data-model-key={modelRefKey(model)}
       onMouseEnter={onHover}
-      onFocus={onHover}
-      onClick={onPick}
       className={cn(
-        'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] outline-none',
+        'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px]',
         active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
       )}
     >
-      <span className="min-w-0 flex-1 truncate">
-        {model.details.name}
-        {isDefault ? ' (Default)' : ''}
-      </span>
-      {model.details.status && model.details.status !== 'active' ? (
-        <span className="flex-none rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {model.details.status}
+      <button type="button" onFocus={onHover} onClick={onPick}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="min-w-0 flex-1 truncate" title={model.details.name}>{model.details.name}</span>
+        {model.details.status && model.details.status !== 'active' ? (
+          <span className="flex-none rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            {model.details.status}
+          </span>
+        ) : null}
+        {selected ? <Check aria-hidden="true" className="size-3.5 flex-none text-highlight" /> : null}
+      </button>
+      {isDefault ? (
+        <span className="flex flex-none items-center gap-1 text-[10px]" title="Used for new agents on this instance; existing conversations keep their model.">
+          <Check aria-hidden="true" className="size-3" />Instance Default
         </span>
+      ) : onSetDefault ? (
+        <button type="button" onClick={onSetDefault}
+          title="Used for new agents on this instance; existing conversations keep their model."
+          className="max-w-32 flex-none rounded px-1 py-0.5 text-left text-[10px] leading-tight hover:bg-background focus-visible:ring-2 focus-visible:ring-ring">
+          Set this model as the instance default
+        </button>
       ) : null}
-      {selected ? <Check className="size-3.5 flex-none text-highlight" /> : null}
-    </button>
+    </div>
   );
 });
 
@@ -163,6 +177,8 @@ export default function ModelPicker({
   value,
   variant = '',
   defaultModelId = null,
+  instanceDefaultModelId = defaultModelId,
+  onSetInstanceDefault,
   collapseProviders = false,
   requireConcreteModel = false,
   preserveVariantOnModelChange = false,
@@ -196,7 +212,7 @@ export default function ModelPicker({
   const byKey = React.useMemo(() => new Map(models.map((model) => [modelRefKey(model), model])), [models]);
   const defaultModel = defaultModelId ? byKey.get(defaultModelId) ?? null : null;
   const defaultLabel = defaultModel
-    ? `${defaultModel.details.providerName} / ${defaultModel.details.name} (Default)`
+    ? `${defaultModel.details.providerName} / ${defaultModel.details.name} (Server default)`
     : 'Server default';
 
   const groups = React.useMemo<Group[]>(() => {
@@ -340,7 +356,8 @@ export default function ModelPicker({
                           model={model}
                           selected={key === selectedKey}
                           active={key === activeKey}
-                          isDefault={key === defaultModelId}
+                          isDefault={key === instanceDefaultModelId}
+                          onSetDefault={onSetInstanceDefault ? () => onSetInstanceDefault(model) : undefined}
                           onHover={() => setHovered(key)}
                           onPick={() => pick(key)}
                         />
@@ -404,7 +421,7 @@ export default function ModelPicker({
           </div>
         </div>
         {selectionError ? <p role="status" className="border-t px-3 py-2 text-xs text-destructive">{selectionError}</p> : null}
-        <div className="flex flex-none items-center gap-2 border-t p-2.5">
+        <div className="flex flex-none flex-wrap items-center gap-2 border-t p-2.5">
           <span className="text-[11px] font-medium text-muted-foreground">Reasoning</span>
           <Select
             value={canonicalSelected || '__default'}

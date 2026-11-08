@@ -1,3 +1,9 @@
+## Unreleased
+
+### Added
+- Set an instance’s default model directly from the model picker without changing the current conversation.
+- Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
+
 ## 1.20.6
 
 ### Changed

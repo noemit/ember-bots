@@ -170,6 +170,8 @@ type Props = {
   questions: QuestionRequest[];
   models: ModelOption[];
   defaultModelId: string | null;
+  instanceDefaultModelId?: string | null;
+  onSetInstanceDefault?: (model: ModelOption) => void;
   /** `provider/model` keys the instance used most recently, newest first. */
   recentModels: string[];
   /** Re-read this instance's model catalogue; called when the picker opens so new models appear without a relaunch. */
@@ -451,6 +453,8 @@ function ChatView({
   questions,
   models,
   defaultModelId,
+  instanceDefaultModelId,
+  onSetInstanceDefault,
   recentModels,
   onModelsRefresh,
   sending,
@@ -2027,6 +2031,8 @@ function ChatView({
                           models={models}
                           instanceId={session?.instanceId}
                           defaultModelId={defaultModelId}
+                          instanceDefaultModelId={instanceDefaultModelId}
+                          onSetInstanceDefault={onSetInstanceDefault}
                           onModelsRefresh={onModelsRefresh}
                           onSendQueued={onSendQueued}
                           onMoveQueued={onMoveQueued}
@@ -2535,6 +2541,8 @@ function ChatView({
                     value={modelId}
                     variant={variant}
                     defaultModelId={defaultModelId}
+                    instanceDefaultModelId={instanceDefaultModelId}
+                    onSetInstanceDefault={onSetInstanceDefault}
                     collapseProviders
                     onSelect={(next, nextVariant) => {
                       setModelId(next);

@@ -24,6 +24,8 @@ type Props = {
   instanceId?: string;
   directory?: string;
   defaultModelId?: string | null;
+  instanceDefaultModelId?: string | null;
+  onSetInstanceDefault?: (model: ModelOption) => void;
   onModelsRefresh?: () => Promise<unknown> | void;
   /** A queue mutation is already in flight for this row; Save waits for it. */
   busy: boolean;
@@ -43,6 +45,8 @@ export default function EditQueuedMessageDialog({
   instanceId,
   directory,
   defaultModelId,
+  instanceDefaultModelId,
+  onSetInstanceDefault,
   onModelsRefresh,
   busy,
   onCancel,
@@ -94,7 +98,7 @@ export default function EditQueuedMessageDialog({
             instanceId={instanceId} directory={directory} models={models} recentModels={[]}
             value={selection?.modelId ?? modelRefKey(item.sendConfig)}
             variant={selection?.variant ?? item.sendConfig.variant ?? ''}
-            defaultModelId={defaultModelId} requireConcreteModel preserveVariantOnModelChange
+            defaultModelId={defaultModelId} instanceDefaultModelId={instanceDefaultModelId} onSetInstanceDefault={onSetInstanceDefault} requireConcreteModel preserveVariantOnModelChange
             onRefresh={onModelsRefresh}
             onSelect={(key, variant) => {
               const chosen = models.find(model => modelRefKey(model) === key) ??

@@ -1,3 +1,5 @@
+import { modelRefKey, type ModelRef, type ModelOption } from '../types';
+
 /**
  * First-run onboarding: which steps exist, which are blocked, and what "set up" means.
  *
@@ -124,3 +126,9 @@ export const workspaceHint = (root: string | null): string => {
   }
   return `Each folder in here is a project. The default is ${root}; you can point it anywhere.`;
 };
+
+/** A host fallback is not a person's choice; require a saved, currently offered model. */
+export const onboardingModelReady = (model: ModelRef | undefined, models: ModelOption[]): boolean =>
+  Boolean(model && models.some((entry) => modelRefKey(entry) === modelRefKey(model)));
+
+export const OPENCODE_ONBOARDING_TIP = 'No provider account yet? You can sign in or sign up on OpenCode’s website, which may offer free models. Availability and pricing can change; not every model is free. Copy an API key from OpenCode, paste it into OpenCode Zen below and select Save, then choose a model.';

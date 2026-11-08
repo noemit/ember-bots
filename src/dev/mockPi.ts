@@ -1692,7 +1692,7 @@ const providers = [
     signIn: { label: 'Sign in with SuperGrok or X Premium' },
   },
 ];
-const providerCredentials = new Map<string, 'api_key' | 'oauth'>([['faux-hearth', 'api_key']]);
+const providerCredentials = new Map<string, 'api_key' | 'oauth'>(new URLSearchParams(window.location.search).has('noProviders') ? [] : [['faux-hearth', 'api_key']]);
 /** In-flight mock sign-ins, keyed by provider id. */
 const mockLogins = new Map<string, { polls: number }>();
 
@@ -1781,7 +1781,7 @@ let settings: EmberSettings = {
   // opposite: a harness that did not start, so the guide's failure copy is what a person sees.
   localHarnessCanRotate: !firstRunFixture,
   // `onboardedAt` is what suppresses the guide on an existing install; the fixture omits it.
-  ...(onboardingFixture ? { onboardingDismissedAt: undefined, onboardedAt: undefined } : {}),
+  ...(onboardingFixture ? { onboardingStartedAt: 1, onboardingDismissedAt: undefined, onboardedAt: undefined } : {}),
   localHarnessState: firstRunFixture
     ? {
         kind: 'failed',

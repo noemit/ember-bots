@@ -3,13 +3,19 @@ import { ArrowLeftRight, Boxes, Cpu, Laptop, Monitor, ArrowRight, Check, CircleA
 import { Button } from '@/components/ui/button';
 import Blob from '../blob/Blob';
 import { blobColor } from '../blob/color';
+import { MoodBadge } from '../blob/overlays';
+import { randomId } from '@/lib/randomId';
+import type { PiProviderInfo } from '../piApi';
 import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
 import ProjectPicker from './ProjectPicker';
 import { copyText } from '@/lib/clipboard';
+import { withInstanceDefaultModel } from '@/lib/instanceDefaultModel';
 import { cn } from '@/lib/utils';
 import {
   canFinish,
+  onboardingModelReady,
+  OPENCODE_ONBOARDING_TIP,
   isCompactStep,
   stepStates,
   stepsFor,
@@ -17,17 +23,20 @@ import {
   type OnboardingStep,
   type OnboardingStepId,
 } from '@/lib/onboarding';
-import type { EmberSettingsPatch, InstanceDefaults, Instance, LocalHarnessToken, PiEndpoint } from '../types';
+import { modelRefKey } from '../types';
+import type { EmberSettingsPatch, InstanceDefaults, ModelOption, Instance, LocalHarnessToken, PiEndpoint } from '../types';
 
 type Props = {
   open: boolean;
   startAtWelcome?: boolean;
   state: OnboardingState;
+  instanceDefaults: Record<string, InstanceDefaults>;
+  models: ModelOption[];
+  onRefreshModels: (instanceId: string) => void;
   /** The sentence from `localHarnessNotice` when the local host did not start. */
   localProblem: string | null;
   instances: Instance[];
   endpoints: PiEndpoint[];
-  instanceDefaults?: Record<string, InstanceDefaults>;
   onDismiss: () => void;
   onRetryLocal: () => Promise<void>;
   onRefreshInstances: () => void;
@@ -55,8 +64,8 @@ const stepIcon = (id: OnboardingStepId) => {
  * The first-run guide.
  *
  * A full-window surface rather than a dialog over Home, because a dialog over an empty Home reads
- * as an error to clear. It is **dismissible from every step** (Esc included): the app behind it
- * works, and a guide that traps someone in a broken state is worse than no guide.
+ * as an error to clear. Existing installs can dismiss from every step (Esc included): the app behind it
+ * works. Fresh setup requires a model choice before dismissal so it cannot silently adopt a host fallback.
  *
  * Adaptive by design — see `lib/onboarding.ts` for the decisions. A person connected to one
  * computer never sees the container instructions, and the token step shrinks to a line.
@@ -65,6 +74,9 @@ export default function OnboardingWizard({
   open,
   startAtWelcome = false,
   state,
+  instanceDefaults = {},
+  models,
+  onRefreshModels,
   localProblem,
   instances,
   endpoints,
@@ -72,7 +84,6 @@ export default function OnboardingWizard({
   onRetryLocal,
   onRefreshInstances,
   onChange,
-  instanceDefaults = {},
   onStartAgent,
   loadToken,
 }: Props) {
@@ -80,6 +91,17 @@ export default function OnboardingWizard({
   const [active, setActive] = React.useState<OnboardingStepId>('welcome');
   const [retrying, setRetrying] = React.useState(false);
   const marks = stepStates(state, localProblem);
+  const target = state.targetInstanceId;
+  const defaultModel = target ? instanceDefaults[target]?.model : undefined;
+  const [providerCatalog, setProviderCatalog] = React.useState<{ id: string; providers: PiProviderInfo[] } | null>(null);
+  const providersReady = Boolean(target && (
+    (providerCatalog?.id === target && providerCatalog.providers.some((provider) => provider.credential)) ||
+    models.some((model) => model.providerID === 'ollama' || model.providerID === 'lmstudio') ||
+    instances.find((instance) => instance.id === target)?.kind !== 'pi'
+  ));
+  const modelReady = providersReady && onboardingModelReady(defaultModel, models);
+  const canDismiss = !startAtWelcome || modelReady;
+  if (modelReady) marks.providers = { kind: 'done' };
 
   const hasOpened = React.useRef(false);
   React.useEffect(() => {
@@ -92,14 +114,14 @@ export default function OnboardingWizard({
   React.useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented) {
+      if (event.key === 'Escape' && !event.defaultPrevented && canDismiss) {
         event.preventDefault();
         onDismiss();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onDismiss]);
+  }, [open, onDismiss, canDismiss]);
 
   if (!open) return null;
 
@@ -143,7 +165,7 @@ export default function OnboardingWizard({
             <span className="text-base text-muted-foreground">
               Step {index + 1} of {steps.length}
             </span>
-            <Button size="sm" variant="ghost" onClick={onDismiss}>
+            <Button size="sm" variant="ghost" onClick={onDismiss} disabled={!canDismiss} title={!canDismiss ? "Choose a default model in Choose an AI before finishing setup" : undefined}>
               Skip for now
             </Button>
           </div>
@@ -210,8 +232,34 @@ export default function OnboardingWizard({
                 <Token state={state} compact={isCompactStep('token', state)} loadToken={loadToken} />
               ) : null}
 
+              {step.id === 'providers' && providersReady ? (
+                <div className="mb-6 flex flex-col gap-2">
+                  <label htmlFor="onboarding-default-model" className="font-semibold">Default model for {instances.find((instance) => instance.id === target)?.label ?? 'this instance'}</label>
+                  <p className="text-muted-foreground">Choose the model Ember will use for new agents on this instance. This does not change Kiln’s own default or existing conversations.</p>
+                  <select id="onboarding-default-model" className="h-10 rounded-md border bg-background px-3" value={defaultModel ? modelRefKey(defaultModel) : ''} onChange={(event) => {
+                    const model = models.find((entry) => modelRefKey(entry) === event.target.value);
+                    if (!target || !model) return;
+                    onChange({ instanceDefaults: { ...instanceDefaults, [target]: withInstanceDefaultModel(instanceDefaults[target], model) } });
+                  }}>
+                    <option value="" disabled>Choose a default model</option>
+                    {defaultModel && !modelReady ? <option value={modelRefKey(defaultModel)} disabled>{modelRefKey(defaultModel)} (unavailable)</option> : null}
+                    {models.map((model) => <option key={modelRefKey(model)} value={modelRefKey(model)}>{model.label}</option>)}
+                  </select>
+                  {!modelReady ? <p className="text-muted-foreground">Choose an available model, then select Continue. If a model is missing, refresh models or connect another provider below.</p> : null}
+                  <Button variant="ghost" onClick={() => { if (target) onRefreshModels(target); }} disabled={!target}>Refresh models</Button>
+                </div>
+              ) : null}
+
               {step.id === 'providers' ? (
-                <Providers instanceDefaults={instanceDefaults} state={state} endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onRefreshInstances} />
+                <>
+                  {!target ? (
+                    <div className="mb-6 flex flex-col items-start gap-2 text-muted-foreground">
+                      <p>Ember needs a connected Kiln before it can list providers or models. Retry this computer or connect another host.</p>
+                      <Button variant="secondary" onClick={() => setActive('connection')}>Where to run Kiln</Button>
+                    </div>
+                  ) : null}
+                  <Providers instanceDefaults={instanceDefaults} state={state} endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onRefreshInstances} onRefreshModels={onRefreshModels} onProviderCatalog={(id, providers) => setProviderCatalog({ id, providers })} providersReady={providersReady} />
+                </>
               ) : null}
 
               {step.id === 'first-agent' ? (
@@ -222,6 +270,7 @@ export default function OnboardingWizard({
                   instances={instances}
                   onChange={onChange}
                   onStart={onStartAgent}
+                  modelReady={modelReady}
                 />
               ) : null}
             </div>
@@ -238,10 +287,10 @@ export default function OnboardingWizard({
               <div className="flex-1" />
               {last || (canFinish(state) && step.id === 'first-agent') ? null : (
                 <span className="text-base text-muted-foreground">
-                  {marks[step.id]?.kind === 'pending' ? 'You can finish this later' : ''}
+                  {step.id === 'providers' && !providersReady ? 'Connect a provider first' : step.id === 'providers' && !modelReady ? 'Choose a default model to continue' : marks[step.id]?.kind === 'pending' ? 'Continue when you’re ready' : ''}
                 </span>
               )}
-              <Button size="sm" onClick={last ? onDismiss : next} data-testid="onboarding-next">
+              <Button size="sm" disabled={(last || step.id === 'providers') && !modelReady} onClick={last ? onDismiss : next} data-testid="onboarding-next">
                 {last ? 'Done' : canFinish(state) && step.id === 'providers' ? 'Continue' : 'Next'}
                 <ArrowRight />
               </Button>
@@ -534,6 +583,9 @@ function Providers({
   onChange,
   instanceDefaults,
   onRefreshInstances,
+  onRefreshModels,
+  onProviderCatalog,
+  providersReady,
 }: {
   state: OnboardingState;
   endpoints: PiEndpoint[];
@@ -541,19 +593,35 @@ function Providers({
   instances: Instance[];
   onChange: (patch: EmberSettingsPatch) => void;
   onRefreshInstances: () => void;
+  onRefreshModels: (instanceId: string) => void;
+  onProviderCatalog: (id: string, providers: PiProviderInfo[]) => void;
+  providersReady: boolean;
 }) {
+  const [tipSeed] = React.useState(() => randomId());
   return (
     <div className="flex flex-col gap-4">
-      <h3 className="text-base font-semibold">Connect an AI service</h3>
+      <h3 className="text-base font-semibold">{providersReady ? 'Connected AI services' : 'First, connect an AI service'}</h3>
+      {!providersReady ? <p className="font-medium">Sign in or save an API key below. Once a provider is connected, choose your default model here.</p> : null}
       <p className="text-base leading-relaxed text-muted-foreground">
         Your agents need an AI service, such as OpenAI or Anthropic. Use a sign-in option below, or paste
         an API key — an access code you get from that service. If you use Ollama or LM Studio to run AI on
         your own computer, start it first and Ember will show it here.
       </p>
+      <div className="flex items-center gap-3">
+        <span aria-hidden="true" className="relative inline-flex size-20 flex-none">
+          <Blob style="buddy" seed={tipSeed} size={80} mood="thinking" interactive={false} />
+          <svg viewBox="0 0 100 100" className="pointer-events-none absolute inset-0 size-full"><MoodBadge mood="question" /></svg>
+        </span>
+        <aside className="rounded-lg bg-muted/40 px-3 py-2 text-muted-foreground" aria-label="Tip for getting started">
+          <strong className="font-bold text-highlight">TIP</strong> — {OPENCODE_ONBOARDING_TIP}{' '}
+          <button type="button" className="underline" onClick={() => void window.ember.openExternal('https://opencode.ai/zen')}>Open OpenCode</button>
+        </aside>
+      </div>
       <ProvidersSettings
+        onProviderCatalog={onProviderCatalog}
         endpoints={endpoints}
         instances={instances}
-        onProviderChange={() => onRefreshInstances()}
+        onProviderChange={(id) => { onRefreshInstances(); onRefreshModels(id); }}
         instanceDefaults={instanceDefaults}
         onDefaultChange={(id, model) => onChange({ instanceDefaults: { ...instanceDefaults, [id]: { ...instanceDefaults[id], model, variant: model?.variant } } })}
         {...(state.targetInstanceId ? { initialEndpointId: state.targetInstanceId } : {})}
@@ -565,12 +633,13 @@ function Providers({
   );
 }
 
-function FirstAgent({ state, instances, instanceDefaults, onChange, onStart }: {
+function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, modelReady }: {
   state: OnboardingState;
   instances: Instance[];
   instanceDefaults: Record<string, InstanceDefaults>;
   onChange: (patch: EmberSettingsPatch) => void;
   onStart: (input: { instanceId: string; directory: string | null }) => void;
+  modelReady: boolean;
 }) {
   const target = instances.find((instance) => instance.id === state.targetInstanceId);
   const workspace = target ? instanceDefaults[target.id]?.workspaceDirectory : undefined;
@@ -582,6 +651,7 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart }: {
         Choose your workspace — the folder where you already keep your projects or work.
         You can pick a project inside it for each new chat.
       </p>
+      {!modelReady ? <p className="text-muted-foreground">Open Choose an AI and select a default model before starting your first agent.</p> : null}
       {target ? <div className="rounded-lg border bg-background/60 p-4">
         <p className="mb-2 text-sm text-muted-foreground">Workspace on {target.label}</p>
         <ProjectPicker key={target.id} instance={target} projects={[]} workspaceOnly value={workspace ?? ''} workspace={workspace}
@@ -600,8 +670,8 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart }: {
           }} onSelect={setProject} />
       </div> : null}
       <p className="text-sm leading-relaxed text-muted-foreground">Nothing is sent until you write your first message.</p>
-      <Button className="self-start" disabled={!target || !workspace} onClick={() => {
-        if (target && workspace) onStart({ instanceId: target.id, directory: project || workspace });
+      <Button className="self-start" disabled={!target || !workspace || !modelReady} onClick={() => {
+        if (target && workspace && modelReady) onStart({ instanceId: target.id, directory: project || workspace });
       }}>New agent<ArrowRight /></Button>
     </div>
   );

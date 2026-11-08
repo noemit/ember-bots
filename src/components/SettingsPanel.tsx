@@ -1,4 +1,5 @@
 import { AVATAR_SIZES, avatarPixels } from '../blob/size';
+import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from '../lib/instanceDefaultModel';
 import * as React from 'react';
 import { motion } from 'motion/react';
 import { Check, ChevronRight, KeyRound, ShieldCheck, SlidersHorizontal } from 'lucide-react';
@@ -369,6 +370,8 @@ const InstanceDefaultsSettings = ({
                 value={editingModelKey}
                 variant={editingDefaults.variant ?? ''}
                 defaultModelId={modelsByInstance[editing]?.defaultModelId ?? null}
+                instanceDefaultModelId={effectiveInstanceDefaultModel(editingDefaults, modelsByInstance[editing]?.defaultModelId)}
+                onSetInstanceDefault={(model) => update(editing, withInstanceDefaultModel(editingDefaults, model))}
                 collapseProviders
                 onSelect={(key, variant) => {
                   const model = editingModels.find((entry) => modelRefKey(entry) === key);

@@ -64,7 +64,7 @@ test('model-only edit uses target host catalogue, refuses incompatible effort, t
   await page.getByRole('button', { name: 'Queued message model' }).click();
   const picker = page.getByRole('dialog', { name: 'Choose a model' });
   await picker.getByRole('searchbox', { name: 'Search models' }).fill('GLM');
-  await picker.getByRole('button', { name: 'GLM-5.3 Flash (Default)', exact: true }).click();
+  await picker.getByRole('button', { name: 'GLM-5.3 Flash', exact: true }).click();
   await expect(picker.getByRole('status')).toContainText(/reasoning level max.*unavailable/);
   await expect(picker.getByRole('button', { name: 'Done', exact: true })).toBeDisabled();
   await picker.getByRole('combobox', { name: 'Reasoning level' }).click();
@@ -117,4 +117,19 @@ test('a refreshed catalogue cannot silently substitute an unavailable queued mod
   await expect(editor.getByRole('alert')).toContainText(/Refresh models or choose another model/);
   await editor.getByRole('textbox', { name: 'Queued message text' }).fill('Still my draft');
   await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+});
+
+test('setting an instance default from a queue picker leaves the queued edit unchanged', async ({ page }) => {
+  await setup(page);
+  await capture(page);
+  await page.getByRole('button', { name: 'Queued message model' }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill('DeepSeek V4.1 Flash');
+  const row = picker.locator('[data-model-key]').first();
+  await row.getByRole('button', { name: 'Set this model as the instance default', exact: true }).click();
+  await expect(row.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:hearth']?.model)).toMatchObject({ providerID: 'faux-hearth', modelID: 'deepseek-v4.1-flash' });
+  expect(await calls(page)).toEqual([]);
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 });

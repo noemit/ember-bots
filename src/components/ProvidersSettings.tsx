@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useStableCallback } from '@/lib/useStableCallback';
+import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from '@/lib/instanceDefaultModel';
 import { piLoadProviders, piRemoveProvider, piSetProviderKey, type PiProviderInfo } from '../piApi';
 import { DEFAULT_MODEL, modelRefKey } from '../types';
 import ModelPicker from './ModelPicker';
@@ -37,6 +38,7 @@ type Props = {
   initialEndpointId?: string;
   instanceDefaults?: Record<string, InstanceDefaults>;
   onDefaultChange?: (endpointId: string, model: ModelRef | undefined) => void;
+  onProviderCatalog?: (endpointId: string, providers: PiProviderInfo[]) => void;
 };
 
 const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string> = {
@@ -50,7 +52,7 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
  * `$HEARTH_HOME/auth.json` and is never sent back or rendered. Subscription sign-in runs on that
  * same host; this panel shows the browser link and polls for confirmed credential storage.
  */
-export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange }: Props) {
+export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange, onProviderCatalog }: Props) {
   const [endpointId, setEndpointId] = React.useState(initialEndpointId ?? endpoints[0]?.id ?? '');
   const [providers, setProviders] = React.useState<PiProviderInfo[] | null>(null);
   const [defaultModel, setDefaultModel] = React.useState<string | null>(null);
@@ -76,6 +78,8 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   // Stable identity, so the signing dialog's effects don't restart on every parent render.
   const notifyChanged = useStableCallback((id: string) => onProviderChange?.(id));
 
+  const notifyCatalog = useStableCallback((id: string, providers: PiProviderInfo[]) => onProviderCatalog?.(id, providers));
+
   const load = React.useCallback(async (id: string) => {
     if (!id) {
       setProviders(null);
@@ -87,14 +91,16 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
     if (!catalog) {
       setProviders(null);
       setDefaultModel(null);
+      notifyCatalog(id, []);
       setError('Could not load providers from this ember-harness — check the endpoint and retry.');
       setLoading(false);
       return;
     }
     setProviders(catalog.providers);
+    notifyCatalog(id, catalog.providers);
     setDefaultModel(catalog.default ? `${catalog.default.provider} / ${catalog.default.modelId}` : null);
     setLoading(false);
-  }, []);
+  }, [notifyCatalog]);
 
   React.useEffect(() => {
     void load(endpointId);
@@ -202,7 +208,10 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
         </div>
       ) : null}
       {confirmation?.catalog && choosingDefault && onDefaultChange ? (
-        <ModelPicker open recentModels={[]} models={confirmation.catalog.models} value={instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : DEFAULT_MODEL} defaultModelId={confirmation.catalog.defaultModelId} onOpenChange={setChoosingDefault} onSelect={(key, variant) => {
+        <ModelPicker open recentModels={[]} models={confirmation.catalog.models} value={instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : DEFAULT_MODEL} defaultModelId={confirmation.catalog.defaultModelId}
+          instanceDefaultModelId={effectiveInstanceDefaultModel(instanceDefaults[confirmation.endpointId], confirmation.catalog.defaultModelId)}
+          onSetInstanceDefault={(model) => onDefaultChange(confirmation.endpointId, withInstanceDefaultModel(instanceDefaults[confirmation.endpointId], model).model)}
+          onOpenChange={setChoosingDefault} onSelect={(key, variant) => {
           const model = confirmation.catalog?.models.find((entry) => modelRefKey(entry) === key);
           if (key !== DEFAULT_MODEL && !model) return;
           onDefaultChange(confirmation.endpointId, model ? { providerID: model.providerID, modelID: model.modelID, ...(variant ? { variant } : {}) } : undefined);

@@ -158,7 +158,7 @@ test('queueing preserves the selected model and reasoning in sendConfig', async 
 test('server default is used only after explicitly choosing it', async ({ page }) => {
   await page.getByRole('button', { name: 'Choose model' }).first().click();
   const picker = page.getByRole('dialog', { name: 'Choose a model' });
-  await picker.getByRole('button', { name: 'Anthropic / Claude Sonnet (Default)', exact: true }).click();
+  await picker.getByRole('button', { name: 'Anthropic / Claude Sonnet (Server default)', exact: true }).click();
   await picker.getByRole('button', { name: 'Done', exact: true }).click();
   await captureSends(page);
   await page.locator('textarea').first().fill('Use the server default intentionally');
@@ -208,6 +208,9 @@ test('failed sends keep the message and the retained model choice', async ({ pag
 test('new-agent creation transfers the chosen model to the created session', async ({ page }) => {
   await page.getByRole('button', { name: 'New session in Habit', exact: true }).first().click();
   await expect(page.locator('textarea')).toHaveCount(1);
+  // Rail ordering can place the other host's Habit project first; target the host under test explicitly.
+  await page.getByRole('combobox', { name: 'New agent instance' }).click();
+  await page.getByRole('option', { name: 'MacBook', exact: true }).click();
   await chooseModel(page, 'new::local');
   await captureSends(page);
   await page.locator('textarea').fill('Create using this model');
@@ -224,4 +227,42 @@ test('saving a note does not discard the explicit model selection', async ({ pag
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0'])).toMatchObject({ text: '', modelId: 'openai/gpt-5', variant: 'high' });
   await page.reload();
   await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
+});
+
+test('setting an instance default persists independently of the session model', async ({ page }, testInfo) => {
+  await captureSends(page);
+  const before = await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0']);
+  await page.getByRole('button', { name: 'Choose model' }).first().click();
+  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill('');
+  // Expand providers: the same shared row also appears in Recent and search results.
+  const provider = picker.locator('button[aria-expanded]').filter({ hasText: 'Anthropic' });
+  if (await provider.count()) await provider.click();
+  const candidate = picker.locator('[data-model-key]').filter({ has: page.getByRole('button', { name: 'Set this model as the instance default', exact: true }) }).first();
+  const key = await candidate.getAttribute('data-model-key');
+  const row = picker.locator(`[data-model-key="${key}"]`).first();
+  expect(key).toBeTruthy();
+  await row.getByRole('button', { name: 'Set this model as the instance default', exact: true }).click();
+  await expect(row.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expect(picker).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('instance-default-picker.png') });
+  await expect.poll(() => page.evaluate(async () => {
+    const model = (await window.ember.getSettings()).instanceDefaults.local?.model;
+    return model && `${model.providerID}/${model.modelID}`;
+  })).toBe(key);
+  expect(await capturedSends(page)).toEqual([]);
+  expect(await page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['local::perf-0'])).toEqual(before);
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
+  await page.getByRole('button', { name: 'Choose model' }).first().click();
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill(key!.split('/').slice(1).join('/'));
+  await expect(picker.locator(`[data-model-key="${key}"]`).first().getByText('Instance Default', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(picker.locator(`[data-model-key="${key}"]`).first().getByText('Instance Default', { exact: true })).toBeVisible();
+  await expect.poll(async () => {
+    const bounds = await picker.boundingBox();
+    return bounds !== null && bounds.x >= 0 && bounds.x + bounds.width <= 390;
+  }).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('instance-default-picker-mobile.png') });
 });

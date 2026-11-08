@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   canFinish,
+  onboardingModelReady,
+  OPENCODE_ONBOARDING_TIP,
   firstIncompleteStep,
   isCompactStep,
   needsOnboarding,
@@ -136,3 +138,25 @@ test('a new installation keeps onboarding when bundled Kiln is healthy, until ex
   expect(needsOnboarding(ready, 456, 123)).toBe(false);
   expect(needsOnboarding(ready, undefined)).toBe(false);
 });
+
+describe('explicit onboarding model choice', () => {
+  test('a catalogue and backend default alone do not select a model', () => {
+    expect(onboardingModelReady(undefined, offeredModels)).toBe(false);
+    expect(onboardingModelReady({ providerID: 'opencode', modelID: 'glm-5.3-flash' }, offeredModels)).toBe(false);
+    expect(onboardingModelReady(offeredModels[0], [])).toBe(false);
+  });
+  test('accepts only the saved model offered by this instance', () => {
+    expect(onboardingModelReady(offeredModels[0], offeredModels)).toBe(true);
+    expect(onboardingModelReady({ providerID: 'other', modelID: 'chosen' }, offeredModels)).toBe(false);
+  });
+  test('the optional tip describes the key flow and qualifies free availability', () => {
+    expect(OPENCODE_ONBOARDING_TIP).toMatch(/No provider account/i);
+    expect(OPENCODE_ONBOARDING_TIP).toMatch(/sign in or sign up.*OpenCode/);
+    expect(OPENCODE_ONBOARDING_TIP).toMatch(/may offer free/);
+    expect(OPENCODE_ONBOARDING_TIP).toMatch(/not every model is free/);
+    expect(OPENCODE_ONBOARDING_TIP).toMatch(/API key.*paste.*OpenCode Zen.*Save/);
+    expect(OPENCODE_ONBOARDING_TIP).not.toMatch(/!|undefined|null|OAuth/);
+  });
+});
+
+const offeredModels = [{ providerID: 'provider', modelID: 'chosen' }] as import('../src/types').ModelOption[];
