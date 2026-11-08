@@ -499,11 +499,15 @@ export default function App() {
   // One effect owns every text-size variable, so the three settings and a theme change can't
   // disagree about who writes the root style properties.
   React.useEffect(() => {
-    applyTextSizes(document.documentElement, {
+    const apply = () => applyTextSizes(document.documentElement, {
       chatPx: settings.conversationFontSize,
       composer: settings.composerSize,
       interface: settings.interfaceSize,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
     });
+    apply();
+    window.addEventListener('resize', apply);
+    return () => window.removeEventListener('resize', apply);
   }, [settings.conversationFontSize, settings.composerSize, settings.interfaceSize]);
 
   // The remote web client's session can end under it (the desktop restarted, the password changed,

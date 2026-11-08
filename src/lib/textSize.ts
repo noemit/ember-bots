@@ -42,8 +42,8 @@ export const nearestChatSize = (px: number | undefined): TextSize => {
 export const textSizeVars = (
   input: { chatPx?: number; composer?: TextSize; interface?: TextSize }
 ): Record<string, string> => ({
-  '--conversation-text-size': `${input.chatPx ?? CHAT_PX.medium}px`,
-  '--composer-text-size': `${COMPOSER_PX[input.composer ?? 'medium']}px`,
+  '--conversation-text-size': (input.chatPx ?? CHAT_PX.medium) + 'px',
+  '--composer-text-size': COMPOSER_PX[input.composer ?? 'medium'] + 'px',
   '--interface-zoom': String(INTERFACE_SCALE[input.interface ?? 'medium']),
 });
 
@@ -51,8 +51,16 @@ export const textSizeVars = (
  * Apply the sizes to the document. Called from one effect so a settings change and a theme change
  * can never disagree about who owns the root style properties.
  */
-export const applyTextSizes = (root: HTMLElement, input: Parameters<typeof textSizeVars>[0]): void => {
+export const applyTextSizes = (
+  root: HTMLElement,
+  input: Parameters<typeof textSizeVars>[0] & { viewport?: { width: number; height: number } }
+): void => {
   for (const [name, value] of Object.entries(textSizeVars(input))) root.style.setProperty(name, value);
+  // The zoomed body cannot express "one window" in its own units without knowing the window.
+  if (input.viewport) {
+    root.style.setProperty('--viewport-width', input.viewport.width + 'px');
+    root.style.setProperty('--viewport-height', input.viewport.height + 'px');
+  }
 };
 
 /** The preset a chip/segmented control should show as selected. */

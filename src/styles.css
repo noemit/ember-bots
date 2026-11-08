@@ -113,7 +113,11 @@ html.motion-paused *::after {
   }
 
   #root {
-    height: 100dvh;
+    /* One window in the zoomed box's own units. A `100dvh` child of the zoomed body swaps units
+       mid-way (1000px CSS measured 1080px) and pushed the composer below the fold; a percentage
+       resolves against the body's compensated height instead. `applyTextSizes` writes the window
+       size for the drawer and dialogs, which need the real viewport. */
+    height: 100%;
   }
 
   body {
@@ -126,9 +130,12 @@ html.motion-paused *::after {
      * a shrunken interface leaves a strip of background at the right and bottom. Portalled dialogs
      * and tooltips live in this body, so they scale with everything else.
      */
+    /* Both axes are one window, expressed in the zoomed box's own units: on the body, `100dvh` is
+       the *zoomed* viewport, so the division alone left the composer below the fold at Large.
+       App writes the real window size; the dvh fallbacks keep a bare page sane. */
     zoom: var(--interface-zoom, 1);
-    width: calc(100% / var(--interface-zoom, 1));
-    height: calc(100dvh / var(--interface-zoom, 1));
+    width: calc(var(--viewport-width, 100vw) / var(--interface-zoom, 1));
+    height: calc(var(--viewport-height, 100vh) / var(--interface-zoom, 1));
     overflow: hidden;
     transition:
       background-color 0.35s var(--ease-spring),
