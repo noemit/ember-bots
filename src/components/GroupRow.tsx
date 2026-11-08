@@ -28,6 +28,7 @@ type Props = {
   compact?: boolean;
   /** Instance label per id, for the footer's instance chips. */
   instanceLabels: Record<string, string>;
+  instanceMarkers?: Record<string, number | undefined>;
   avatarIdentities: Record<string, AvatarIdentity>;
   moods: Record<string, BallMood>;
   /** Session keys shown as workspace columns; each visible member gets an underline. */
@@ -57,6 +58,7 @@ export default function GroupRow({
   previews = {},
   compact = false,
   instanceLabels,
+  instanceMarkers = {},
   avatarIdentities,
   moods,
   visibleKeys,
@@ -165,6 +167,7 @@ export default function GroupRow({
           {entry.members.map((member) => {
             const key = sessionKey(member);
             const active = visibleKeys.has(key);
+            const markerColor = instanceMarkers[member.instanceId];
             return (
               <li key={key} className="min-w-0">
                 <ContextMenu>
@@ -202,7 +205,13 @@ export default function GroupRow({
                         ) : null}
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span data-group-member-title="" data-session-title="" title={member.title?.trim() || member.id}
+                        <span data-group-member-title="" data-instance-marker={markerColor}
+                          style={markerColor === undefined ? undefined : {
+                            textDecoration: 'underline',
+                            textDecorationColor: `var(--instance-marker-${markerColor})`,
+                            textDecorationThickness: '2px',
+                            textUnderlineOffset: '3px',
+                          }} data-session-title="" title={member.title?.trim() || member.id}
                           className="line-clamp-2 text-[11.5px] leading-4 text-foreground [overflow-wrap:anywhere]">
                           {member.title?.trim() || member.id}
                         </span>

@@ -2221,7 +2221,7 @@ function ChatView({
               } as React.CSSProperties : undefined}
               className="group/composer flex flex-col rounded-xl border bg-background"
             >
-            {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} seed={seed} identity={identity} style={blobStyle} mood={mood} showAvatar={showSessionAvatar} onHide={onArchive} onNewBot={onNewBotInFolder} /> : null}
+            {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} markerColor={instanceMarkerColor} seed={seed} identity={identity} style={blobStyle} mood={mood} showAvatar={showSessionAvatar} onHide={onArchive} onNewBot={onNewBotInFolder} /> : null}
             {replyContext ? (
               /* A left accent carries "this is quoted" without drawing a rectangle inside the
                  composer's rectangle. */

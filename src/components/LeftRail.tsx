@@ -1,6 +1,7 @@
 import { NotificationSizeContext } from '../blob/overlays';
 import RailItem from './RailItem';
 import ComposerIdentity from './ComposerIdentity';
+import InstanceMarker from './InstanceMarker';
 import { useWorkspaceConnection } from './workspaceConnection';
 import { AvatarTransitionContext } from '../blob/AvatarTransition';
 import { motion } from 'motion/react';
@@ -562,6 +563,7 @@ export default function LeftRail({
           previews={previews}
           compact={compact && mode !== 'wide'}
           instanceLabels={Object.fromEntries(instances.map((instance) => [instance.id, instance.label]))}
+          instanceMarkers={Object.fromEntries(instances.map(instance => [instance.id, instanceMarkerColor(instance.id, instanceDefaults[instance.id])]))}
           avatarIdentities={avatarIdentities}
           moods={moods}
           visibleKeys={visibleColumnKeys}
@@ -852,6 +854,7 @@ export default function LeftRail({
                           mood={moods[key] ?? 'unknown'}
                         />
                         <ProcessIndicator session={session} overlay />
+                        <InstanceMarker color={instanceMarkerColor(session.instanceId, instanceDefaults[session.instanceId])} className="bottom-0.5" />
                         {visibleColumnKeys.has(key) ? (
                           <span
                             data-column-underline
@@ -938,6 +941,7 @@ export default function LeftRail({
                 <ComposerIdentity docked compact={mode === 'mini'} name={selectedSession.title?.trim() || selectedSession.id}
                   seed={sessionKey(selectedSession)} identity={avatarIdentities[sessionKey(selectedSession)]}
                   topMeta={topMetaFor(selectedSession)}
+                  markerColor={instanceMarkerColor(selectedSession.instanceId, instanceDefaults[selectedSession.instanceId])}
                   style={blobStyle} mood={moods[sessionKey(selectedSession)] ?? 'unknown'} directory={selectedSession.directory}
                   onHide={() => archiveSession(selectedSession, true)} hiding={archivingKeys.has(sessionKey(selectedSession))}
                   onNewBot={() => newAgent(selectedSession.instanceId, selectedSession.directory)}

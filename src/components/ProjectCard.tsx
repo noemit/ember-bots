@@ -122,6 +122,7 @@ export default function ProjectCard({
       <div className="flex items-center gap-1.5 px-1">
         <span
           className="min-w-0 truncate text-[11.5px] font-semibold text-foreground"
+          data-instance-marker={markerColor}
           style={markerColor === undefined ? undefined : {
             textDecoration: 'underline',
             textDecorationColor: `var(--instance-marker-${markerColor})`,

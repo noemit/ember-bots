@@ -296,6 +296,7 @@ const SessionRow = React.memo(function SessionRow({
                 ) : null}
                 <span
                   data-session-title=""
+                  data-instance-marker={markerColor}
                   title={title}
                   className="min-w-0 flex-1 line-clamp-2 text-[13px] leading-[18px] font-medium text-foreground [overflow-wrap:anywhere]"
                   style={markerColor === undefined ? undefined : {
