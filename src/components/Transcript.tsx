@@ -1718,10 +1718,21 @@ const MessageRow = React.memo(function MessageRow({
     (node: HTMLDivElement | null) => registerNode(message.id, node),
     [registerNode, message.id]
   );
+  // Observe the gesture without capturing the pointer or cancelling any native interaction.
+  // A drag can end with a collapsed selection (or outside the prose), so selection alone is not
+  // enough to distinguish acknowledgement from selecting text.
+  const readGesture = React.useRef<{ x: number; y: number; dragged: boolean } | null>(null);
+  const readClickTimer = React.useRef<number | undefined>(undefined);
+  React.useEffect(() => () => window.clearTimeout(readClickTimer.current), []);
+  const isInteractive = (target: EventTarget | null, row: HTMLElement) => {
+    const control = target instanceof Element ? target.closest(
+      'a, button, input, textarea, select, option, label, summary, audio, video, img, [draggable="true"], [role], [tabindex], [contenteditable]:not([contenteditable="false"])'
+    ) : null;
+    return Boolean(control && row.contains(control));
+  };
   // A row whose every block is hidden (thinking/tools off) shouldn't leave a gap behind.
   if (blocks.length === 0 && !message.error) return null;
-  // Anchor the controls to the message's text card rather than the full-width row, so a
-  // left-aligned reply's gutter sits at the card's top-right instead of out in the empty margin.
+  // Anchor Copy just before the first text block; the unread notifier keeps its own position.
   const textBlockIndex = blocks.findIndex((block) => block.type === 'text');
   /**
    * Tool display, split into what the list draws and what one line stands in for.
@@ -1744,7 +1755,7 @@ const MessageRow = React.memo(function MessageRow({
 
   const renderGutter = (horizontalClass: string) =>
     copyable ? (
-      <div className={cn('absolute top-1 flex translate-x-0.5 flex-col gap-1', horizontalClass)}>
+      <div className={cn('absolute top-2 flex flex-col gap-1', horizontalClass)}>
         <CopyAsMarkdown message={message} />
       </div>
     ) : null;
@@ -1755,6 +1766,30 @@ const MessageRow = React.memo(function MessageRow({
       layout={false}
       data-message-id={message.id}
       data-highlighted={highlighted ? 'true' : undefined}
+      onPointerDown={(event) => {
+        window.clearTimeout(readClickTimer.current);
+        readGesture.current = event.button === 0 && !isInteractive(event.target, event.currentTarget)
+          ? { x: event.clientX, y: event.clientY, dragged: false } : null;
+      }}
+      onPointerMove={(event) => {
+        const gesture = readGesture.current;
+        if (gesture && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 5) {
+          gesture.dragged = true;
+        }
+      }}
+      onPointerCancel={() => { readGesture.current = null; }}
+      onClick={(event) => {
+        const gesture = readGesture.current;
+        readGesture.current = null;
+        if (!unread || streaming || !gesture || gesture.dragged || event.defaultPrevented ||
+            event.button !== 0 || event.detail !== 1 || isInteractive(event.target, event.currentTarget) ||
+            !window.getSelection()?.isCollapsed) return;
+        // Let a second click turn into native word/paragraph selection, not a read receipt.
+        readClickTimer.current = window.setTimeout(() => {
+          if (window.getSelection()?.isCollapsed) onMarkRead?.(message);
+        }, 300);
+      }}
+      onDoubleClick={() => window.clearTimeout(readClickTimer.current)}
       className={cn(
         'group/message relative isolate mx-auto flex w-full max-w-[760px] flex-col gap-1.5 rounded-xl px-5 sm:px-7'
       )}
@@ -1777,7 +1812,7 @@ const MessageRow = React.memo(function MessageRow({
             expandToolCalls,
             hideToolCalls,
             streaming,
-            index === textBlockIndex ? renderGutter('-right-6') : undefined,
+            index === textBlockIndex ? renderGutter('-left-6') : undefined,
             onReasoningToggle,
             viewer ? openImage : undefined,
             index === textBlockIndex ? unreadBadge : undefined
@@ -1815,7 +1850,7 @@ const MessageRow = React.memo(function MessageRow({
           <Blob style={blobStyle} seed={seed} identity={identity} size={30} mood={mood} interactive={false} />
         </div>
       ) : null}
-      {textBlockIndex < 0 ? <>{renderGutter('right-0')}{unreadBadge}</> : null}
+      {textBlockIndex < 0 ? <>{renderGutter('left-0')}{unreadBadge}</> : null}
     </motion.div>
   );
 });
@@ -2213,7 +2248,7 @@ function Transcript({
   const unreadIds = React.useMemo(() => new Set(unreadIndices.map((index) => items[index].message.id)), [items, unreadIndices]);
   const markMessageRead = useStableCallback((message: ChatMessage) => {
     const original = messages.find((entry) => entry.id === message.id);
-    if (original) onMarkRead?.(original);
+    if (original && isUnreadEligible(original)) onMarkRead?.(original);
   });
 
   const last = messages[messages.length - 1];
