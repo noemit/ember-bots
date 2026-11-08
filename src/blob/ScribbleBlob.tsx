@@ -88,7 +88,7 @@ export default function ScribbleBlob({ seed, identity, size = 30, mood = 'idle',
       </svg>
     </div>
     <svg className="blob-overlay" viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
-      <MoodBadge mood={mood} />
+      <MoodBadge size={size} mood={mood} />
     </svg>
   </div>;
 }

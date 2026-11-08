@@ -1,9 +1,13 @@
+import { createContext, useContext } from 'react';
 import type { BallMood } from '../types';
 
 /**
  * The pieces every blob style draws on top of its own body, kept in one place so a style only
  * implements what makes it different. Geometry is the 100x100 grid Buddy and Crystal share.
  */
+
+/** Rail-only cap in CSS pixels, including the notification circle’s outline. */
+export const NotificationSizeContext = createContext<number | undefined>(undefined);
 
 /** Badge/accent colour per mood. */
 export const accentFor = (mood: BallMood): string => {
@@ -16,13 +20,19 @@ export const accentFor = (mood: BallMood): string => {
  * The notification / lock / question / warning badge in the top-right corner. All circles share
  * their size and centre; each renderer's `inset` follows its silhouette for every mood.
  */
-export const MoodBadge = ({ mood, inset = 0 }: { mood: BallMood; inset?: number }) => {
+export const MoodBadge = ({ mood, inset = 0, size = 30 }: { mood: BallMood; inset?: number; size?: number }) => {
+  const maxDiameter = useContext(NotificationSizeContext);
   const accent = accentFor(mood);
   if (mood !== 'unread' && mood !== 'input' && mood !== 'question' && mood !== 'error') return null;
   const x = 78 - inset;
   const y = 22 + inset;
+  // The SVG grid is 100 units wide. Include the 3-unit outline in the 35-unit diameter.
+  // Decision badges retain their readable symbols; only an unread notification is capped.
+  const scale = mood === 'unread' && maxDiameter !== undefined
+    ? Math.min(1, maxDiameter / (size * .35)) : 1;
   return (
-    <g className="blob-badge" data-badge={mood}>
+    <g className="blob-badge" data-badge={mood}
+      transform={scale < 1 ? `translate(${x} ${y}) scale(${scale}) translate(${-x} ${-y})` : undefined}>
       {mood === 'error' ? (
         <>
           <path

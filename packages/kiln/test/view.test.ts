@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Buffer } from "node:buffer";
-import { detectImageMimeType } from "../src/view";
+import { createViewTool, detectImageMimeType } from "../src/view";
 
 /** A real 1×1 PNG (signature + IHDR), enough for the sniffer. */
 const PNG_1X1 =
@@ -25,4 +25,11 @@ describe("detectImageMimeType", () => {
     // A truncated PNG signature is not an image.
     expect(detectImageMimeType(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBeUndefined();
   });
+});
+
+test("view instructions disclose that inspection also shares the image with the user", () => {
+  const description = createViewTool().description;
+  expect(description).toMatch(/displayed.*to the user/);
+  expect(description).toMatch(/conversation/);
+  expect(description).toMatch(/not private/);
 });

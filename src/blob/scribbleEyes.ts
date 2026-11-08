@@ -5,10 +5,10 @@ import type { BallMood } from '../types';
 export function scribbleEyes(mood: BallMood) {
   const poses = {
     idle: { top: [6.5, 5], bottom: [7, 6], gaze: [0, 1], pupil: 2.4, brows: ['M-8 -10 Q-3 -12 2 -10', 'M-4 -9 Q0 -10 5 -8'] },
-    busy: { top: [4, 3], bottom: [7, 6], gaze: [1.3, 1], pupil: 2.6, brows: ['M-8 -9 L5 -6', 'M-5 -6 L6 -9'] },
+    busy: { top: [4, 4], bottom: [7, 6], gaze: [1.3, 1], pupil: 2.6, brows: ['M-8 -9 L5 -6', 'M-5 -6 L6 -9'] },
     thinking: { top: [3, 6], bottom: [6, 6], gaze: [-1.5, -1], pupil: 2.4, brows: ['M-8 -7 Q-2 -9 5 -6', 'M-5 -10 Q0 -14 6 -11'] },
     input: { top: [8, 7], bottom: [7, 6], gaze: [0, 0], pupil: 3, brows: ['M-8 -11 Q-2 -15 5 -12', 'M-5 -11 Q1 -14 6 -10'] },
-    question: { top: [10, 3], bottom: [8, 5], gaze: [1, -1], pupil: 2.6, brows: ['M-8 -13 Q-2 -17 5 -13', 'M-5 -7 L6 -9'] },
+    question: { top: [10, 4], bottom: [8, 5], gaze: [1, -1], pupil: 2.6, brows: ['M-8 -13 Q-2 -17 5 -13', 'M-5 -7 L6 -9'] },
     error: { top: [5, 4], bottom: [6, 5], gaze: [0, 0], pupil: 2.4, brows: ['M-8 -8 L5 -12', 'M-5 -11 L6 -7'] },
   } as const;
   const pose = poses[mood === 'unread' || mood === 'unknown' ? 'idle' : mood];

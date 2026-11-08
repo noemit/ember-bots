@@ -7,7 +7,8 @@ export const AvatarTransitionContext = React.createContext(false);
 export default function AvatarTransition({ seed, children }: { seed: string; children: React.ReactNode }) {
   const enabled = React.useContext(AvatarTransitionContext);
   if (!enabled) return children;
-  return <motion.span data-avatar-key={seed} layoutId={`chat-avatar:${seed}`} className="relative inline-flex flex-none" transition={{ layout: { duration: .6, ease: [.22, 1, .36, 1] } }}>
+  // Move identities between rail slots without scaling their fixed-pixel notification badges.
+  return <motion.span data-avatar-key={seed} layout="position" layoutId={`chat-avatar:${seed}`} className="relative inline-flex flex-none" transition={{ layout: { duration: .6, ease: [.22, 1, .36, 1] } }}>
     {children}
   </motion.span>;
 }

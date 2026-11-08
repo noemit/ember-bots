@@ -6,7 +6,7 @@ import { defineTool, type ToolExecutionApi, type ToolRegistration } from "@earen
 import { getOrThrow } from "@earendil-works/pi-durable/env";
 
 /**
- * `view` — show an image file to the model.
+ * `view` — show an image file to both the model and the user.
  *
  * pi-durable's `read` refuses images outright ("reading images is not supported"), so an agent that
  * is handed a screenshot (say, one dropped into the sync folder) cannot see it even on a
@@ -46,7 +46,8 @@ export const createViewTool = (): ToolRegistration =>
     name: "view",
     description:
       "Look at an image file (PNG, JPEG, GIF, WebP or BMP) so you can actually see it. Use this " +
-      "for screenshots and other images; `read` only handles text.",
+      "for screenshots and other images; `read` only handles text. The image is also displayed " +
+      "to the user in the conversation, so calling `view` shares it with them; it is not private inspection.",
     parameters: obj({
       path: str({ description: "Path to the image file (relative or absolute)" }),
     }),

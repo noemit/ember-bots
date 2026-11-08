@@ -5,6 +5,15 @@
 - Set an instance’s default model directly from the model picker without changing the current conversation.
 - Setup requires an available default model and offers OpenCode sign-up guidance for people without a provider account.
 
+### Changed
+- Scribble eyes express each mood with hand-drawn contours, brows and larger pupils, with quiet working glances and blinks that respect reduced motion.
+- Expanded tool calls show their full input and output height instead of trapping content in nested scrolling areas.
+- The image-viewing tool now tells agents that viewing an image also shares it with the user in the conversation.
+
+### Fixed
+- Unread notification dots stay at or below 10px across rail sizes and avatar transitions.
+- Mini-rail tooltips use readable foreground text against their tooltip background.
+
 ## 1.20.6
 
 ### Changed

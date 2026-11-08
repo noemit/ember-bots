@@ -1,3 +1,4 @@
+import { NotificationSizeContext } from '../blob/overlays';
 import RailItem from './RailItem';
 import ComposerIdentity from './ComposerIdentity';
 import { useWorkspaceConnection } from './workspaceConnection';
@@ -687,6 +688,7 @@ export default function LeftRail({
 
   return (
     <LayoutGroup id="rail-connection"><AvatarTransitionContext.Provider value={docked && !needle}>
+    <NotificationSizeContext.Provider value={10}>
     <aside
       id="session-sidebar"
       style={{ '--mini-rail-width': `${miniAvatarSize + 24}px` } as React.CSSProperties}
@@ -859,7 +861,7 @@ export default function LeftRail({
                     </TooltipTrigger>
                     <TooltipContent side="right">
                       {label}
-                      {previews[key] ? <span className="mt-1 block max-w-[280px] text-muted-foreground">{previews[key]}</span> : null}
+                      {previews[key] ? <span className="mt-1 block max-w-[280px] text-inherit">{previews[key]}</span> : null}
                     </TooltipContent>
                   </Tooltip>
                 );
@@ -950,6 +952,7 @@ export default function LeftRail({
         </div>
       ) : null}
     </aside>
+    </NotificationSizeContext.Provider>
     </AvatarTransitionContext.Provider></LayoutGroup>
   );
 }

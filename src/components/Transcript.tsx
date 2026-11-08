@@ -338,7 +338,7 @@ const toolSummary = (call: ToolCall): string | null => {
 const ScriptView = ({ code }: { code: string }) => (
   <div className="flex flex-col gap-1 rounded-md bg-background/70 px-2.5 py-2">
     <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">Script</span>
-    <pre className="max-h-64 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+    <pre className="overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words">
       {code}
     </pre>
   </div>
@@ -384,8 +384,9 @@ const NestedCallsSection = ({ calls }: { calls: NestedCall[] }) => (
   </div>
 );
 
+// Expanded details belong to the transcript scroll, not a second vertical scroll area.
 const panelClass =
-  'max-h-64 overflow-auto rounded-md bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all';
+  'overflow-x-auto rounded-md bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all';
 
 const DiffView = ({ diff }: { diff: string }) => (
   <pre className={panelClass}>

@@ -109,7 +109,7 @@ export default function BuddyBlob({ seed, identity, size = 30, mood = 'idle', in
         height={size}
         style={{ overflow: 'visible' }}
       >
-        <MoodBadge mood={mood} />
+        <MoodBadge size={size} mood={mood} />
       </svg>
     </div>
   );

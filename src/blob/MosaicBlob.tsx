@@ -66,7 +66,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
       </svg>
     </div>
     <svg className="blob-overlay" viewBox="0 0 100 100" width={size} height={size} style={{ overflow: 'visible' }}>
-      <MoodBadge mood={mood} inset={mood === 'error' ? -4 : 0} />
+      <MoodBadge size={size} mood={mood} inset={mood === 'error' ? -4 : 0} />
     </svg>
   </div>;
 }

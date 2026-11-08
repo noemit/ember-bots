@@ -134,7 +134,7 @@ export default function CrystalBlob({
           </g> : null}
         </g>
 
-        <MoodBadge mood={mood} inset={-2} />
+        <MoodBadge size={size} mood={mood} inset={-2} />
         {state === 'needs-input' ? <OrbitRing.Front cx={50} cy={50} r={46} /> : null}
       </svg>
     </div>

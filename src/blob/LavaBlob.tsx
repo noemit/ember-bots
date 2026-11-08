@@ -319,7 +319,7 @@ export default function LavaBlob({
           </g>
         </g>
 
-        <MoodBadge mood={mood} inset={-2} />
+        <MoodBadge size={size} mood={mood} inset={-2} />
       </svg>
     </div>
   );

@@ -504,6 +504,20 @@ if (performanceFixture) {
     id: 'archive-permission', sessionID: 'perf-0', action: 'bash', resources: ['echo pending'], metadata: {},
   }];
   settings = { ...settings, splitView: true, openSessions: ['local::perf-0', 'local::perf-1'], activeSession: 'local::perf-0', minimizedSessions: [] };
+  if (new URLSearchParams(window.location.search).has('longTools')) {
+    const lines = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => prefix + " " + (index + 1)).join('\n');
+    sessions.local[0].messages[9997] = {
+      role: 'assistant', text: 'Full-height tools anchor',
+      tools: [
+        { tool: 'bash', status: 'completed', title: 'Long retained output', output: lines('Retained output line', 240) },
+        { tool: 'codemode', status: 'completed', input: { code: lines('// Script line', 180) }, output: 'Script completed' },
+        { tool: 'edit', status: 'completed', title: 'Long diff', diff: lines('+ Added diff line', 180) },
+        { tool: 'read', status: 'error', title: 'Long diagnostic', input: { paths: Array.from({ length: 180 }, (_, index) => "input-file-" + index) }, error: lines('Diagnostic line', 180) },
+        { tool: 'bash', status: 'running', title: 'Bounded live preview', output: lines('Live output line', 240) },
+      ],
+    };
+    settings = { ...settings, toolDisplay: 'list', expandToolCalls: false };
+  }
   const saved = sessionStorage.getItem('ember-performance-settings');
   if (saved) settings = { ...settings, ...JSON.parse(saved) };
 }
