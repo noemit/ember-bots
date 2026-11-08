@@ -99,7 +99,7 @@ test('leader receipt never appears in its worker dialog', async ({ page }) => {
 });
 
 
-test('focused Undo stays available beyond expiry without extending the highlight', async ({ page }) => {
+test('focused Undo holds the receipt to its five-second cap, then goes', async ({ page }) => {
   await page.goto('/');
   await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
@@ -107,11 +107,26 @@ test('focused Undo stays available beyond expiry without extending the highlight
   await message.getByRole('button', { name: 'Mark this message as read' }).click();
   const undo = column.locator('[data-read-toast]').getByRole('button', { name: 'Undo', exact: true });
   await undo.focus();
-  await page.waitForTimeout(5300);
+  // Focus holds it well past the one-second default…
+  await page.waitForTimeout(2500);
   await expect(undo).toBeFocused();
   await expect(message).not.toHaveAttribute('data-read-highlighted', 'true');
+  // …but the five-second cap is measured from appearance, so focus cannot keep it for ever.
+  await page.waitForTimeout(3000);
+  await expect(column.locator('[data-read-toast]')).toHaveCount(0);
+});
+
+test('an untouched receipt leaves after about a second and still offers Undo', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
+  const column = page.locator('main[data-session-key="pi:hearth::10"]');
+  const message = column.locator('[data-message-id="e2"]');
+  await message.getByRole('button', { name: 'Mark this message as read' }).click();
+  const undo = column.locator('[data-read-toast]').getByRole('button', { name: 'Undo', exact: true });
+  await undo.focus();
   await undo.press('Enter');
   await expect(message.locator('[data-unread-dot]')).toHaveCount(1);
+  await expect(column.locator('[data-read-toast]')).toHaveCount(0);
 });
 
 for (const scene of [{ name: 'light', theme: 'stone', width: 1600 }, { name: 'dark', theme: 'graphite', width: 1600 }, { name: 'mobile', theme: 'stone', width: 390 }]) {
