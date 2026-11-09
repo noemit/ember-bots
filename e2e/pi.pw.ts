@@ -209,7 +209,12 @@ test('a queued message opens read-only, and reading it changes nothing', async (
   await expect(dialog.getByText('Queued message')).toBeVisible();
   // The whole message, which the one-line row truncates.
   await expect(dialog.locator('pre')).toHaveText(long);
-  await expect(dialog.getByText('Nothing here changes what will be sent.')).toBeVisible();
+  // The read view says which item it is and offers its two actions; it used to carry a subtitle
+  // promising nothing here changes what is sent, which is gone (the notes dialog is an editor now).
+  await expect(dialog.getByRole('heading', { name: 'Queued message', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true }).first()).toBeVisible();
+  await expect(dialog.getByText('Nothing here changes what will be sent.')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 

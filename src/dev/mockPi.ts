@@ -1822,6 +1822,12 @@ const mockFolders: Record<string, string[]> = {
  * the dot is still gone" is exactly what the read-state tests check.
  */
 const READ_STATE_KEY = 'ember-pi-read-state';
+/**
+ * Notes are the one piece of settings a browser test needs to survive a reload — an edit that is
+ * persisted and then lost by a reload is exactly the bug worth catching. Kept beside the read state
+ * so a reload behaves like a relaunch without letting any other fixture leak between runs.
+ */
+const NOTES_KEY = 'ember-pi-notes';
 
 const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'avatarAssignments' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
   try {
@@ -1832,6 +1838,13 @@ const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince
 };
 
 const storedRead = storedReadState();
+const storedNotes = (() => {
+  try {
+    return JSON.parse(window.localStorage.getItem(NOTES_KEY) ?? '{}') as EmberSettings['sessionNotes'];
+  } catch {
+    return {} as EmberSettings['sessionNotes'];
+  }
+})();
 
 let settings: EmberSettings = {
   theme: storedRead.theme ?? 'stone',
@@ -1858,7 +1871,7 @@ let settings: EmberSettings = {
   showActivityRail: true,
   sessionGroups: [],
   instanceDefaults: storedRead.instanceDefaults ?? {},
-  sessionNotes: {},
+  sessionNotes: storedNotes,
   // The mock is a fresh install with no read history: every finished assistant turn is unread,
   // which is what Home's cards and the per-message bubbles need to exercise.
   readMarks: storedRead.readMarks ?? {},
@@ -1930,6 +1943,7 @@ export const bridge: EmberBridge = {
       if (draft === null) delete drafts[key];
       else drafts[key] = draft;
     }
+    if (patch.sessionNotes !== undefined) window.localStorage.setItem(NOTES_KEY, JSON.stringify(patch.sessionNotes));
     settings = { ...settings, ...safe, avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
     if (patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
       window.localStorage.setItem(

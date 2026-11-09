@@ -160,6 +160,7 @@ import { instancesWithFreshStates, sessionStates } from './lib/sessionState';
 import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups';
 import { upsertGroup } from './lib/sessionGroups';
 import { recoverStrandedNotes } from './lib/notes';
+import { addNote, removeNote, updateNote } from './lib/noteStore';
 import { blockedWorkersUnder, crewByLeader, isWorker, leaderNeedsInput, workerKeySet } from './lib/crew';
 import { processesToStopOnHide } from './lib/hideProcesses';
 import { hideElsewhereNote, hideForceStopAsk, hideStopFailure, refusedPids } from './lib/hideStopCopy';
@@ -4767,11 +4768,23 @@ export default function App() {
 
   const handleSaveNote = (key: string, text: string) => {
     if (!key) return;
-    const clean = text.trim().slice(0, 20_000);
-    if (!clean) return;
-    const current = settingsRef.current.sessionNotes;
-    const notes = [...(current[key] ?? []), { id: createNoteId(), text: clean }].slice(-100);
-    handleSettings({ sessionNotes: { ...current, [key]: notes } });
+    const next = addNote(settingsRef.current.sessionNotes, key, { id: createNoteId(), text });
+    if (next === settingsRef.current.sessionNotes) return;
+    handleSettings({ sessionNotes: next });
+  };
+
+  /**
+   * Save an edit to one note — its text, its model, or both.
+   *
+   * The write is a patch against the store as it is *now*, not a copy of what was on screen when the
+   * dialog opened: a note saved from the composer in the meantime, or an edit to a different note,
+   * must both survive. `updateNote` replaces only the one entry by id.
+   */
+  const handleUpdateNote = (key: string, noteId: string, patch: { text?: string; modelId?: string; variant?: string }) => {
+    if (!key) return;
+    const next = updateNote(settingsRef.current.sessionNotes, key, noteId, patch);
+    if (next === settingsRef.current.sessionNotes) return;
+    handleSettings({ sessionNotes: next });
   };
 
   /** Explicit per-message acknowledgement; opening or scrolling never marks a reply read. */
@@ -4885,14 +4898,9 @@ export default function App() {
 
   const handleDeleteNote = (key: string, noteId: string) => {
     if (!key) return;
-    const current = settingsRef.current.sessionNotes;
-    const existing = current[key];
-    if (!existing) return;
-    const notes = existing.filter((note) => note.id !== noteId);
-    const sessionNotes = { ...current };
-    if (notes.length) sessionNotes[key] = notes;
-    else delete sessionNotes[key];
-    handleSettings({ sessionNotes });
+    const next = removeNote(settingsRef.current.sessionNotes, key, noteId);
+    if (next === settingsRef.current.sessionNotes) return;
+    handleSettings({ sessionNotes: next });
   };
 
   const newSessionInstanceDefaults = newSessionInstanceId ? settings.instanceDefaults[newSessionInstanceId] : undefined;
@@ -5097,6 +5105,7 @@ export default function App() {
           onRetryPendingSend={(message) => handleRetryPendingSend(key, message)}
           onDiscardPendingSend={(message) => handleDiscardPendingSend(key, message)}
           onSaveNote={handleSaveNote}
+          onUpdateNote={handleUpdateNote}
           onDeleteNote={handleDeleteNote}
           onCommentsSent={(count) => handleCommentsSent(key, count)}
           onViewChange={handleSettings}
@@ -5522,6 +5531,7 @@ export default function App() {
                   composerDraftsHydrated={settingsLoaded}
                   onComposerDraftsChange={handleComposerDraftsChange}
                   onSaveNote={handleSaveNote}
+                  onUpdateNote={handleUpdateNote}
                   onDeleteNote={handleDeleteNote}
                   onViewChange={handleSettings}
                   onLoadInstructions={loadInstructionsFor}

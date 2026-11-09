@@ -163,8 +163,9 @@ test('notes read in full, append to a retained composer draft, send and delete',
   await note(column, longText);
   await column.getByRole('button', { name: /^Read note:/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Note for later', exact: true });
-  await expect(dialog.locator('pre')).toHaveText(longText);
-  await expect(dialog.getByRole('textbox')).toHaveCount(0);
+  // The note's dialog is its editor now: the whole text, prefilled and editable.
+  await expect(dialog.getByRole('textbox', { name: 'Note', exact: true })).toHaveValue(longText);
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await column.locator('textarea').fill('Existing composer draft');
   await column.getByRole('button', { name: /^Edit note in composer:/ }).click();

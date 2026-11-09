@@ -1,14 +1,7 @@
 import * as React from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 /** One labelled fact about the item: which model, when it was queued, how big the file is. */
 export type TrayItemFact = { label: string; value: React.ReactNode };
@@ -31,6 +24,10 @@ type Props = {
 /**
  * The read-only view of one tray item.
  *
+ * It carries a title and no description. The description used to promise "nothing here changes what
+ * will be sent", which stopped being true the moment a note's dialog became an editor — and a
+ * promise that has to be qualified per tray is worse than none.
+ *
  * Clicking a queued message used to offer nothing but its editor, whose Save enqueues the new text
  * and withdraws the original — so reading a long message meant opening an operation you did not
  * want. This shows the whole thing and changes nothing; editing is a separate button that opens the
@@ -40,8 +37,9 @@ const TrayItemDialog = ({ open, title, text, facts, attachments, warning, action
   <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
     <DialogContent className="w-[620px] sm:max-w-[620px]">
       <DialogHeader>
+        {/* The title is the dialog's accessible name: no description is rendered, so there is no
+            empty element for a screen reader to announce. */}
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>Nothing here changes what will be sent.</DialogDescription>
       </DialogHeader>
       {warning ? (
         <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11.5px] text-destructive">{warning}</p>

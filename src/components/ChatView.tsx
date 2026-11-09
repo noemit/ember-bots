@@ -24,6 +24,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { clearComposerText, composerMemory, removedDrafts, type ComposerState, type DraftChanges } from '@/lib/composerDrafts';
 import { canonicalVariant, resolveComposerModel } from '@/lib/modelSelection';
+import { noteModelChoice } from '@/lib/noteStore';
 import { applyMention, matchMentions, mentionQueryAt, type MentionQuery } from '@/lib/mentions';
 import MentionSuggest from './MentionSuggest';
 import { isTurnLive } from '@/lib/turnActivity';
@@ -202,6 +203,8 @@ type Props = {
   /** Drop an unconfirmed message from the transcript. */
   onDiscardPendingSend?: (message: ChatMessage) => void;
   onSaveNote: (sessionKey: string, text: string) => void;
+  /** Save an edit to one parked note: its text, its model, or both (see `lib/noteStore`). */
+  onUpdateNote: (sessionKey: string, noteId: string, patch: { text?: string; modelId?: string; variant?: string }) => void;
   onDeleteNote: (sessionKey: string, noteId: string) => void;
   /**
    * A message this column should open on (Home's link context bars). The token makes a repeat
@@ -498,6 +501,7 @@ function ChatView({
   onRetryPendingSend,
   onDiscardPendingSend,
   onSaveNote,
+  onUpdateNote,
   focusTarget,
   onCommentsSent,
   onDeleteNote,
@@ -990,6 +994,13 @@ function ChatView({
   };
 
   const { model, error: modelError } = resolveComposerModel(modelId, variant, models, defaultModelId);
+  /**
+   * A send refused *because of a note's own model*, said where the composer's own model errors are
+   * said. It is separate from `modelError` so a note that cannot reach its model does not block the
+   * composer for anything else the person wants to type.
+   */
+  const [noteError, setNoteError] = React.useState<string | null>(null);
+  const showNoteError = React.useCallback((message: string) => setNoteError(message), []);
   const defaultModel = defaultModelId ? models.find((entry) => modelRefKey(entry) === defaultModelId) : undefined;
   /**
    * The reasoning levels this composer can actually choose between.
@@ -1387,19 +1398,59 @@ function ChatView({
     });
   };
 
+  /**
+   * A note's own model, resolved against the catalogue the composer drew from.
+   *
+   * A note names a model only when one was chosen on it; otherwise the composer's choice applies,
+   * exactly as before notes could carry one. A stored model the host no longer offers is *not*
+   * silently replaced: the send is refused with the composer's own words and the note keeps its
+   * choice, because the person picked it and only they can undo it.
+   */
+  const noteInput = (note: SessionNote): { input: PromptInput; error: string | null } => {
+    const choice = noteModelChoice(note);
+    if (choice.kind === 'composer') {
+      return { input: { text: note.text, model, selectedModelId: modelId, variant: variant || undefined }, error: null };
+    }
+    const level = choice.variant ?? '';
+    const resolved = resolveComposerModel(choice.modelId, level, models, defaultModelId);
+    return {
+      input: {
+        text: note.text,
+        model: resolved.model,
+        selectedModelId: choice.modelId,
+        variant: level || undefined,
+      },
+      error: resolved.error
+        ? `This note is set to ${choice.modelId}. ${resolved.error}`
+        : null,
+    };
+  };
+
   const bringBackNote = (note: SessionNote) => {
     if (!composerKey) return;
     const next = text.trim() ? `${text.trimEnd()}\n\n${note.text}` : note.text;
+    // The note's own model comes back with its text: bringing a note back must not quietly switch
+    // it to the composer's model, or the next send would go somewhere the person did not choose.
+    const choice = noteModelChoice(note);
+    const carried = choice.kind === 'composer'
+      ? { modelId, variant }
+      : { modelId: choice.modelId, variant: choice.variant ?? '' };
     setText(next);
-    updateComposerDraft(composerKey, { text: next, modelId, variant, attachments, replyContext });
+    setModelId(carried.modelId);
+    setVariant(carried.variant);
+    updateComposerDraft(composerKey, { text: next, modelId: carried.modelId, variant: carried.variant, attachments, replyContext });
     onDeleteNote(notesKey, note.id);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   const sendNote = async (note: SessionNote): Promise<boolean> => {
-    if (!composerKey || !session || modelError) return false;
-    const input: PromptInput = { text: note.text, model, selectedModelId: modelId, variant: variant || undefined };
-    const sent = await (shouldQueue ? onQueue : onSend)(input);
+    if (!composerKey || !session) return false;
+    const resolved = noteInput(note);
+    if (resolved.error) {
+      showNoteError(resolved.error);
+      return false;
+    }
+    const sent = await (shouldQueue ? onQueue : onSend)(resolved.input);
     if (sent) onDeleteNote(notesKey, note.id);
     return sent;
   };
@@ -2094,6 +2145,16 @@ function ChatView({
                           canSend={loadedComposerKey === composerKey}
                           onSend={sendNote}
                           onBringBack={bringBackNote}
+                          models={models}
+                          modelValue={modelId}
+                          modelVariant={variant}
+                          defaultModelId={defaultModelId}
+                          instanceDefaultModelId={instanceDefaultModelId}
+                          recentModels={recentModels}
+                          onModelsRefresh={onModelsRefresh}
+                          onUpdate={(note, patch) => {
+                            if (notesKey) onUpdateNote(notesKey, note.id, patch);
+                          }}
                           onDelete={(note) => {
                             if (notesKey) onDeleteNote(notesKey, note.id);
                           }}
@@ -2276,6 +2337,11 @@ function ChatView({
             {modelError ? <div role="alert" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-destructive">
               <span className="min-w-0 break-words">{modelError} Your draft is kept.</span>
               {onModelsRefresh ? <button type="button" className="underline" onClick={onModelsRefresh}>Refresh models</button> : null}
+            </div> : null}
+            {noteError ? <div role="alert" data-note-model-error className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-destructive">
+              <span className="min-w-0 break-words">{noteError}</span>
+              {onModelsRefresh ? <button type="button" className="underline" onClick={onModelsRefresh}>Refresh models</button> : null}
+              <button type="button" className="underline" onClick={() => setNoteError(null)}>Dismiss</button>
             </div> : null}
             {mentionOpen ? (
               <MentionSuggest

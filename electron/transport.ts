@@ -275,6 +275,14 @@ export const parseColorAssignments = (value: unknown, colorCount = AVATAR_COLOR_
 export type StoredSessionNote = {
   id: string;
   text: string;
+  /**
+   * The model this note sends with, when one was chosen on the note itself (a `provider/model` key,
+   * or `default` for "leave the choice to the host"). Absent means "the composer's model at send
+   * time" — the behaviour notes had before they could carry one.
+   */
+  modelId?: string;
+  /** Reasoning level stored beside `modelId`. Dropped when it is empty or the model sentinel. */
+  variant?: string;
 };
 
 const MAX_SESSION_NOTES = 100;
@@ -290,7 +298,16 @@ const toStoredSessionNote = (value: unknown, fallbackId: string): StoredSessionN
   const id = typeof entry.id === 'string' && /^[a-z0-9_-]{1,120}$/i.test(entry.id)
     ? entry.id
     : fallbackId;
-  return { id, text };
+  // A note's model survives the settings boundary too: it is the reason the note exists in the
+  // form it does, and dropping it here made an edited note come back on the composer's model after
+  // a restart. `default` is not a model choice, so it is stored as absence.
+  const modelId = typeof entry.modelId === 'string' && entry.modelId.trim() && entry.modelId.length <= 200 && entry.modelId !== 'default'
+    ? entry.modelId.trim()
+    : undefined;
+  const variant = modelId && typeof entry.variant === 'string' && entry.variant.trim() && entry.variant.trim().length <= 40 && entry.variant !== 'default'
+    ? entry.variant.trim()
+    : undefined;
+  return { id, text, ...(modelId ? { modelId } : {}), ...(variant ? { variant } : {}) };
 };
 
 /** Notes saved per session; a lone string (or legacy single-note map) becomes one entry. */

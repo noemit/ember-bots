@@ -1,3 +1,12 @@
+## Unreleased
+
+### Changed
+- A parked note opens in its own editor: reword it, give it the model it should be sent with, and
+  save without losing other notes saved in the meantime. A note with no model of its own still goes
+  out on the composer's model, and bringing it back to the composer carries the model with it.
+- The tray's read-only dialogs no longer carry a subtitle promising nothing will change; the queue
+  dialog keeps its title and actions, and the note dialog is now a place you can change things.
+
 ## 1.22.0
 
 ### Added

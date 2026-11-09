@@ -554,6 +554,13 @@ export type ModelOption = ModelRef & {
 export type SessionNote = {
   id: string;
   text: string;
+  /**
+   * The model this note sends with, when it was chosen on the note itself. Absent means "whatever
+   * the composer is using when it is sent" — the behaviour notes had before they could carry one.
+   */
+  modelId?: string;
+  /** Reasoning level stored beside `modelId`; ignored when the note names no model. */
+  variant?: string;
 };
 
 export type StoredComposerDraft = {

@@ -81,7 +81,7 @@ describe('readable queue actions retain their contract', () => {
   });
 
   test('notes use the same fine separated list and keep their real handlers reachable', () => {
-    const html = renderToStaticMarkup(<SessionNotes notes={[{ id: 'n', text: 'A saved thought', createdAt: 0 }]} onSend={success} onBringBack={() => {}} onDelete={() => {}} />);
+    const html = renderToStaticMarkup(<SessionNotes notes={[{ id: 'n', text: 'A saved thought', createdAt: 0 }]} onSend={success} onBringBack={() => {}} onDelete={() => {}} onUpdate={() => {}} models={[]} modelValue="default" modelVariant="" recentModels={[]} />);
     expect(html).toContain('list-none flex-col divide-y');
     for (const name of ['Read note', 'Send note', 'Edit note in composer', 'Delete note']) expect(action(html, name)).toBeDefined();
   });
