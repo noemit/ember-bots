@@ -9,8 +9,8 @@
 ### Changed
 - README: a screenshot of the thread-question and Threads tray flow, and the download table now
   points at the published release instead of the Windows CI workflow.
-- The composer trays sit on a 1% wash of the theme's ink (white on dark themes, black on light), so
-  the Queue/For later/Threads row separates from the transcript without a second panel.
+- The composer trays use the same surface as the side rail, so the rail and the Queue/For later/
+  Threads row read as one piece of furniture around the conversation.
 - The “Marked read” confirmation fades after about a second; hovering it or focusing Undo holds it
   for up to five seconds.
 - Right-clicking a bot reply offers **Mark as unread**, which makes that reply and everything after it

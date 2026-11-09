@@ -278,13 +278,13 @@ html.motion-paused *::after {
 }
 
 /*
- * The composer trays (Queue, For later, Threads) sit on a 1% wash of the theme's own ink: white in
- * dark themes, black in light ones. It is not a surface — no border, no radius — just enough to
- * separate the tabs from the transcript without drawing a second panel above the composer. The
- * element is `empty:hidden`, so a session with no trays shows no tint at all.
+ * The composer trays (Queue, For later, Threads) sit on the same surface as the side rail, so the
+ * two read as one piece of furniture around the conversation. `bg-card` is what the rail itself
+ * uses; keeping the token rather than a second colour means every theme gets it for free, and a
+ * session with no trays shows nothing at all (`empty:hidden` on the container).
  */
 [data-composer-extras] {
-  background: color-mix(in oklab, var(--foreground) 1%, transparent);
+  background: var(--card);
 }
 
 /* Contain the blend backdrop to this column's footer. The opaque base is required:
