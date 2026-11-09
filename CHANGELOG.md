@@ -7,6 +7,8 @@
   and a run uses its own session, so it never interrupts the chat that created it.
 
 ### Changed
+- README: a screenshot of the thread-question and Threads tray flow, and the download table now
+  points at the published release instead of the Windows CI workflow.
 - The composer trays sit on a 1% wash of the theme's ink (white on dark themes, black on light), so
   the Queue/For later/Threads row separates from the transcript without a second panel.
 - The “Marked read” confirmation fades after about a second; hovering it or focusing Undo holds it

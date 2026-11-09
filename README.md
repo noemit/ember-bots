@@ -18,20 +18,20 @@ unsent: the person decides when to send them. Published releases may show an ear
 ## Downloads & quick install
 
 Get the desktop app from [GitHub Releases](https://github.com/noemit/ember-bots/releases/latest).
-The latest published release checked for this README is **v1.6.9**; the source tree contains newer
+The latest published release checked for this README is **v1.22.0**; the source tree contains newer
 work. [Build from source](#run-from-source) to try the current development version.
 
 | Platform | Download |
 | --- | --- |
 | macOS, Apple Silicon | [Ember DMG](https://github.com/noemit/ember-bots/releases/latest) — open it and move Ember to Applications |
 | Linux, x64 | [AppImage or tar archive](https://github.com/noemit/ember-bots/releases/latest) |
-| Windows, x64 | [Windows workflow](https://github.com/noemit/ember-bots/actions/workflows/windows.yml) — open a successful run and download and extract `ember-windows-x64`, then run the installer inside |
+| Windows, x64 | [Ember setup](https://github.com/noemit/ember-bots/releases/latest) — run the installer |
 
 On Linux, give the downloaded AppImage execute permission in its file properties, then launch it.
 
 **Windows signing warning:** Windows builds are currently unsigned. Microsoft Defender SmartScreen
 may show “Windows protected your PC” or an unknown publisher. If you downloaded the installer from
-the workflow above and trust this build, choose **More info → Run anyway** when offered.
+the release page and trust this build, choose **More info → Run anyway** when offered.
 Your organisation’s policy or Smart App Control may block installation without that option.
 See [Microsoft’s explanation of signing and SmartScreen](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation).
 
@@ -114,6 +114,12 @@ connect it in **Settings → Instances**.
   chats; optional split view shows conversations side by side.
 
 ## Using the workspace
+
+![Ember with a leader chat whose worker is blocked on a question: the question is answered inline, the Threads tray shows 1 of 2 threads running, and the composer is ready for a direction.](docs/images/threads.png)
+
+*A worker's question arrives in the leader's chat, labelled with the thread that asked it, so it can
+be answered without opening that thread. The **Threads** tray reads running over total. Sample
+conversations from the mock host; nothing here is sent anywhere.*
 
 Other chats sit in the rail, with newer activity toward the bottom. The active chat’s creature
 sits beside the composer. Select another chat to bring its identity into that corner; double-click
