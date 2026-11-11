@@ -33,7 +33,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { isHumanReadingMessage, type ReadingBounds, shouldOfferLastMessageJump } from '../lib/transcriptReadingGeometry';
+import { isHumanReadingMessage, isProseAssistantMessage, previousTarget, type JumpTarget, type ReadingBounds } from '../lib/transcriptReadingGeometry';
 import { isTurnLive, outputSignature } from '../lib/turnActivity';
 import { parseCrewReport } from '../lib/crew';
 import { deriveActivityLabel } from '../lib/activityLabel';
@@ -2148,31 +2148,56 @@ function Transcript({
     }, [focusedIndex, highlightedIndex]),
     enabled: virtualized,
   });
-  const latestUserIndex = React.useMemo(() => {
-    for (let index = items.length - 1; index >= 0; index--) if (isHumanReadingMessage(items[index].message)) return index;
-    return -1;
+  const [jumpTargets, setJumpTargets] = React.useState<{ bot: JumpTarget | null; sent: JumpTarget | null }>({ bot: null, sent: null });
+  /** Indices of the rows each jump kind may land on, by message id. */
+  const jumpKinds = React.useMemo(() => {
+    const bot = new Map<string, number>();
+    const sent = new Map<string, number>();
+    items.forEach(({ message }, index) => {
+      if (isProseAssistantMessage(message)) bot.set(message.id, index);
+      if (isHumanReadingMessage(message)) sent.set(message.id, index);
+    });
+    return { bot, sent };
   }, [items]);
-  const userMessageIds = React.useMemo(() => new Set(items.filter(({ message }) => isHumanReadingMessage(message)).map(({ message }) => message.id)), [items]);
-  const [showLastMessageJump, setShowLastMessageJump] = React.useState(false);
+  const jumpKindsRef = React.useRef(jumpKinds);
+  jumpKindsRef.current = jumpKinds;
   const updateReadingGeometry = useStableCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
     const viewport = scroller.getBoundingClientRect();
-    const users = [...messageRefs.current].flatMap(([id, node]) =>
-      userMessageIds.has(id) ? [node.getBoundingClientRect()] : []
-    );
-    const latest = items[latestUserIndex];
-    let bounds: ReadingBounds | undefined = latest ? messageRefs.current.get(latest.message.id)?.getBoundingClientRect() : undefined;
-    if (!bounds && virtualized && latest) {
-      const measurement = virtualizer.measurementsCache[latestUserIndex];
-      const history = contentRef.current?.querySelector('[data-message-history]');
-      if (measurement && history) {
-        const origin = history.getBoundingClientRect().top;
-        bounds = { top: origin + measurement.start, bottom: origin + measurement.end };
+    // A virtualised row outside the window has no DOM node of its own, so its bounds come from the
+    // virtualiser's measurements, offset by the history container's origin. Both kinds share that
+    // path: one bounds source for both buttons, so two buttons over the same rows cannot disagree
+    // about where a message is.
+    const history = virtualized ? contentRef.current?.querySelector('[data-message-history]') : null;
+    const origin = history?.getBoundingClientRect().top;
+    // Copied out of the `DOMRect` rather than spread: its fields live on the prototype, so
+    // `{ ...rect }` is an empty object and every row would read as zero-sized.
+    const rowBounds = (id: string, index: number): ReadingBounds | undefined => {
+      const node = messageRefs.current.get(id);
+      if (node) {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom };
       }
-    }
-    setShowLastMessageJump(shouldOfferLastMessageJump(viewport, bounds, users));
+      const measurement = virtualizer.measurementsCache[index];
+      if (measurement && origin !== undefined) return { top: origin + measurement.start, bottom: origin + measurement.end };
+      return undefined;
+    };
+    const rowsFor = (kind: 'bot' | 'sent') => [...jumpKindsRef.current[kind]].flatMap(([id, index]) => {
+      const bounds = rowBounds(id, index);
+      return bounds ? [{ index, top: bounds.top, bottom: bounds.bottom }] : [];
+    });
+    const bot = previousTarget(viewport, rowsFor('bot'));
+    const sent = previousTarget(viewport, rowsFor('sent'));
+    // `previousTarget` returns a fresh object per call, so compare what the buttons show and do
+    // (whether there is one, which row, which alignment) rather than the object identities.
+    const same = (a: JumpTarget | null, b: JumpTarget | null) => a?.index === b?.index && a?.align === b?.align;
+    setJumpTargets(previous => same(previous.bot, bot) && same(previous.sent, sent) ? previous : { bot, sent });
   });
+  /** Narrowed for the click handlers: a button only exists when its target does. */
+  const jumpTo = (target: JumpTarget | null) => {
+    if (target) jumpToIndex(target.index, target.align);
+  };
   React.useLayoutEffect(() => { updateReadingGeometry(); });
   React.useEffect(() => {
     const scroller = scrollRef.current;
@@ -2657,8 +2682,17 @@ function Transcript({
           </div>
         ) : null}
       <div className="relative flex min-h-0 flex-1 flex-col">
-      {showLastMessageJump ? <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
-        <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" onClick={() => jumpToIndex(latestUserIndex, 'start')}>↑ Jump to your last message</Button>
+      {jumpTargets.bot || jumpTargets.sent ? <div className={cn(
+        // `top-2` keeps this row clear of the unread strip and the read receipt, which live above
+        // and below the scroller rather than here. Each button's half is `flex-1`, so a lone button
+        // takes the whole width and centres instead of sitting off-centre in an empty half.
+        'pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center gap-2 px-2')}>
+        {jumpTargets.bot ? <div className="flex flex-1 justify-center">
+          <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" aria-label="Jump to the previous bot message" title="Jump to the previous bot message" onClick={() => jumpTo(jumpTargets.bot)}>↑ Previous bot message</Button>
+        </div> : null}
+        {jumpTargets.sent ? <div className="flex flex-1 justify-center">
+          <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" aria-label="Jump to the previous sent message" title="Jump to the previous sent message" onClick={() => jumpTo(jumpTargets.sent)}>↑ Previous sent message</Button>
+        </div> : null}
       </div> : null}
       {receipt ? <div data-read-toast=""
         // Pointer and keyboard are the same hold (see `readReceiptTimer`): either one keeps the
