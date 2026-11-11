@@ -6,27 +6,31 @@ import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { springTransition } from '@/lib/animation';
 import { sendCommentsLabel, type TranscriptComment } from '@/lib/comments';
+import { commentSubmitHint, type CommentDelivery } from '@/lib/commentDelivery';
 
 type Props = {
   comments: TranscriptComment[];
   sending: boolean;
-  /** Sends every comment as one message; false when the composer can't send at all. */
+  /** Sends every annotation as one message; false when the composer can't send at all. */
   canSend: boolean;
+  /** Which delivery the composer will use, so the button does not promise a send that queues. */
+  delivery: CommentDelivery;
   onChangeReply: (id: string, reply: string) => void;
   onRemove: (id: string) => void;
   onSend: () => void;
 };
 
 /**
- * The comment tray above the composer. Rows follow the notes and queue cards' visual language
+ * The annotation tray above the composer. Rows follow the notes and queue cards' visual language
  * (each row names itself, no icon rail): the quoted segment, then the reply as an editable field.
- * It is a draft, not the queue: nothing dispatches until "Send N comments", which assembles all of
- * them into one ordinary user message.
+ * It is a draft, not the queue: nothing dispatches until the button is pressed, which assembles all
+ * of them into one ordinary user message.
  */
 export default function CommentTray({
   comments,
   sending,
   canSend,
+  delivery,
   onChangeReply,
   onRemove,
   onSend,
@@ -36,18 +40,18 @@ export default function CommentTray({
     <Card className="bg-background/80 shadow-sm">
       <CardContent className="flex flex-col gap-1 p-2 text-[11.5px]">
         <div className="flex items-center justify-between gap-2">
-          <span className="pl-0.5 font-semibold text-highlight">Comments</span>
+          <span className="pl-0.5 font-semibold text-highlight">Annotations</span>
           <Button
             type="button"
             size="xs"
             variant="secondary"
             disabled={sending || !canSend}
             onClick={onSend}
-            title="Send every comment as one message"
+            title={commentSubmitHint(delivery)}
             className="h-6 px-2 text-[11px]"
           >
             {sending ? <Loader2 className="animate-spin" /> : <Send />}
-            {sending ? 'Sending…' : sendCommentsLabel(comments.length)}
+            {sending ? 'Sending…' : sendCommentsLabel(comments.length, delivery)}
           </Button>
         </div>
         <ol className="flex max-h-44 min-w-0 flex-col gap-1 overflow-y-auto">
@@ -75,8 +79,8 @@ export default function CommentTray({
                     variant="ghost"
                     size="icon-xs"
                     onClick={() => onRemove(comment.id)}
-                    aria-label={`Remove comment: ${comment.quote.slice(0, 60)}`}
-                    title="Remove comment"
+                    aria-label={`Remove annotation: ${comment.quote.slice(0, 60)}`}
+                    title="Remove annotation"
                     className="flex-none text-muted-foreground hover:text-destructive"
                   >
                     <X />

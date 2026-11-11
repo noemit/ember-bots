@@ -88,6 +88,7 @@ import SelectionCommentBar from './SelectionCommentBar';
 import { processKey } from '../lib/processExpiry';
 import { commentMemory, composeCommentMessage, normaliseSelection, type TranscriptComment } from '@/lib/comments';
 import { useSelectionComments } from '@/hooks/useSelectionComments';
+import { commentDelivery } from '@/lib/commentDelivery';
 import { pendingCreateComposerText, pendingCreateMessages, type PendingCreate } from '../lib/pendingCreate';
 
 const loadModelPicker = () => import('./ModelPicker');
@@ -1189,6 +1190,10 @@ function ChatView({
         selectedModelId: modelId,
         mode: session.agent,
         variant: variant || undefined,
+        // The composer sets this inside `submit()`; the tray assembles its own input and so has to
+        // say it too, or a button reading "Steer" would queue instead. Same rule as the composer:
+        // YEET makes steering the default rather than a per-message decision.
+        steer: yeet ? true : undefined,
       };
       // Not retained on failure: the tray still holds the text, so a transcript bubble would
       // duplicate it. The app surfaces the reason through its error banner.
@@ -2031,6 +2036,10 @@ function ChatView({
           editing={selectionComments.editing}
           onOpenEditor={selectionComments.openEditor}
           onDismiss={selectionComments.dismiss}
+          // The same two facts the composer's own send button reads, so the bar's CTA says Send,
+          // Queue or Steer and agrees with what pressing it does.
+          busy={shouldQueue}
+          yeet={yeet}
           onAdd={(reply) => {
             addComment(selectionComments.quote, reply);
             selectionComments.dismiss();
@@ -2231,6 +2240,8 @@ function ChatView({
                 comments={comments}
                 sending={commentsSending}
                 canSend={loadedComposerKey === composerKey && !modelError}
+                // The same two facts the selection bar reads: a busy session queues, YEET steers.
+                delivery={commentDelivery({ busy: shouldQueue, yeet })}
                 onChangeReply={updateCommentReply}
                 onRemove={removeComment}
                 onSend={() => void sendComments()}

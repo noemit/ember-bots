@@ -1,6 +1,12 @@
 ## Unreleased
 
 ### Changed
+- **Annotations** is the new name for commenting on a reply. Selecting text in the transcript now
+  opens the reply box straight away — no second press, and no guess at what you meant — and the box
+  grows as you type instead of scrolling a single line sideways.
+- The paragraph's button says what will happen: **Send** when the bot is idle, **Queue** when it is
+  busy, **Steer** in YEET mode. "Add" named the shelf it wrote to and nothing about whether pressing
+  it would interrupt a running turn. The Annotations tray's own button reads the same way.
 - A parked note opens in its own editor: reword it, give it the model it should be sent with, and
   save without losing other notes saved in the meantime. A note with no model of its own still goes
   out on the composer's model, and bringing it back to the composer carries the model with it.

@@ -115,7 +115,11 @@ export function useSelectionComments({ regionRef, hostRef, enabled }: Options): 
         setQuote('');
         return;
       }
-      show(selection, false);
+      // Opens *in* the reply box, not on a preview with a Comment button beside it. Selecting text
+      // is already the intent to annotate it; making the person press Comment first was a second
+      // confirmation of something they had just done. `editing=true` also stops this effect from
+      // hiding the bar when focusing the field collapses the document selection.
+      show(selection, true);
     };
     const schedule = () => {
       if (timer !== undefined) window.clearTimeout(timer);

@@ -1,5 +1,5 @@
 /**
- * Transcript comments: quote a segment of the reply, say what you think about it, and send the
+ * Transcript annotations: quote a segment of the reply, say what you think about it, and send the
  * whole set as ONE ordinary user message. Nothing but the words travels, so the agent reads the
  * referent without a protocol, an id or an offset:
  *
@@ -9,9 +9,15 @@
  *   2. Re: "the export needs a queue"
  *   Hold off on this one.
  *
- * Comments are transient drafts (a tray above the composer), never the server queue and never a
+ * Annotations are transient drafts (a tray above the composer), never the server queue and never a
  * persisted format. Everything here is pure so the wording can be tested without a bridge.
+ *
+ * The identifiers still say `comment` (`TranscriptComment`, `commentMemory`, this file's name): they
+ * are internal, and renaming them would churn every call site for no one's benefit. Only the words a
+ * person reads say "annotation".
  */
+
+import type { CommentDelivery } from './commentDelivery';
 
 export type TranscriptComment = {
   id: string;
@@ -93,9 +99,21 @@ export const isCommentShortcut = (event: {
 }): boolean =>
   (event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && event.key.toLowerCase() === 'c';
 
-/** A tray label: "Send 3 comments". */
-export const sendCommentsLabel = (count: number): string =>
-  count === 1 ? 'Send 1 comment' : `Send ${count} comments`;
+/**
+ * The tray's label, which names the delivery as well as the count.
+ *
+ * "Send 3 comments" promised a send that did not always happen: on a busy session the assembled
+ * message is queued behind the running turn, and in YEET mode it steers into it. The label now says
+ * which, from the same `commentDelivery` answer the selection bar's own button uses.
+ */
+export const sendCommentsLabel = (count: number, delivery: CommentDelivery = 'send'): string => {
+  const noun = count === 1 ? 'annotation' : 'annotations';
+  switch (delivery) {
+    case 'queue': return `Queue ${count} ${noun}`;
+    case 'steer': return `Steer ${count} ${noun}`;
+    default: return `Send ${count} ${noun}`;
+  }
+};
 
 /**
  * Comments survive switching columns within a run (a column unmounts when it is closed or

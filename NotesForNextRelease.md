@@ -40,6 +40,35 @@ never a subject are rejected outright — auxiliaries and pronouns, irregular pa
 with ("I found…", "I changed…"). The same request now falls back to a roster name instead of naming
 itself after a helper verb.
 
+## Annotations: the button says what will happen
+
+The comment bar had one word — **Add** — and it described the shelf it wrote to rather than the
+consequence. On a busy session the assembled message is queued behind the running turn; in YEET mode
+it steers into it. Both said "Add".
+
+The button now reads **Send** when the bot is idle, **Queue** when it is busy, and **Steer** in YEET
+mode, and the tooltip spells out the promise the single word cannot ("waits behind the running turn,
+which is not interrupted"). The Annotations tray's own button follows the same rule, so the two can
+no longer disagree.
+
+Worth mentioning because it is the kind of honesty that is easy to skip: the label and the behaviour
+now come from one function, and a test asserts they stay in step — the bug it prevents is "the button
+said Send and the message quietly queued".
+
+## Selecting text opens the reply box
+
+Annotating used to take two presses: select, then click **Comment**, then type. Selecting the text
+was already the intent, so the second press was a confirmation of something the person had just
+done. The bar now opens focused in the reply box.
+
+The box also grows with the text instead of being a single line that scrolled sideways — a long
+annotation looked truncated when every character was there, just out of sight. The Yes / No / Hold off
+chips remain as one-press shortcuts for the keyboard, but they are no longer the headline.
+
+And the feature is called **Annotations** now, everywhere a person reads it. The identifiers still
+say comment (`TranscriptComment`, `commentMemory`, `comments.ts`): renaming those would have churned
+every call site for no one's benefit, so only the displayed copy changed.
+
 ## Corrected a comment that was quietly wrong
 
 The header comment in `src/lib/sessionNameFallback.ts` claimed the noun "comes from a fixed roster,

@@ -144,8 +144,19 @@ describe('composeCommentMessage', () => {
 
 describe('sendCommentsLabel', () => {
   test('counts in the singular and the plural', () => {
-    expect(sendCommentsLabel(1)).toBe('Send 1 comment');
-    expect(sendCommentsLabel(3)).toBe('Send 3 comments');
+    expect(sendCommentsLabel(1)).toBe('Send 1 annotation');
+    expect(sendCommentsLabel(3)).toBe('Send 3 annotations');
+  });
+
+  test('names the delivery rather than promising a send', () => {
+    // A busy session queues the assembled message; the label has to say so, or it lies.
+    expect(sendCommentsLabel(3, 'queue')).toBe('Queue 3 annotations');
+    expect(sendCommentsLabel(1, 'steer')).toBe('Steer 1 annotation');
+    expect(sendCommentsLabel(2, 'send')).toBe('Send 2 annotations');
+  });
+
+  test('defaults to the send wording when no delivery is given', () => {
+    expect(sendCommentsLabel(2)).toBe(sendCommentsLabel(2, 'send'));
   });
 });
 
