@@ -322,7 +322,7 @@ function KilnDiagram() {
   const hosts = [
     { name: 'Container', detail: 'A separate space on a computer', Icon: Boxes },
     { name: 'Mac Studio', detail: 'A Mac you leave running', Icon: Cpu },
-    { name: 'Old PC', detail: 'A spare computer', Icon: Monitor },
+    { name: 'Old PC running Omarchy', detail: 'A spare computer', Icon: Monitor },
   ];
   return (
     <figure className="@container" aria-label="Ember connects to the included Kiln on your computer and Kilns on other computers">
@@ -374,23 +374,26 @@ function Welcome() {
         <div className="flex flex-col gap-1">
           <h3 className="text-2xl font-semibold">Where the work happens</h3>
           <p className="text-base leading-relaxed text-muted-foreground">
-            Ember takes its name from the embers that glow in a fire. Think of <strong className="text-foreground">Kiln</strong>{' '}
-            as the hot, concentrated space where bots take action: editing files, running commands and carrying out your instructions.{' '}
-            Think of <strong className="text-foreground">Ember</strong> as your connection to the powerful energy inside the kiln.
+            Ember is an easy bot workspace where you can send out requests, review results and set scheduled
+            messages. You see each bot session embodied in a cute little blob. This, alongside other features,
+            helps you use your bots more easily.
           </p>
         </div>
       </div>
       <p className="text-base leading-relaxed text-muted-foreground">
         <strong className="text-foreground">Ember is where you direct bots to do work, and observe the work they do.</strong>{' '}
-        It connects to Kiln using a connection password and gives you a view of your conversations, each bot’s progress,
-        their specific actions, what images they are looking at, errors they run into, what they are thinking
-        (with models that support this), and more.
+        It connects to a piece of software behind the scenes called a <strong className="text-foreground">Kiln</strong>.
+        It’s all set up for you here — but if you want to add another Kiln on another computer, you can set that up in
+        minutes.
+      </p>
+      <p className="text-base leading-relaxed text-muted-foreground">
+        Kiln uses a harness called Pi behind the scenes, specifically the Pi-durable version, which is noted among
+        experts for efficiency and reliability across all models and providers.
       </p>
       <KilnDiagram />
       <p className="text-base leading-relaxed text-muted-foreground">
-        One Ember can connect to several Kilns — on this computer, in a container, on a Mac Studio or on an old PC.
-        Each Kiln keeps its conversations and files on the computer doing the work. You can also use Ember on
-        different computers to direct the same Kilns.
+        One Ember can connect to several Kilns that are running on various computers you’ve set up. Bots can even
+        talk to each other across machines.
       </p>
     </div>
   );
@@ -419,8 +422,8 @@ function Connection({
     <div className="flex flex-col gap-4">
       <h3 className="text-2xl font-semibold">Choose where the work happens</h3>
       <p className="text-base leading-relaxed text-muted-foreground">
-        Ember includes a Kiln on this computer, so you can start here. Bots using it edit files and run
-        commands here. This Kiln stops when you quit Ember; its conversations stay on disk.
+        Ember includes a Kiln on this computer, so you can start here. This enables the bots to edit files and run
+        commands. This Kiln stops when you quit Ember; the conversations are saved to your hard drive.
       </p>
 
       {state.localReady ? (
@@ -454,9 +457,10 @@ function Connection({
       )}
 
       <p className="text-base leading-relaxed text-muted-foreground">
-        You can also give bots a separate place to work. A container provides a separate working environment;
-        another computer also moves the workload off your personal computer. Kilns running separately can
-        keep working after you quit Ember, as long as their computer stays on.
+        Once you get a hang of Ember, we recommend you give your bots a separate place to work off of your computer.
+        A container can be a good option for providing a separate work environment. Another physical computer is
+        also a good choice. These computers can keep working even if you close your laptop lid or close your
+        computer entirely — as long as their computer (and Kiln) stays on.
       </p>
       <RemoteSetup endpoints={endpoints} instances={instances} onChange={onChange} onAdded={onAdded} />
     </div>
@@ -532,7 +536,7 @@ function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
         <summary className={summary}>Use Ember on another computer</summary>
         <p className="mt-3">
           Install Ember there to get its own included Kiln. That Kiln starts and stops with that copy of Ember.
-          For a Kiln you can connect to from this window over the network, use Tinder below.
+          Go into your settings and find the token. Use this password to connect to it from your main computer.
         </p>
       </details>
       <details className={disclosure}>
@@ -553,7 +557,7 @@ function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
       </details>
       <details className={disclosure}>
         <summary className={summary}>Connect over Tailscale</summary>
-        <p className="mt-3">You don’t need this for the Kiln included on this computer. Use it to reach a separate Kiln on another computer.</p>
+        <p className="mt-3">Use Tailscale to reach a separate Kiln on another computer.</p>
         <ol className="mt-2 list-decimal space-y-2 pl-5">
           <li>Install Tailscale on both computers and connect them to the same Tailscale network.</li>
           <li>Start Kiln with Tinder on the computer doing the work. For a container, make its Kiln port reachable from that computer’s Tailscale connection.</li>
@@ -666,9 +670,12 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, mod
       <h3 className="text-base font-semibold">Where does your work live?</h3>
       <p className="leading-relaxed text-muted-foreground">
         Choose your workspace — the folder where you already keep your projects or work.
-        You can pick a project inside it for each new chat.
+        You can pick a project inside it for each new chat. You can always access folders elsewhere if you wish,
+        as well.
       </p>
-      {!modelReady ? <p className="text-muted-foreground">Open Choose an AI and select a default model before starting your first bot.</p> : null}
+      {/* No "open Choose an AI" hint on this step: it was deliberately left blank. The footer's Next
+          button is still disabled while no default model is chosen, so the step cannot be finished by
+          accident — it just no longer says why here. */}
       {target ? <div className="rounded-lg border bg-background/60 p-4">
         <p className="mb-2 text-sm text-muted-foreground">Workspace on {target.label}</p>
         <ProjectPicker key={target.id} instance={target} projects={[]} workspaceOnly value={workspace ?? ''} workspace={workspace}
@@ -686,7 +693,6 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, mod
             onChange({ instanceDefaults: { ...instanceDefaults, [target.id]: { ...instanceDefaults[target.id], workspaceDirectory: directory } } });
           }} onSelect={setProject} />
       </div> : null}
-      <p className="text-sm leading-relaxed text-muted-foreground">Nothing is sent until you write your first message.</p>
       <Button className="self-start" disabled={!target || !workspace || !modelReady} onClick={() => {
         if (target && workspace && modelReady) onStart();
       }}>Continue<ArrowRight /></Button>

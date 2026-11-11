@@ -20,7 +20,7 @@ export default function OnboardingPrivacy() {
         </p>
       </div>
       <p className="max-w-xl text-base leading-relaxed text-muted-foreground">
-        Your chosen AI provider receives the messages you send to it and the context your bots use, under that provider’s privacy policy. Ember also makes network requests for updates and model catalogues.
+        Your chosen AI provider receives the messages you send to it and the context your bots use, under that provider’s privacy policy. Ember also makes network requests for updates and model catalogues. Other than that, we track nothing.
       </p>
       <div className="flex flex-col gap-3 border-t border-border/60 pt-6 text-base">
         <p>Built by <a href="https://x.com/noemititarenco" onClick={openExternal} className={linkClass}>Em</a></p>
