@@ -1,0 +1,61 @@
+/* Accessory pixel animations.
+ *
+ * SVG `fill` is an animatable CSS property in Chromium and Firefox, so a keyframe can swap a cell's
+ * colour outright. That is the effect the phone needs: hard pastel swaps in the pixel-art idiom, at a
+ * low frame rate, with an occasional dark period that reads as the screen going to sleep.
+ *
+ * Two rules held here, both learned from the mosaic's existing animations:
+ *   - `steps(1, end)` on every keyframe: a smooth interpolation across a 2.5px cell reads as a blurry
+ *     pixel, not as light.
+ *   - every animation has a `prefers-reduced-motion` fallback that settles on one legible colour,
+ *     because a flashing screen is exactly the kind of motion that setting exists for.
+ */
+
+.mosaic-anim-screen {
+  animation: mosaic-screen-cycle 9s steps(1, end) infinite;
+}
+
+@keyframes mosaic-screen-cycle {
+  /* On, a pastel. The first third is busy: the phone is awake and something is happening. */
+  0%    { fill: #fffdf5; }
+  6%    { fill: #e3d7b7; }
+  12%   { fill: #88a6b2; }
+  18%   { fill: #bf9e88; }
+  24%   { fill: #79927a; }
+  30%   { fill: #a27374; }
+  /* Sleep: the screen goes dark for a moment, which is the "phone shuts off" beat. */
+  36%   { fill: #14111a; }
+  44%   { fill: #2e2a38; }
+  /* Waking: a couple of quick flashes, then a settled colour. */
+  50%   { fill: #fffdf5; }
+  56%   { fill: #14111a; }
+  62%   { fill: #e3d7b7; }
+  70%   { fill: #88a6b2; }
+  /* Idle and bright, then a slow fade back to the top of the loop. */
+  82%   { fill: #e3d7b7; }
+  100%  { fill: #fffdf5; }
+}
+
+.mosaic-anim-screen-idle {
+  animation: mosaic-screen-idle 14s steps(1, end) infinite;
+}
+
+@keyframes mosaic-screen-idle {
+  0%   { fill: #fffdf5; }
+  20%  { fill: #e3d7b7; }
+  40%  { fill: #fffdf5; }
+  60%  { fill: #c9c2b6; }
+  /* A long dark stretch: an idle phone spends most of its time asleep. */
+  75%  { fill: #14111a; }
+  92%  { fill: #14111a; }
+  100% { fill: #fffdf5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Settle on a plain lit screen. Still clearly a phone; nothing flashes. */
+  .mosaic-anim-screen,
+  .mosaic-anim-screen-idle {
+    animation: none !important;
+    fill: #e3d7b7;
+  }
+}

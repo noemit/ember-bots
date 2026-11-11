@@ -1,0 +1,591 @@
+/* The face set: a judgement surface, so plain and roomy rather than app-styled.
+   Named for the page it styles (`face-set.html`) rather than for the accessory gallery it grew out
+   of. The `mosaic-faces` class on the root element is kept because every rule here scopes through
+   it, and renaming both at once is churn without a reader's benefit. */
+
+.mosaic-faces {
+  min-height: 100vh;
+  padding: 28px 32px 64px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: #f6f4f1;
+  color: #1b1a18;
+}
+
+.mosaic-faces header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: -28px -32px 8px;
+  padding: 20px 32px 14px;
+  background: #f6f4f1;
+  border-bottom: 1px solid #e2ddd5;
+}
+
+.mosaic-faces h1 {
+  margin: 0 0 6px;
+  font-size: 19px;
+}
+
+.mosaic-faces header p {
+  margin: 0 0 14px;
+  max-width: 74ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+  opacity: 0.72;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.control-label {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.control {
+  padding: 4px 9px;
+  border: 1px solid #d8d2c8;
+  border-radius: 999px;
+  background: #fffdfa;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.control:hover {
+  border-color: #b9b1a4;
+}
+
+.control.on {
+  background: #1b1a18;
+  border-color: #1b1a18;
+  color: #fffdfa;
+}
+
+.mosaic-faces h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 30px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.variant-count {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.6;
+}
+
+.variant-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.variant {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e2ddd5;
+  border-radius: 10px;
+  background: #fffdfa;
+}
+
+.variant-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+/* The checkbox doubles as the variant's number badge, so the tick and the identity are one target. */
+.keep-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.keep-box input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #1b1a18;
+  cursor: pointer;
+}
+
+.variant.kept {
+  border-color: #2f7a3d;
+  box-shadow: inset 0 0 0 1px #2f7a3d;
+}
+
+.control-group.keeps {
+  margin-left: auto;
+}
+
+.keep-count {
+  min-width: 1.4em;
+  font-variant-numeric: tabular-nums;
+}
+
+.keep-list {
+  max-width: 46ch;
+  overflow: hidden;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.6;
+}
+
+.variant-head strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #1b1a18;
+  color: #fffdfa;
+  font-size: 10.5px;
+}
+
+.flag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #efe7d8;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.variant-sizes {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.size-cell {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.face-art {
+  overflow: visible;
+}
+
+.variant-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  opacity: 0.66;
+}
+
+/* The mood animations come from the app's own blob CSS; the gallery only needs reduced motion to
+   settle the sparkle pass so a screenshot is legible. */
+@media (prefers-reduced-motion: reduce) {
+  .mosaic-faces .mosaic-thought {
+    animation: none !important;
+    opacity: 0.12;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .mosaic-faces {
+    background: #17161a;
+    color: #efece6;
+  }
+  .mosaic-faces header {
+    background: #17161a;
+    border-bottom-color: #322f3a;
+  }
+  .variant {
+    background: #201f25;
+    border-color: #322f3a;
+  }
+  .variant.kept {
+    border-color: #5aa86b;
+    box-shadow: inset 0 0 0 1px #5aa86b;
+  }
+  .keep-box input {
+    accent-color: #efece6;
+  }
+  .control {
+    background: #201f25;
+    border-color: #3a3642;
+    color: #efece6;
+  }
+  .control.on {
+    background: #efece6;
+    border-color: #efece6;
+    color: #17161a;
+  }
+  .flag {
+    background: #33303a;
+  }
+}
+
+/* ---- The drawing bench ---------------------------------------------------- */
+
+.draw-board {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid #e2ddd5;
+  border-radius: 10px;
+  background: #fffdfa;
+}
+
+.editor { display: flex; flex-direction: column; gap: 10px; }
+
+.editor-main { display: flex; gap: 20px; align-items: flex-start; }
+
+.grid-wrap { display: flex; flex-direction: column; gap: 8px; }
+
+.grid {
+  display: grid;
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid #d8d2c8;
+  border-radius: 6px;
+  background: #d8d2c8;
+  touch-action: none;
+}
+
+.cell {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  cursor: crosshair;
+  background: #fffdfa;
+}
+
+.cell.safe:not(.filled) { background: #f4f1ea; }
+.cell.rare:not(.filled) { background: #fffdfa; }
+.cell.eye:not(.filled) { background: #fdf0f2; }
+.cell.off:not(.filled) { background: #ffffff; opacity: .35; }
+.cell.filled { border: 1px solid rgba(0, 0, 0, .12); }
+
+.hatch {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, .09) 0 2px, transparent 2px 5px);
+}
+
+.grid-hint { display: flex; flex-wrap: wrap; gap: 10px; font-size: 10.5px; opacity: .7; }
+.grid-hint span { display: inline-flex; align-items: center; gap: 4px; }
+.sw { display: inline-block; width: 10px; height: 10px; border: 1px solid #c9c2b6; border-radius: 2px; }
+.sw.safe { background: #f4f1ea; }
+.sw.rare { background: repeating-linear-gradient(45deg, #e6e0d5 0 2px, #fffdfa 2px 5px); }
+.sw.eye { background: #fdf0f2; }
+.sw.off { background: #fff; opacity: .4; }
+
+.tools { display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+.tool-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tool-label { font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; opacity: .5; }
+.colour-input { width: 34px; height: 28px; padding: 0; border: 1px solid #d8d2c8; border-radius: 6px; background: none; cursor: pointer; }
+.colour-hex { font-size: 11.5px; opacity: .7; }
+.hex-field { width: 96px; padding: 3px 6px; border: 1px solid #d8d2c8; border-radius: 5px; font: inherit; font-size: 11.5px; }
+.swatches { gap: 4px; }
+.swatch { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(0,0,0,.18); border-radius: 4px; cursor: pointer; }
+.swatch.on { outline: 2px solid #1b1a18; outline-offset: 1px; }
+.control:disabled { opacity: .4; cursor: default; }
+
+.report { font-size: 11.5px; line-height: 1.5; min-height: 18px; }
+.report p { margin: 0; }
+.report .warn { color: #a8551f; }
+.report .ok { color: #2f7a3d; }
+
+.export { width: 100%; }
+.export summary { cursor: pointer; font-size: 11.5px; opacity: .65; }
+.export pre {
+  max-height: 240px; overflow: auto; padding: 10px;
+  border: 1px solid #e2ddd5; border-radius: 8px; background: #faf8f4;
+  font-size: 11px; line-height: 1.5;
+}
+
+.draw-preview { display: flex; flex-direction: column; gap: 8px; }
+.preview-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+.preview-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10.5px; opacity: .8; }
+
+@media (prefers-color-scheme: dark) {
+  .draw-board { background: #201f25; border-color: #322f3a; }
+  .grid { background: #3a3642; border-color: #3a3642; }
+  .cell { background: #262430; }
+  .cell.safe:not(.filled) { background: #2e2b38; }
+  .cell.rare:not(.filled) { background: #262430; }
+  .cell.eye:not(.filled) { background: #3b2a33; }
+  .cell.off:not(.filled) { background: #1b1a20; }
+  .sw.safe { background: #2e2b38; }
+  .sw.rare { background: repeating-linear-gradient(45deg, #3a3642 0 2px, #262430 2px 5px); }
+  .sw.eye { background: #3b2a33; }
+  .sw.off { background: #1b1a20; }
+  .swatch.on { outline-color: #efece6; }
+  .export pre { background: #262430; border-color: #322f3a; }
+  .colour-input, .hex-field { border-color: #3a3642; background: #262430; color: #efece6; }
+}
+
+/* Small and large side by side: the rail size and the judge-it size. */
+.preview-sizes {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.preview-cell { padding-bottom: 2px; }
+
+/* ---- The colour matrix ----------------------------------------------------
+   One row per base colour, one column per relationship. Reading down a column
+   gives the same relationship across every hue — that is what makes it a
+   system rather than a heap of swatches. */
+
+.palette { display: flex; flex-direction: column; gap: 2px; }
+
+.palette-head,
+.palette-row {
+  display: grid;
+  grid-template-columns: 52px repeat(3, 26px);
+  gap: 3px;
+  align-items: center;
+}
+
+.palette-head {
+  font-size: 9.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  opacity: .45;
+}
+
+.palette-head span { text-align: center; }
+.palette-head span:first-child { text-align: left; }
+
+.palette-name {
+  font-size: 11px;
+  opacity: .7;
+}
+
+.palette-cell {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, .18);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.palette-cell:hover { border-color: rgba(0, 0, 0, .5); }
+.palette-cell.on { outline: 2px solid #1b1a18; outline-offset: 1px; }
+
+@media (prefers-color-scheme: dark) {
+  .palette-cell { border-color: rgba(255, 255, 255, .22); }
+  .palette-cell:hover { border-color: rgba(255, 255, 255, .6); }
+  .palette-cell.on { outline-color: #efece6; }
+}
+
+.import {
+  width: 320px;
+  padding: 5px 6px;
+  border: 1px solid #d8d2c8;
+  border-radius: 5px;
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.import-note { margin: 0; font-size: 11px; opacity: .7; }
+
+@media (prefers-color-scheme: dark) {
+  .import { border-color: #3a3642; background: #262430; color: #efece6; }
+}
+
+/* The previews sit on a mid-tone checkerboard, not the page background.
+   A white garment on a near-white page is invisible — which is exactly the
+   colourway being judged — and a black one on a dark page has the same problem.
+   The checker gives both a background that contrasts with either end. */
+.preview-cell {
+  padding: 6px;
+  border-radius: 8px;
+  background-color: #b9b2a6;
+  background-image:
+    linear-gradient(45deg, #a49d90 25%, transparent 25%),
+    linear-gradient(-45deg, #a49d90 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #a49d90 75%),
+    linear-gradient(-45deg, transparent 75%, #a49d90 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
+/* Body distribution: six shapes, and how many faces use each. An empty one is a real gap —
+   that silhouette would never appear in the product. */
+.distribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 11.5px;
+}
+
+.body-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid #d8d2c8;
+  border-radius: 999px;
+}
+
+.body-count strong { font-variant-numeric: tabular-nums; }
+
+.body-count.empty {
+  border-style: dashed;
+  border-color: #c47a3a;
+  color: #a8551f;
+}
+
+.body-warning {
+  color: #a8551f;
+  font-size: 11.5px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .body-count { border-color: #3a3642; }
+  .body-count.empty { border-color: #a8703f; color: #d9a06a; }
+  .body-warning { color: #d9a06a; }
+}
+
+/* ---- The body picker ------------------------------------------------------
+   One select per card. Six silhouettes is too many for a chip row on sixteen cards, and the only
+   thing worth reading at a glance is the body currently chosen — which a select already shows. */
+.body-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.body-picker select {
+  padding: 2px 6px;
+  border: 1px solid #d8d2c8;
+  border-radius: 6px;
+  background: #fffdfa;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+/* The card's own accessible label is on the select; this is only for the one wrapped in a <label>. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+  A fit warning, not an error. Amber rather than red: the assignment is allowed, and a floating brim
+  is sometimes what was drawn. The card keeps its normal border so it does not read as broken.
+*/
+.misfit {
+  margin: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #fdf4e6;
+  color: #a8551f;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.misfit-count {
+  color: #a8551f;
+  font-style: normal;
+}
+
+@media (prefers-color-scheme: dark) {
+  .misfit { background: #342a20; color: #d9a06a; }
+  .misfit-count { color: #d9a06a; }
+}
+
+/* ---- The drawing bench, disk side ---------------------------------------- */
+
+.bench { display: flex; flex-direction: column; gap: 10px; }
+
+.bench-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+}
+
+.bench-hint { opacity: .65; }
+
+.name-field { width: 170px; }
+
+.disk-note {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: .75;
+}
+
+.disk-note.warn { color: #a8551f; opacity: 1; }
+.disk-note.ok { color: #2f7a3d; opacity: 1; }
+
+.saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid #e2ddd5;
+  border-radius: 8px;
+  list-style: none;
+  font-size: 11.5px;
+}
+
+.saved-list li { display: flex; align-items: center; gap: 8px; }
+.saved-meta { opacity: .6; }
+
+@media (prefers-color-scheme: dark) {
+  .body-picker select { border-color: #3a3642; background: #262430; color: #efece6; }
+  .disk-note.warn { color: #d9a06a; }
+  .disk-note.ok { color: #5aa86b; }
+  .saved-list { border-color: #322f3a; }
+}

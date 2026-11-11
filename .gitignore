@@ -46,3 +46,6 @@ maybe.md
 openquestions.md
 release/
 packages/*/node_modules/
+
+# The face designer's saved drawings: local scratch, not source.
+scripts/face-designer/drawings.json
