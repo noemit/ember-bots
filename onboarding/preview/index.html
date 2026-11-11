@@ -1,0 +1,1498 @@
+<!doctype html>
+<!--
+  Onboarding copy preview — a standalone tool, not part of the app.
+
+  Two columns: the first-run wizard as the app draws it (left), and every piece of its
+  user-facing copy as an editable field (right). Editing a field updates the left column
+  immediately; Save writes the edited copy to `copy.json` next to this file through
+  `serve.sh` (or downloads it when the page was opened as file://).
+
+  Copy transcribed verbatim from:
+    - src/components/OnboardingWizard.tsx      (welcome, connection, token, providers,
+                                                first-agent steps and the wizard frame)
+    - src/components/OnboardingPrivacy.tsx     (the privacy step)
+    - src/lib/onboarding.ts                    (step titles + summaries, OPENCODE_ONBOARDING_TIP)
+    - src/components/LocalTokenSettings.tsx    (the token panel the token step renders)
+    - src/components/ProvidersSettings.tsx     (the provider list the AI step renders)
+
+  Step ids (src/lib/onboarding.ts → ONBOARDING_STEPS):
+    chrome, welcome, connection, token, providers, first-agent, privacy
+
+  Not editable on purpose: icon names, the two shell commands, the example address
+  (http://100.x.y.z:3003), and the step counts — those are code, not copy. EndpointsSettings
+  and ProjectPicker copy (add-endpoint form, browse dialog) is not reproduced either; see
+  KNOWN GAPS at the end of the script for the full list.
+
+  `?variant=nohost` opens on the connection step with a failed local Kiln, which is the
+  first-run state a person actually hits when the bundled host does not start.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ember onboarding copy — preview tool</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    color-scheme: dark;
+    --background: #151413;
+    --foreground: #efece7;
+    --card: #1b1a18;
+    --primary: #efece7;
+    --primary-foreground: #151413;
+    --secondary: #242220;
+    --muted: #242220;
+    --muted-foreground: #9b958c;
+    --destructive: #ff5c5c;
+    --success: #34d399;
+    --border: #2c2a26;
+    --input: #2c2a26;
+    --ring: #ff7a1a;
+    --highlight: #ff7a1a;
+
+    /* The tool's own frame (dark) */
+    --tool-bg: #111010;
+    --tool-panel: #171615;
+    --tool-border: #2a2825;
+    --tool-label: #a49d93;
+    --tool-accent: #ff7a1a;
+
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --rail-w: 260px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--tool-bg);
+    color: var(--foreground);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    overflow: hidden;
+  }
+  button { font: inherit; color: inherit; }
+  textarea, input { font: inherit; }
+
+  /* ---------- tool layout ---------- */
+
+  .app { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+  .pane-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--tool-border);
+    background: var(--tool-panel);
+  }
+  .pane-head h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .01em; }
+  .pane-head .sub { color: var(--tool-label); font-size: 12px; }
+  .pane-head .spacer { flex: 1; }
+
+  .pane-left { flex: 1 1 60%; border-right: 1px solid var(--tool-border); background: #0d0c0b; }
+  .pane-right { flex: 0 1 42%; min-width: 420px; max-width: 620px; background: var(--tool-panel); }
+
+  /* The wizard stage.
+     The 1180x760 wizard is sized at its real desktop dimensions and shrunk with `zoom` (not
+     `transform: scale`): zoom changes layout size too, so `.stage-inner`'s own box always matches
+     what is painted and no ancestor crops the frame at its unscaled height. */
+  .stage {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    position: relative;
+  }
+  .stage-inner {
+    position: relative;
+    flex: none;
+    border-radius: 10px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .06);
+  }
+  .frame {
+    position: relative;
+    width: 1180px;
+    height: 760px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: var(--background);
+    /* No text in the frame itself; a stray line box would add a descender to its height. */
+    font-size: 0;
+    line-height: 0;
+  }
+  .stage-caption {
+    flex: none;
+    padding: 0 16px 12px;
+    font-size: 11.5px;
+    color: #6f6961;
+    text-align: center;
+  }
+
+  /* ---------- the Ember wizard (reproduced, original units) ---------- */
+
+  .ember {
+    display: flex;
+    flex-direction: column;
+    height: 760px;
+    width: 1180px;
+    overflow: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-ui);
+    font-size: 16px;
+    position: relative;
+    isolate: isolate;
+  }
+  .ember button { font-size: 16px; cursor: pointer; border: 0; background: none; }
+  /* An inline <svg> without width/height is 300x150 unless told otherwise. */
+  .ember svg { width: 16px; height: 16px; }
+  .ember h2, .ember h3, .ember p, .ember ol, .ember li, .ember figure, .ember section, .ember aside { min-height: 0; }
+  /* Paragraphs keep the app's spacing; a flex/grid item would otherwise lose its margins. */
+  .ember :where(.body, .body-plain, .foot p, .first p, .diagram figcaption, .notice .sub) { margin: 0; }
+
+  .ember .glow {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(ellipse at 100% 0%, rgba(255, 106, 40, .10), transparent 55%),
+      radial-gradient(ellipse at 0% 100%, rgba(70, 130, 255, .10), transparent 50%);
+  }
+  .ember .blob-lava-glow,
+  .ember .blob-crystal-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(44px);
+    opacity: .10;
+  }
+  .ember .blob-lava-glow {
+    width: 400px; height: 400px; right: -96px; top: -96px;
+    transform: rotate(12deg);
+    background: radial-gradient(circle at 40% 35%, #ff7a1a 0%, #c93a06 55%, transparent 72%);
+  }
+  .ember .blob-crystal-glow {
+    width: 340px; height: 340px; left: -80px; bottom: -96px;
+    transform: rotate(-12deg);
+    background: radial-gradient(circle at 60% 40%, #4f8dff 0%, #1f4fd6 55%, transparent 72%);
+  }
+
+  .wiz-top {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 26px 24px;
+    border-bottom: 1px solid rgba(44, 42, 38, .6);
+    background: rgba(21, 20, 19, .65);
+    backdrop-filter: blur(16px);
+  }
+  .wiz-top h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .wiz-top .right { display: flex; align-items: center; gap: 8px; }
+  .wiz-top .step-count { font-size: 16px; color: var(--muted-foreground); }
+
+  .wiz-body { display: flex; min-height: 0; flex: 1 1 0; }
+
+  .wiz-rail {
+    flex: none;
+    width: var(--rail-w);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px;
+    margin: 0;
+    list-style: none;
+    border-right: 1px solid rgba(44, 42, 38, .6);
+    background: rgba(21, 20, 19, .45);
+    backdrop-filter: blur(16px);
+  }
+  .wiz-rail li { margin: 0; }
+  .rail-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    text-align: left;
+    transition: background-color .12s;
+  }
+  .rail-item:hover { background: rgba(21, 20, 19, .6); }
+  .rail-item[aria-current="step"] { background: var(--background); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+  .rail-icon { margin-top: 2px; flex: none; display: flex; width: 14px; height: 14px; align-items: center; justify-content: center; color: var(--muted-foreground); }
+  /* Line-height 1 on a 16px label would be shorter than the 14px icon it sits beside; the app's
+     default line-height is what keeps the mark on its own line, level with the title. */
+  .rail-text { line-height: 1.5; }
+  .rail-item[aria-current="step"] .rail-icon { color: var(--foreground); }
+  .rail-icon svg { width: 14px; height: 14px; }
+  .diagram svg.branches { display: block; width: 100%; height: 36px; color: var(--border); }
+  .rail-icon .done { color: var(--success); }
+  .rail-icon .failed { color: var(--destructive); }
+  .rail-text { display: flex; min-width: 0; flex-direction: column; }
+  .rail-title { font-size: 16px; line-height: 24px; color: var(--muted-foreground); }
+  .rail-item[aria-current="step"] .rail-title { font-weight: 500; color: var(--foreground); }
+  .rail-summary { font-size: 16px; line-height: 1.375; color: var(--muted-foreground); }
+
+  .wiz-main { display: flex; min-height: 0; min-width: 0; flex: 1 1 0; flex-direction: column; background: rgba(21, 20, 19, .5); }
+  .wiz-content { min-height: 0; flex: 1 1 0; overflow-y: auto; padding: 28px 32px; }
+  .wiz-content::-webkit-scrollbar { width: 10px; }
+  .wiz-content::-webkit-scrollbar-thumb { background: #2c2a26; border-radius: 8px; }
+
+  .wiz-foot {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 24px;
+    border-top: 1px solid rgba(44, 42, 38, .6);
+    background: rgba(21, 20, 19, .65);
+    backdrop-filter: blur(16px);
+  }
+  .wiz-foot .spacer { flex: 1; }
+  .foot-note { font-size: 16px; color: var(--muted-foreground); }
+
+  /* Buttons, per src/components/ui/button.tsx */
+  .btn {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color .1s;
+    border: 0;
+  }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  .btn-sm { height: 32px; padding: 0 12px; }
+  .btn-sm:has(> svg) { padding: 0 10px; }
+  .btn-xs { height: 24px; gap: 4px; border-radius: 6px; padding: 0 8px; font-size: 12px; }
+  .btn-xs svg { width: 12px; height: 12px; }
+  .btn-icon-xs { width: 24px; height: 24px; border-radius: 6px; padding: 0; }
+  .btn-icon-xs svg { width: 12px; height: 12px; }
+  .btn-default { background: var(--primary); color: var(--primary-foreground); }
+  .btn-default:hover:not(:disabled) { background: rgba(239, 236, 231, .9); }
+  .btn-secondary { background: var(--secondary); color: var(--foreground); }
+  .btn-secondary:hover:not(:disabled) { background: rgba(36, 34, 32, .8); }
+  .btn-ghost:hover:not(:disabled) { background: var(--secondary); }
+  .btn-link { color: var(--primary); text-decoration: none; padding: 0; height: auto; background: none; }
+  .btn-link:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  /* Step content typography (text-base is 16px in this app) */
+  .head-2xl { margin: 0; font-size: 24px; font-weight: 600; line-height: 1.2; }
+  .head-base { margin: 0; font-size: 16px; font-weight: 600; }
+  .body { margin: 0; font-size: 16px; line-height: 1.625; color: var(--muted-foreground); }
+  .body-plain { margin: 0; font-size: 16px; line-height: 1.625; }
+  .body strong, .body-plain strong { color: var(--foreground); font-weight: 700; }
+  .col-4 { display: flex; flex-direction: column; gap: 16px; }
+  .col-5 { display: flex; flex-direction: column; gap: 20px; }
+
+  /* Welcome */
+  .welcome-head { display: flex; align-items: flex-start; gap: 16px; }
+  .welcome-head .blob-holder { flex: none; padding: 8px; }
+  .welcome-head .titles { display: flex; flex-direction: column; gap: 4px; }
+  .ember svg.buddy { width: auto; height: auto; display: block; }
+
+  .diagram { margin: 0; }
+  .diagram .panel { border: 1px solid var(--border); background: rgba(36, 34, 32, .2); border-radius: 12px; padding: 12px; }
+  .diagram .origin { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 16px; font-weight: 500; color: var(--muted-foreground); }
+  .diagram .origin svg { width: 14px; height: 14px; }
+  .diagram .pair { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+  .diagram .pair > svg { width: 16px; height: 16px; color: var(--muted-foreground); }
+  .diagram .box { border-radius: 8px; padding: 10px 12px; text-align: center; }
+  .diagram .box .t { font-size: 16px; font-weight: 600; }
+  .diagram .box .s { margin-top: 2px; font-size: 16px; color: var(--muted-foreground); }
+  .diagram .box.ember-box { background: rgba(255, 122, 26, .10); }
+  .diagram .box.kiln-box { background: var(--background); }
+  .diagram .hosts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .diagram .host { border: 1px dashed var(--border); background: rgba(36, 34, 32, .1); border-radius: 12px; padding: 12px; text-align: center; min-width: 0; }
+  .diagram .host .name { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 16px; font-weight: 500; }
+  .diagram .host .name svg { width: 14px; height: 14px; color: var(--muted-foreground); flex: none; }
+  .diagram .host .detail { margin: 4px 0 0; font-size: 16px; color: var(--muted-foreground); }
+  .diagram .host .kiln { margin-top: 8px; border-radius: 8px; background: var(--background); padding: 8px 0; font-size: 16px; font-weight: 600; }
+  .diagram figcaption { margin-top: 12px; text-align: center; font-size: 16px; line-height: 1.625; color: var(--muted-foreground); }
+
+  /* Connection */
+  .notice { display: flex; align-items: flex-start; gap: 8px; border-radius: 8px; padding: 8px 12px; }
+  .notice svg { width: 16px; height: 16px; margin-top: 2px; flex: none; }
+  .notice-ok { border: 1px solid rgba(52, 211, 153, .4); background: rgba(52, 211, 153, .05); }
+  .notice-ok svg { color: var(--success); }
+  .notice-bad { flex-direction: column; gap: 8px; border: 1px solid rgba(255, 92, 92, .4); background: rgba(255, 92, 92, .05); }
+  .notice-bad .top { display: flex; align-items: flex-start; gap: 8px; }
+  .notice-bad .top svg { color: var(--destructive); }
+  .notice .strong { display: block; font-size: 16px; font-weight: 500; line-height: 1.5; }
+  .notice .sub { display: block; font-size: 16px; color: var(--muted-foreground); line-height: 1.5; }
+  .notice > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .notice-bad .sub { line-height: 1.625; }
+  .notice-bad .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 24px; }
+
+  details.disclosure { border: 1px solid var(--border); background: rgba(36, 34, 32, .1); border-radius: 8px; padding: 12px; font-size: 16px; line-height: 1.625; color: var(--muted-foreground); }
+  details.disclosure > summary { cursor: pointer; font-size: 16px; font-weight: 500; color: var(--foreground); list-style: none; display: flex; align-items: center; gap: 6px; }
+  details.disclosure > summary::-webkit-details-marker { display: none; }
+  details.disclosure > summary::before { content: "▸"; font-size: 12px; color: var(--muted-foreground); transition: transform .12s; }
+  details.disclosure[open] > summary::before { transform: rotate(90deg); }
+  details.disclosure > *:not(summary) { margin-left: 0; }
+  details.disclosure p { margin: 12px 0 0; }
+  details.disclosure p.lead { margin-top: 12px; }
+  details.disclosure p + p { margin-top: 8px; }
+  details.disclosure ol { margin: 8px 0 0; padding-left: 20px; list-style: decimal; }
+  details.disclosure ol li { margin: 8px 0 0; }
+  details.disclosure code { font-family: var(--font-mono); font-size: 13.5px; background: rgba(36, 34, 32, .9); padding: 1px 4px; border-radius: 4px; }
+  details.disclosure pre { margin: 8px 0 0; overflow-x: auto; border-radius: 4px; background: var(--background); padding: 8px; font-family: var(--font-mono); font-size: 13px; }
+  .setup-prompt { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .setup-prompt .label { font-weight: 500; color: var(--foreground); }
+  .setup-prompt .prompt { border-radius: 6px; background: var(--background); padding: 12px; user-select: text; }
+
+  /* Token */
+  .token-panel { display: flex; flex-direction: column; gap: 8px; }
+  .token-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .token-head .k { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: var(--muted-foreground); }
+  .token-head .url { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .token-row { display: flex; align-items: center; gap: 6px; }
+  .token-row code { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--border); background: rgba(36, 34, 32, .3); border-radius: 6px; padding: 6px 8px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .token-small { font-size: 11px; color: var(--muted-foreground); margin: 0; line-height: 1.5; }
+
+  /* Providers */
+  .field-label { display: block; font-weight: 600; margin-bottom: 8px; }
+  .select {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; height: 40px; padding: 0 12px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--background); color: var(--foreground); font-size: 16px;
+  }
+  .select svg { width: 16px; height: 16px; flex: none; opacity: .7; }
+  .host-row .select { height: 32px; }
+  .tip-row { display: flex; align-items: center; gap: 12px; }
+  .tip-blob { position: relative; display: block; width: 80px; height: 80px; flex: none; }
+  .ember svg.tip-badge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .tip {
+    border-radius: 8px; background: rgba(36, 34, 32, .4); padding: 8px 12px;
+    font-size: 16px; line-height: 1.5; color: var(--muted-foreground);
+  }
+  .tip strong { font-weight: 700; color: var(--highlight); }
+  .tip button { text-decoration: underline; display: inline; }
+  .providers { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; flex: none; }
+  .col-4 > * { flex: none; }
+  .provider-card .row { margin-top: 8px; }
+  .provider-card .top { min-height: 20px; }
+  .provider-card .pname, .provider-card .cred-chip, .provider-card .no-cred { line-height: 1.4; }
+  .host-row { display: flex; align-items: center; gap: 8px; }
+  .host-row .select { flex: 1; font-size: 12px; height: 32px; }
+  .provider-card { flex: none; border: 1px solid var(--border); background: rgba(36, 34, 32, .2); border-radius: 8px; padding: 8px 12px; }
+  .provider-card .top { display: flex; align-items: center; gap: 8px; }
+  .provider-card .top svg { width: 14px; height: 14px; flex: none; color: var(--muted-foreground); }
+  .provider-card .pname { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 500; }
+  .cred-chip { flex: none; border-radius: 4px; background: rgba(52, 211, 153, .1); padding: 2px 6px; font-size: 10.5px; color: var(--success); }
+  .no-cred { flex: none; font-size: 10.5px; color: var(--muted-foreground); }
+  .provider-card .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .miniinput { flex: 1; height: 32px; border: 1px solid var(--input); background: transparent; border-radius: 6px; padding: 0 8px; font-size: 12px; color: var(--foreground); }
+  .miniinput::placeholder { color: #6a645c; }
+  .list-note { font-size: 12px; color: var(--muted-foreground); margin: 0; }
+
+  /* First bot */
+  .first { display: flex; max-width: 576px; flex-direction: column; gap: 20px; }
+  .first .head { margin: 0; font-size: 16px; font-weight: 600; }
+  .first .lead { margin: 0; line-height: 1.625; color: var(--muted-foreground); }
+  .workspace-card { border: 1px solid var(--border); background: rgba(21, 20, 19, .6); border-radius: 8px; padding: 16px; }
+  .workspace-card .cap { margin: 0 0 8px; font-size: 14px; color: var(--muted-foreground); }
+  .picker { display: inline-flex; align-items: center; gap: 8px; height: 32px; max-width: 300px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--foreground); }
+  .picker:hover { background: var(--secondary); }
+  .picker svg { width: 14px; height: 14px; color: var(--muted-foreground); }
+  .picker .chev { width: 12px; height: 12px; }
+  .first .tiny { margin: 0; font-size: 14px; line-height: 1.625; color: var(--muted-foreground); }
+  .first .continue { align-self: flex-start; height: 36px; padding: 0 16px; font-size: 14px; }
+
+  /* Privacy */
+  .privacy { display: flex; min-height: 100%; max-width: 768px; margin: 0 auto; flex-direction: column; justify-content: center; gap: 32px; padding: 40px 0; }
+  .privacy .kicker { margin: 0 0 20px; font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: .18em; color: var(--muted-foreground); }
+  .privacy .big { margin: 0; max-width: 672px; font-size: 60px; font-weight: 600; line-height: 1.06; letter-spacing: -.02em; }
+  .privacy .plain { margin: 20px 0 0; max-width: 576px; font-size: 20px; line-height: 1.625; }
+  .privacy .caveat { margin: 0; max-width: 576px; font-size: 16px; line-height: 1.625; color: var(--muted-foreground); }
+  .privacy .foot { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid rgba(44, 42, 38, .6); padding-top: 24px; font-size: 16px; }
+  .privacy .foot p { margin: 0; line-height: 1.5; }
+  .privacy a { color: inherit; text-decoration: underline; text-decoration-color: rgba(239, 236, 231, .4); text-underline-offset: 4px; }
+
+  /* ---------- right column: the copy editor ---------- */
+
+  .editor-toolbar {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--tool-border);
+    background: var(--tool-panel);
+  }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tool-label); }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #4b6b55; }
+  .status.dirty .dot { background: var(--tool-accent); box-shadow: 0 0 0 3px rgba(255, 122, 26, .18); }
+  .status.dirty { color: #ffb377; }
+  .status.saved .dot { background: var(--success); }
+  .status.saved { color: #7fe0b6; }
+
+  .tbtn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 30px; padding: 0 11px; border-radius: 6px;
+    border: 1px solid var(--tool-border); background: #201e1c; color: var(--foreground);
+    font-size: 12.5px; cursor: pointer;
+  }
+  .tbtn:hover { background: #2a2725; }
+  .tbtn.primary { background: var(--tool-accent); border-color: var(--tool-accent); color: #1a0e04; font-weight: 600; }
+  .tbtn.primary:hover { background: #ff8f3f; }
+  .tbtn:disabled { opacity: .55; cursor: default; }
+  .tbtn.small { height: 24px; padding: 0 8px; font-size: 11.5px; }
+
+  .save-msg {
+    flex: none;
+    margin: 0 16px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    display: none;
+  }
+  .save-msg.show { display: block; }
+  .save-msg.ok { background: rgba(52, 211, 153, .10); border: 1px solid rgba(52, 211, 153, .35); color: #a9efd2; }
+  .save-msg.warn { background: rgba(255, 122, 26, .10); border: 1px solid rgba(255, 122, 26, .4); color: #ffc79a; }
+  .save-msg.error { background: rgba(255, 92, 92, .10); border: 1px solid rgba(255, 92, 92, .4); color: #ffb3b3; }
+  .save-msg code { font-family: var(--font-mono); font-size: 11.5px; }
+
+  .fields { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 16px 40px; }
+  .fields::-webkit-scrollbar { width: 10px; }
+  .fields::-webkit-scrollbar-thumb { background: #2c2a25; border-radius: 8px; }
+
+  .group { border-bottom: 1px solid #22201e; padding: 14px 0 16px; }
+  .group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .group-head h2 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+  .group-head .id { font-family: var(--font-mono); font-size: 11px; color: #6d675f; }
+  .group-head .count { margin-left: auto; font-size: 11px; color: #6d675f; }
+
+  .field { display: block; padding: 8px 0 6px; }
+  .field-top { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .field-label { font-size: 11.5px; font-weight: 500; color: var(--tool-label); display: block; }
+  .field-top .field-label { margin: 0; flex: 1; min-width: 0; }
+  .field.edited .field-label { color: #ffb377; }
+  .field button.reset {
+    flex: none; font-size: 11px; color: #7d776f; background: none; border: 0; cursor: pointer; padding: 2px 4px; border-radius: 4px;
+  }
+  .field button.reset:hover { color: var(--foreground); background: #26231f; }
+  .field textarea {
+    display: block; width: 100%; resize: vertical; min-height: 30px;
+    border: 1px solid #302c28; background: #121110; color: #eae6e0;
+    border-radius: 6px; padding: 7px 9px; font-size: 12.5px; line-height: 1.5;
+    overflow: hidden;
+  }
+  .field textarea:focus { outline: none; border-color: var(--tool-accent); box-shadow: 0 0 0 2px rgba(255, 122, 26, .18); }
+  .field.edited textarea { border-color: #5a4028; background: #171310; }
+  .field textarea.mono { font-family: var(--font-mono); font-size: 12px; }
+
+  /* file:// banner replaces the toolbar message when no server is reachable */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- LEFT: the real experience -->
+  <section class="pane pane-left" aria-label="Real experience">
+    <div class="pane-head">
+      <h1>Real experience</h1>
+      <span class="sub">first-run wizard, 1180 × 760, scaled to fit</span>
+      <span class="spacer"></span>
+      <button class="tbtn small" id="prev-step" type="button" title="Previous step">←</button>
+      <button class="tbtn small" id="next-step" type="button" title="Next step">→</button>
+    </div>
+    <div class="stage" id="stage">
+      <div class="stage-inner" id="stage-inner">
+        <div class="frame" id="frame">
+          <!-- filled by renderFrame() -->
+        </div>
+      </div>
+    </div>
+    <div class="stage-caption" id="stage-caption"></div>
+  </section>
+
+  <!-- RIGHT: editable copy -->
+  <section class="pane pane-right" aria-label="Copy">
+    <div class="pane-head">
+      <h1>Copy</h1>
+      <span class="sub" id="field-count"></span>
+      <span class="spacer"></span>
+      <button class="tbtn" id="reset-all" type="button" title="Discard every edit and restore the real copy">Reset to real copy</button>
+    </div>
+    <div class="editor-toolbar">
+      <span class="status" id="status"><span class="dot"></span><span id="status-text">No changes</span></span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="tbtn" id="download" type="button" title="Download copy.json (works without the server)">Download copy.json</button>
+      <button class="tbtn primary" id="save" type="button">Save copy.json</button>
+    </div>
+    <div class="save-msg" id="save-msg" role="status" aria-live="polite"></div>
+    <div class="save-msg warn show hidden" id="save-fallback">
+      <strong>Saving without the server.</strong> This page was opened from a file, so it cannot write
+      <code>copy.json</code> next to itself. Start the companion server with
+      <code>cd onboarding/preview &amp;&amp; ./serve.sh</code> and open the address it prints — then Save writes the
+      file in place. Until then, <strong>Download copy.json</strong> works: move the downloaded file into
+      <code>onboarding/preview/</code>.
+      <button class="tbtn small" id="fallback-download" type="button" style="margin-left:8px">Download copy.json</button>
+    </div>
+    <div class="fields" id="fields"><!-- filled by buildEditor() --></div>
+  </section>
+</div>
+<script>
+/* ------------------------------------------------------------------------------------------------
+ * Copy model
+ *
+ * Every user-facing string in the wizard is one FIELDS entry: an id (the key written to
+ * copy.json), the group it belongs to, where it appears, and the verbatim text from source.
+ * `renderFrame()` draws the wizard and looks each string up by id, so an edit is one lookup away
+ * from the left column.
+ *
+ * Groups mirror the wizard: "chrome" is the frame around every step (title, counter, Skip, nav),
+ * then one group per ONBOARDING_STEPS id.
+ * --------------------------------------------------------------------------------------------- */
+(function () {
+  'use strict';
+
+  const GROUPS = [
+    { id: 'chrome', title: 'Wizard frame' },
+    { id: 'welcome', title: '1. Ember and Kiln' },
+    { id: 'connection', title: '2. Where to run Kiln' },
+    { id: 'token', title: '3. Your token' },
+    { id: 'providers', title: '4. Choose an AI' },
+    { id: 'first-agent', title: '5. First bot' },
+    { id: 'privacy', title: '6. Yours to use' },
+  ];
+
+  /** `long: true` gets a textarea sized for sentences; everything else gets an auto-growing one. */
+  const F = (id, group, label, text, long) => ({ id, group, label, text, long: Boolean(long) });
+
+  const FIELDS = [
+    /* ---- chrome (OnboardingWizard.tsx: title bar + footer) ---- */
+    F('chrome.title', 'chrome', 'Window — title', 'Setting up Ember Bots'),
+    F('chrome.stepCounter', 'chrome', 'Window — step counter ("Step {n} of {count}")',
+      'Step {n} of {count}'),
+    F('chrome.skip', 'chrome', 'Window — skip button', 'Skip for now'),
+    F('chrome.skipTitle', 'chrome', 'Window — skip tooltip when a model is required',
+      'Choose a default model in Choose an AI before finishing setup', true),
+    F('chrome.stepListLabel', 'chrome', 'Step rail — accessible name', 'Setup steps'),
+    F('chrome.stepTitle', 'chrome', 'Step rail — item title ("{n}. {title}")', '{n}. {title}'),
+    F('chrome.back', 'chrome', 'Footer — back button', 'Back'),
+    F('chrome.next', 'chrome', 'Footer — primary button (not on the last step)', 'Next'),
+    F('chrome.continue', 'chrome', 'Footer — primary button when the host is ready on the AI step', 'Continue'),
+    F('chrome.finish', 'chrome', 'Footer — primary button on the last step', 'Finish'),
+    F('chrome.notePending', 'chrome', 'Footer — note before the button when the step is pending',
+      'Continue when you’re ready', true),
+    F('chrome.noteConnectProvider', 'chrome', 'Footer — note when no provider is connected',
+      'Connect a provider first'),
+    F('chrome.noteChooseModel', 'chrome', 'Footer — note when no default model is chosen',
+      'Choose a default model to continue'),
+    F('chrome.noteFinishModel', 'chrome', 'Footer — note on the last step when no default model is chosen',
+      'Choose a default model in Choose an AI before finishing setup.', true),
+
+    /* ---- step titles + summaries (src/lib/onboarding.ts) ---- */
+    F('step.welcome.title', 'welcome', 'Step rail — step 1 title', 'Ember and Kiln'),
+    F('step.welcome.summary', 'welcome', 'Step rail — step 1 summary', 'Where the work happens'),
+    F('step.connection.title', 'connection', 'Step rail — step 2 title', 'Where to run Kiln'),
+    F('step.connection.summary', 'connection', 'Step rail — step 2 summary', 'Start here, or connect another computer'),
+    F('step.token.title', 'token', 'Step rail — step 3 title', 'Your token'),
+    F('step.token.summary', 'token', 'Step rail — step 3 summary', 'The password for connecting to Kiln'),
+    F('step.providers.title', 'providers', 'Step rail — step 4 title', 'Choose an AI'),
+    F('step.providers.summary', 'providers', 'Step rail — step 4 summary', 'Sign in or add an access code'),
+    F('step.first-agent.title', 'first-agent', 'Step rail — step 5 title', 'First bot'),
+    F('step.first-agent.summary', 'first-agent', 'Step rail — step 5 summary', 'Pick a folder and say hello'),
+    F('step.privacy.title', 'privacy', 'Step rail — step 6 title', 'Yours to use'),
+    F('step.privacy.summary', 'privacy', 'Step rail — step 6 summary', 'Privacy, people and support'),
+
+    /* ---- Welcome.tsx (OnboardingWizard.tsx: Welcome + KilnDiagram) ---- */
+    F('welcome.heading', 'welcome', 'Welcome — heading', 'Where the work happens'),
+    F('welcome.intro', 'welcome', 'Welcome — intro paragraph (Kiln and Ember are bold)',
+      'Ember takes its name from the embers that glow in a fire. Think of Kiln as the hot, concentrated space where bots take action: editing files, running commands and carrying out your instructions. Think of Ember as your connection to the powerful energy inside the kiln.', true),
+    F('welcome.direct', 'welcome', 'Welcome — "Ember is where you direct bots" paragraph (lead sentence bold)',
+      'Ember is where you direct bots to do work, and observe the work they do. It connects to Kiln using a connection password and gives you a view of your conversations, each bot’s progress, their specific actions, what images they are looking at, errors they run into, what they are thinking (with models that support this), and more.', true),
+    F('welcome.diagramLabel', 'welcome', 'Diagram — accessible name',
+      'Ember connects to the included Kiln on your computer and Kilns on other computers', true),
+    F('welcome.diagramOrigin', 'welcome', 'Diagram — "Your computer"', 'Your computer'),
+    F('welcome.diagramEmber', 'welcome', 'Diagram — Ember box title', 'Ember'),
+    F('welcome.diagramEmberNote', 'welcome', 'Diagram — Ember box note', 'Talk to your bots'),
+    F('welcome.diagramKiln', 'welcome', 'Diagram — Kiln box title', 'Kiln'),
+    F('welcome.diagramKilnNote', 'welcome', 'Diagram — Kiln box note (both Kiln boxes)', 'Does the work here'),
+    F('welcome.hostContainer', 'welcome', 'Diagram — host 1 name', 'Container'),
+    F('welcome.hostContainerNote', 'welcome', 'Diagram — host 1 detail', 'A separate space on a computer'),
+    F('welcome.hostMac', 'welcome', 'Diagram — host 2 name', 'Mac Studio'),
+    F('welcome.hostMacNote', 'welcome', 'Diagram — host 2 detail', 'A Mac you leave running'),
+    F('welcome.hostPc', 'welcome', 'Diagram — host 3 name', 'Old PC'),
+    F('welcome.hostPcNote', 'welcome', 'Diagram — host 3 detail', 'A spare computer'),
+    F('welcome.hostKiln', 'welcome', 'Diagram — "Kiln" inside the three host cards', 'Kiln'),
+    F('welcome.diagramCaption', 'welcome', 'Diagram — caption',
+      'Start with this computer. Connect others whenever you need them.', true),
+    F('welcome.several', 'welcome', 'Welcome — closing paragraph',
+      'One Ember can connect to several Kilns — on this computer, in a container, on a Mac Studio or on an old PC. Each Kiln keeps its conversations and files on the computer doing the work. You can also use Ember on different computers to direct the same Kilns.', true),
+
+    /* ---- Connection.tsx ---- */
+    F('connection.heading', 'connection', 'Connection — heading', 'Choose where the work happens'),
+    F('connection.lead', 'connection', 'Connection — intro paragraph',
+      'Ember includes a Kiln on this computer, so you can start here. Bots using it edit files and run commands here. This Kiln stops when you quit Ember; its conversations stay on disk.', true),
+    F('connection.okTitle', 'connection', 'Connection — ready badge, title', 'Connected to this computer'),
+    F('connection.okBody', 'connection', 'Connection — ready badge, body',
+      'Kiln is running on this computer and Ember has its token.', true),
+    F('connection.badTitle', 'connection', 'Connection — not-ready badge, title', 'Kiln is not ready on this computer'),
+    F('connection.badBody', 'connection', 'Connection — not-ready badge, body (the harness notice when there is one)',
+      'Kiln isn\'t running on this computer, so there\'s nothing to connect to yet.', true),
+    F('connection.retry', 'connection', 'Connection — retry button', 'Retry'),
+    F('connection.retrying', 'connection', 'Connection — retry button while retrying', 'Retry'),
+    F('connection.elsewhere', 'connection', 'Connection — paragraph before the disclosures',
+      'You can also give bots a separate place to work. A container provides a separate working environment; another computer also moves the workload off your personal computer. Kilns running separately can keep working after you quit Ember, as long as their computer stays on.', true),
+    F('connection.discloseOther', 'connection', 'Disclosure — summary: use Ember elsewhere', 'Use Ember on another computer'),
+    F('connection.otherBody', 'connection', 'Disclosure — use Ember elsewhere, body',
+      'Install Ember there to get its own included Kiln. That Kiln starts and stops with that copy of Ember. For a Kiln you can connect to from this window over the network, use Tinder below.', true),
+    F('connection.discloseTinder', 'connection', 'Disclosure — summary: Tinder', 'Run Kiln on its own with Tinder'),
+    F('connection.tinderBody', 'connection', 'Disclosure — Tinder, body',
+      'Tinder is our launcher for Kiln without the Ember application. Download the matching Tinder executable from Ember’s releases and keep it in a permanent folder on the computer that will do the work.', true),
+    F('connection.tinderLink', 'connection', 'Disclosure — Tinder, downloads link', 'Ember and Tinder downloads'),
+    F('connection.tinderRun', 'connection', 'Disclosure — Tinder, "name the executable" line',
+      'On macOS or Linux, name the downloaded executable tinder, open a terminal in its folder, and run:', true),
+    F('connection.tinderKeep', 'connection', 'Disclosure — Tinder, terminal line',
+      'Keep that terminal open. In a second terminal, print the connection password:', true),
+    F('connection.tinderService', 'connection', 'Disclosure — Tinder, background service line',
+      'To run Kiln as a background service instead, use:', true),
+    F('connection.tinderFinish', 'connection', 'Disclosure — Tinder, closing line',
+      'Tinder prints the command to enable and start that service. Follow it, then add the address and password below.', true),
+    F('connection.discloseTailscale', 'connection', 'Disclosure — summary: Tailscale', 'Connect over Tailscale'),
+    F('connection.tailscaleBody', 'connection', 'Disclosure — Tailscale, body',
+      'You don’t need this for the Kiln included on this computer. Use it to reach a separate Kiln on another computer.', true),
+    F('connection.tailscaleStep1', 'connection', 'Disclosure — Tailscale, step 1',
+      'Install Tailscale on both computers and connect them to the same Tailscale network.', true),
+    F('connection.tailscaleStep2', 'connection', 'Disclosure — Tailscale, step 2',
+      'Start Kiln with Tinder on the computer doing the work. For a container, make its Kiln port reachable from that computer’s Tailscale connection.', true),
+    F('connection.tailscaleStep3', 'connection', 'Disclosure — Tailscale, step 3 (contains code)',
+      'Find that computer’s Tailscale address in the Tailscale app, or run {code} there.', true),
+    F('connection.tailscaleStep4', 'connection', 'Disclosure — Tailscale, step 4 (contains code)',
+      'Add the Kiln below using an address such as {code} and the password printed by {code}. Use the port you chose for Kiln.', true),
+    F('connection.tailscaleNote', 'connection', 'Disclosure — Tailscale, closing line',
+      'Tailscale connects the computers; Kiln’s connection password determines who can direct its bots.', true),
+    F('connection.tailscaleLink', 'connection', 'Disclosure — Tailscale, guide link', 'Tailscale setup guide'),
+    F('connection.promptHeading', 'connection', 'Setup prompt — heading', 'Ask a bot to help'),
+    F('connection.promptLead', 'connection', 'Setup prompt — instruction',
+      'Replace [other computer] with its name or description before using this prompt.', true),
+    F('connection.prompt', 'connection', 'Setup prompt — the prompt itself (monospace)',
+      'Help me connect Ember on my personal computer to a standalone Kiln on [other computer] using Tailscale. Check how Kiln is installed and whether Tailscale is available on both computers. Configure the connection, keep Kiln\'s password out of source files, and verify that Ember can connect. Finish by telling me which address to enter in Ember and where to find the connection password.', true),
+    F('connection.promptCopy', 'connection', 'Setup prompt — copy button', 'Copy setup prompt'),
+    F('connection.promptCopied', 'connection', 'Setup prompt — status after a copy', 'Copied'),
+    F('connection.promptCopyFailed', 'connection', 'Setup prompt — status when the copy fails',
+      'Ember could not copy the prompt. Select the text above and copy it manually.', true),
+    F('connection.discloseExisting', 'connection', 'Disclosure — summary: an existing Kiln', 'Connect a Kiln that is already running'),
+    F('connection.existingBody', 'connection', 'Disclosure — existing Kiln, body',
+      'Enter that Kiln’s address and connection password. You can also do this later in Settings → Instances.', true),
+
+    /* ---- Token.tsx + LocalTokenSettings.tsx (what that step renders) ---- */
+    F('token.heading', 'token', 'Token — heading', 'Your token'),
+    F('token.lead', 'token', 'Token — what a token is (first sentence bold)',
+      'A token is a special password for computers to talk to each other. Kiln only answers clients that present its token.', true),
+    F('token.localReady', 'token', 'Token — note shown when this computer runs Kiln',
+      'Kiln is running here, and Ember already has its token — you only need to read it when you want to connect from another machine.', true),
+    F('token.showIt', 'token', 'Token — compact "Show it" button', 'Show it'),
+    F('token.label', 'token', 'Token panel — field label', 'Token'),
+    F('token.loading', 'token', 'Token panel — reading state', 'Reading it from the harness…'),
+    F('token.hint', 'token', 'Token panel — what the token is for',
+      'Other machines and browsers use this to connect to this one. Anyone who has it can use this computer\'s bots, so treat it like a password.', true),
+    F('token.newToken', 'token', 'Token panel — rotate button', 'New token'),
+    F('token.rotating', 'token', 'Token panel — rotate button while restarting', 'Restarting the harness…'),
+    F('token.rotateWarning', 'token', 'Token panel — rotate confirmation',
+      'Every other machine and browser pointed at this host will stop connecting until you copy the new token across. The bots themselves are untouched.', true),
+    F('token.keepIt', 'token', 'Token panel — cancel rotate', 'Keep it'),
+    F('token.noRotate', 'token', 'Token panel — why it cannot rotate',
+      'Ember didn\'t start this harness, so it can\'t give it a new token. Restart the harness yourself and it keeps the token it already has.', true),
+    F('token.missing', 'token', 'Token panel — no token to show',
+      'There\'s no token to show: this build doesn\'t know about a harness on this computer.', true),
+    F('token.showLabel', 'token', 'Token panel — show button label', 'Show the token'),
+    F('token.hideLabel', 'token', 'Token panel — hide button label', 'Hide the token'),
+    F('token.copyLabel', 'token', 'Token panel — copy button label', 'Copy the token'),
+
+    /* ---- Providers.tsx (the AI step) ---- */
+    F('providers.modelHeading', 'providers', 'AI — default model label ("Default model for {instance}")',
+      'Default model for {instance}'),
+    F('providers.modelLead', 'providers', 'AI — default model explanation',
+      'Choose the model Ember will use for new bots on this instance. This does not change Kiln’s own default or existing conversations.', true),
+    F('providers.modelPlaceholder', 'providers', 'AI — default model, empty option', 'Choose a default model'),
+    F('providers.modelUnavailable', 'providers', 'AI — default model, unavailable option ("{model} (unavailable)")',
+      '{model} (unavailable)'),
+    F('providers.modelNotReady', 'providers', 'AI — note under the model picker when no model is chosen',
+      'Choose an available model, then select Continue. If a model is missing, refresh models or connect another provider below.', true),
+    F('providers.refreshModels', 'providers', 'AI — refresh models button', 'Refresh models'),
+    F('providers.needsHost', 'providers', 'AI — empty-provider note when no Kiln is connected',
+      'Ember needs a connected Kiln before it can list providers or models. Retry this computer or connect another host.', true),
+    F('providers.needsHostButton', 'providers', 'AI — button that jumps to the connection step', 'Where to run Kiln'),
+    F('providers.headingReady', 'providers', 'AI — heading once a provider is connected', 'Connected AI services'),
+    F('providers.headingEmpty', 'providers', 'AI — heading while no provider is connected', 'First, connect an AI service'),
+    F('providers.emptyLead', 'providers', 'AI — lead line while no provider is connected',
+      'Sign in or save an API key below. Once a provider is connected, choose your default model here.', true),
+    F('providers.lead', 'providers', 'AI — what an AI service is',
+      'Your bots need an AI service, such as OpenAI or Anthropic. Use a sign-in option below, or paste an API key — an access code you get from that service. If you use Ollama or LM Studio to run AI on your own computer, start it first and Ember will show it here.', true),
+    F('providers.tipTip', 'providers', 'AI — tip label', 'TIP'),
+    F('providers.tipBody', 'providers', 'AI — the OpenCode tip (src/lib/onboarding.ts: OPENCODE_ONBOARDING_TIP)',
+      'No provider account yet? You can sign in or sign up on OpenCode’s website, which may offer free models. Availability and pricing can change; not every model is free. Copy an API key from OpenCode, paste it into OpenCode Zen below and select Save, then choose a model.', true),
+    F('providers.tipLink', 'providers', 'AI — tip link text', 'Open OpenCode'),
+    F('providers.tipLabel', 'providers', 'AI — tip region accessible name', 'Tip for getting started'),
+    F('providers.settingsMissing', 'providers', 'Provider list — empty-provider note (ProvidersSettings.tsx)',
+      'Add an ember-harness endpoint first. Credentials live on each ember-harness host, not in this window.', true),
+    F('providers.noProviders', 'providers', 'Provider list — nothing reported by the host',
+      'This ember-harness reports no providers.', true),
+    F('providers.newChatsDefault', 'providers', 'Provider list — current default ("New chats default to {model}.")',
+      'New chats default to {model}.'),
+    F('providers.credApiKey', 'providers', 'Provider card — credential chip', 'API key'),
+    F('providers.credOauth', 'providers', 'Provider card — credential chip for sign-in', 'OAuth'),
+    F('providers.noCredential', 'providers', 'Provider card — no credential', 'no credential'),
+    F('providers.pasteKey', 'providers', 'Provider card — API key placeholder', 'Paste API key'),
+    F('providers.pasteKeyOr', 'providers', 'Provider card — API key placeholder when sign-in exists', 'Or paste an API key instead'),
+    F('providers.saveKey', 'providers', 'Provider card — save button', 'Save'),
+    F('providers.afterwards', 'providers', 'AI — closing note after the provider list',
+      'You can change all of this later in Settings → Providers (it saves as you go).', true),
+
+    /* ---- FirstAgent.tsx (the first-bot step) ---- */
+    F('first-agent.heading', 'first-agent', 'First bot — heading', 'Where does your work live?'),
+    F('first-agent.lead', 'first-agent', 'First bot — intro',
+      'Choose your workspace — the folder where you already keep your projects or work. You can pick a project inside it for each new chat.', true),
+    F('first-agent.noModel', 'first-agent', 'First bot — note when no default model is chosen',
+      'Open Choose an AI and select a default model before starting your first bot.', true),
+    F('first-agent.workspaceCap', 'first-agent', 'First bot — workspace caption ("Workspace on {instance}")',
+      'Workspace on {instance}'),
+    F('first-agent.chooseWorkspace', 'first-agent', 'First bot — workspace picker', 'Choose workspace'),
+    F('first-agent.chooseProject', 'first-agent', 'First bot — project picker', 'Choose project'),
+    F('first-agent.noHost', 'first-agent', 'First bot — note when no Kiln is connected',
+      'Connect a Kiln in the setup steps to choose a workspace.', true),
+    F('first-agent.projectLead', 'first-agent', 'First bot — line above the project picker',
+      'Start in a project, or work directly in your workspace.', true),
+    F('first-agent.nothingSent', 'first-agent', 'First bot — reassurance line',
+      'Nothing is sent until you write your first message.', true),
+    F('first-agent.continue', 'first-agent', 'First bot — continue button', 'Continue'),
+
+    /* ---- OnboardingPrivacy.tsx ---- */
+    F('privacy.kicker', 'privacy', 'Privacy — kicker', 'Yours to use'),
+    F('privacy.heading', 'privacy', 'Privacy — heading', 'Free, open source, and private.'),
+    F('privacy.plain', 'privacy', 'Privacy — the promise',
+      'Ember doesn’t send us analytics, crash reports, or bug reports. That means we won’t know when something breaks unless you tell us.', true),
+    F('privacy.caveat', 'privacy', 'Privacy — provider caveat',
+      'Your chosen AI provider receives the messages you send to it and the context your bots use, under that provider’s privacy policy. Ember also makes network requests for updates and model catalogues.', true),
+    F('privacy.builtBy', 'privacy', 'Privacy — "Built by" line', 'Built by {link}', true),
+    F('privacy.builtByLink', 'privacy', 'Privacy — author link text', 'Em'),
+    F('privacy.issue', 'privacy', 'Privacy — "Found an issue?" line', 'Found an issue? {link}', true),
+    F('privacy.issueLink', 'privacy', 'Privacy — email link text', 'Email me.'),
+  ];
+
+  const byId = new Map(FIELDS.map((f) => [f.id, f]));
+  const DEFAULTS = Object.fromEntries(FIELDS.map((f) => [f.id, f.text]));
+  /** The current values: defaults, then whatever was edited. */
+  let copy = { ...DEFAULTS };
+
+  const get = (id) => {
+    const value = copy[id] !== undefined ? copy[id] : DEFAULTS[id];
+    if (value === undefined) throw new Error('preview tool: unknown copy id ' + id);
+    return value;
+  };
+
+  /* ----------------------------------------------------------------------------------------------
+   * Small markup helpers. Everything interpolated here is copy from the model above; it is escaped,
+   * and placeholders (`{n}`, `{link}`, `{strong:…}`, `{code}`) are rendered by the caller.
+   * ---------------------------------------------------------------------------------------------- */
+  const esc = (value) => String(value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  const renderText = (id, extra) => {
+    let value = esc(get(id));
+    if (extra) value = extra(value);
+    return value;
+  };
+
+  /** <p> sits around a `{link}` marker whose text is its own editable field. */
+  const inlineLink = (full, linkText, href) => {
+    const [before, after] = String(full).split('{link}');
+    const a = '<a href="' + esc(href) + '" data-external>' + linkText + '</a>';
+    return after === undefined ? esc(before) : esc(before) + a + esc(after);
+  };
+
+  const ICONS = {
+    sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+    plug: '<path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/>',
+    key: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+    folder: '<path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+    arrowRight: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+    arrowLeftRight: '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
+    boxes: '<path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/>',
+    cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>',
+    monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+    laptop: '<path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/>',
+    eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+    copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    refresh: '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  };
+  const icon = (name, cls) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"' + (cls ? ' class="' + cls + '"' : '') + ' aria-hidden="true">' + ICONS[name] + '</svg>';
+
+  /** The buddy blob on the welcome step; approximates the app's `buddy` style (azure, "splat"). */
+  const buddySvg = (size) => {
+    return '<svg class="buddy" width="' + size + '" height="' + size + '" viewBox="0 0 100 100" aria-hidden="true">'
+      + '<path d="M42 20 C 52 14 66 18 76 26 C 90 36 96 56 90 72 C 84 86 64 90 50 90 C 34 90 12 86 8 70 C 4 54 14 38 26 28 C 32 24 36 23 42 20 Z" fill="#3b9dff"/>'
+      + '<g transform="translate(50 54)">'
+      + '<g transform="translate(-15 0)"><ellipse rx="12" ry="13.5" fill="#fff"/><circle r="6.5" fill="#0f2c4a"/><circle cx="-2.2" cy="-2.4" r="2" fill="#fff"/></g>'
+      + '<g transform="translate(15 0)"><ellipse rx="12" ry="13.5" fill="#fff"/><circle r="6.5" fill="#0f2c4a"/><circle cx="-2.2" cy="-2.4" r="2" fill="#fff"/></g>'
+      + '</g></svg>';
+  };
+
+  const badgeSvg = () => '<svg class="tip-badge" viewBox="0 0 100 100" aria-hidden="true">'
+    + '<circle cx="20" cy="20" r="14" fill="#8b5cf6" stroke="#fff" stroke-width="3"/>'
+    + '<text x="20" y="25" text-anchor="middle" font-size="17" font-weight="700" fill="#fff" font-family="sans-serif">?</text></svg>';
+
+  /* ----------------------------------------------------------------------------------------------
+   * State the reproduction needs to decide which variant of each step to draw. Mirrors the pieces of
+   * OnboardingState that change copy: localReady, targetInstanceId, providersReady, modelReady.
+   * ---------------------------------------------------------------------------------------------- */
+  const state = {
+    active: 'welcome',
+    localReady: true,
+    canRotate: true,
+    targetInstanceId: 'pi:local',
+    providersReady: true,
+    modelReady: false,
+    instanceLabel: 'This computer',
+    localProblem: null,
+    providerCount: 3,
+    promptCopied: false,
+    expanded: {},
+  };
+  const STEP_IDS = ['welcome', 'connection', 'token', 'providers', 'first-agent', 'privacy'];
+  const STEP_ICON = {
+    welcome: 'sparkles', connection: 'plug', token: 'key',
+    providers: 'key', 'first-agent': 'folder', privacy: 'sparkles',
+  };
+  const markFor = (id) => {
+    if (id === 'welcome') return 'done';
+    if (id === 'connection') return state.localReady ? 'done' : state.localProblem ? 'failed' : 'pending';
+    if (id === 'token') return state.localReady ? 'done' : 'pending';
+    if (id === 'providers') return state.modelReady && state.providersReady ? 'done' : 'pending';
+    return 'pending';
+  };
+  /** Placeholder substitution for labels written with `{…}` markers. */
+  const fill = (text, values) => text.replace(/\{(\w+)\}/g, (whole, key) => (key in values ? String(values[key]) : whole));
+
+  /* ----------------------------------------------------------------------------------------------
+   * The wizard
+   * ---------------------------------------------------------------------------------------------- */
+  function renderRail() {
+    const items = STEP_IDS.map((id, i) => {
+      const mark = markFor(id);
+      const markHtml = mark === 'done' ? icon('check', 'done')
+        : mark === 'failed' ? icon('alert', 'failed')
+        : icon(STEP_ICON[id]);
+      const title = fill(get('chrome.stepTitle'), { n: i + 1, title: get('step.' + id + '.title') });
+      const current = id === state.active;
+      return '<li><button type="button" class="rail-item" data-step="' + id + '"'
+        + (current ? ' aria-current="step"' : '') + '>'
+        + '<span class="rail-icon">' + markHtml + '</span>'
+        + '<span class="rail-text"><span class="rail-title">' + esc(title) + '</span>'
+        + '<span class="rail-summary">' + esc(get('step.' + id + '.summary')) + '</span></span>'
+        + '</button></li>';
+    }).join('');
+    return '<ol class="wiz-rail" aria-label="' + esc(get('chrome.stepListLabel')) + '">' + items + '</ol>';
+  }
+
+  function welcomeStep() {
+    const intro = esc(get('welcome.intro'))
+      .replace('Think of Kiln as', 'Think of <strong>Kiln</strong> as')
+      .replace('Think of Ember as', 'Think of <strong>Ember</strong> as');
+    const direct = esc(get('welcome.direct'))
+      .replace('Ember is where you direct bots to do work, and observe the work they do.', '<strong>Ember is where you direct bots to do work, and observe the work they do.</strong>');
+    const host = (iconName, nameId, noteId) =>
+      '<div class="host"><div class="name">' + icon(iconName) + esc(get(nameId)) + '</div>'
+      + '<p class="detail">' + esc(get(noteId)) + '</p>'
+      + '<div class="kiln">' + esc(get('welcome.hostKiln')) + '</div></div>';
+    return '<div class="col-4">'
+      + '<div class="welcome-head">'
+      + '<div class="blob-holder">' + buddySvg(56) + '</div>'
+      + '<div class="titles"><h3 class="head-2xl">' + esc(get('welcome.heading')) + '</h3>'
+      + '<p class="body">' + intro + '</p></div></div>'
+      + '<p class="body">' + direct + '</p>'
+      + '<figure class="diagram" aria-label="' + esc(get('welcome.diagramLabel')) + '">'
+      + '<div class="panel"><div class="origin">' + icon('laptop') + esc(get('welcome.diagramOrigin')) + '</div>'
+      + '<div class="pair">'
+      + '<div class="box ember-box"><div class="t">' + esc(get('welcome.diagramEmber')) + '</div><div class="s">' + esc(get('welcome.diagramEmberNote')) + '</div></div>'
+      + icon('arrowLeftRight')
+      + '<div class="box kiln-box"><div class="t">' + esc(get('welcome.diagramKiln')) + '</div><div class="s">' + esc(get('welcome.diagramKilnNote')) + '</div></div>'
+      + '</div></div>'
+      + '<svg class="branches" viewBox="0 0 600 36" preserveAspectRatio="none" fill="none" aria-hidden="true"><path d="M150 0V14H100V36 M150 14H500V36 M300 14V36" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>'
+      + '<div class="hosts">'
+      + host('boxes', 'welcome.hostContainer', 'welcome.hostContainerNote')
+      + host('cpu', 'welcome.hostMac', 'welcome.hostMacNote')
+      + host('monitor', 'welcome.hostPc', 'welcome.hostPcNote')
+      + '</div>'
+      + '<figcaption>' + esc(get('welcome.diagramCaption')) + '</figcaption>'
+      + '</figure>'
+      + '<p class="body">' + esc(get('welcome.several')) + '</p>'
+      + '</div>';
+  }
+
+  function connectionStep() {
+    // The failure copy is the harness notice when there is one; `badBody` is the fallback sentence.
+    const problem = state.localProblem || get('connection.badBody');
+    const badge = state.localReady
+      ? '<div class="notice notice-ok">' + icon('check')
+        + '<div><div class="strong">' + esc(get('connection.okTitle')) + '</div>'
+        + '<div class="sub">' + esc(get('connection.okBody')) + '</div></div></div>'
+      : '<div class="notice notice-bad"><div class="top">' + icon('alert')
+        + '<div><div class="strong">' + esc(get('connection.badTitle')) + '</div>'
+        + '<div class="sub">' + esc(problem) + '</div></div></div>'
+        + '<div class="actions"><button class="btn btn-sm btn-secondary" type="button">' + esc(get('connection.retry')) + '</button></div></div>';
+
+    const open = (id) => (state.expanded[id] ? ' open' : '');
+    const disclosure = (id, summaryId, body) =>
+      '<details class="disclosure"' + open(id) + ' data-disclosure="' + id + '">'
+      + '<summary>' + esc(get(summaryId)) + '</summary>' + body + '</details>';
+
+    const tailscaleCode = (id, values) => {
+      let value = esc(get(id));
+      Object.keys(values).forEach((key) => {
+        value = value.replace('{' + key + '}', '<code>' + esc(values[key]) + '</code>');
+      });
+      return value;
+    };
+
+    const body = ''
+      + disclosure('other', 'connection.discloseOther', '<p>' + esc(get('connection.otherBody')) + '</p>')
+      + disclosure('tinder', 'connection.discloseTinder',
+        '<p>' + esc(get('connection.tinderBody')) + '<br><button class="btn btn-sm btn-link" type="button">' + esc(get('connection.tinderLink')) + '</button></p>'
+        + '<p>' + esc(get('connection.tinderRun')) + '</p>'
+        + '<pre>chmod +x ./tinder\n./tinder serve --home ~/.ember-kiln --port 3003</pre>'
+        + '<p>' + esc(get('connection.tinderKeep')) + '</p>'
+        + '<pre>./tinder token --home ~/.ember-kiln --port 3003</pre>'
+        + '<p>' + esc(get('connection.tinderService')) + '</p>'
+        + '<pre>./tinder setup --headless --home ~/.ember-kiln --port 3003</pre>'
+        + '<p>' + esc(get('connection.tinderFinish')) + '</p>')
+      + disclosure('tailscale', 'connection.discloseTailscale',
+        '<p>' + esc(get('connection.tailscaleBody')) + '</p>'
+        + '<ol>'
+        + '<li>' + esc(get('connection.tailscaleStep1')) + '</li>'
+        + '<li>' + esc(get('connection.tailscaleStep2')) + '</li>'
+        + '<li>' + tailscaleCode('connection.tailscaleStep3', { code: 'tailscale ip -4' }) + '</li>'
+        + '<li>' + esc(get('connection.tailscaleStep4')).replace('{code}', '<code>http://100.x.y.z:3003</code>').replace('{code}', '<code>tinder token</code>') + '</li>'
+        + '</ol>'
+        + '<p>' + esc(get('connection.tailscaleNote')) + '</p>'
+        + '<p><button class="btn btn-sm btn-link" type="button">' + esc(get('connection.tailscaleLink')) + '</button></p>'
+        + '<div class="setup-prompt"><p class="label" style="margin:0">' + esc(get('connection.promptHeading')) + '</p>'
+        + '<p style="margin:0">' + esc(get('connection.promptLead')) + '</p>'
+        + '<p class="prompt" style="margin:0">' + esc(get('connection.prompt')) + '</p>'
+        + '<button class="btn btn-sm btn-secondary" style="align-self:flex-start" type="button" data-action="copy-prompt">' + esc(get('connection.promptCopy')) + '</button>'
+        + '<span role="status" style="font-size:16px">' + (state.promptCopied ? esc(get('connection.promptCopied')) : '') + '</span></div>')
+      + disclosure('existing', 'connection.discloseExisting', '<p>' + esc(get('connection.existingBody')) + '</p>');
+
+    return '<div class="col-4">'
+      + '<h3 class="head-2xl">' + esc(get('connection.heading')) + '</h3>'
+      + '<p class="body">' + esc(get('connection.lead')) + '</p>'
+      + badge
+      + '<p class="body">' + esc(get('connection.elsewhere')) + '</p>'
+      + '<div style="display:flex;flex-direction:column;gap:8px">' + body + '</div>'
+      + '</div>';
+  }
+
+  function tokenStep() {
+    const compact = state.localReady;
+    const expanded = state.expanded.token || !compact;
+    return '<div class="col-4">'
+      + '<h3 class="head-base">' + esc(get('token.heading')) + '</h3>'
+      + '<p class="body-plain">' + esc(get('token.lead')).replace('A token is a special password for computers to talk to each other.', '<strong>A token is a special password for computers to talk to each other.</strong>') + '</p>'
+      + (state.localReady ? '<p class="body">' + esc(get('token.localReady')) + '</p>' : '')
+      + (expanded ? tokenPanel() : '<button class="btn btn-sm btn-secondary" style="align-self:flex-start" type="button" data-action="expand-token">' + esc(get('token.showIt')) + '</button>')
+      + '</div>';
+  }
+
+  function tokenPanel() {
+    return '<div class="token-panel">'
+      + '<div class="token-head"><span class="k">' + esc(get('token.label')) + '</span><span class="url">http://127.0.0.1:3002</span></div>'
+      + '<div class="token-row"><code>••••••••</code>'
+      + '<button class="btn btn-icon-xs btn-ghost" type="button" aria-label="' + esc(get('token.showLabel')) + '">' + icon('eye') + '</button>'
+      + '<button class="btn btn-icon-xs btn-ghost" type="button" aria-label="' + esc(get('token.copyLabel')) + '">' + icon('copy') + '</button></div>'
+      + '<p class="token-small">' + esc(get('token.hint')) + '</p>'
+      + (state.canRotate
+        ? '<div><button class="btn btn-xs btn-ghost" type="button">' + icon('refresh') + esc(get('token.newToken')) + '</button></div>'
+        : '<p class="token-small">' + esc(get('token.noRotate')) + '</p>')
+      + '</div>';
+  }
+
+  function providersStep() {
+    const hostMissing = !state.targetInstanceId;
+    let html = '';
+
+    if (state.providersReady) {
+      const modelLabel = fill(get('providers.modelHeading'), { instance: state.instanceLabel });
+      const unavailable = fill(get('providers.modelUnavailable'), { model: 'anthropic/claude-opus-4-5' });
+      html += '<div style="margin-bottom:24px;display:flex;flex-direction:column;gap:8px">'
+        + '<label class="field-label" style="margin:0">' + esc(modelLabel) + '</label>'
+        + '<p class="body" style="margin:0">' + esc(get('providers.modelLead')) + '</p>'
+        + '<div class="select"><span style="color:#8a847c">' + esc(get('providers.modelPlaceholder')) + '</span>' + icon('chevronDown') + '</div>'
+        + (!state.modelReady
+          ? '<p class="body" style="margin:0">' + esc(get('providers.modelNotReady')) + '</p>'
+          : '')
+        + '<div><button class="btn btn-sm btn-ghost" type="button">' + esc(get('providers.refreshModels')) + '</button></div>'
+        + '</div>';
+    }
+
+    if (hostMissing) {
+      html += '<div style="margin-bottom:24px;display:flex;flex-direction:column;align-items:flex-start;gap:8px">'
+        + '<p class="body" style="margin:0">' + esc(get('providers.needsHost')) + '</p>'
+        + '<button class="btn btn-sm btn-secondary" type="button" data-step-link="connection">' + esc(get('providers.needsHostButton')) + '</button>'
+        + '</div>';
+    }
+
+    const cards = Array.from({ length: state.providerCount }, (_, i) => {
+      const names = ['Faux Harness', 'OpenCode Zen', 'DeepSeek', 'OpenRouter'];
+      const name = names[i % names.length];
+      const cred = i === 0 ? 'API key' : 'no credential';
+      return '<div class="provider-card"><div class="top">' + icon('key')
+        + '<span class="pname">' + esc(name) + '</span>'
+        + (i === 0 ? '<span class="cred-chip">' + esc(get('providers.credApiKey')) + '</span>' : '<span class="no-cred">' + esc(get('providers.noCredential')) + '</span>')
+        + (i === 0 ? '<button class="btn btn-icon-xs btn-ghost" type="button" aria-hidden="true" style="opacity:.6">' + icon('refresh') + '</button>' : '')
+        + '</div><div class="row">'
+        + '<input class="miniinput" placeholder="' + esc(get('providers.pasteKey')) + '" aria-label="' + esc('API key for ' + name) + '">'
+        + '<button class="btn btn-xs btn-secondary" type="button" style="height:24px">' + esc(get('providers.saveKey')) + '</button>'
+        + '</div></div>';
+    }).join('');
+
+    const providerList = state.providerCount === 0
+      ? '<p class="list-note">' + esc(get('providers.settingsMissing')) + '</p>'
+      : '<div class="providers">'
+        + '<div class="host-row"><div class="select"><span>' + esc(state.instanceLabel) + '</span>' + icon('chevronDown') + '</div>'
+        + '<button class="btn btn-icon-xs btn-ghost" type="button">' + icon('refresh') + '</button></div>'
+        + '<p class="list-note">' + esc(fill(get('providers.newChatsDefault'), { model: 'faux-hearth / glm-5.3-flash' })) + '</p>'
+        + cards + '</div>';
+
+    html += '<div class="col-4">'
+      + '<h3 class="head-base">' + esc(get(state.providersReady ? 'providers.headingReady' : 'providers.headingEmpty')) + '</h3>'
+      + (!state.providersReady ? '<p class="body-plain" style="font-weight:500;margin:0">' + esc(get('providers.emptyLead')) + '</p>' : '')
+      + '<p class="body">' + esc(get('providers.lead')) + '</p>'
+      + '<div class="tip-row"><span class="tip-blob" aria-hidden="true">' + buddySvg(80) + badgeSvg() + '</span>'
+      + '<aside class="tip" aria-label="' + esc(get('providers.tipLabel')) + '"><strong>' + esc(get('providers.tipTip')) + '</strong> — '
+      + esc(get('providers.tipBody')) + ' <button type="button">' + esc(get('providers.tipLink')) + '</button></aside></div>'
+      + providerList
+      + '<p class="body">' + esc(get('providers.afterwards')) + '</p>'
+      + '</div>';
+    return html;
+  }
+
+  function firstAgentStep() {
+    const workspaceMissing = true; // the reproduction's Picker is not wired to a filesystem
+    return '<div class="first">'
+      + '<h3 class="head">' + esc(get('first-agent.heading')) + '</h3>'
+      + '<p class="lead">' + esc(get('first-agent.lead')) + '</p>'
+      + (!state.modelReady ? '<p class="lead">' + esc(get('first-agent.noModel')) + '</p>' : '')
+      + (state.targetInstanceId
+        ? '<div class="workspace-card"><p class="cap">' + esc(fill(get('first-agent.workspaceCap'), { instance: state.instanceLabel })) + '</p>'
+          + '<button class="picker" type="button">' + icon('folder') + '<span>' + esc(get('first-agent.chooseWorkspace')) + '</span>' + icon('chevronDown', 'chev') + '</button></div>'
+        : '<p class="lead">' + esc(get('first-agent.noHost')) + '</p>')
+      + (state.targetInstanceId && state.expanded.workspace
+        ? '<div><p class="cap" style="margin:0 0 8px;font-size:14px;color:var(--muted-foreground)">' + esc(get('first-agent.projectLead')) + '</p>'
+          + '<button class="picker" type="button">' + icon('folder') + '<span>' + esc(get('first-agent.chooseProject')) + '</span>' + icon('chevronDown', 'chev') + '</button></div>'
+        : '')
+      + '<p class="tiny">' + esc(get('first-agent.nothingSent')) + '</p>'
+      + '<button class="btn btn-default continue" type="button"' + (!state.modelReady || workspaceMissing ? ' disabled' : '') + '>'
+      + esc(get('first-agent.continue')) + icon('arrowRight') + '</button>'
+      + '</div>';
+  }
+
+  function privacyStep() {
+    return '<section class="privacy">'
+      + '<div><p class="kicker">' + esc(get('privacy.kicker')) + '</p>'
+      + '<h3 class="big">' + esc(get('privacy.heading')) + '</h3>'
+      + '<p class="plain">' + esc(get('privacy.plain')) + '</p></div>'
+      + '<p class="caveat">' + esc(get('privacy.caveat')) + '</p>'
+      + '<div class="foot">'
+      + '<p>' + inlineLink(get('privacy.builtBy'), esc(get('privacy.builtByLink')), 'https://x.com/noemititarenco') + '</p>'
+      + '<p>' + inlineLink(get('privacy.issue'), esc(get('privacy.issueLink')), 'mailto:em-bot@mail.grokbot.com') + '</p>'
+      + '</div></section>';
+  }
+
+  function footer() {
+    const index = STEP_IDS.indexOf(state.active);
+    const last = index === STEP_IDS.length - 1;
+    const canFinish = state.localReady || Boolean(state.targetInstanceId);
+    let primary;
+    if (last) primary = get('chrome.finish');
+    else if (canFinish && state.active === 'providers') primary = get('chrome.continue');
+    else primary = get('chrome.next');
+
+    let note = '';
+    if (last && !state.modelReady) note = get('chrome.noteFinishModel');
+    else if (!last && !(canFinish && state.active === 'first-agent')) {
+      if (state.active === 'providers' && !state.providersReady) note = get('chrome.noteConnectProvider');
+      else if (state.active === 'providers' && !state.modelReady) note = get('chrome.noteChooseModel');
+      else if (markFor(state.active) === 'pending') note = get('chrome.notePending');
+    }
+
+    const disabled = (last || state.active === 'providers' || state.active === 'first-agent') && !state.modelReady;
+    return '<div class="wiz-foot">'
+      + '<button class="btn btn-sm btn-ghost" type="button" data-action="back"' + (index === 0 ? ' disabled' : '') + '>' + esc(get('chrome.back')) + '</button>'
+      + '<div class="spacer"></div>'
+      + (note ? '<span class="foot-note">' + esc(note) + '</span>' : '')
+      + '<button class="btn btn-sm btn-default" type="button" data-action="next"' + (disabled ? ' disabled' : '') + '>'
+      + esc(primary) + icon('arrowRight') + '</button>'
+      + '</div>';
+  }
+
+  function renderFrame() {
+    const index = STEP_IDS.indexOf(state.active);
+    const canDismiss = state.modelReady;
+    const skip = '<button class="btn btn-sm btn-ghost" type="button"' + (canDismiss ? '' : ' disabled')
+      + (!canDismiss ? ' title="' + esc(get('chrome.skipTitle')) + '"' : '') + '>' + esc(get('chrome.skip')) + '</button>';
+    const counter = esc(fill(get('chrome.stepCounter'), { n: index + 1, count: STEP_IDS.length }));
+
+    const content = state.active === 'welcome' ? welcomeStep()
+      : state.active === 'connection' ? connectionStep()
+      : state.active === 'token' ? tokenStep()
+      : state.active === 'providers' ? providersStep()
+      : state.active === 'first-agent' ? firstAgentStep()
+      : privacyStep();
+
+    const frame = document.getElementById('frame');
+    frame.innerHTML = '<div class="ember">'
+      + '<div class="glow"><div class="blob-lava-glow"></div><div class="blob-crystal-glow"></div></div>'
+      + '<div class="wiz-top"><h2 id="onboarding-title">' + esc(get('chrome.title')) + '</h2>'
+      + '<div class="right"><span class="step-count">' + counter + '</span>' + skip + '</div></div>'
+      + '<div class="wiz-body">' + renderRail() + '<div class="wiz-main">'
+      + '<div class="wiz-content" id="wiz-content">' + content + '</div>'
+      + footer()
+      + '</div></div></div>';
+
+    // Restore the disclosure open state — innerHTML rebuilds collapse them otherwise.
+    frame.querySelectorAll('details[data-disclosure]').forEach((el) => {
+      if (state.expanded[el.dataset.disclosure]) el.open = true;
+    });
+    const caption = document.getElementById('stage-caption');
+    caption.textContent = 'Showing step ' + (index + 1) + ' of ' + STEP_IDS.length + ' — ' + get('step.' + state.active + '.title');
+    document.getElementById('prev-step').disabled = index === 0;
+    document.getElementById('next-step').disabled = index === STEP_IDS.length - 1;
+  }
+
+  /* ----------------------------------------------------------------------------------------------
+   * Interaction inside the reproduction
+   * ---------------------------------------------------------------------------------------------- */
+  document.getElementById('frame').addEventListener('click', (event) => {
+    const target = event.target.closest('button, summary, a');
+    if (!target) return;
+    if (target.closest('summary')) {
+      // Let <details> toggle; remember the state after the default action.
+      const details = target.closest('details[data-disclosure]');
+      if (details) requestAnimationFrame(() => { state.expanded[details.dataset.disclosure] = details.open; });
+      return;
+    }
+    if (target.matches('[data-external]')) {
+      event.preventDefault();
+      return; // the preview never opens a browser
+    }
+    const step = target.dataset.step;
+    if (step) { goto(step); return; }
+    const jump = target.dataset.stepLink;
+    if (jump) { goto(jump); return; }
+    const action = target.dataset.action;
+    if (action === 'back') return goto(STEP_IDS[Math.max(0, STEP_IDS.indexOf(state.active) - 1)]);
+    if (action === 'next') {
+      const index = STEP_IDS.indexOf(state.active);
+      return index === STEP_IDS.length - 1 ? undefined : goto(STEP_IDS[index + 1]);
+    }
+    if (action === 'expand-token') { state.expanded.token = true; renderFrame(); return; }
+    if (action === 'copy-prompt') { state.promptCopied = true; renderFrame(); return; }
+  });
+
+  document.getElementById('prev-step').addEventListener('click', () => {
+    const index = STEP_IDS.indexOf(state.active);
+    if (index > 0) goto(STEP_IDS[index - 1]);
+  });
+  document.getElementById('next-step').addEventListener('click', () => {
+    const index = STEP_IDS.indexOf(state.active);
+    if (index < STEP_IDS.length - 1) goto(STEP_IDS[index + 1]);
+  });
+
+  function goto(stepId) {
+    state.active = stepId;
+    renderFrame();
+    document.querySelectorAll('#fields [data-step-group]').forEach((el) => {
+      el.classList.toggle('current', el.dataset.stepGroup === stepId);
+    });
+    const activeGroup = document.querySelector('#fields [data-step-group="' + stepId + '"]');
+    if (activeGroup) activeGroup.scrollIntoView({ block: 'nearest' });
+  }
+
+  /* ----------------------------------------------------------------------------------------------
+   * The editor
+   * ---------------------------------------------------------------------------------------------- */
+  const fieldEls = new Map();
+  const fieldsHost = document.getElementById('fields');
+
+  function buildEditor() {
+    let html = '';
+    let total = 0;
+    for (const group of GROUPS) {
+      const fields = FIELDS.filter((f) => f.group === group.id);
+      total += fields.length;
+      html += '<section class="group" data-step-group="' + group.id + '">'
+        + '<div class="group-head"><h2>' + esc(group.title) + '</h2>'
+        + '<span class="id">' + esc(group.id) + '</span>'
+        + '<span class="count">' + fields.length + ' strings</span></div>';
+      for (const field of fields) {
+        html += '<div class="field" data-field="' + field.id + '">'
+          + '<div class="field-top"><label class="field-label" for="input-' + field.id + '">' + esc(field.label) + '</label>'
+          + '<button class="reset" type="button" data-reset="' + field.id + '" title="Reset this field to the real copy">Reset</button></div>'
+          + '<textarea id="input-' + field.id + '" rows="1" spellcheck="false"'
+          + (field.long ? '' : '') + '>' + esc(field.text) + '</textarea>'
+          + '</div>';
+      }
+      html += '</section>';
+    }
+    fieldsHost.innerHTML = html;
+    document.getElementById('field-count').textContent = total + ' editable strings';
+
+    fieldsHost.querySelectorAll('textarea').forEach((el) => {
+      const id = el.id.replace(/^input-/, '');
+      fieldEls.set(id, el);
+      autoGrow(el);
+      el.addEventListener('input', () => {
+        copy[id] = el.value;
+        autoGrow(el);
+        markEdited(id);
+        renderFrame();
+        updateStatus();
+        clearFlash();
+      });
+    });
+    fieldsHost.querySelectorAll('button[data-reset]').forEach((el) => {
+      el.addEventListener('click', () => resetField(el.dataset.reset));
+    });
+    document.getElementById('reset-all').addEventListener('click', resetAll);
+  }
+
+  function autoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.max(30, el.scrollHeight + 2) + 'px';
+  }
+
+  function markEdited(id) {
+    const wrap = fieldsHost.querySelector('[data-field="' + id + '"]');
+    if (wrap) wrap.classList.toggle('edited', copy[id] !== DEFAULTS[id]);
+  }
+
+  function resetField(id) {
+    copy[id] = DEFAULTS[id];
+    const el = fieldEls.get(id);
+    if (el) { el.value = DEFAULTS[id]; autoGrow(el); }
+    markEdited(id);
+    renderFrame();
+    updateStatus();
+  }
+
+  function resetAll() {
+    copy = { ...DEFAULTS };
+    fieldEls.forEach((el, id) => { el.value = DEFAULTS[id]; autoGrow(el); markEdited(id); });
+    renderFrame();
+    updateStatus();
+  }
+
+  const changedIds = () => FIELDS.filter((f) => copy[f.id] !== DEFAULTS[f.id]).map((f) => f.id);
+
+  function updateStatus() {
+    const changed = changedIds();
+    const status = document.getElementById('status');
+    const text = document.getElementById('status-text');
+    status.classList.remove('dirty', 'saved');
+    if (changed.length === 0) {
+      text.textContent = 'No changes';
+    } else {
+      status.classList.add('dirty');
+      text.textContent = changed.length + (changed.length === 1 ? ' unsaved change' : ' unsaved changes');
+    }
+  }
+
+  function flash(kind, html) {
+    const el = document.getElementById('save-msg');
+    el.className = 'save-msg show ' + kind;
+    el.innerHTML = html;
+    // The standing file:// banner says the same thing in the long form; once Save has reported a
+    // write it is no longer the open question.
+    if (kind === 'ok') document.getElementById('save-fallback').classList.add('hidden');
+  }
+  function clearFlash() {
+    const el = document.getElementById('save-msg');
+    el.className = 'save-msg';
+    el.innerHTML = '';
+  }
+
+  /* ----------------------------------------------------------------------------------------------
+   * copy.json — pretty, sorted keys, trailing newline, with a note naming the source files.
+   * ---------------------------------------------------------------------------------------------- */
+  function payload() {
+    const note = 'Produced by onboarding/preview/index.html, the onboarding copy preview tool. '
+      + 'Not read by the app: hand these values to whoever updates the real copy. '
+      + 'Mirrors src/components/OnboardingWizard.tsx, src/components/OnboardingPrivacy.tsx, '
+      + 'src/lib/onboarding.ts (step titles, summaries, OPENCODE_ONBOARDING_TIP), '
+      + 'src/components/LocalTokenSettings.tsx and src/components/ProvidersSettings.tsx. '
+      + 'Placeholders are literal: {n}, {count}, {title}, {instance}, {model} and {link} are filled by the component.';
+    const out = { _note: note };
+    const sorted = {};
+    Object.keys(copy).sort().forEach((key) => { sorted[key] = copy[key]; });
+    Object.assign(out, sorted);
+    return out;
+  }
+
+  const serialise = (data) => JSON.stringify(data, null, 2) + '\n';
+
+  function download() {
+    const blob = new Blob([serialise(payload())], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'copy.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  const showFallback = (show) => document.getElementById('save-fallback').classList.toggle('hidden', !show);
+
+  document.getElementById('download').addEventListener('click', () => {
+    download();
+    flash('ok', 'Downloaded <code>copy.json</code>. The browser may put it in your Downloads folder rather than next to this file.');
+  });
+  document.getElementById('fallback-download').addEventListener('click', () => {
+    download();
+    flash('ok', 'Downloaded <code>copy.json</code>. Move it into <code>onboarding/preview/</code> to use it as the saved copy.');
+  });
+
+  /** True when `save` has already answered the POST from this page load. */
+  let serverAnswered = false;
+
+  document.getElementById('save').addEventListener('click', async () => {
+    const id = document.getElementById('save');
+    const original = id.textContent;
+    id.disabled = true;
+    id.textContent = 'Saving…';
+    clearFlash();
+
+    const body = serialise(payload());
+    let response;
+    try {
+      response = await fetch('save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+    } catch (error) {
+      id.disabled = false;
+      id.textContent = original;
+      serverAnswered = true;
+      showFallback(true);
+      flash('warn', (location.protocol === 'file:'
+        ? 'Save needs the companion server, and this page was opened from a file. '
+        : 'Save could not reach the companion server at <code>' + esc(new URL('save', location.href).pathname) + '</code>. ')
+        + 'Start it with <code>./serve.sh</code> in <code>onboarding/preview/</code> and open the address it prints. '
+        + 'Until then, <strong>Download copy.json</strong> writes the same values to your Downloads folder.');
+      return;
+    }
+
+    serverAnswered = true;
+    if (!response.ok) {
+      id.disabled = false;
+      id.textContent = original;
+      flash('error', 'The server answered <code>' + response.status + '</code> and did not write the file. '
+        + 'Check the terminal running <code>serve.sh</code>.');
+      return;
+    }
+
+    let answer = {};
+    try { answer = await response.json(); } catch (error) { answer = {}; }
+    id.disabled = false;
+    id.textContent = original;
+    showFallback(false);
+    const where = answer.path || 'copy.json';
+    flash('ok', 'Saved ' + FIELDS.length + ' strings to <code>' + esc(where) + '</code>.');
+    const status = document.getElementById('status');
+    status.classList.remove('dirty');
+    status.classList.add('saved');
+    document.getElementById('status-text').textContent = 'Saved';
+    setTimeout(updateStatus, 2500);
+  });
+
+  /* ----------------------------------------------------------------------------------------------
+   * Scale the 1180×760 frame to fit the left column.
+   * ---------------------------------------------------------------------------------------------- */
+  function fit() {
+    const stage = document.getElementById('stage');
+    const inner = document.getElementById('stage-inner');
+    const pad = 32;
+    const scale = Math.max(0.1, Math.min(1, (stage.clientWidth - pad) / 1180, (stage.clientHeight - pad) / 760));
+    inner.style.zoom = scale === 1 ? '' : String(Math.round(scale * 10000) / 10000);
+    inner.style.width = '1180px';
+    inner.style.height = '760px';
+  }
+  window.addEventListener('resize', fit);
+
+  /* ----------------------------------------------------------------------------------------------
+   * Boot. `?variant=nohost` shows the connection step with no local host (the first-run case).
+   * ---------------------------------------------------------------------------------------------- */
+  const variant = new URLSearchParams(location.search).get('variant');
+  if (variant === 'nohost') {
+    state.localReady = false;
+    state.canRotate = false;
+    state.localProblem = 'The local Kiln server did not start: it did not answer on 127.0.0.1:3002 within 20s. You can still add a host in Settings → Instances. Log: ~/.ember/kiln.log';
+    state.active = 'connection';
+  }
+
+  buildEditor();
+  renderFrame();
+  fit();
+  updateStatus();
+  if (location.protocol === 'file:') showFallback(true);
+  window.__preview = { FIELDS, DEFAULTS, state, renderFrame, goto, fit };
+})();
+
+/* ------------------------------------------------------------------------------------------------
+ * KNOWN GAPS — what this preview does NOT reproduce, and why.
+ *
+ * 1. EndpointsSettings. The "Connect a Kiln that is already running" disclosure inlines a full
+ *    add/edit/remove endpoint form (`Add an ember-harness endpoint first…`, `No ember-harness
+ *    endpoints yet…`, `Add endpoint`, `Label (e.g. Keep)`, `Test`, `Cancel`). It is a settings
+ *    screen reached through a disclosure, not onboarding copy, and reproducing its state machine
+ *    would double the size of this file. The disclosure's own copy IS reproduced.
+ * 2. ProjectPicker. The workspace/project picker opens a popover whose copy (`Choose your
+ *    workspace`, `Use this workspace`, `Browse…`, folder names) only exists once opened. The
+ *    button labels (`Choose workspace`, `Choose project`) are reproduced; the dialog is not.
+ * 3. ProviderSignInDialog. Signing in opens a dialog with its own copy; only the provider card
+ *    labels around the button are reproduced.
+ * 4. Blobs are approximations. The real `Blob` component draws a seeded vector buddy with
+ *    animations and pupil tracking; here it is one static SVG in the app's azure "splat" shape,
+ *    so layout and size match but the character does not.
+ * 5. State is fixed, not wired. The reproduction draws one chosen state (local host ready, a
+ *    provider connected, no default model, three provider cards) plus `?variant=nohost`. It does
+ *    not read real models, providers, instances or the filesystem, so counts and labels inside
+ *    provider cards, the token value and the disabled flags are stand-ins.
+ * 6. Interactive bits are inert: Retry, New token, Save (provider key), Open OpenCode, the
+ *    model dropdown and the file pickers do not do anything. They are there because their copy
+ *    and placement are part of the screen.
+ * 7. Fonts and fine spacing. The app loads its own font stack and Tailwind utilities; this page
+ *    uses the same system stack declared in src/styles.css and hand-written CSS. Type sizes,
+ *    colours and the 260px rail are copied from the source, but pixel-level spacing is
+ *    approximate — as the brief asked.
+ * --------------------------------------------------------------------------------------------- */
+
+</script>
+</body>
+</html>
