@@ -89,9 +89,11 @@ test('jump pills are hidden at rest, appear on hover, and leave three seconds af
   expect(surface.border).not.toBe('0px');
   expect(surface.bg).not.toBe('rgba(0, 0, 0, 0)');
 
-  // Clicking one retires it: the jump is served and the pill would sit on the message just landed on.
+  // Clicking one jumps and leaves the pills exactly as they were: the pointer is still over the
+  // conversation, and yanking the button away after it lands leaves nowhere to click "previous"
+  // again from.
   await pills.getByRole('button', { name: 'Jump to the previous bot message' }).click();
-  await expect(pills).toHaveCount(0);
+  await expect(pills).toBeVisible();
 
   // A real scroll raises them for three seconds after the last one. Scroll *within* the long reply
   // rather than past its top: the pills need a target, and at the very top of the transcript there
@@ -107,16 +109,19 @@ test('jump pills are hidden at rest, appear on hover, and leave three seconds af
   await expect(pills).toHaveCount(0, { timeout: 4000 });
 });
 
-test('a programmatic jump does not arm the pills, so clicking one never makes it flicker back', async ({ page }) => {
+test('a programmatic jump does not arm the scroll tail', async ({ page }) => {
   await page.goto('/?fixture=long-messages');
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
   const pills = column.locator('[data-jump-pills]');
   await page.mouse.move(200, 500);
   await column.locator('[data-session-area]').hover();
   await pills.getByRole('button', { name: 'Jump to the previous bot message' }).click();
-  // The smooth scroll the jump started settles, and the pointer has left: nothing re-shows them.
+  // The smooth scroll the jump started settles while the pointer is still over the area, so the
+  // pills stay. Leaving is what hides them: the jump itself armed nothing.
+  await expect(pills).toBeVisible();
   await page.mouse.move(200, 500);
   await expect(pills).toHaveCount(0);
+  // Well past the 3s window: no leftover tail from the jump brings them back.
   await page.waitForTimeout(3600);
   await expect(pills).toHaveCount(0);
 });

@@ -11,11 +11,16 @@
  * `PILLS_SCROLL_MS` after the last real scroll and then takes them away again, because a reader who
  * stopped scrolling has stopped looking for a destination.
  *
+ * Landing on a reply is not a reason to take the control away: the reader is still hovering the
+ * conversation, and a jump that made its own buttons vanish would leave them nowhere to click
+ * "previous" again from. Visibility is therefore a function of where the pointer is and how recently
+ * the reader scrolled, and of nothing about what they clicked.
+ *
  * The one interaction that would otherwise fight itself: the scroll timer fires while the pointer
  * is over the conversation. Hover wins — the reader is actively pointing at the pills' own surface,
  * and dismissing something under the cursor mid-reach is how a control becomes untrustworthy. So
- * the rules live here as a small pure reducer over the three facts the component tracks, and the
- * hide-timer re-reads them rather than deciding on its own.
+ * the rules live here as small pure functions, and the hide-timer asks them rather than deciding on
+ * its own.
  */
 
 /** How long the pills stay after the last real scroll. */
@@ -27,19 +32,10 @@ export type JumpsVisibilityState = {
   pointerInside: boolean;
   /** A real scroll happened, and its `PILLS_SCROLL_MS` tail has not run out. */
   scrollArmed: boolean;
-  /** A click was just served: the action is complete and the destination is already on screen. */
-  dismissed: boolean;
 };
 
-/**
- * Whether the pills should be rendered right now.
- *
- * `dismissed` is cleared by the next hover-enter or the next real scroll, so clicking a pill does
- * not take the control away for the rest of the session — it only retires the instance that was
- * just used.
- */
-export function jumpsVisible({ pointerInside, scrollArmed, dismissed }: JumpsVisibilityState): boolean {
-  if (dismissed) return false;
+/** Whether the pills should be rendered right now. */
+export function jumpsVisible({ pointerInside, scrollArmed }: JumpsVisibilityState): boolean {
   return pointerInside || scrollArmed;
 }
 

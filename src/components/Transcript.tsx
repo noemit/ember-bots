@@ -2412,10 +2412,6 @@ function Transcript({
     });
     lastScrollTopRef.current = el.scrollTop;
     noteReaderScroll();
-    // Read through the refs, not the state: both are set from handlers, and the render has not run.
-    if (
-      pointerDown.current || Date.now() - userScrollAt.current <= USER_SCROLL_WINDOW
-    ) scrollDismissesJumps();
     const next = intent === 'follow';
     if (intent === 'ignore') return;
     if (next !== followRef.current) {
@@ -2434,28 +2430,16 @@ function Transcript({
    * Whether the "previous message" pills are on screen.
    *
    * They are an offer, not a status: permanent chrome sitting over the text was noise for a reader
-   * who was not looking for an earlier message. Two facts raise them and one retires them — the
-   * pointer over the conversation, a real scroll (with a `PILLS_SCROLL_MS` tail), and a pill click
-   * respectively. The rules themselves are pure (`lib/jumpPillsVisibility`) so the hover/timer race
-   * is decided the same way in a test as in the browser.
+   * who was not looking for an earlier message. Two facts decide it — the pointer over the
+   * conversation, and a real scroll with a `PILLS_SCROLL_MS` tail. Nothing about a jump changes
+   * either, so landing on a reply leaves the pills where they were: the reader is still hovering the
+   * conversation, and losing the button that got them there would be a worse outcome than the pill
+   * resting over the reply they asked for. The rules are pure (`lib/jumpPillsVisibility`) so the
+   * hover/timer race is decided the same way in a test as in the browser.
    */
   const [jumpsHovered, setJumpsHovered] = React.useState(false);
   const [jumpsScrolled, setJumpsScrolled] = React.useState(false);
-  const [jumpsDismissed, setJumpsDismissed] = React.useState(false);
   const jumpsHoveredRef = React.useRef(false);
-  /**
-   * The dismissal, readable by event handlers in the same tick it is set.
-   *
-   * `dismissJumps` runs from a click and `scrollDismissesJumps` from a scroll; both are handlers, and
-   * the state they read is only updated at the next render. A wheel that arrives in the same
-   * coalesced frame as the click would otherwise see the *old* dismissal and be swallowed — which is
-   * exactly the sequence this exists for: click a pill, keep scrolling.
-   */
-  const jumpsDismissedRef = React.useRef(false);
-  const setJumpsDismissedBoth = (value: boolean) => {
-    jumpsDismissedRef.current = value;
-    setJumpsDismissed(value);
-  };
   const jumpsScrollTimer = React.useRef<number | null>(null);
   const clearJumpsScrollTimer = () => {
     if (jumpsScrollTimer.current !== null) {
@@ -2487,35 +2471,11 @@ function Transcript({
       if (scrollTailMayHide(jumpsHoveredRef.current)) setJumpsScrolled(false);
     }, PILLS_SCROLL_MS);
   };
-  const showJumps = jumpsVisible({ pointerInside: jumpsHovered, scrollArmed: jumpsScrolled, dismissed: jumpsDismissed });
-  /** A click served its destination, so the pills have done their job until the reader asks again. */
-  const dismissJumps = () => {
-    setJumpsDismissedBoth(true);
-    setJumpsScrolled(false);
-    clearJumpsScrollTimer();
-  };
-  /**
-   * A reader who scrolls again wants the pills back, whatever an earlier click retired.
-   *
-   * Without this the dismissal outlives the moment it was for: one pill click would keep the control
-   * away until the pointer left the conversation and returned. A scroll is the reader asking for a
-   * destination, which is the whole reason the pills exist.
-   */
-  const scrollDismissesJumps = () => {
-    if (jumpsDismissedRef.current) setJumpsDismissedBoth(false);
-  };
-  /**
-   * Entering the conversation keeps the pills up with the pointer, and retires an older dismissal.
-   *
-   * The dismissal is only cleared on a *new* entry, not on every pointer move inside the area: a
-   * click on a pill leaves the pointer exactly where it was, and re-arming on that same hover would
-   * put back the pill that was just served.
-   */
+  const showJumps = jumpsVisible({ pointerInside: jumpsHovered, scrollArmed: jumpsScrolled });
+  /** The pointer entering is the only thing that can raise them without a scroll. */
   const enterSessionArea = () => {
-    if (jumpsHoveredRef.current) return;
     jumpsHoveredRef.current = true;
     setJumpsHovered(true);
-    setJumpsDismissedBoth(false);
   };
   const leaveSessionArea = () => {
     jumpsHoveredRef.current = false;
@@ -2853,8 +2813,8 @@ function Transcript({
         // blur so the text passing underneath stays the backdrop rather than a competitor.
         'pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2')}>
         <div data-jump-pills="" className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-full border border-border bg-background/90 p-0.5 shadow-md backdrop-blur">
-        {jumpTargets.bot ? <Button size="xs" variant="secondary" className="rounded-full" aria-label="Jump to the previous bot message" title="Jump to the previous bot message" onClick={() => { dismissJumps(); jumpTo(jumpTargets.bot); }}>↑ Previous bot message</Button> : null}
-        {jumpTargets.sent ? <Button size="xs" variant="secondary" className="rounded-full" aria-label="Jump to the previous sent message" title="Jump to the previous sent message" onClick={() => { dismissJumps(); jumpTo(jumpTargets.sent); }}>↑ Previous sent message</Button> : null}
+        {jumpTargets.bot ? <Button size="xs" variant="secondary" className="rounded-full" aria-label="Jump to the previous bot message" title="Jump to the previous bot message" onClick={() => jumpTo(jumpTargets.bot)}>↑ Previous bot message</Button> : null}
+        {jumpTargets.sent ? <Button size="xs" variant="secondary" className="rounded-full" aria-label="Jump to the previous sent message" title="Jump to the previous sent message" onClick={() => jumpTo(jumpTargets.sent)}>↑ Previous sent message</Button> : null}
         </div>
       </div> : null}
       {receipt ? <div data-read-toast=""
