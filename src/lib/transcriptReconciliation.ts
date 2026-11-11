@@ -54,12 +54,24 @@ export const equalMessage = (a: ChatMessage, b: ChatMessage): boolean =>
 /**
  * A sent-but-not-yet-indexed user turn. The server copy may reuse our client id (modern builds) or
  * get a fresh one (legacy); matching on the outgoing shape lets both reconcile to the same bubble.
+ *
+ * **Attachments are compared by mime type only, never by filename.** The two sides cannot agree on a
+ * name, and asking them to is what showed a sent screenshot twice: a pasted image has no filename
+ * in the browser (`readAttachment` copies `file.name`, which the clipboard leaves empty), while the
+ * echo's name is synthesised by `imageFilename` in `piMapping` (`screenshot.png`). The signatures
+ * were `["", [["image/png",""]]]` against `["", [["image/png","screenshot.png"]]]`, so the bubble
+ * never reconciled, and 25s later it called itself unconfirmed and offered to be discarded while the
+ * message sat correctly in the transcript above it.
+ *
+ * The cost of ignoring names is small and accepted: two identical-mime attachments in one message
+ * are indistinguishable, and a file renamed between send and echo still matches. Both are far
+ * cheaper than duplicating a message the person can see was delivered.
  */
 export const outgoingMessageSignature = (message: ChatMessage): string | null => {
   if (message.role !== 'user') return null;
   const files = message.parts
     .filter((part) => part.type === 'file')
-    .map((part) => [part.file.mime, part.file.filename]);
+    .map((part) => part.file.mime);
   return JSON.stringify([message.text, files]);
 };
 

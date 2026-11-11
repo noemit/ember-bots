@@ -27,6 +27,21 @@ const assistant = (id: string, text: string, overrides: Partial<ChatMessage> = {
   ...overrides,
 });
 
+/**
+ * A turn carrying one image and some words. The filename is a parameter because the bug these tests
+ * guard was that the two sides disagreed about it: the bubble has none, the echo's is synthesised.
+ */
+const imageTurn = (id: string, text: string, filename = ''): ChatMessage => ({
+  id,
+  role: 'user',
+  text,
+  parts: [
+    { type: 'text', id: `${id}-text`, text },
+    { type: 'file', id: `${id}-img`, file: { filename, mime: 'image/png', url: `data:${id}` } },
+  ],
+  completed: true,
+});
+
 const ids = (messages: readonly ChatMessage[]): string[] => messages.map((message) => message.id);
 
 describe('message equality and structural sharing', () => {
@@ -151,6 +166,93 @@ describe('full reconciliation', () => {
     const indexed = reconcileFullTranscript([previous, optimistic], [previous, server], pending);
     expect(ids(indexed.messages)).toEqual(['u1', 'msg_server']);
     expect(indexed.reconciledOptimisticIds).toEqual(['msg_opt']);
+  });
+
+  test('a pasted screenshot reconciles even though the echo renames it', () => {
+    // The bug this prevents: a clipboard image has no filename, so the bubble's attachment is
+    // `{ mime: 'image/png', filename: '' }`, while the host's echo is mapped through
+    // `imageFilename` and arrives as `screenshot.png`. Matching on the name meant the two could
+    // never pair, so the bubble stayed "unconfirmed" underneath the reply that had actually landed.
+    const userBlock = (id: string, filename: string): ChatMessage => ({
+      id,
+      role: 'user',
+      text: '',
+      parts: [{ type: 'file', id: `${id}-img`, file: { filename, mime: 'image/png', url: 'data:…' } }],
+      completed: true,
+    });
+    const bubble = userBlock('msg_opt', '');
+    const echo = userBlock('msg_server', 'screenshot.png');
+
+    const result = reconcileFullTranscript([bubble], [echo], new Set([bubble.id]));
+    expect(result.reconciledOptimisticIds).toEqual(['msg_opt']);
+    expect(ids(result.messages)).toEqual(['msg_server']);
+  });
+
+  test('two images do not reconcile against one image with the same text', () => {
+    // The signature keeps the count and the order: dropping the filename must not drop the list.
+    const withTwo: ChatMessage = {
+      id: 'msg_opt',
+      role: 'user',
+      text: 'compare',
+      parts: [
+        { type: 'file', id: 'f1', file: { filename: '', mime: 'image/png', url: 'data:one' } },
+        { type: 'file', id: 'f2', file: { filename: '', mime: 'image/png', url: 'data:two' } },
+      ],
+      completed: true,
+    };
+    const withOne: ChatMessage = {
+      ...withTwo,
+      id: 'msg_server',
+      parts: [withTwo.parts[0]],
+    };
+    const result = reconcileFullTranscript([withTwo], [withOne], new Set([withTwo.id]));
+    expect(result.reconciledOptimisticIds).toEqual([]);
+    expect(ids(result.messages)).toEqual(['msg_server', 'msg_opt']);
+  });
+
+  test('two identical image turns: only the newer one reconciles, the older stays', () => {
+    // The relaxed signature is content-based, so a *second* identical turn is a real possibility. The
+    // match may only reach a record absent from the transcript, so the older indexed turn cannot be
+    // the one consumed; the pending send pairs with the new echo and the older turn is untouched.
+    const older = imageTurn('e5', 'look');
+    const optimistic = imageTurn('msg_opt', 'look');
+    const newerEcho = imageTurn('e9', 'look');
+    const result = reconcileFullTranscript(
+      [older, optimistic],
+      [older, newerEcho],
+      new Set([optimistic.id])
+    );
+    expect(result.reconciledOptimisticIds).toEqual(['msg_opt']);
+    expect(ids(result.messages)).toEqual(['e5', 'e9']);
+    // The older turn is still there, still itself, and still bears its own image.
+    expect(result.messages[0].id).toBe('e5');
+    expect(result.messages[1].parts.filter((part) => part.type === 'file')).toHaveLength(1);
+  });
+
+  test('a pending image turn is never matched to an older turn the transcript already holds', () => {
+    // The sharp form of the same hazard: the older identical turn is already in the transcript and
+    // the server has not indexed the new one yet. Matching it would retire the pending send against
+    // a message the person sent long ago, so the bubble would vanish without its own echo arriving.
+    const older = imageTurn('e5', 'look');
+    const optimistic = imageTurn('msg_opt', 'look');
+    const result = reconcileFullTranscript([older, optimistic], [older], new Set([optimistic.id]));
+    expect(result.reconciledOptimisticIds).toEqual([]);
+    expect(ids(result.messages)).toEqual(['e5', 'msg_opt']);
+  });
+
+  test('an image turn never reconciles to a text-only turn of the same words', () => {
+    // Ignoring the filename must not collapse "" (no attachment) and "image/png" into one shape.
+    const withImage: ChatMessage = {
+      id: 'msg_opt',
+      role: 'user',
+      text: 'look',
+      parts: [{ type: 'file', id: 'f', file: { filename: '', mime: 'image/png', url: 'data:…' } }],
+      completed: true,
+    };
+    const textOnly = user('msg_server', 'look');
+    const result = reconcileFullTranscript([withImage], [textOnly], new Set([withImage.id]));
+    expect(result.reconciledOptimisticIds).toEqual([]);
+    expect(ids(result.messages)).toEqual(['msg_server', 'msg_opt']);
   });
 
   test('two transcripts reconcile independently', () => {
