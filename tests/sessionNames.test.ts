@@ -9,6 +9,7 @@ import {
   ROLES,
   titleCase,
 } from '../src/lib/sessionNameFallback';
+import { subjectOf } from '../src/lib/sessionNames';
 
 /**
  * The contract is a *shape and a set of qualities*, not one string per message.
@@ -153,6 +154,34 @@ describe('the name a message produces', () => {
       }
       // Not the same animal every time: the fallback is seeded, not fixed.
       expect(seen.size).toBeGreaterThan(1);
+    }
+  });
+
+  test('a question opener never becomes the subject', () => {
+    // The session that started this was called "Have Scout": the request was "why do we have so
+    // many folders here that are ember-[something]", and the old word-picker took the first word
+    // its short filler list did not know — "Have" — and paired it with a Scout.
+    for (const text of [
+      'why do we have so many folders here that are ember-[something]',
+      'does the rail resize on a short screen',
+      'were there any failures in the last run',
+      'there is a stray process left running',
+      'is the tray tint too dark',
+    ]) {
+      const subject = subjectOf(text);
+      for (const weak of ['Have', 'Does', 'Were', 'There', 'Is']) {
+        expect(subject).not.toBe(weak);
+      }
+    }
+  });
+
+  test('scaffolding-only openings name nobody from themselves', () => {
+    for (const text of ['lets close the design gap', 'fingers crossed', 'ok', 'hello']) {
+      const subject = subjectOf(text);
+      // Either no subject at all, or a real one the person would recognise — never a filler word.
+      expect(subject).not.toBe('Lets');
+      expect(subject).not.toBe('Ok');
+      expect(subject).not.toBe('Hello');
     }
   });
 

@@ -8,12 +8,16 @@
  *
  * The shape is `<Adjective> <Noun>`, and **the noun is always a person or a creature**:
  *
- *   - **The noun comes from a fixed roster, never from the message.** A matched role is a *kind of
- *     work* (fix → Mechanic, plan → Cartographer, research → Scout); when nothing matches, a seeded
- *     creature (Fox, Magpie, Otter…) carries it. The message decides *which* noun fits and never
- *     contributes a word to the name, which is what makes "What Gardener" or "Handle Way"
- *     structurally impossible rather than merely unlikely: there is no path by which a token of the
- *     message reaches the name.
+ *   - **The message selects the noun from a fixed roster; it never contributes a word to it.** A
+ *     matched role is a *kind of work* (fix → Mechanic, plan → Cartographer, research → Scout); when
+ *     nothing matches, a seeded creature (Fox, Magpie, Otter…) carries it. The message decides
+ *     *which* noun fits, but no token of the message ever reaches the name — which is what makes
+ *     "What Gardener" or "Handle Way" structurally impossible rather than merely unlikely.
+ *
+ *     (Earlier revisions of this comment claimed the noun did not come "from the message" at all.
+ *     That was wrong and misled two readers: the message absolutely *is* read, by `matchRole` and
+ *     `detectTone`. What is forbidden is *quoting* it. See `sessionNames.ts` for the layer that does
+ *     take a subject word from the human's own request.)
  *   - **The adjective is the message's tone, and it is most of what is drawn.** Breakage ("crash",
  *     "broken", "flapping", "drops", "blank", a pasted stack trace) gives *Frantic*, *Stretched*,
  *     *Harried*; a plan gives *Methodical*, *Deliberate*, *Diligent*; curiosity ("how", "why", "look

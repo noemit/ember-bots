@@ -144,6 +144,7 @@ import {
   pruneSessionReadMarks,
 } from './lib/readState';
 import { deriveSessionName } from './lib/sessionNames';
+import { firstReplyText, renameFor } from './lib/sessionRenameQueue';
 import { useUnreadDigests } from './hooks/useUnreadDigests';
 import { isUnreadEligible, visibleUnreadItems } from './lib/unreadDigest';
 import { useEmberSettings } from './hooks/useEmberSettings';
@@ -423,6 +424,23 @@ export default function App() {
    * already holds, so the check costs nothing on the happy path.
    */
   const createBaselines = React.useRef(new Map<string, Set<string>>());
+  /**
+   * The request each provisional title was derived from, keyed by `sessionKey`.
+   *
+   * The upgrade needs the original words, and the transcript is not a reliable substitute: a user
+   * message can be edited, re-sent or folded. Kept only while a session is provisional, so it is a
+   * handful of short strings, not a second transcript.
+   */
+  const provisionalRequests = React.useRef(new Map<string, string>());
+  /**
+   * Sessions whose name was derived from the ask alone and may still be upgraded.
+   *
+   * A `Set` rather than a title prefix on purpose: the title is always exactly what the rail should
+   * show, so nothing has to be stripped at the twenty places a title is rendered, and nothing
+   * provisional is ever persisted to the host. A person renaming a session deletes its entry here,
+   * which is what makes a human rename final.
+   */
+  const [provisionalKeys, setProvisionalKeys] = React.useState<ReadonlySet<string>>(new Set());
   /** Which attempt the draft pane is showing, if any. Stable so `openSession` can clear it. */
   const setDraftPendingId = React.useCallback((id: string | null) => {
     draftPendingIdRef.current = id;
@@ -3258,6 +3276,20 @@ export default function App() {
     saveNewAvatarAssignment(session, pendingAvatars.current.get(id), options.appearance?.override);
     avatarReservations.current.delete(`pending:${id}`);
     const ref = { instanceId: options.instanceId, sessionId: session.id };
+    // Carry the request across the handover: the pending id stops existing here, and the upgrade
+    // keys off the session from this point on.
+    const requestText = provisionalRequests.current.get(id);
+    if (requestText !== undefined) {
+      provisionalRequests.current.delete(id);
+      provisionalRequests.current.set(sessionKey(session), requestText);
+    }
+    setProvisionalKeys((previous) => {
+      if (!previous.has(id)) return previous;
+      const next = new Set(previous);
+      next.delete(id);
+      next.add(sessionKey(session));
+      return next;
+    });
     const now = Date.now();
     prunePendingCreated((entry) => entry.expiresAt <= now);
     pendingCreatedSessions.current.set(sessionKey(session), {
@@ -3369,10 +3401,15 @@ export default function App() {
     const pending = createPendingCreate({
       id: createClientMessageId(createdAt),
       options,
+      // The title itself carries no marker: provisionality is tracked separately, so what the rail
+      // shows is exactly what the host stores.
       title: newSessionTitle(options, input),
       message,
       createdAt,
     });
+    // Remembered so the upgrade can re-derive from the same request, and marked so it is eligible.
+    provisionalRequests.current.set(pending.id, input.text);
+    setProvisionalKeys((previous) => new Set(previous).add(pending.id));
     const pendingSession = { id: pending.id, instanceId: options.instanceId, directory: options.directory };
     const assignment = options.appearance?.assignment ?? allocateFor(pendingSession);
     pendingAvatars.current.set(pending.id, assignment);
@@ -4089,6 +4126,66 @@ export default function App() {
       showActionError('Could not rename the session.');
     }
   };
+
+  /**
+   * A person renaming a session makes the name final.
+   *
+   * Every rename control goes through here, so clearing the provisional mark is what stops the
+   * upgrade from ever overwriting a human's choice — including a rename that happens before the
+   * first reply arrives.
+   */
+  const renameByHuman = async (session: Session, title: string) => {
+    const key = sessionKey(session);
+    setProvisionalKeys((previous) => {
+      if (!previous.has(key)) return previous;
+      const next = new Set(previous);
+      next.delete(key);
+      return next;
+    });
+    provisionalRequests.current.delete(key);
+    await handleRenameSession(session, title);
+  };
+
+  /**
+   * Upgrade provisional session names once the agent has answered.
+   *
+   * A conversation is created with a name derived from the human's first message alone, which is
+   * often only intent ("lets close the design gap"). The reply usually names the subject, so each
+   * provisional session is checked once a transcript with an assistant reply is available, and
+   * renamed at most once. `renameFor` refuses a session that is no longer provisional, a missing or
+   * short reply, and a request that already named its own subject — so this can run against every
+   * provisional session without tracking which ones have been tried. Clearing the key is what makes
+   * the rename final: the set's membership *is* the record of "still open".
+   */
+  React.useEffect(() => {
+    if (provisionalKeys.size === 0) return;
+    const taken = Object.values(sessionsByInstanceRef.current)
+      .flat()
+      .map((entry) => entry.title?.trim() ?? '')
+      .filter(Boolean);
+    Object.values(sessionsByInstanceRef.current).flat().forEach((session) => {
+      const key = sessionKey(session);
+      if (!provisionalKeys.has(key)) return;
+      const transcript = transcriptsRef.current[key]?.messages;
+      if (!transcript || transcript.length === 0) return;
+      const reply = firstReplyText(transcript);
+      const name = renameFor(
+        { key, provisional: true, request: provisionalRequests.current.get(key) ?? '', directory: session.directory },
+        reply,
+        taken
+      );
+      if (!name) return;
+      // Cleared before the request goes out, so two polls cannot both start a rename and a failure
+      // cannot loop: the session simply keeps its created name.
+      setProvisionalKeys((previous) => {
+        const next = new Set(previous);
+        next.delete(key);
+        return next;
+      });
+      provisionalRequests.current.delete(key);
+      void handleRenameSession(session, name);
+    });
+  });
 
   /**
    * Archive from a session's × control (header or tab). A session with live work, a pending
@@ -5164,7 +5261,7 @@ export default function App() {
           }}
           onArchive={session.kind === 'worker' ? undefined : () => requestArchive(session)}
           onNewBotInFolder={modal ? undefined : () => beginNewAgent(session.instanceId, session.directory)}
-          onRename={(title) => void handleRenameSession(session, title)}
+          onRename={(title) => void renameByHuman(session, title)}
           crew={crewWorkers.get(key) ?? []}
           threadTargets={threadDescendants(session, crewWorkers)}
           crewCost={crewCostByKey.get(key)}
@@ -5392,7 +5489,7 @@ export default function App() {
             ) : null}
             {!usageOpen && !scheduledOpen ? (
             <LeftRail
-              onRenameSession={(session, title) => void handleRenameSession(session, title)}
+              onRenameSession={(session, title) => void renameByHuman(session, title)}
               mode={settings.railMode}
               instances={instances}
               groups={settings.sessionGroups}
