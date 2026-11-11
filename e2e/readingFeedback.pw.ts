@@ -44,8 +44,9 @@ test('last human message pill follows viewport geometry and navigation stays pas
   await expect(pill).toHaveCount(0);
   await history.evaluate(el => { el.scrollTop = 0; });
   await expect(pill).toHaveCount(0);
-  await column.getByRole('button', { name: /New unread messages/ }).click();
-  await history.evaluate(el => { el.scrollTop += 150; });
+  await column.getByRole('button', { name: /Go to the oldest unread reply/ }).click();
+  // The last-sent pill is chrome now: it needs the pointer over the session area to be on screen.
+  await column.locator('[data-session-area]').hover();
   await expect(pill).toBeVisible({ timeout: 20000 });
   expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(before);
 });

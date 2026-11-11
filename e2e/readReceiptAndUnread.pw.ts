@@ -253,7 +253,7 @@ test.describe('the reply context menu', () => {
     await page.reload();
     const reopened = page.locator('main[data-session-key="pi:hearth::16"]');
     await expect(reopened.locator('[data-message-id="e91"]')).toBeVisible();
-    await expect(reopened.getByRole('button', { name: /New unread messages/ })).toBeVisible();
+    await expect(reopened.getByRole('button', { name: /Go to the oldest unread reply/ })).toBeVisible();
     expect((await readMarks(page))['pi:hearth::16'].through).toBe(90);
   });
 });

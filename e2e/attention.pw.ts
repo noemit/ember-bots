@@ -26,7 +26,7 @@ test('the workspace opens directly without an unread shortcut or reading modal',
   await expect(page.getByRole('button', { name: 'Read unread messages' })).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
-  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: /New unread messages/ })).toBeVisible();
+  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: /Go to the oldest unread reply/ })).toBeVisible();
 });
 
 test('muting a chat keeps its read history intact and survives reload', async ({ page }) => {
@@ -38,7 +38,7 @@ test('muting a chat keeps its read history intact and survives reload', async ({
   await page.getByRole('menuitem', { name: "New Messages: Don't Notify" }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.mutedSessions))).toContain('pi:hearth::10');
   expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
-  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: /New unread messages/ })).toBeVisible();
+  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: /Go to the oldest unread reply/ })).toBeVisible();
   await page.reload();
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'New Messages: Notify', exact: true }).click();

@@ -12,7 +12,9 @@ import {
   Check,
   CheckCheck,
   ChevronRight,
+  ChevronsDown,
   CircleAlert,
+  CornerRightDown,
   FileText,
   History,
   Loader2,
@@ -34,6 +36,8 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { isHumanReadingMessage, isProseAssistantMessage, previousTarget, type JumpTarget, type ReadingBounds } from '../lib/transcriptReadingGeometry';
+import { nextUnreadCursor, unreadPositionLabel } from '../lib/unreadCursor';
+import { PILLS_SCROLL_MS, jumpsVisible, scrollTailMayHide } from '../lib/jumpPillsVisibility';
 import { isTurnLive, outputSignature } from '../lib/turnActivity';
 import { parseCrewReport } from '../lib/crew';
 import { deriveActivityLabel } from '../lib/activityLabel';
@@ -2407,6 +2411,11 @@ function Transcript({
       gestureWindowMs: USER_SCROLL_WINDOW,
     });
     lastScrollTopRef.current = el.scrollTop;
+    noteReaderScroll();
+    // Read through the refs, not the state: both are set from handlers, and the render has not run.
+    if (
+      pointerDown.current || Date.now() - userScrollAt.current <= USER_SCROLL_WINDOW
+    ) scrollDismissesJumps();
     const next = intent === 'follow';
     if (intent === 'ignore') return;
     if (next !== followRef.current) {
@@ -2421,6 +2430,98 @@ function Transcript({
     scrollToBottom(virtualized ? 'auto' : 'smooth');
   };
 
+  /**
+   * Whether the "previous message" pills are on screen.
+   *
+   * They are an offer, not a status: permanent chrome sitting over the text was noise for a reader
+   * who was not looking for an earlier message. Two facts raise them and one retires them — the
+   * pointer over the conversation, a real scroll (with a `PILLS_SCROLL_MS` tail), and a pill click
+   * respectively. The rules themselves are pure (`lib/jumpPillsVisibility`) so the hover/timer race
+   * is decided the same way in a test as in the browser.
+   */
+  const [jumpsHovered, setJumpsHovered] = React.useState(false);
+  const [jumpsScrolled, setJumpsScrolled] = React.useState(false);
+  const [jumpsDismissed, setJumpsDismissed] = React.useState(false);
+  const jumpsHoveredRef = React.useRef(false);
+  /**
+   * The dismissal, readable by event handlers in the same tick it is set.
+   *
+   * `dismissJumps` runs from a click and `scrollDismissesJumps` from a scroll; both are handlers, and
+   * the state they read is only updated at the next render. A wheel that arrives in the same
+   * coalesced frame as the click would otherwise see the *old* dismissal and be swallowed — which is
+   * exactly the sequence this exists for: click a pill, keep scrolling.
+   */
+  const jumpsDismissedRef = React.useRef(false);
+  const setJumpsDismissedBoth = (value: boolean) => {
+    jumpsDismissedRef.current = value;
+    setJumpsDismissed(value);
+  };
+  const jumpsScrollTimer = React.useRef<number | null>(null);
+  const clearJumpsScrollTimer = () => {
+    if (jumpsScrollTimer.current !== null) {
+      window.clearTimeout(jumpsScrollTimer.current);
+      jumpsScrollTimer.current = null;
+    }
+  };
+  React.useEffect(() => clearJumpsScrollTimer, []);
+  /**
+   * A scroll that is the reader's, not ours.
+   *
+   * `jumpToIndex` animates the scroller and `scrollToBottom` pins it; arming the tail for those would
+   * re-show the pills every time one was clicked, which reads as a flicker. The gesture tests are the
+   * ones `handleScroll` already trusts for "the reader moved": a pointer held down, or input inside
+   * `USER_SCROLL_WINDOW`. `scrollIntent` cannot be reused directly — it only speaks about upward
+   * moves away from the bottom, and scrolling *down* is still the reader scrolling.
+   */
+  const noteReaderScroll = () => {
+    if (!(pointerDown.current || Date.now() - userScrollAt.current <= USER_SCROLL_WINDOW)) return;
+    setJumpsScrolled(true);
+    clearJumpsScrollTimer();
+    // The tail is a timer, never a CSS delay, so reduced motion changes nothing about when the pills
+    // appear or leave. Re-armed rather than accumulated: 3s from the *last* scroll, so continuous
+    // scrolling keeps them up and a reader who stopped gets the full window to look.
+    jumpsScrollTimer.current = window.setTimeout(() => {
+      jumpsScrollTimer.current = null;
+      // The timer may fire in the same tick a hover begins. The pointer is the newer fact, so the
+      // hover wins and the armed flag is dropped without hiding what the reader is pointing at.
+      if (scrollTailMayHide(jumpsHoveredRef.current)) setJumpsScrolled(false);
+    }, PILLS_SCROLL_MS);
+  };
+  const showJumps = jumpsVisible({ pointerInside: jumpsHovered, scrollArmed: jumpsScrolled, dismissed: jumpsDismissed });
+  /** A click served its destination, so the pills have done their job until the reader asks again. */
+  const dismissJumps = () => {
+    setJumpsDismissedBoth(true);
+    setJumpsScrolled(false);
+    clearJumpsScrollTimer();
+  };
+  /**
+   * A reader who scrolls again wants the pills back, whatever an earlier click retired.
+   *
+   * Without this the dismissal outlives the moment it was for: one pill click would keep the control
+   * away until the pointer left the conversation and returned. A scroll is the reader asking for a
+   * destination, which is the whole reason the pills exist.
+   */
+  const scrollDismissesJumps = () => {
+    if (jumpsDismissedRef.current) setJumpsDismissedBoth(false);
+  };
+  /**
+   * Entering the conversation keeps the pills up with the pointer, and retires an older dismissal.
+   *
+   * The dismissal is only cleared on a *new* entry, not on every pointer move inside the area: a
+   * click on a pill leaves the pointer exactly where it was, and re-arming on that same hover would
+   * put back the pill that was just served.
+   */
+  const enterSessionArea = () => {
+    if (jumpsHoveredRef.current) return;
+    jumpsHoveredRef.current = true;
+    setJumpsHovered(true);
+    setJumpsDismissedBoth(false);
+  };
+  const leaveSessionArea = () => {
+    jumpsHoveredRef.current = false;
+    setJumpsHovered(false);
+  };
+
   // Presentation rows may combine tool steps. Read eligibility still belongs to the original entry.
   const unreadIndices = React.useMemo(() => items.flatMap(({ message, index: sourceIndex }, index) =>
     isUnreadEligible(messages[sourceIndex]) &&
@@ -2428,6 +2529,38 @@ function Transcript({
       ? [index] : []
   ), [items, messages, readMark]);
   const unreadIds = React.useMemo(() => new Set(unreadIndices.map((index) => items[index].message.id)), [items, unreadIndices]);
+  /**
+   * Which unread the strip is currently on, as a position in `unreadIndices`.
+   *
+   * `null` is the resting state: nothing has been visited, so the next click starts at the oldest
+   * unread. It is cleared whenever the unread list changes — a reply arriving, one being read, a
+   * different conversation — because a position outlives the list it indexes, and a stale one would
+   * either skip the newest arrival or point past the end. Identity changes are covered as well as
+   * length ones: two lists of the same size can hold different replies entirely.
+   */
+  const [unreadCursor, setUnreadCursor] = React.useState<number | null>(null);
+  const unreadIdsKey = React.useMemo(() => [...unreadIds].join('|'), [unreadIds]);
+  React.useEffect(() => { setUnreadCursor(null); }, [unreadIdsKey]);
+  /**
+   * One click of the cycling control: move to the next unread (or the oldest) and scroll there.
+   *
+   * It goes through `jumpToIndex` so the destination gets the same fading hairline Find uses, and
+   * it never calls a read-mark callback — the strip is for finding a reply again, not for
+   * acknowledging it, which is why the count it shows does not shrink as the reader cycles.
+   */
+  const cycleUnread = () => {
+    if (unreadIndices.length === 0) return;
+    const next = nextUnreadCursor(unreadCursor, unreadIndices.length);
+    setUnreadCursor(next);
+    jumpToIndex(unreadIndices[next], 'start');
+  };
+  const goToNewestUnread = () => {
+    if (unreadIndices.length === 0) return;
+    // The cursor follows the jump: the reader is now looking at the newest one, and the next cycle
+    // click should continue from there rather than from wherever they were before.
+    setUnreadCursor(unreadIndices.length - 1);
+    jumpToIndex(unreadIndices[unreadIndices.length - 1], 'start');
+  };
   /**
    * The read receipt currently on screen, and which way it went.
    *
@@ -2609,23 +2742,45 @@ function Transcript({
         <Button size="xs" variant="ghost" onClick={() => { setFind(null); setHighlightedMessageId(null); }}>Close</Button>
       </div> : null}
       {onMarkRead && unreadIndices.length > 0 ? (
-        <div data-unread-navigation="" className="flex flex-none flex-wrap items-center justify-between gap-x-2 border-b border-highlight/20 bg-highlight/5 px-3 py-1">
+        <div data-unread-navigation="" data-unread-count={unreadIndices.length} className="flex flex-none flex-wrap items-center justify-between gap-x-2 border-b border-highlight/20 bg-highlight/5 px-3 py-1">
           <Button
             size="sm"
             variant="ghost"
             className="text-highlight"
-            onClick={() => jumpToIndex(unreadIndices[unreadIndices.length - 1], 'start')}
-            title="Go to the newest unread reply without marking it as read"
+            onClick={cycleUnread}
+            aria-label={`${unreadCursor === null ? 'Go to the oldest unread reply' : 'Go to the next unread reply'} (${unreadPositionLabel(unreadCursor, unreadIndices.length)}) without marking anything as read`}
+            title="Go to the next unread reply without marking it as read"
           >
-            New unread messages
-            <span className="text-xs tabular-nums text-muted-foreground">{unreadIndices.length}{hasOlderHistory ? '+' : ''}</span>
+            {unreadCursor === null ? 'New unread messages' : 'Next unread'}
+            {/* The position, not just the total: a reply taller than the screen barely moves the
+                viewport between clicks, and a number that never changed made cycling look broken.
+                Announced as its own status so a screen reader hears "2 of 7" move without the
+                button's name being re-read in full each time. */}
+            <span className="text-xs tabular-nums text-muted-foreground" role="status" aria-label="Unread position">
+              {unreadPositionLabel(unreadCursor, unreadIndices.length)}{hasOlderHistory && unreadCursor === null ? '+' : ''}
+            </span>
           </Button>
-          {onMarkAllRead && unreadIndices.length > 1 ? (
-            <Button size="sm" variant="ghost" onClick={onMarkAllRead}>
-              <CheckCheck aria-hidden="true" />
-              Mark all as read
+          <div className="flex flex-wrap items-center gap-x-1">
+            {/* The old behaviour, kept as a one-click path: cycling starts at the top of a backlog,
+                and a reader who has already read their way down wants the end of it directly. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs text-muted-foreground"
+              onClick={goToNewestUnread}
+              aria-label={`Go to the newest of ${unreadIndices.length} unread ${unreadIndices.length === 1 ? 'reply' : 'replies'} without marking anything as read`}
+              title="Go to the newest unread reply without marking it as read"
+            >
+              <ChevronsDown aria-hidden="true" />
+              Newest
             </Button>
-          ) : null}
+            {onMarkAllRead && unreadIndices.length > 1 ? (
+              <Button size="sm" variant="ghost" onClick={onMarkAllRead}>
+                <CheckCheck aria-hidden="true" />
+                Mark all as read
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
         {hasOlderHistory ? (
@@ -2681,18 +2836,26 @@ function Transcript({
             )}
           </div>
         ) : null}
-      <div className="relative flex min-h-0 flex-1 flex-col">
-      {jumpTargets.bot || jumpTargets.sent ? <div className={cn(
+      {/* The session area owns both the scroller and the chrome floating above it: hovering anywhere
+          in here is the reader's signal that the jump pills are relevant. Pointer events rather than
+          mouse events so a finger counts too, and so a touch that ends elsewhere still leaves them. */}
+      <div
+        className="relative flex min-h-0 flex-1 flex-col"
+        data-session-area=""
+        onPointerEnter={enterSessionArea}
+        onPointerLeave={leaveSessionArea}
+      >
+      {showJumps && (jumpTargets.bot || jumpTargets.sent) ? <div className={cn(
         // `top-2` keeps this row clear of the unread strip and the read receipt, which live above
-        // and below the scroller rather than here. Each button's half is `flex-1`, so a lone button
-        // takes the whole width and centres instead of sitting off-centre in an empty half.
-        'pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center gap-2 px-2')}>
-        {jumpTargets.bot ? <div className="flex flex-1 justify-center">
-          <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" aria-label="Jump to the previous bot message" title="Jump to the previous bot message" onClick={() => jumpTo(jumpTargets.bot)}>↑ Previous bot message</Button>
-        </div> : null}
-        {jumpTargets.sent ? <div className="flex flex-1 justify-center">
-          <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" aria-label="Jump to the previous sent message" title="Jump to the previous sent message" onClick={() => jumpTo(jumpTargets.sent)}>↑ Previous sent message</Button>
-        </div> : null}
+        // and below the scroller rather than here. The row's own surface is what makes it legible:
+        // the pills used to sit directly on the words, so hovering to read them also covered them.
+        // Same surface language as the read receipt and "Jump to latest" (secondary + shadow), with a
+        // blur so the text passing underneath stays the backdrop rather than a competitor.
+        'pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2')}>
+        <div data-jump-pills="" className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-full border border-border bg-background/90 p-0.5 shadow-md backdrop-blur">
+        {jumpTargets.bot ? <Button size="xs" variant="secondary" className="rounded-full" aria-label="Jump to the previous bot message" title="Jump to the previous bot message" onClick={() => { dismissJumps(); jumpTo(jumpTargets.bot); }}>↑ Previous bot message</Button> : null}
+        {jumpTargets.sent ? <Button size="xs" variant="secondary" className="rounded-full" aria-label="Jump to the previous sent message" title="Jump to the previous sent message" onClick={() => { dismissJumps(); jumpTo(jumpTargets.sent); }}>↑ Previous sent message</Button> : null}
+        </div>
       </div> : null}
       {receipt ? <div data-read-toast=""
         // Pointer and keyboard are the same hold (see `readReceiptTimer`): either one keeps the

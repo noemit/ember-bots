@@ -8,8 +8,9 @@ test('unread navigation is passive; message bubbles acknowledge only their own r
   const before = await marks();
   const navigation = column.locator('[data-unread-navigation]');
   await expect(navigation.getByRole('button', { name: 'Mark all as read', exact: true })).toBeVisible();
-  await navigation.getByRole('button', { name: /New unread messages/ }).click();
   const latest = column.locator('[data-message-id="e93"]');
+  // Cycling starts at the oldest unread, so reaching the newest is the "Newest" shortcut's job.
+  await navigation.getByRole('button', { name: /Go to the newest of/ }).click();
   await expect(latest).toHaveAttribute('data-highlighted', 'true');
   await expect(latest).toBeInViewport();
   expect(await marks()).toEqual(before);
@@ -41,7 +42,8 @@ test('unread navigation is passive; message bubbles acknowledge only their own r
   await page.reload();
   await page.locator('aside').getByRole('button', { name: /Crew: auth refactor/ }).click();
   await expect(latest.locator('[data-unread-dot]')).toHaveCount(0);
-  await navigation.getByRole('button', { name: /New unread messages/ }).click();
+  // One unread left: the cycle button and the Newest shortcut point at the same reply.
+  await navigation.getByRole('button', { name: /Go to the oldest unread reply/ }).click();
   const remaining = column.locator('[data-message-id="e91"]').getByRole('button', { name: 'Mark this message as read' });
   await remaining.focus();
   await remaining.press('Enter');
@@ -66,8 +68,11 @@ test('a single unread reply uses its bubble, with reduced-motion confirmation', 
   await page.goto('/');
   await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
   const column = page.locator('main[data-session-key="pi:hearth::10"]');
-  await expect(column.getByRole('button', { name: /New unread messages/ })).toBeVisible();
+  await expect(column.getByRole('button', { name: /Go to the oldest unread reply/ })).toBeVisible();
   await expect(column.getByRole('button', { name: 'Mark all as read', exact: true })).toHaveCount(0);
+  // A lone unread sits at position 1 of 1, and the Newest shortcut would go to the same reply.
+  const navigation = column.locator('[data-unread-navigation]');
+  await expect(navigation.locator('[aria-label="Unread position"]')).toHaveText('1/1');
   await page.clock.install();
   // Leave setup headroom: the browser clock can advance beyond the caller’s current millisecond.
   await page.clock.pauseAt(new Date(Date.now() + 1000));
@@ -94,7 +99,7 @@ test('tool steps need no acknowledgement and folded tools preserve the reply rea
   await expect(reply).not.toContainText('Used 1 tool');
   await expect(reply.getByRole('button', { name: 'Mark this message as read' })).toBeVisible();
   await expect(column.getByRole('button', { name: 'Mark all as read', exact: true })).toHaveCount(0);
-  await column.getByRole('button', { name: /New unread messages/ }).click();
+  await column.getByRole('button', { name: /Go to the oldest unread reply/ }).click();
   await expect(reply).toHaveAttribute('data-highlighted', 'true');
   await reply.getByRole('button', { name: 'Mark this message as read' }).click();
   await expect(column.locator('[data-unread-navigation]')).toHaveCount(0);
