@@ -282,6 +282,14 @@ export type AvatarIdentity = {
   /** An explicit custom colour, stored as six-digit hex. */
   color?: string;
   shapeName?: string;
+  /**
+   * Pin a specific Mosaic face (`FACES` in `blob/mosaicFaces`), by its designer id.
+   *
+   * Absent in normal use: the face is derived from `shapeSeed`, so it stays stable without being
+   * stored. Set by the designer while a face is being judged, and by tests asserting about one
+   * specific drawing.
+   */
+  faceId?: string;
 };
 
 export type ToolStatus = 'pending' | 'running' | 'completed' | 'error' | 'interrupted';

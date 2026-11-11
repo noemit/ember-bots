@@ -4,6 +4,7 @@ import { mosaicActivityPixels, mosaicBaseHex, mosaicField, mosaicGeometry, mosai
 import { getThemeRevision, subscribeTheme } from '../themes';
 import { usePupilTracking } from './usePupilTracking';
 import { MoodBadge } from './overlays';
+import { faceCoversEyes, faceFor, facePixels, identityForFace } from './mosaicFace';
 import type { AvatarIdentity, BallMood, BallState } from '../types';
 import './blob.css';
 import './blob-mosaic.css';
@@ -17,7 +18,23 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
   // The field needs concrete theme colours, so a theme change has to re-run this math.
   const themeRevision = React.useSyncExternalStore(subscribeTheme, getThemeRevision, getThemeRevision);
   const art = React.useMemo(() => {
-    const resolved = identity ?? seedIdentity(seed);
+    const base = identity ?? seedIdentity(seed);
+    /**
+     * The face decides the body.
+     *
+     * A face is a composition — a hat needs the silhouette it was drawn for — so the resolved
+     * identity takes its `shapeName` from the face rather than from shape allocation. Colour is left
+     * alone: the session keeps its own, which is what lets two sessions share a face and still read
+     * as two people.
+     *
+     * `taken` is not threaded through here. The rail already spreads colour, and a face repeating is
+     * acceptable by design; the walk in `faceFor` exists for callers that can cheaply say which
+     * faces are on screen, which a single blob cannot.
+     */
+    const face = faceFor(base);
+    const resolved = identityForFace(base, face);
+    const accessory = facePixels(face);
+    const hideEyes = faceCoversEyes(face);
     const geometry = mosaicGeometry(resolved);
     const field = mosaicField(mosaicBaseHex(resolved), geometry.cells, resolved.colorSeed, mosaicSurfaces(themeRevision));
     return { ...geometry,
@@ -31,6 +48,9 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
         });
         return { ...pixel, fill: field.colors[nearest] };
       }),
+      accessory,
+      hideEyes,
+      bodyShift: face.bodyShift ?? 0,
       delay: -(hashString(resolved.motionSeed) % 2400) / 1000,
       eyeDelay: -(hashString(`mosaic-eyes:${resolved.motionSeed}`) % 10800) / 1000 };
   }, [identity, seed, themeRevision]);
@@ -45,6 +65,10 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
       <svg viewBox="0 0 100 100" width={size} height={size}>
         <g data-mosaic-grid transform="translate(8 1) scale(7)" shapeRendering="crispEdges">
           {art.tiles.map(({ x, y, fill }) => <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={fill} />)}
+          {art.accessory.map(({ x, y, fill, anim }, index) => <rect
+            key={`acc:${index}`}
+            className={anim ? `mosaic-anim-${anim === 'screenIdle' ? 'screen-idle' : anim}` : undefined}
+            x={x} y={y} width={1} height={1} fill={fill} />)}
           {mood === 'thinking' ? art.tiles.map(({ x, y }) => <rect key={`thought:${x}:${y}`}
             className="mosaic-thought" x={x} y={y} width={1} height={1} fill="#fffdf5" opacity={0}
             style={{ animationDelay: `${art.delay - (x + y % 3) * .18}s` }} />) : null}
@@ -52,7 +76,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
             key={`${side}:${x}:${y}`} className="mosaic-pixel" data-side={side === -1 ? 'left' : 'right'}
             x={x} y={y} width={1} height={1} fill={fill}
             style={{ animationDelay: `${art.delay - delay}s`, animationName: distance === 1 ? 'mosaic-pixel-near' : 'mosaic-pixel-far' }} />) : null}
-          <g className="mosaic-eyes">{(mood === 'error' ? art.errorEyes : art.eyes).map(({ x, y }, index) => <g key={x}>
+          {art.hideEyes ? null : <g className="mosaic-eyes">{(mood === 'error' ? art.errorEyes : art.eyes).map(({ x, y }, index) => <g key={x}>
             <g className="mosaic-eye-open">
               <rect data-mosaic-eye x={x} y={y} width={mood === 'error' ? 3 : 2} height={mood === 'error' ? 3 : 1} fill="#fffdf5" />
               {mood === 'error' ? <g className="mosaic-error-eye" fill="#14111a">
@@ -62,7 +86,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
                 : <g ref={index === 0 ? left : right} className="mosaic-pupil"><rect x={x + (art.lookRight ? 1 : 0)} y={y} width={1} height={1} fill="#14111a" /></g>}
             </g>
             <rect className="mosaic-eye-closed" x={x} y={y} width={2} height={1} fill="#14111a" opacity={0} />
-          </g>)}</g>
+          </g>)}</g>}
         </g>
       </svg>
     </div>
