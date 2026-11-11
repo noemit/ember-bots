@@ -3,11 +3,13 @@
 #
 #   ./serve.sh              # http://127.0.0.1:5173 (falls forward if the port is taken)
 #   ./serve.sh 8080         # a port of your choice
+#   ./serve.sh 8080 0.0.0.0 # any interface — needed to open it from another machine
 #
 # `python3 -m http.server` is not enough: it answers 501 to POST, and Save is a POST so that the
 # browser does not add an Origin header problem to a file that must also work from file://.
 # The server below serves index.html from this directory and writes POST /save to copy.json here.
-# Nothing leaves the machine: it binds 127.0.0.1 only.
+# It binds 127.0.0.1 unless a host is given: pass `0.0.0.0` (or the tailnet address) to reach it
+# from the Mac, and remember there is no authentication on that endpoint.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -17,7 +19,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-exec python3 - "${1:-}" <<'PY'
+exec python3 - "${1:-}" "${2:-}" <<'PY'
 import json
 import os
 import sys
@@ -26,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TARGET = os.path.join(ROOT, "copy.json")
 PREFERRED = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 5173
+HOST = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else "127.0.0.1"
 
 
 class PreviewHandler(BaseHTTPRequestHandler):
@@ -87,14 +90,14 @@ def start():
     port = PREFERRED
     for _ in range(20):
         try:
-            return ThreadingHTTPServer(("127.0.0.1", port), PreviewHandler), port
+            return ThreadingHTTPServer((HOST, port), PreviewHandler), port
         except OSError:
             port += 1
     raise SystemExit("could not find a free port starting at %d" % PREFERRED)
 
 
 server, port = start()
-print("Onboarding copy preview: http://127.0.0.1:%d/" % port)
+print("Onboarding copy preview: http://%s:%d/" % ("127.0.0.1" if HOST == "0.0.0.0" else HOST, port))
 print("Save writes %s" % TARGET)
 print("Ctrl-C stops it.")
 try:
