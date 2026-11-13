@@ -3,6 +3,7 @@ import {
   ANTIGRAVITY_MODELS,
   antigravityProvider,
   buildAntigravityRequest,
+  setDiscoveredRouting,
   stream,
   streamSimple,
 } from '../src/antigravity';
@@ -27,6 +28,8 @@ const claude = ANTIGRAVITY_MODELS.find((entry) => entry.id === 'claude-sonnet-4-
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
+  delete process.env.ANTIGRAVITY_BASE_URL;
+  setDiscoveredRouting(undefined);
 });
 
 /** Serve one SSE body and record the request that asked for it. */
@@ -54,7 +57,7 @@ const collect = async (events: AsyncIterable<AssistantMessageEvent>) => {
 const apiKey = JSON.stringify({ token: 'access-token', projectId: 'my-project' });
 
 describe('the Antigravity request envelope', () => {
-  test('carries the project, the runtime model and the CLI fingerprint', () => {
+  test('uses the minimal Cloud Code Assist envelope and omits rejected legacy fields', () => {
     const body = buildAntigravityRequest(
       model,
       asContext({ messages: [{ role: 'user', content: 'hello', timestamp: 1 }] }),
@@ -65,13 +68,13 @@ describe('the Antigravity request envelope', () => {
     ) as Record<string, any>;
     expect(body.project).toBe('my-project');
     expect(body.model).toBe('gemini-3.8-flash-medium');
-    expect(body.requestType).toBe('agent');
-    expect(body.userAgent).toBe('antigravity');
+    expect(body.request).toBeDefined();
+    expect(Object.keys(body).sort()).toEqual(['model', 'project', 'request']);
+    expect(body.requestType).toBeUndefined();
+    expect(body.userAgent).toBeUndefined();
+    expect(body.requestId).toBeUndefined();
+    expect(body.labels).toBeUndefined();
     expect(body.request.contents).toEqual([{ role: 'user', parts: [{ text: 'hello' }] }]);
-    // The labels are how the backend groups a trajectory; a request without them is refused.
-    expect(body.labels.used_claude).toBe('false');
-    expect(body.labels.request_id).toBeString();
-    expect(body.requestId).toStartWith('agent/');
   });
 
   test('a history ending on the model turn gets the continuation the backend requires', () => {
@@ -93,23 +96,19 @@ describe('the Antigravity request envelope', () => {
     expect(contents.at(-1)?.parts[0]?.text).toContain('Continue');
   });
 
-  test('every catalog model is routed to a backend id at every level the picker offers', () => {
+  test('every catalog model is routed to a backend id at every level the picker offers', async () => {
     // The level is encoded in the id rather than in the request, so an unrouted model would send the
     // public id — which the backend does not serve — for every level.
     for (const entry of ANTIGRAVITY_MODELS) {
       for (const level of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const) {
         if (entry.thinkingLevelMap?.[level] === null) continue;
-        const body = buildAntigravityRequest(
-          entry,
-          asContext({ messages: [{ role: 'user', content: 'hi', timestamp: 1 }] }),
-          'p',
-          'unused',
-          level,
-          {}
-        ) as Record<string, any>;
-        const sent = buildAntigravityRequest(entry, asContext({ messages: [{ role: 'user', content: 'hi', timestamp: 1 }] }), 'p', 'placeholder', level, {});
-        expect(sent).toBeDefined();
-        expect(body.model).toBe('unused');
+        const calls = serve([{ response: { candidates: [{ finishReason: 'STOP' }] } }]);
+        await collect(streamSimple(entry, asContext({ messages: [{ role: 'user', content: 'hi', timestamp: 1 }] }), {
+          apiKey,
+          ...(level === 'off' ? {} : { reasoning: level }),
+        }));
+        expect(calls[0]?.body.model).toBeDefined();
+        if (entry.id.startsWith('gemini-3.')) expect(calls[0]?.body.model).not.toBe(entry.id);
       }
     }
   });
@@ -145,6 +144,11 @@ describe('the Antigravity stream', () => {
     expect(calls[0]?.url).toBe('https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse');
     expect(calls[0]?.headers.Authorization).toBe('Bearer access-token');
     expect(calls[0]?.body.project).toBe('my-project');
+    expect(Object.keys(calls[0]?.body ?? {}).sort()).toEqual(['model', 'project', 'request']);
+    expect(calls[0]?.body.labels).toBeUndefined();
+    expect(calls[0]?.body.requestId).toBeUndefined();
+    expect(calls[0]?.body.requestType).toBeUndefined();
+    expect(calls[0]?.body.userAgent).toBeUndefined();
   });
 
   test('the thinking level in the options chooses the backend id', async () => {
@@ -159,7 +163,7 @@ describe('the Antigravity stream', () => {
     await collect(streamSimple(claude, asContext({ messages: [{ role: 'user', content: 'hi', timestamp: 1 }] }), { apiKey, reasoning: 'high' }));
     expect(calls[0]?.body.model).toBe('claude-sonnet-4-6');
     expect(calls[0]?.body.request.generationConfig.thinkingConfig).toEqual({ includeThoughts: true, thinkingBudget: 1024 });
-    expect(calls[0]?.body.labels.used_claude).toBe('true');
+    expect(calls[0]?.body.labels).toBeUndefined();
   });
 
   test('tools travel as Gemini function declarations', async () => {
@@ -314,18 +318,18 @@ describe('a family the catalogue discovers but the table does not list', () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ models }), { status: 200 })) as unknown as typeof fetch;
     try {
       const provider = antigravityProvider();
-      let published: Array<{ id: string; cost: { output: number }; reasoning: boolean }> = [];
+      let published: Array<Model<'antigravity'>> = [];
       await provider.refreshModels!({
         credential: { type: 'oauth', access: 'a', refresh: 'r', expires: Date.now() + 60_000, projectId: 'p' },
         allowNetwork: true,
         force: true,
         signal: new AbortController().signal,
-        publish: async (publication: { persist?: { models: typeof published } }) => {
+        publish: async (publication: { update: () => void; persist?: { models: Model<'antigravity'>[] } }) => {
           published = publication.persist?.models ?? [];
           return true;
         },
       } as never);
-      return published;
+      return { published, provider };
     } finally {
       globalThis.fetch = original;
       delete process.env.ANTIGRAVITY_BASE_URL;
@@ -335,13 +339,63 @@ describe('a family the catalogue discovers but the table does not list', () => {
   test('is priced at its family rate, not reported as free', async () => {
     // Zero is rendered as "free" in the picker and the cost badge, which would hide real spend on
     // every model the account discovers and the static table never listed.
-    const published = await refreshWith({ 'gemini-9.9-flash-high': { displayName: 'Gemini 9.9 Flash (High)' } });
+    const { published } = await refreshWith({ 'gemini-9.9-flash-high': { displayName: 'Gemini 9.9 Flash (High)' } });
     expect(published[0]?.id).toBe('gemini-9.9-flash');
     expect(published[0]?.cost.output).toBeGreaterThan(0);
   });
 
+  test('installs the discovered runtime route before a new model is used', async () => {
+    const original = globalThis.fetch;
+    process.env.ANTIGRAVITY_BASE_URL = 'https://stub.test';
+    let calls = 0;
+    let requestBody: Record<string, any> | undefined;
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ models: {
+          'gemini-9.9-flash-low': { displayName: 'Gemini 9.9 Flash (Low)' },
+          'gemini-9.9-flash-high': { displayName: 'Gemini 9.9 Flash (High)' },
+        } }), { status: 200 });
+      }
+      requestBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, any>;
+      return new Response('data: {"response":{"candidates":[{"finishReason":"STOP"}]}}\n\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    }) as typeof fetch;
+    try {
+      const provider = antigravityProvider();
+      let published: Model<'antigravity'>[] = [];
+      await provider.refreshModels!({
+        credential: { type: 'oauth', access: 'a', refresh: 'r', expires: Date.now() + 60_000, projectId: 'p' },
+        allowNetwork: true,
+        force: true,
+        signal: new AbortController().signal,
+        publish: async (publication: { update: () => void; persist?: { models: Model<'antigravity'>[] } }) => {
+          published = publication.persist?.models ?? [];
+          return true;
+        },
+      } as never);
+      const discovered = published.find((entry) => entry.id === 'gemini-9.9-flash');
+      expect(discovered).toBeDefined();
+      if (!discovered) throw new Error('discovery did not publish the fixture model');
+      const result = await collect(streamSimple(discovered, asContext({ messages: [{ role: 'user', content: 'hi', timestamp: 1 }] }), {
+        apiKey,
+        reasoning: 'high',
+      }));
+      expect(result.some((event) => event.type === 'done')).toBe(true);
+      expect(requestBody?.model).toBe('gemini-9.9-flash-high');
+      expect(requestBody?.project).toBe('my-project');
+      expect(requestBody?.request.contents).toEqual([{ role: 'user', parts: [{ text: 'hi' }] }]);
+      expect(Object.keys(requestBody ?? {}).sort()).toEqual(['model', 'project', 'request']);
+    } finally {
+      globalThis.fetch = original;
+      delete process.env.ANTIGRAVITY_BASE_URL;
+    }
+  });
+
   test('keeps the reasoning its family has', async () => {
-    const published = await refreshWith({ 'claude-opus-9-9': { displayName: 'Claude Opus 9.9' } });
+    const { published } = await refreshWith({ 'claude-opus-9-9': { displayName: 'Claude Opus 9.9' } });
     expect(published[0]?.reasoning).toBe(true);
   });
 });

@@ -147,6 +147,21 @@ describe('grouping the catalogue', () => {
     expect(buildDiscoveredCatalog({}, { defaults }).models).toEqual([]);
   });
 
+  test('a plain Argon model id is retained when the upstream catalogue includes it', () => {
+    const catalog = buildDiscoveredCatalog({
+      'gemini-4-argon': { displayName: 'Gemini 4 Argon' },
+    }, { defaults });
+    expect(catalog.models.map((model) => model.id)).toContain('gemini-4-argon');
+    expect(catalog.routing['gemini-4-argon']?.defaultRequestId).toBe('gemini-4-argon');
+  });
+
+  test('an Argon contributor id is not aliased or discarded by the selectable-model filters', () => {
+    const ids = buildDiscoveredCatalog({
+      'gemini-4-argon-contributor': { displayName: 'Gemini 4 Argon Contributor' },
+    }, { defaults }).models.map((model) => model.id);
+    expect(ids).toContain('gemini-4-argon-contributor');
+  });
+
   test('a brand-new family keeps its id and gets a readable name', () => {
     const catalog = buildDiscoveredCatalog({ 'gemini-9.9-flash-high': { displayName: 'Gemini 9.9 Flash (High)' } }, { defaults });
     expect(catalog.models[0]?.id).toBe('gemini-9.9-flash');

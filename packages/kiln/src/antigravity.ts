@@ -3,7 +3,7 @@
  *
  * pi-ai ships no provider for it, so Hearth supplies one the way `deepinfra.ts` does — a catalog
  * plus `createProvider` — except that the wire is not OpenAI-shaped. It is Gemini's
- * `generateContent` request, wrapped in a `{ project, model, request, labels }` envelope that the
+ * `generateContent` request, wrapped in the Cloud Code Assist `{ project, model, request }` envelope.
  * Antigravity CLI sends, streaming SSE where each frame is `{ response: GenerateContentResponse }`.
  * The shape below is re-implemented from the community `pi-antigravity` extension; nothing is
  * imported from it.
@@ -15,8 +15,8 @@
  *   consults before anything is sent.
  * - The backend rejects a request that is a bare model turn or ends on a tool call, so the
  *   conversation gets a natural-language user turn when the history does not already end in one.
- * - `requestId`/`labels` carry a trajectory the backend groups by; a fresh uuid per request is
- *   accepted and keeps this file from holding per-session state.
+ * - The outer Cloud Code Assist envelope stays minimal; optional trajectory metadata belongs in
+ *   the nested Vertex request, not beside `project`, `model` and `request`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -337,29 +337,6 @@ function repairTurnBoundaries(contents: WireContent[]): WireContent[] {
   return contents;
 }
 
-/**
- * The request id and labels the backend groups a conversation by. The step is the number of turns
- * already in the request, and the request index is how many turns the backend has answered, so both
- * are derived from the transcript rather than stored: a fresh uuid per request is accepted, and
- * holds no state that a forked or reloaded conversation could get wrong.
- */
-function requestEnvelope(runtimeModel: string, contents: WireContent[], answeredTurns: number) {
-  const trajectoryId = randomUUID();
-  const claude = runtimeModel.startsWith("claude-") ? "true" : "false";
-  const step = Math.max(1, contents.length);
-  return {
-    requestId: `agent/${randomUUID()}/${Date.now()}/${trajectoryId}/${step}`,
-    labels: {
-      last_step_index: String(Math.max(0, contents.length - 1)),
-      request_id: `${trajectoryId}-${answeredTurns}`,
-      trajectory_id: trajectoryId,
-      used_claude: claude,
-      used_claude_conservative: claude,
-      used_non_gemini_model: claude === "true" || runtimeModel.startsWith("gpt-oss-") ? "true" : "false",
-    },
-  };
-}
-
 /** Build the `v1internal:streamGenerateContent` body. Pure, so it can be read as the wire contract. */
 export function buildAntigravityRequest(
   model: AntigravityModel,
@@ -399,19 +376,13 @@ export function buildAntigravityRequest(
     request["toolConfig"] = { functionCallingConfig: { mode: "NONE" } };
   }
 
-  const answeredTurns = messages.filter(
-    (message) => message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted"
-  ).length;
-  const envelope = requestEnvelope(runtimeModel, contents, answeredTurns);
-
+  // Keep the outer envelope to fields verified in public Cloud Code Assist client/proxy
+  // implementations. The user-reported error rejects outer `labels`; optional Vertex labels,
+  // when needed, belong in `request` and are not sent here.
   return {
     project: projectId,
     model: runtimeModel,
-    requestType: "agent",
-    userAgent: "antigravity",
-    requestId: envelope.requestId,
     request,
-    labels: envelope.labels,
   };
 }
 
@@ -792,7 +763,8 @@ export function antigravityProvider() {
             ...(familyCost(publicId) ? { cost: familyCost(publicId) } : {}),
             reasoning: familyReasons(publicId),
           };
-        }
+        },
+        setDiscoveredRouting
       );
       return models;
     },
