@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronRight, Loader2, RefreshCw, Search, Sparkles, X } from 'lucide-react';
+import { Check, ChevronRight, Loader2, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -37,8 +37,10 @@ type Props = {
   /** Re-fetch the instance's catalogue. The picker already refreshes on open; this is the manual one. */
   onRefresh?: () => Promise<unknown> | void;
   /**
-   * Open this host's provider settings. Offered instead of a dead end when the catalogue is empty:
-   * a host with no credentials has nothing to pick, and the only fix is on its Providers screen.
+   * Open this host's provider settings — where a provider is added, a key pasted, or a sign-in
+   * started. Offered in the footer beside Refresh whenever the caller can open it, and instead of a
+   * dead end when the catalogue is empty: a host with no credentials has nothing to pick, and the
+   * only fix is on its Providers screen.
    */
   onAddProviders?: () => void;
   /** The host's label, so the empty state names which machine needs credentials. */
@@ -386,7 +388,7 @@ export default function ModelPicker({
                           instead of leaving a dead end. */}
                       <span>
                         {instanceLabel || 'This host'} has no model providers yet, so there are no
-                        models to pick.
+                        models to pick. Adding one takes a key or an account sign-in.
                       </span>
                       {onAddProviders ? (
                         <Button
@@ -397,7 +399,7 @@ export default function ModelPicker({
                             onAddProviders();
                           }}
                         >
-                          Add providers…
+                          New provider
                         </Button>
                       ) : null}
                     </span>
@@ -458,6 +460,29 @@ export default function ModelPicker({
             </SelectContent>
           </Select>
           <div className="min-w-0 flex-1" />
+          {/*
+            Adding a provider belongs here, next to Refresh, because this is the moment the need
+            appears: you opened the picker for a model its host does not have yet. It used to exist
+            only in the empty state, so a host with *some* models pointed at a screen you could only
+            reach by leaving the composer entirely.
+          */}
+          {onAddProviders ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Add a model provider to this instance"
+              title="Add a provider — where a key is pasted or an account signed in"
+              onClick={() => {
+                // Close first: the picker is a dialog, and the Providers screen behind it is the
+                // thing the person asked for. Leaving both open reads as nothing having happened.
+                onOpenChange(false);
+                onAddProviders();
+              }}
+            >
+              <Plus />
+              New provider
+            </Button>
+          ) : null}
           {onRefresh ? (
             <Button
               variant="ghost"

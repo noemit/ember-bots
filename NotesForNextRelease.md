@@ -85,3 +85,13 @@ it, and neither could the first version of the test — the frame sat in the buf
 since the *only* thing usually in a split frame is the finish reason, every real turn would have
 reported "ended before it finished". Drafting a reasoning-then-text-then-tool-call transcript looked
 perfect; a real stream would have failed on turn one.
+
+## New provider, from the model picker
+
+The place you notice a missing provider is the model picker: you opened it looking for a model its
+host does not have yet. The way to add one was a button that only appeared when the host had *no*
+models at all — so a host with two models was not a dead end, it was a detour through Settings.
+
+There is now **+ New provider** in the picker's footer, beside Refresh. It opens the Providers screen
+for that session's own host, which is where the key is pasted or the account signed in, and the two
+empty-state and footer buttons read the same so they are one feature rather than two.

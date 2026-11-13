@@ -5251,7 +5251,7 @@ export default function App() {
           }
           onMinimize={modal ? undefined : () => minimizeSession(key)}
           onActivate={modal ? undefined : () => activateSession(key)}
-          // The picker's "Add providers…" opens the host's own Providers screen. Which endpoint is
+          // The picker's "New provider" opens the host's own Providers screen. Which endpoint is
           // being configured is a property of that screen, so the id comes along.
           onOpenProviders={(instanceId) => {
             setProviderEndpointId(instanceId);
