@@ -73,6 +73,13 @@ function endpointCandidates(): string[] {
   ];
 }
 
+/**
+ * The credential as the catalogue reader sees it: an OAuth record whose `access` is the bearer token
+ * and whose `projectId` names the Cloud Code Assist project. Aliased rather than repeated so the
+ * reader and the flow cannot drift on field names.
+ */
+export type AntigravityCredential = OAuthCredential;
+
 // --- credential field access -------------------------------------------------------------------
 // `OAuthCredential` carries an index signature for extension fields, so the two Antigravity
 // additions are read through helpers rather than casts at every use.

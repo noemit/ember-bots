@@ -306,3 +306,42 @@ describe('the Antigravity credential', () => {
     expect(provider.getModels().length).toBe(ANTIGRAVITY_MODELS.length);
   });
 });
+
+describe('a family the catalogue discovers but the table does not list', () => {
+  const refreshWith = async (models: Record<string, unknown>) => {
+    const original = globalThis.fetch;
+    process.env.ANTIGRAVITY_BASE_URL = 'https://stub.test';
+    globalThis.fetch = (async () => new Response(JSON.stringify({ models }), { status: 200 })) as unknown as typeof fetch;
+    try {
+      const provider = antigravityProvider();
+      let published: Array<{ id: string; cost: { output: number }; reasoning: boolean }> = [];
+      await provider.refreshModels!({
+        credential: { type: 'oauth', access: 'a', refresh: 'r', expires: Date.now() + 60_000, projectId: 'p' },
+        allowNetwork: true,
+        force: true,
+        signal: new AbortController().signal,
+        publish: async (publication: { persist?: { models: typeof published } }) => {
+          published = publication.persist?.models ?? [];
+          return true;
+        },
+      } as never);
+      return published;
+    } finally {
+      globalThis.fetch = original;
+      delete process.env.ANTIGRAVITY_BASE_URL;
+    }
+  };
+
+  test('is priced at its family rate, not reported as free', async () => {
+    // Zero is rendered as "free" in the picker and the cost badge, which would hide real spend on
+    // every model the account discovers and the static table never listed.
+    const published = await refreshWith({ 'gemini-9.9-flash-high': { displayName: 'Gemini 9.9 Flash (High)' } });
+    expect(published[0]?.id).toBe('gemini-9.9-flash');
+    expect(published[0]?.cost.output).toBeGreaterThan(0);
+  });
+
+  test('keeps the reasoning its family has', async () => {
+    const published = await refreshWith({ 'claude-opus-9-9': { displayName: 'Claude Opus 9.9' } });
+    expect(published[0]?.reasoning).toBe(true);
+  });
+});

@@ -95,3 +95,19 @@ models at all — so a host with two models was not a dead end, it was a detour 
 There is now **+ New provider** in the picker's footer, beside Refresh. It opens the Providers screen
 for that session's own host, which is where the key is pasted or the account signed in, and the two
 empty-state and footer buttons read the same so they are one feature rather than two.
+
+## Antigravity shows your account's models, not our guess at them
+
+The first cut shipped a fixed list of eight models, so **Refresh did nothing**: it re-fetched the same
+table. Models the account was entitled to simply were not in the picker, and a new Gemini release
+could not appear at all.
+
+The list now comes from the account. Every refresh reads `fetchAvailableModels` across the daily,
+sandbox and production endpoints — unioned, because a new generation reaches the daily host before
+production — and groups the runtime catalogue into the models a person picks: thinking-level suffixes
+become the levels, `-agent` ids fold into the family they belong to, and internal placeholders and
+image endpoints stay out.
+
+Two things the stub caught that a unit test would have missed: a discovered model was priced at
+**$0** (rendered as "free", hiding real spend) and Claude was reported as not reasoning. Both are now
+inherited from the family, and both have tests.

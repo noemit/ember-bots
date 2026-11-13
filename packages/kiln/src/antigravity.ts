@@ -43,7 +43,9 @@ import {
 } from "@earendil-works/pi-ai";
 import { convertMessages, convertTools, mapStopReasonString } from "@earendil-works/pi-ai/api/google-shared";
 import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
-import { antigravityOAuth, parseAntigravityApiKey } from "./antigravity-oauth";
+import { credentialProjectId, antigravityOAuth, parseAntigravityApiKey } from "./antigravity-oauth";
+import { fetchAntigravityModels } from "./antigravity-discovery";
+import type { AntigravityRouting } from "./antigravity-catalog";
 
 export const ANTIGRAVITY_API = "antigravity";
 const PROVIDER_ID = "antigravity";
@@ -90,6 +92,21 @@ const thinkingLevelMaps = {
  * no level is chosen. `off` is present only where the backend serves a plain id.
  */
 type Routing = { readonly routing: Partial<Record<ModelThinkingLevel, string>>; readonly defaultRequestId: string; readonly off?: string };
+
+/**
+ * What the catalogue read learned, layered over the static table below.
+ *
+ * The static table is what a fresh install can address before any network call; a discovery
+ * replaces it with the account's own ids, and falls back to the static entry for anything the
+ * account did not advertise (a model removed by discovery is not addressable, but the static route
+ * still names a valid backend id if a session already carries that model).
+ */
+let discoveredRouting: Record<string, AntigravityRouting> | undefined;
+
+/** Install (or clear) the routes a catalogue read produced. */
+export const setDiscoveredRouting = (routing: Record<string, AntigravityRouting> | undefined): void => {
+  discoveredRouting = routing;
+};
 
 const ANTIGRAVITY_ROUTING: Readonly<Record<string, Routing>> = {
   "gemini-3.8-flash": {
@@ -190,6 +207,12 @@ type AntigravityLevel = ModelThinkingLevel;
 
 /** The backend id for `modelId` at `level`, falling back to the level's own id. */
 function runtimeModelId(modelId: string, level: AntigravityLevel | undefined): string {
+  const discovered = discoveredRouting?.[modelId];
+  if (discovered) {
+    if (!level || level === "off") return discovered.off ?? discovered.defaultRequestId;
+    const routed = discovered.routing[level as keyof AntigravityRouting["routing"]];
+    return routed ?? discovered.defaultRequestId;
+  }
   const route = ANTIGRAVITY_ROUTING[modelId];
   if (!route) return modelId;
   if (!level || level === "off") return route.off ?? route.defaultRequestId;
@@ -735,7 +758,66 @@ export function antigravityProvider() {
     auth: { oauth: antigravityOAuth },
     models: ANTIGRAVITY_MODELS,
     api: { stream, streamSimple },
+    /**
+     * The account's own catalogue, read on every refresh.
+     *
+     * Without this the picker only ever showed the static table, so a model the account is entitled
+     * to but the table never listed was invisible — and a new release could not appear on Refresh at
+     * all. The read installs its routing at the same time, so a discovered model can actually be
+     * addressed: a catalogue entry with no route would send the public id, which the backend does
+     * not serve.
+     */
+    fetchModels: async (context) => {
+      const models = await fetchAntigravityModels(
+        {
+          ...(context.credential === undefined ? {} : { credential: context.credential }),
+          allowNetwork: context.allowNetwork,
+          signal: context.signal,
+        },
+        (publicId) => {
+          const staticModel = ANTIGRAVITY_MODELS.find((entry) => entry.id === publicId);
+          if (staticModel) {
+            return {
+              contextWindow: staticModel.contextWindow,
+              maxTokens: staticModel.maxTokens,
+              input: staticModel.input,
+              reasoning: staticModel.reasoning,
+              cost: staticModel.cost,
+            };
+          }
+          // A family this table does not list still has a kind and a rate. Falling back to the
+          // family's price keeps a new Flash from being reported as free, and its reasoning from
+          // being reported as absent — the two things the picker and the cost badge read.
+          return {
+            ...(familyCost(publicId) ? { cost: familyCost(publicId) } : {}),
+            reasoning: familyReasons(publicId),
+          };
+        }
+      );
+      return models;
+    },
   });
+}
+
+
+/**
+ * The published rate for a family the static table does not list, by the shape of its id.
+ *
+ * Returning nothing (not zero) for a genuinely unknown family is deliberate: zero is rendered as
+ * "free", which would hide real spend, while absent is rendered as unknown.
+ */
+function familyCost(publicId: string): ModelCost | undefined {
+  if (/claude-opus/i.test(publicId)) return claudeOpusCost;
+  if (/claude/i.test(publicId)) return claudeSonnetCost;
+  if (/gpt-oss/i.test(publicId)) return gptOssCost;
+  if (/flash/i.test(publicId)) return gemini38FlashCost;
+  if (/gemini.*pro/i.test(publicId)) return gemini31ProCost;
+  return undefined;
+}
+
+/** Whether a family the table does not list is a reasoning family. */
+function familyReasons(publicId: string): boolean {
+  return /^(gemini|claude|gpt-oss)/i.test(publicId);
 }
 
 /** Re-exported so callers that only import the provider still reach the login flow. */
