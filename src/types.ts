@@ -350,6 +350,8 @@ export type FileAttachment = {
   mime: string;
   /** `data:` URL for outgoing attachments; whatever the server stored for history. */
   url: string;
+  /** Digest of the original image bytes, retained across send/history mapping for reconciliation. */
+  contentDigest?: string;
 };
 
 /** Message content in the order it was produced; text, reasoning, files and tool calls interleave. */

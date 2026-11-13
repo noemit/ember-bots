@@ -230,6 +230,19 @@ const blocksOf = (content: PiBlock[] | string | undefined): PiBlock[] => {
 const imageFilename = (mimeType: string, base = 'screenshot'): string =>
   `${base}.${mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'}`;
 
+/** Compact deterministic digest of image bytes for cross-wire transcript matching. */
+export const imageContentDigest = (mime: string, data: string): string => {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  const source = mime + String.fromCharCode(0) + data;
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+  }
+  return (first >>> 0).toString(16).padStart(8, '0') + (second >>> 0).toString(16).padStart(8, '0');
+};
+
 /** Image blocks as Ember attachments, in the order they were sent. */
 const imageAttachmentsOf = (blocks: readonly PiBlock[], base?: string): FileAttachment[] =>
   blocks.flatMap((block) =>
@@ -239,6 +252,7 @@ const imageAttachmentsOf = (blocks: readonly PiBlock[], base?: string): FileAtta
             filename: imageFilename(block.mimeType, base),
             mime: block.mimeType,
             url: `data:${block.mimeType};base64,${block.data}`,
+            contentDigest: imageContentDigest(block.mimeType, block.data),
           },
         ]
       : []

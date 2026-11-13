@@ -51,15 +51,37 @@ const toolPartsEqual = (a: ChatMessage, b: ChatMessage): boolean => {
 export const equalMessage = (a: ChatMessage, b: ChatMessage): boolean =>
   a === b || (messageSignature(a) === messageSignature(b) && toolPartsEqual(a, b));
 
+/** Digest a data URL on demand for older optimistic records without a cached digest. */
+const digestDataUrl = (mime: string, url: string): string | undefined => {
+  const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url);
+  if (!match || match[1] !== mime || !match[2]) return undefined;
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  const source = mime + String.fromCharCode(0) + match[2];
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+  }
+  return (first >>> 0).toString(16).padStart(8, '0') + (second >>> 0).toString(16).padStart(8, '0');
+};
+
 /**
  * A sent-but-not-yet-indexed user turn. The server copy may reuse our client id (modern builds) or
- * get a fresh one (legacy); matching on the outgoing shape lets both reconcile to the same bubble.
+ * get a fresh one (legacy); matching on verifiable image bytes lets different display filenames
+ * reconcile without mistaking another image of the same MIME type for this send.
  */
 export const outgoingMessageSignature = (message: ChatMessage): string | null => {
   if (message.role !== 'user') return null;
   const files = message.parts
     .filter((part) => part.type === 'file')
-    .map((part) => [part.file.mime, part.file.filename]);
+    .map((part) => {
+      if (part.type !== 'file') return null;
+      const digest = part.file.contentDigest ?? digestDataUrl(part.file.mime, part.file.url);
+      // Legacy OpenChamber records and non-data file references keep filename semantics. Do not
+      // claim equivalence from MIME/count alone when there is no verifiable payload identity.
+      return digest ? [part.file.mime, digest] : [part.file.mime, part.file.filename];
+    });
   return JSON.stringify([message.text, files]);
 };
 

@@ -474,6 +474,7 @@ describe('models, approvals, questions, inbox', () => {
       filename: 'image.png',
       mime: 'image/png',
       url: `data:image/png;base64,${PNG}`,
+      contentDigest: expect.any(String),
     });
     expect(messages[1].text).toBe('');
     expect(messages[1].parts.map((part) => part.type)).toEqual(['file']);
