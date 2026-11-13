@@ -101,7 +101,7 @@ export default function OnboardingWizard({
   const defaultModel = target ? instanceDefaults[target]?.model : undefined;
   const [providerCatalog, setProviderCatalog] = React.useState<{ id: string; providers: PiProviderInfo[] } | null>(null);
   const providersReady = Boolean(target && (
-    (providerCatalog?.id === target && providerCatalog.providers.some((provider) => provider.credential)) ||
+    (providerCatalog?.id === target && providerCatalog.providers.some((provider) => provider.credential || provider.custom)) ||
     models.some((model) => model.providerID === 'ollama' || model.providerID === 'lmstudio') ||
     instances.find((instance) => instance.id === target)?.kind !== 'pi'
   ));

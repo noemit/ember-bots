@@ -1,3 +1,4 @@
+import { discoverCustomModels, type CustomProviders } from "./custom-providers";
 import { importApiKeys, mergePeers, portablePeer, shareApiKeys } from "./alignment";
 import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
 import { timingSafeEqual } from "node:crypto";
@@ -126,6 +127,7 @@ type Deps = {
    * Optional so a test can build a server without touching loopback.
    */
   localRuntimes?: readonly LocalRuntimeProbe[];
+  customProviders?: CustomProviders;
   /**
    * The host's process table and memory. Production leaves this out; a test passes a fake so the
    * routes can be exercised without depending on what is running on the machine under test.
@@ -1018,6 +1020,9 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/admin\/restart$/, ["POST"]],
   [/^\/models$/, ["GET"]],
   [/^\/usage$/, ["GET"]],
+  [/^\/custom-providers$/, ["GET", "POST"]],
+  [/^\/custom-providers\/discover$/, ["POST"]],
+  [/^\/custom-providers\/[^/]+$/, ["PUT", "DELETE"]],
   [/^\/providers$/, ["GET"]],
   [/^\/providers\/import$/, ["POST"]],
   [/^\/providers\/[^/]+\/login$/, ["GET", "POST", "DELETE"]],
@@ -1317,6 +1322,31 @@ const server = Bun.serve<{
         return json({ ok: true, restarting: true, reason, version: version ?? "0.0.0", ...(build ? { commit: build } : {}) });
       }
 
+      // These routes use the same bearer authentication and bounded request reader as credentials.
+      if (path === "/custom-providers" || path.startsWith("/custom-providers/")) {
+        const custom = deps.customProviders;
+        if (!custom) return badRequest("This Kiln cannot manage custom providers yet. Update Kiln, then try again.");
+        try {
+          if (path === "/custom-providers" && request.method === "GET") return json({ providers: await custom.list() });
+          if (path === "/custom-providers/discover" && request.method === "POST") {
+            const body = await readBody(request);
+            if (body.apiKey !== undefined && (typeof body.apiKey !== "string" || body.apiKey.length > 8192 || /[\r\n]/.test(body.apiKey))) return badRequest("Enter a valid API key, or leave it empty for a keyless server.");
+            // A stored key can only be probed against its saved destination.
+            const saved = typeof body.id === "string" ? (await custom.list()).find(p => p.id === body.id) : undefined;
+            const key = typeof body.apiKey === "string" ? body.apiKey : saved && saved.baseUrl === body.baseUrl ? await custom.key(saved.id) : undefined;
+            return json(await discoverCustomModels(body.baseUrl, key));
+          }
+          if (path === "/custom-providers" && request.method === "POST") return json(await custom.save(await readBody(request)));
+          const id = decodeSegment(path.slice("/custom-providers/".length));
+          if (id && request.method === "PUT") return json(await custom.save(await readBody(request), id));
+          if (id && request.method === "DELETE") { await custom.remove(id); return json({ ok: true }); }
+        } catch (error) {
+          // Validation messages are ours; never echo network response bodies or credential errors.
+          const message = error instanceof Error ? error.message : "";
+          return badRequest(/^(Use |Enter |Give |Discover |Kiln |The base URL)/.test(message) ? message : "Kiln could not save this provider. Retry, or check that its storage is writable.");
+        }
+      }
+
       // ---- models + usage --------------------------------------------------------------
       if (request.method === "GET" && path === "/models") {
         // Only offer models whose provider has a usable credential; otherwise the picker
@@ -1324,7 +1354,7 @@ const server = Bun.serve<{
         // Fall back to the full catalogue if auth resolution fails.
         const available = await models.getAvailable().catch(() => models.getModels());
         return json({
-          models: available,
+          models: available.map(model => model.provider.startsWith("custom-") ? { ...model, providerName: models.getProvider(model.provider)?.name ?? model.provider } : model),
           default: defaultAgent.model,
         });
       }
@@ -1406,6 +1436,7 @@ const server = Bun.serve<{
             id: provider.id,
             name: provider.name,
             credential: types.get(provider.id) ?? null,
+            custom: provider.id.startsWith("custom-"),
             // Enough for a client to offer a sign-in button without knowing which flows exist.
             signIn:
               oauth?.login && support.supported

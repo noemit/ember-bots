@@ -10,6 +10,30 @@ when Ember quits. On macOS, closing a window does not quit the app. History stay
 Ember can connect to other Kilns without owning their lifetime. A standalone backend continues
 running when you quit Ember.
 
+## Self-hosted OpenAI-compatible models
+
+In **Settings → Providers**, select the Kiln that should make inference requests, then choose
+**Add custom provider**. The same editor is available during onboarding.
+
+Give it a display name and the server's API base URL, including its path, for example
+`http://spark:8000/v1`. LAN hosts, remote hosts, ports and nested API paths are supported. The address
+must be reachable **from the selected Kiln**, not just from the computer showing Ember. HTTP is
+unencrypted; use it only on a network you trust.
+
+An API key is optional. Choose **Discover models** to read `<base URL>/models`, or enter the exact
+model IDs your server accepts, one per line. Manual IDs work even when discovery is unavailable.
+Models use standard OpenAI chat completions, with conservative 8k context / 4k output defaults and
+text input. No environment variables or configuration-file edits are needed.
+
+Saving makes the models available in the model picker and offers **Keep current default** or
+**Choose default model**. Existing model choices never change automatically. Edit or remove the
+provider from the same screen; changing a keyed server's URL requires re-entering its key or
+explicitly choosing keyless access. Removing a provider removes its saved key too, but leaves
+existing chats and their model choices intact.
+
+Configuration belongs to that Kiln. Keys use its private credential store and are never returned
+by provider/configuration reads or saved in Ember settings.
+
 ## Standalone Kiln with Tinder
 
 For a headless machine, download the matching Tinder executable from

@@ -1280,6 +1280,7 @@ export type PiProviderInfo = {
    * and whether a flow is already running (so the UI can resume rather than start a second one).
    */
   signIn?: { label: string; pending: boolean } | null;
+  custom?: boolean;
 };
 
 /** What a sign-in flow has told us so far. Mirrors Hearth's `src/login.ts`. */
@@ -1356,6 +1357,7 @@ export const piLoadProviders = async (endpointId: string): Promise<PiProviderCat
         name: typeof entry.name === 'string' && entry.name ? entry.name : entry.id,
         credential: credentialOf(entry.credential),
         signIn: parsed,
+        ...((entry as { custom?: unknown }).custom === true ? { custom: true } : {}),
       };
     });
   return { providers, default: response.data.default };
@@ -1457,3 +1459,12 @@ export const piRemoveProvider = async (
 };
 
 
+
+export type PiCustomProvider = { id: string; name: string; baseUrl: string; modelIds: string[]; hasApiKey: boolean };
+export type PiCustomProviderInput = { name: string; baseUrl: string; modelIds: string[]; apiKey?: string };
+/** Metadata only is read back. Optional secrets travel only in authenticated writes to this Kiln. */
+export async function piCustomProviders<T>(endpointId: string, suffix = '', method = 'GET', body?: unknown): Promise<T> {
+  const response = await request<T>(endpointId, `/custom-providers${suffix}`, { method, ...(body === undefined ? {} : { body }) });
+  if (!response.ok) throw new Error(providerErrorText(response.data, 'This Kiln did not answer. Retry, or update Kiln if custom providers are unavailable.'));
+  return response.data;
+}

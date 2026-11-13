@@ -19,6 +19,7 @@ import { piLoadModels } from '../piApi';
 import type { ModelList } from '../api';
 import type { InstanceDefaults, ModelRef, Instance, PiEndpoint } from '../types';
 import ProviderSignInDialog from '@/components/ProviderSignInDialog';
+import CustomProviders from './CustomProviders';
 
 type Props = {
   endpoints: PiEndpoint[];
@@ -54,6 +55,8 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
  */
 export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange, onProviderCatalog }: Props) {
   const [endpointId, setEndpointId] = React.useState(initialEndpointId ?? endpoints[0]?.id ?? '');
+  const activeEndpoint = React.useRef(endpointId);
+  activeEndpoint.current = endpointId;
   const [providers, setProviders] = React.useState<PiProviderInfo[] | null>(null);
   const [defaultModel, setDefaultModel] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -81,6 +84,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   const notifyCatalog = useStableCallback((id: string, providers: PiProviderInfo[]) => onProviderCatalog?.(id, providers));
 
   const load = React.useCallback(async (id: string) => {
+    if (activeEndpoint.current !== id) return;
     if (!id) {
       setProviders(null);
       return;
@@ -88,6 +92,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
     setLoading(true);
     setError(null);
     const catalog = await piLoadProviders(id);
+    if (activeEndpoint.current !== id) return;
     if (!catalog) {
       setProviders(null);
       setDefaultModel(null);
@@ -107,8 +112,10 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   }, [endpointId, load]);
 
   const confirmDefault = async (id: string, providerName: string) => {
+    if (activeEndpoint.current !== id) return;
     setConfirmation({ endpointId: id, providerName, catalog: null });
     const catalog = await piLoadModels(id).catch(() => null);
+    if (activeEndpoint.current !== id) return;
     setConfirmation((current) => current?.endpointId === id ? { ...current, catalog } : current);
   };
 
@@ -231,7 +238,13 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
         <p className="text-[12px] text-muted-foreground">This ember-harness reports no providers.</p>
       ) : null}
 
-      {providers?.map((provider) => {
+      <CustomProviders key={endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async (name) => {
+        await load(endpointId);
+        notifyChanged(endpointId);
+        if (name) await confirmDefault(endpointId, name);
+      }} />
+
+      {providers?.filter(provider => !provider.custom).map((provider) => {
         const draft = drafts[provider.id] ?? '';
         const isBusy = busy === provider.id;
         return (

@@ -1064,6 +1064,7 @@ const findOpenToolPart = (messages: ChatMessage[], callId: string | undefined): 
 // ---- Models --------------------------------------------------------------------------
 
 export type PiModel = {
+  providerName?: string;
   id: string;
   name?: string;
   provider: string;
@@ -1090,7 +1091,7 @@ export const piModelsToModelList = (
         label: model.name ?? model.id,
         details: {
           name: model.name ?? model.id,
-          providerName: model.provider,
+          providerName: model.providerName ?? model.provider,
           contextTokens: model.contextWindow,
           outputTokens: model.maxTokens,
           costInput: model.cost?.input,

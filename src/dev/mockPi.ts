@@ -7,6 +7,7 @@
  * The legacy OpenCode mock stays reachable at `?legacy` (see `src/dev/mockBridge.ts`).
  */
 import { longDemoPrompt, longDemoReview, longDemoFollowUp } from './longMessages';
+import { randomId } from '../lib/randomId';
 import { parseAvatarOverrides, parseAvatarAssignments, mergeAvatarAssignments } from '../../electron/transport';
 import { generateToken } from '../../electron/tokenWords';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
@@ -1168,6 +1169,23 @@ const piRequest = async (
     return fail(0, 'Ember → Studio Mac: the host is not answering');
   }
   if (url.pathname === '/health' && method === 'GET') return ok({ ok: true, service: 'hearth', version: 'mock' });
+  const custom = customProviders.get(endpointId) ?? [];
+  if (url.pathname === '/custom-providers' && method === 'GET') return ok({ providers: custom });
+  if (url.pathname === '/custom-providers/discover' && method === 'POST') {
+    return String(body.baseUrl).includes('broken')
+      ? ok({ modelIds: [], error: 'Spark answered, but not with an OpenAI model list. Check the API path or enter model IDs manually.' })
+      : ok({ modelIds: ['deepseek-v4.1-flash'] });
+  }
+  if (url.pathname === '/custom-providers' && method === 'POST' || url.pathname.startsWith('/custom-providers/') && method === 'PUT') {
+    const id = method === 'POST' ? `custom-${randomId()}` : url.pathname.split('/').at(-1)!;
+    const old = custom.find(provider => provider.id === id);
+    const provider = { id, name: String(body.name), baseUrl: String(body.baseUrl), modelIds: body.modelIds as string[], hasApiKey: body.apiKey === undefined ? old?.hasApiKey ?? false : Boolean(body.apiKey) };
+    customProviders.set(endpointId, [...custom.filter(entry => entry.id !== id), provider]);
+    return ok(provider);
+  }
+  if (url.pathname.startsWith('/custom-providers/') && method === 'DELETE') {
+    customProviders.set(endpointId, custom.filter(provider => provider.id !== url.pathname.split('/').at(-1))); return ok({ ok: true });
+  }
   if (url.pathname === '/models' && method === 'GET') {
     // A provider's models appear once its key is saved, the way Hearth's refresh does it: an
     // unkeyed provider contributes nothing to the picker.
@@ -1176,17 +1194,17 @@ const piRequest = async (
       ...(keyed('openrouter') ? OPENROUTER_MODELS : []),
       ...(keyed('deepinfra') ? DEEPINFRA_MODELS : []),
     ];
-    return ok({ models: [...models, ...providerModels], default: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' } });
+    return ok({ models: [...models, ...providerModels, ...custom.flatMap(provider => provider.modelIds.map(id => ({ type: 'chat', id, name: id, provider: provider.id, providerName: provider.name, api: 'openai-completions', contextWindow: 8192, maxTokens: 4096, reasoning: false, input: ['text'], cost: { input: 0, output: 0 } })))], default: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' } });
   }
   if (url.pathname === '/providers' && method === 'GET') {
     return ok({
-      providers: providers.map((provider) => ({
+      providers: [...custom.map(provider => ({ id: provider.id, name: provider.name, credential: provider.hasApiKey ? 'api_key' : null, custom: true })), ...providers.map((provider) => ({
         ...provider,
         credential: providerCredentials.get(provider.id) ?? null,
         ...(provider.signIn
           ? { signIn: { ...provider.signIn, pending: mockLogins.has(provider.id) } }
           : {}),
-      })),
+      }))],
       default: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' },
     });
   }
@@ -1808,6 +1826,7 @@ const providers = [
     signIn: { label: 'Sign in with SuperGrok or X Premium' },
   },
 ];
+const customProviders = new Map<string, Array<{ id: string; name: string; baseUrl: string; modelIds: string[]; hasApiKey: boolean }>>();
 const providerCredentials = new Map<string, 'api_key' | 'oauth'>(new URLSearchParams(window.location.search).has('noProviders') ? [] : [['faux-hearth', 'api_key']]);
 /** In-flight mock sign-ins, keyed by provider id. */
 const mockLogins = new Map<string, { polls: number }>();

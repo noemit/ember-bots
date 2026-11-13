@@ -1,3 +1,4 @@
+import { CustomProviders } from "./custom-providers";
 import { dirname, join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { createModels, createProvider, envApiKeyAuth, type CredentialStore, type Model, type Models } from "@earendil-works/pi-ai";
@@ -280,6 +281,7 @@ export const hearthModels = async (
    * has no models" instead of leaving an empty list to interpret.
    */
   localRuntimes: LocalRuntimeProbe[];
+  customProviders: CustomProviders;
 }> => {
   const store = new FileCredentialStore(authFile);
   // Retired the env bridge: instead of copying OpenCode's keys into the environment, adopt them
@@ -335,5 +337,6 @@ export const hearthModels = async (
     if (!runtime.running || !runtime.hasModels) continue;
     models.setProvider(runtime.id === "ollama" ? ollamaProvider({ baseUrl: runtime.baseUrl }) : lmStudioProvider({ baseUrl: runtime.baseUrl }));
   }
-  return { models, seeded, store, localRuntimes };
+  const customProviders = new CustomProviders(dirname(authFile), store, models);
+  return { models, seeded, store, localRuntimes, customProviders };
 };

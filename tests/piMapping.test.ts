@@ -964,3 +964,11 @@ test('internal thread completion and continuation entries are not human messages
   ]);
   expect(messages).toEqual([]);
 });
+
+
+test('custom models show the saved provider name while retaining stable wire IDs', () => {
+  const { models } = piModelsToModelList([{ id: 'deepseek-v4.1-flash', provider: 'custom-stable-id', providerName: 'Spark', type: 'chat' }], undefined);
+  expect(models[0].providerID).toBe('custom-stable-id');
+  expect(models[0].modelID).toBe('deepseek-v4.1-flash');
+  expect(models[0].details.providerName).toBe('Spark');
+});
