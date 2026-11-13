@@ -31,14 +31,33 @@ describe('image send reconciliation', () => {
     expect(result.messages.map((message) => message.id)).toEqual(['e7']);
   });
 
+  test('canonicalizes permissive base64 variants to the bytes Kiln decodes', () => {
+    // Node/Kiln accept non-zero unused padding bits: both decode to byte 0x01.
+    const a = optimistic('a', 'same', [localFile('a.png', 'AQ==')]);
+    const b = optimistic('b', 'same', [localFile('b.png', 'AR==')]);
+    expect(Buffer.from('AQ==', 'base64')).toEqual(Buffer.from('AR==', 'base64'));
+    expect(outgoingMessageSignature(a)).toBe(outgoingMessageSignature(b));
+    const [echo] = piEntriesToMessages([piUser(8, 'same', [{ data: 'AR==', mimeType: 'image/png' }])]);
+    const result = reconcileFullTranscript([a], [echo], new Set([a.id]));
+    expect(result.reconciledOptimisticIds).toEqual([a.id]);
+    expect(result.messages.map((message) => message.id)).toEqual(['e8']);
+  });
+
   test('same text with different bytes and image-only messages stay distinct', () => {
-    const a = optimistic('a', 'same', [localFile('one.png', 'bytes-1')]);
-    const b = optimistic('b', 'same', [localFile('two.png', 'bytes-2')]);
+    const a = optimistic('a', 'same', [localFile('one.png', 'AQ==')]);
+    const b = optimistic('b', 'same', [localFile('two.png', 'Ag==')]);
     expect(outgoingMessageSignature(a)).not.toBe(outgoingMessageSignature(b));
-    const imageOnlyA = optimistic('ia', '', [localFile('one.png', 'bytes-1')]);
-    const imageOnlyB = optimistic('ib', '', [localFile('two.png', 'bytes-2')]);
+    const imageOnlyA = optimistic('ia', '', [localFile('one.png', 'AQ==')]);
+    const imageOnlyB = optimistic('ib', '', [localFile('two.png', 'Ag==')]);
     expect(outgoingMessageSignature(imageOnlyA)).not.toBe(outgoingMessageSignature(imageOnlyB));
     expect(outgoingMessageSignature(imageOnlyA)).not.toBeNull();
+  });
+
+  test('MIME sniffing changes the signature to Kiln’s decoded image type', () => {
+    // The gateway corrects a misleading caller MIME using the bytes it actually decoded.
+    const sent = optimistic('mime', 'inspect', [localFile('upload.jpg', 'iVBORw0KGgo=', 'image/jpeg')]);
+    const [echo] = piEntriesToMessages([piUser(9, 'inspect', [{ data: 'iVBORw0KGgo=', mimeType: 'image/png' }])]);
+    expect(outgoingMessageSignature(sent)).not.toBe(outgoingMessageSignature(echo));
   });
 
   test('multiple images are ordered, exact payloads matter, repeated sends pair one-for-one', () => {

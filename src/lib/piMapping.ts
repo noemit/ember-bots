@@ -230,16 +230,21 @@ const blocksOf = (content: PiBlock[] | string | undefined): PiBlock[] => {
 const imageFilename = (mimeType: string, base = 'screenshot'): string =>
   `${base}.${mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'}`;
 
-/** Compact deterministic digest of image bytes for cross-wire transcript matching. */
+/**
+ * Deterministic identity for image content. Normalize through the same permissive base64 decoder
+ * Kiln uses before sniffing MIME, since distinct base64 strings can decode to identical bytes.
+ */
 export const imageContentDigest = (mime: string, data: string): string => {
+  const bytes = Buffer.from(data, 'base64');
   let first = 0x811c9dc5;
   let second = 0x9e3779b9;
-  const source = mime + String.fromCharCode(0) + data;
-  for (let index = 0; index < source.length; index += 1) {
-    const code = source.charCodeAt(index);
+  const prefix = `${mime}:${bytes.byteLength}:`;
+  const feed = (code: number) => {
     first = Math.imul(first ^ code, 0x01000193);
     second = Math.imul(second ^ code, 0x85ebca6b);
-  }
+  };
+  for (let index = 0; index < prefix.length; index += 1) feed(prefix.charCodeAt(index));
+  for (const byte of bytes) feed(byte);
   return (first >>> 0).toString(16).padStart(8, '0') + (second >>> 0).toString(16).padStart(8, '0');
 };
 
