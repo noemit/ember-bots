@@ -14,6 +14,7 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { metaProvider } from "@earendil-works/pi-ai/providers/meta";
+import { antigravityProvider } from "./antigravity";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import { openCodeZenWithDiscovery } from "./model-discovery";
@@ -308,6 +309,9 @@ export const hearthModels = async (
   models.setProvider(anthropicProvider());
   models.setProvider(openaiCodexProvider());
   models.setProvider(githubCopilotProvider());
+  // Google Antigravity is not in pi-ai: its Cloud Code Assist transport is Hearth's own
+  // (./antigravity.ts), so the provider is registered here like DeepInfra is.
+  models.setProvider(antigravityProvider());
   models.setProvider(metaProvider());
   models.setProvider(openrouterProvider());
   // pi-ai has no DeepInfra provider (see ./deepinfra.ts); Hearth registers its own.

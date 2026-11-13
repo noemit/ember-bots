@@ -50,3 +50,38 @@ the property that actually makes "What Gardener" impossible.
 
 Not a user-facing line, but worth recording: a comment that describes the design you *intended*
 rather than the one you shipped is a bug with a long fuse.
+
+## Antigravity, and a sign-in that can ask you a question
+
+Ember can now sign in to **Google Antigravity** — the Google account that fronts Gemini, Claude and
+GPT-OSS models through Cloud Code Assist. It is a *browser* sign-in rather than a device code: the
+provider opens Google's consent page and expects the browser to land on a loopback address on the
+machine running Kiln. That is fine when you are sitting at that machine and useless when you are not,
+which is the case the interesting half of this work is about.
+
+So a sign-in can now ask you something while it runs. The flow parks on the question, the question
+appears in the dialog, you paste back the redirect URL your browser landed on, and the flow carries
+on. One sentence in the dialog explains the trick that makes it work: the page *fails to load*, which
+looks like an error and is actually the address you need to copy.
+
+Deliberately, a host that cannot deliver the question refuses the flow and says which machine can
+finish it, rather than offering a button that sits there. A flow parked on a question nobody can see
+is worse than an honest no — it looks exactly like "still working".
+
+Along the way the flow that already existed got honest too: ChatGPT's sign-in asks which method to
+use (browser or device code) and Ember now answers "device" on the human's behalf, because a device
+code is the branch that works everywhere. That button has been in Settings → Providers for several
+releases and could only ever fail.
+
+The wire is small and worth knowing: `POST /providers/:id/login` gains `{ prompt: { capable: true } }`,
+a question arrives as a `question` event, and the answer goes back to
+`POST /providers/:id/login/answer`. A client that says nothing keeps the old behaviour except for the
+one thing that was quietly wrong: a flow blocked on a question nothing can answer now reports
+`failed` with the question quoted, instead of `pending` forever.
+
+One bug worth recording, because it is the kind that hides: the SSE reader lost any frame that
+arrived split across two network reads. A fixture that delivers a whole body in one chunk cannot see
+it, and neither could the first version of the test — the frame sat in the buffer, unparsed, and
+since the *only* thing usually in a split frame is the finish reason, every real turn would have
+reported "ended before it finished". Drafting a reasoning-then-text-then-tool-call transcript looked
+perfect; a real stream would have failed on turn one.

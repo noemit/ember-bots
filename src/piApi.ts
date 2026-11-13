@@ -1275,6 +1275,12 @@ export type PiProviderInfo = {
 export type PiLoginEvent =
   | { type: 'device_code'; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number }
   | { type: 'auth_url'; url: string; instructions?: string }
+  /**
+   * A browser-callback flow waiting for the reply it could not receive at its loopback address:
+   * the person pastes the redirect URL back. `placeholder` carries the address the host expects,
+   * which is both the hint and what the answer is checked against.
+   */
+  | { type: 'question'; message: string; placeholder?: string; options?: Array<{ id: string; label: string }> }
   | { type: 'info'; message: string }
   | { type: 'progress'; message: string };
 
@@ -1285,6 +1291,21 @@ export type PiLoginState = {
   credential?: unknown;
   error?: string;
 };
+
+/**
+ * What this client can do with a question a sign-in asks mid-flow.
+ *
+ * A browser-callback sign-in (Google Antigravity, OpenAI's ChatGPT flow) finishes by sending the
+ * browser to a loopback address on the host running Kiln. When that browser is on another machine —
+ * Ember driven over remote access, a container, a box whose port is not reachable — the redirect
+ * never arrives, and the only way through is for the person to paste the redirect URL back. Ember
+ * can show the question and return the answer, so it says so; a plain REST client cannot, and Kiln
+ * answers it with a refusal that says which machine to use instead.
+ */
+export type PiLoginInput = { prompt: { capable: boolean } };
+
+/** The capability Ember always has: it runs in front of the person. */
+export const EMBER_LOGIN_INPUT: PiLoginInput = { prompt: { capable: true } };
 
 export type PiProviderCatalog = {
   providers: PiProviderInfo[];
@@ -1347,10 +1368,12 @@ export const piSetProviderKey = async (
 /** Begin (or resume) a provider sign-in on the Hearth host; returns the device code when there is one. */
 export const piStartProviderLogin = async (
   endpointId: string,
-  providerId: string
+  providerId: string,
+  input: PiLoginInput = EMBER_LOGIN_INPUT
 ): Promise<{ ok: boolean; state?: PiLoginState; error?: string }> => {
   const response = await request<PiLoginState>(endpointId, `/providers/${encodeURIComponent(providerId)}/login`, {
     method: 'POST',
+    body: input,
   });
   return response.ok
     ? { ok: true, state: response.data }
@@ -1369,6 +1392,32 @@ export const piPollProviderLogin = async (
         ok: false,
         status: response.status,
         error: providerErrorText(response.data, `HTTP ${response.status || 'no reply'}`),
+      };
+};
+
+/**
+ * Answer the question a sign-in is blocked on.
+ *
+ * Separate from start and poll because it is the human's own act mid-flow: the flow is parked
+ * waiting for it, so there is nothing else to send and no order to get wrong.
+ */
+export const piAnswerProviderLogin = async (
+  endpointId: string,
+  providerId: string,
+  answer: string
+): Promise<{ ok: boolean; error?: string }> => {
+  const response = await request(endpointId, `/providers/${encodeURIComponent(providerId)}/login/answer`, {
+    method: 'POST',
+    body: { answer },
+  });
+  return response.ok
+    ? { ok: true }
+    : {
+        ok: false,
+        error: providerErrorText(
+          response.data,
+          response.status ? `HTTP ${response.status}` : 'The host did not answer. Check that it is running, then try again.'
+        ),
       };
 };
 

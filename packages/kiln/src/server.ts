@@ -55,7 +55,7 @@ import {
   workerTitle,
 } from "./sessions";
 import { importOpenCodeCredentials, isCredential } from "./credentials";
-import { createLoginSupervisor, loginSupport, type LoginProvider, type LoginState } from "./login";
+import { createLoginSupervisor, loginSupport, unreachableQuestion, type LoginInput, type LoginProvider, type LoginState } from "./login";
 import {
   ApprovalsDoc,
   AutoAcceptDoc,
@@ -765,6 +765,8 @@ export const startHearthServer = (deps: Deps): HearthServer => {
               oauth: {
                 loginLabel: oauth.loginLabel,
                 name: oauth.name,
+                // Passed through untouched: whether a mid-flow question can be answered is decided
+                // by the flow, not by this adapter. See `start` below for the wire that carries it.
                 login: (interaction, options) => oauth.login(interaction, options),
               },
             }),
@@ -776,6 +778,19 @@ export const startHearthServer = (deps: Deps): HearthServer => {
       refreshModelCatalog(`a sign-in for ${providerId}`);
     }
   );
+
+  /**
+   * What the start request says the client can do about a mid-flow question.
+   *
+   * A browser-callback flow needs a question relayed to the human, and only the client knows whether
+   * it can show one. It is a field on the request rather than a guess from the User-Agent: a wrong
+   * guess either hides a button that works or offers one that cannot finish. Absent means "cannot
+   * ask", which is what every client that predates this field means.
+   */
+  const loginInput = (body: Record<string, unknown>): LoginInput => {
+    const prompt = body.prompt;
+    return { prompt: typeof prompt === "object" && prompt !== null && (prompt as { capable?: unknown }).capable === true };
+  };
 
   /**
    * Every sign-in answer, and never the credential in it.
@@ -990,6 +1005,7 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/providers\/import$/, ["POST"]],
   [/^\/providers\/[^/]+\/login$/, ["GET", "POST", "DELETE"]],
   [/^\/providers\/[^/]+$/, ["POST", "DELETE"]],
+  [/^\/providers\/[^/]+\/login\/answer$/, ["POST"]],
   [/^\/directories$/, ["GET", "POST"]],
   [/^\/directory$/, ["GET"]],
   [/^\/directory\/peers$/, ["GET", "PUT"]],
@@ -1307,12 +1323,36 @@ const server = Bun.serve<{
       // The credential is deliberately absent from every answer here. The supervisor stores it on
       // the flow's terminal event and reports what it stored (`credentialType`); a secret on the
       // wire would be one more copy of it to leak, and the client has nothing to do with it.
+
+      // The human's reply to a question a flow parked on — the redirect URL a browser sign-in could
+      // not deliver to this host. Separate from start/poll because it is an act, not a read: there
+      // is exactly one question in flight per provider, or none.
+      if (path.startsWith("/providers/") && path.endsWith("/login/answer")) {
+        const providerId = decodeSegment(path.slice("/providers/".length, -"/login/answer".length));
+        if (!providerId) return badRequest("missing provider id");
+        if (request.method !== "POST") return noRoute(request.method, path, ["POST"]);
+        const body = await readBody(request);
+        const answer = typeof body.answer === "string" ? body.answer.trim() : "";
+        if (!answer) return badRequest("Send the answer the sign-in is waiting for, or cancel the sign-in.");
+        if (answer.length > 8192) return badRequest("That answer is longer than the sign-in can use. Paste just the address from your browser, not the page.");
+        if (!loginSupervisor.answer(providerId, answer)) {
+          return badRequest(`No sign-in for ${providerId} is waiting for an answer. Start the sign-in again.`);
+        }
+        return json({ ok: true });
+      }
+
       if (path.startsWith("/providers/") && path.endsWith("/login")) {
         const providerId = decodeSegment(path.slice("/providers/".length, -"/login".length));
         if (!providerId) return badRequest("missing provider id");
 
         if (request.method === "GET") {
           const state = await loginSupervisor.settled(providerId);
+          // A browser flow waiting on a question this route cannot carry is *not* pending progress;
+          // saying "pending" would leave the client polling a sign-in that will never move. It is
+          // answered as a failure that names the way forward instead.
+          if (state?.status === "pending" && state.question) {
+            return json({ status: "failed", events: state.events, error: unreachableQuestion(state.question.message) });
+          }
           if (!state) return notFound(`no sign-in is in progress for provider "${brief(providerId, 100)}"`);
           return loginAnswer(state);
         }
@@ -1326,7 +1366,7 @@ const server = Bun.serve<{
           try {
             // Storage happens inside the supervisor's own callback, so nothing here has to notice
             // which request the flow happened to finish on.
-            return loginAnswer(await loginSupervisor.start(providerId));
+            return loginAnswer(await loginSupervisor.start(providerId, loginInput(await readBody(request).catch(() => ({})))));
           } catch (error) {
             return badRequest(error instanceof Error ? error.message : String(error));
           }

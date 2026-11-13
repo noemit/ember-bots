@@ -12,6 +12,8 @@ test('compiled provider sign-in includes its OAuth modules without node_modules 
     expect(build.status, build.stderr).toBe(0);
     const run = spawnSync(binary, [], { cwd: folder, encoding: 'utf8', timeout: 20000 });
     expect(run.status, run.stderr).toBe(0);
-    expect(run.stdout).toContain('credential persistence passed');
+    // Both flows, by name: a binary that kept the device-code modules but dropped the browser one
+    // (or its loopback callback) would still print half of this sentence.
+    expect(run.stdout).toContain('browser-question exchanges, and credential persistence, passed');
   } finally { await rm(folder, { recursive: true, force: true }); }
 }, 60000);

@@ -2,9 +2,19 @@ import * as React from 'react';
 import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { piCancelProviderLogin, piPollProviderLogin, piStartProviderLogin, type PiLoginEvent } from '@/piApi';
+import {
+  piCancelProviderLogin,
+  piAnswerProviderLogin,
+  piPollProviderLogin,
+  piStartProviderLogin,
+  type PiLoginEvent,
+} from '@/piApi';
 import { copyText } from '@/lib/clipboard';
+import { judgeLoginAnswer, signInAddressLabel } from '@/lib/loginAnswer';
 import { loginPollOutcome, verificationHostLabel } from '@/lib/providerLogin';
+
+/** A question a flow is blocked on, as the dialog last saw it. */
+type LoginQuestion = { message: string; placeholder?: string; answer?: string; askedAt: number };
 
 type Props = {
   open: boolean;
@@ -23,13 +33,27 @@ const deviceEvent = (events: PiLoginEvent[] | undefined) =>
   events?.find((event): event is Extract<PiLoginEvent, { type: 'device_code' }> => event.type === 'device_code');
 
 /**
- * OAuth sign-in, driven by Hearth's device-code flow.
+ * The question the human must answer, or none.
+ *
+ * Only the *latest* question counts: a flow that rejected an answer asks again, and falling back to
+ * an earlier one would let the dialog re-show a question that has already been settled. (A question
+ * is "settled" by the host recording the answer, not by this dialog hiding it — the flow asks again
+ * if it needs something else, and the newer question is the one on screen.)
+ */
+const questionEvent = (events: PiLoginEvent[] | undefined) =>
+  [...(events ?? [])].reverse().find(
+    (event): event is Extract<PiLoginEvent, { type: 'question' }> => event.type === 'question'
+  );
+
+/**
+ * OAuth sign-in, driven by Hearth's start/poll pair.
  *
  * The whole point is that the human finishes elsewhere (a browser, possibly on a phone), so this
- * dialog's job is to make the code easy to read and carry: clickable link, copyable code, and a
- * status that says plainly whether we are waiting, done, or failed. It deliberately does **not**
- * close on a backdrop click while a flow is pending — dismissing the dialog would abandon an
- * authentication the user is halfway through — so the only exits are Cancel and Close.
+ * dialog's job is to make what they need easy to read and carry: a clickable link, a copyable device
+ * code, or — for a browser sign-in whose loopback callback the browser cannot reach — a field to
+ * paste the redirect URL back into. It deliberately does **not** close on a backdrop click while a
+ * flow is pending (dismissing the dialog would abandon an authentication the user is halfway
+ * through), so the only exits are Cancel and Close.
  */
 export default function ProviderSignInDialog({
   open,
@@ -45,6 +69,11 @@ export default function ProviderSignInDialog({
   const [done, setDone] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [attempt, setAttempt] = React.useState(0);
+  /** The question on screen, its draft answer, and why the draft was refused (if it was). */
+  const [question, setQuestion] = React.useState<LoginQuestion | null>(null);
+  const [answerDraft, setAnswerDraft] = React.useState('');
+  const [answerProblem, setAnswerProblem] = React.useState<string | null>(null);
+  const [sendingAnswer, setSendingAnswer] = React.useState(false);
   const stopPolling = React.useRef(() => {});
   /**
    * Parents pass an inline arrow, so `onSignedIn` is a new function on every render. Keeping it in a
@@ -66,6 +95,9 @@ export default function ProviderSignInDialog({
     setDone(false);
     setCopied(false);
     setStarting(true);
+    setQuestion(null);
+    setAnswerDraft('');
+    setAnswerProblem(null);
 
     void (async () => {
       const started = await piStartProviderLogin(endpointId, providerId);
@@ -76,6 +108,12 @@ export default function ProviderSignInDialog({
         return;
       }
       if (started.state) setEvents(started.state.events ?? []);
+      // A flow can be waiting on an answer before the first request even returns (the browser sign-in
+      // asks as soon as it has a link to show), so the question is read here as well as on each poll.
+      const firstQuestion = questionEvent(started.state?.events);
+      if (firstQuestion && started.state?.status === 'pending') {
+        setQuestion({ message: firstQuestion.message, placeholder: firstQuestion.placeholder, askedAt: Date.now() });
+      }
       if (started.state?.status === 'complete') {
         setDone(true);
         signedIn.current();
@@ -102,7 +140,21 @@ export default function ProviderSignInDialog({
           setError(outcome.error);
           return;
         }
-        setEvents(polled.state?.events ?? []);
+        const next = polled.state?.events ?? [];
+        setEvents(next);
+        const asked = questionEvent(next);
+        setQuestion((current) =>
+          asked
+            ? {
+                message: asked.message,
+                placeholder: asked.placeholder,
+                // Keep the draft across a re-ask of the *same* question: the usual re-ask quotes the
+                // rejection back at us, and losing what they typed makes them paste it again.
+                answer: current && current.placeholder === asked.placeholder ? current.answer : undefined,
+                askedAt: Date.now(),
+              }
+            : null
+        );
       }
     })();
 
@@ -114,6 +166,32 @@ export default function ProviderSignInDialog({
     };
   }, [open, endpointId, providerId, attempt]);
 
+  /**
+   * Send the typed reply to the host.
+   *
+   * The draft is judged before it is sent: an empty field waits, and an obvious non-answer is
+   * explained beside the field instead of becoming a rejection from Google that reads as "it did
+   * not work". The dialog stays open and keeps polling either way — a refusal re-asks, and the
+   * human's answer is still in the field to fix.
+   */
+  const submitAnswer = async () => {
+    const verdict = judgeLoginAnswer(answerDraft, question?.placeholder);
+    if (!verdict.ok) {
+      setAnswerProblem(verdict.reason);
+      return;
+    }
+    setSendingAnswer(true);
+    setAnswerProblem(null);
+    const sent = await piAnswerProviderLogin(endpointId, providerId, verdict.value);
+    setSendingAnswer(false);
+    if (!sent.ok) {
+      setAnswerProblem(sent.error ?? `${providerName}’s host did not take that answer. Check the address and try again.`);
+      return;
+    }
+    // The host took it; the question it belonged to is answered until a new one arrives.
+    setQuestion(null);
+    setAnswerDraft('');
+  };
   const cancel = async () => {
     stopPolling.current();
     await piCancelProviderLogin(endpointId, providerId);
@@ -160,13 +238,14 @@ export default function ProviderSignInDialog({
               ? 'Signed in. Kiln saved the connection on its computer.'
               : error ? 'Sign-in did not finish. Use Try again below to start a new attempt.'
               : starting ? `Connecting to ${providerName}…`
+              : question ? 'Finish signing in below. Kiln needs one thing from you to complete it.'
               : 'Open the sign-in page below and finish in your browser. Ember will notice when you’re done.'}
           </DialogDescription>
         </DialogHeader>
 
         {starting ? (
           <p className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Asking {providerName} for a code…
+            <Loader2 className="size-3.5 animate-spin" /> Asking {providerName} how to sign in…
           </p>
         ) : null}
 
@@ -230,15 +309,57 @@ export default function ProviderSignInDialog({
           </a>
         ) : null}
 
+        {question && !done && !error ? (
+          <form
+            className="flex flex-col gap-2 rounded-md border bg-muted/30 px-3 py-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitAnswer();
+            }}
+          >
+            {/* The host's own words: it knows what it is waiting for (the redirect URL, a code) and
+                a paraphrase here would compete with the sentence the human is answering. */}
+            <p className="text-[12.5px]">{question.message}</p>
+            <div className="flex items-center gap-2">
+              <input
+                value={answerDraft}
+                onChange={(event) => {
+                  setAnswerDraft(event.target.value);
+                  if (answerProblem) setAnswerProblem(null);
+                }}
+                placeholder={question.placeholder ?? 'Paste the URL from your browser’s address bar'}
+                aria-label="Answer for the sign-in"
+                autoComplete="off"
+                autoFocus
+                spellCheck={false}
+                className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs"
+              />
+              <Button type="submit" size="sm" disabled={sendingAnswer || !answerDraft.trim()}>
+                {sendingAnswer ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Send
+              </Button>
+            </div>
+            {answerProblem ? (
+              <p role="alert" className="text-[11.5px] text-destructive">
+                {answerProblem}
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                Sign in in any browser. It will fail to load {signInAddressLabel(question.placeholder)} — copy
+                the address bar and paste it here.
+              </p>
+            )}
+          </form>
+        ) : null}
         {progress && !done && !error ? (
           <p className="text-[11.5px] text-muted-foreground">
             {'message' in progress ? progress.message : null}
           </p>
         ) : null}
 
-        {!done && !error && !starting ? (
+        {!done && !error && !starting && !question ? (
           <p className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground" aria-live="polite">
-            <Loader2 className="size-3 animate-spin" /> Waiting for approval…
+            <Loader2 className="size-3 animate-spin" /> {device ? 'Waiting for approval…' : 'Waiting for the browser to come back…'}
           </p>
         ) : null}
 

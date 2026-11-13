@@ -41,6 +41,9 @@ export const PROVIDER_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
   anthropic: ["ANTHROPIC_API_KEY"],
   // Subscription-only: the credential is an OAuth token stored by a sign-in, never an env var.
   "openai-codex": [],
+  // Google Antigravity: likewise a sign-in only. There is no API key for a Cloud Code Assist
+  // consumer account, so listing an env var here would offer a field that cannot work.
+  antigravity: [],
   "github-copilot": ["GITHUB_TOKEN"],
   meta: ["META_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],

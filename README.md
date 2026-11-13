@@ -65,6 +65,7 @@ The table describes the current source; older downloads may expose fewer options
 | OpenAI | API key; ChatGPT account sign-in through the separate **OpenAI Codex** provider |
 | Anthropic / Claude | API key; Claude subscription sign-in is not available yet |
 | Google Gemini | API key |
+| Google Antigravity | Google account sign-in (Gemini, Claude and GPT-OSS models through Cloud Code Assist) |
 | xAI / Grok | API key or account sign-in |
 | DeepSeek, NVIDIA NIM, Fireworks | API key |
 | OpenRouter | API key or account sign-in |
@@ -81,6 +82,12 @@ the provider’s catalogue and the connected Kiln version determine the choices 
 **Next support work:** complete Claude subscription sign-in and GitHub Copilot interactive
 sign-in. These flows need additional prompts during authentication; they are not ready in Ember
 and have no committed release date. Use the API-key or token route above in the meantime.
+
+A sign-in that finishes in a browser rather than on the host — Antigravity, and ChatGPT Plus/Pro
+through OpenAI Codex — asks Ember for the address your browser lands on. Sign in anywhere, copy that
+address from the browser's address bar even though the page fails to load, and paste it into the
+dialog. That is what makes a sign-in work from a booth machine, a container, or a laptop driving a
+Kiln somewhere else.
 
 ## Use Ember across your devices
 

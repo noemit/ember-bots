@@ -27,6 +27,12 @@ export type LoginEvent =
       expiresInSeconds?: number;
     }
   | { type: "auth_url"; url: string; instructions?: string }
+  | {
+      type: "question";
+      message: string;
+      placeholder?: string;
+      options?: Array<{ id: string; label: string }>;
+    }
   | { type: "info"; message: string }
   | { type: "progress"; message: string };
 
@@ -45,12 +51,74 @@ export type LoginPrompt = {
 };
 
 /**
+ * What a flow is handed, and what the supervisor has to be able to do with it.
+ *
+ * `ask` is the one addition to the pre-existing shape: a browser-callback flow needs a question
+ * delivered to the human and the reply read back, which a request/response JSON API cannot do
+ * inline. A client that declared it can carry questions gets this instead of the hand-me-down
+ * `prompt` above, so the two never compete for the same flow.
+ */
+export type LoginInteraction = {
+  signal: AbortSignal;
+  prompt: (prompt: LoginPrompt) => Promise<string>;
+  notify: (event: LoginEvent) => void;
+  /** Only present when the client that started the flow can relay a question. */
+  ask?: (prompt: LoginPrompt) => Promise<string>;
+};
+/**
+ * What the client says it can do with a mid-flow question.
+ *
+ * A browser sign-in whose loopback callback the human cannot reach (Ember installed on one machine
+ * and driven from another, a container, a remote box) leaves exactly one working path: the human
+ * signs in wherever they have a browser and pastes the redirect URL back. The *host* cannot know
+ * whether that browser can reach it — only the client can, because the client is the side that
+ * holds the callback server's address — so the client declares it. Absent means "cannot ask", which
+ * is the behaviour every client had before this existed: the flow is refused, with its own question
+ * quoted in the reason.
+ */
+export type LoginInput = {
+  /** The client can show a question and deliver what the human types back. */
+  prompt: boolean;
+};
+
+/**
+ * Providers whose *browser-callback* flow is offered to a client that can relay a question.
+ *
+ * pi-ai reports a provider, not a flow, and one provider can ship several flows with different
+ * demands — openai ships a ChatGPT browser flow beside a device-code one. So "the device flow of
+ * this provider cannot finish here" must not hide a browser flow that can: these are the ones a
+ * connected client may drive.
+ */
+const BROWSER_SIGN_IN: ReadonlySet<string> = new Set(["openai"]);
+
+/**
  * - `pending`: waiting on the human; `events` may already hold the device code.
  * - `complete`: the token arrived **and is stored**; `credentialType` says what landed (`credential` is retained for callers that read it directly).
  * - `failed`: cancelled, timed out, rejected by the provider, or not storable.
  */
 export type LoginState =
-  | { status: "pending"; provider: string; events: LoginEvent[]; startedAt: number }
+  | {
+      status: "pending";
+      provider: string;
+      events: LoginEvent[];
+      startedAt: number;
+      /**
+       * The question this flow is blocked on, when it has nowhere to go.
+       *
+       * A flow started without `input.prompt` that then asks something is not progress: nothing will
+       * ever answer it, and a client polling "pending" would wait for a human who was never asked.
+       * The supervisor records the question so the answer can be a failure that quotes it.
+       */
+      question?: { message: string };
+      /**
+       * How to deliver an answer to that question, while the flow is still running.
+       *
+       * Held here rather than in a module-level map so it dies with the flow that asked: a stale
+       * resolver can only answer the flow it was made for, and a second `start` replaces it instead
+       * of leaving two ways to answer one question.
+       */
+      answer?: (value: string) => void;
+    }
   | { status: "complete"; provider: string; events: LoginEvent[]; credentialType: string; credential?: unknown; settledAt: number }
   | { status: "failed"; provider: string; events: LoginEvent[]; error: string; settledAt: number };
 
@@ -69,14 +137,7 @@ export type LoginProvider = {
   oauth?: {
     loginLabel?: string;
     name?: string;
-    login(
-      interaction: {
-        signal: AbortSignal;
-        prompt: (prompt: LoginPrompt) => Promise<string>;
-        notify: (event: LoginEvent) => void;
-      },
-      options?: { agentName?: string }
-    ): Promise<unknown>;
+    login(interaction: LoginInteraction, options?: { agentName?: string }): Promise<unknown>;
   };
 };
 
@@ -110,6 +171,10 @@ export const CAN_COMPLETE: ReadonlySet<string> = new Set([
   "kimi-coding",
   "openai-codex",
   "radius",
+  // Google Antigravity's flow is Hearth's own (./antigravity-oauth.ts), built for this wire: it
+  // shows the link, then asks through `ask` when the client can carry a question and through the
+  // hand-me-down `prompt` otherwise, so the browser leg can finish either way.
+  "antigravity",
   // Both ask nothing at all: a browser round-trip that reports its own result.
   "meta",
   "openrouter",
@@ -125,24 +190,46 @@ export const VERIFIED_FLOWS = CAN_COMPLETE;
  */
 const OBSTRUCTIONS: Record<string, string> = {
   anthropic:
-    "Claude's sign-in opens a browser and then asks you to paste back the code it shows there. Hearth can show you a code but cannot ask for one, so this flow cannot finish here yet. Paste an Anthropic API key instead.",
+    "Claude's sign-in opens a browser and then asks you to paste back the code it shows there. Hearth can show you a link but cannot ask you for a code, so this flow cannot finish here. Paste an Anthropic API key instead.",
   openai:
-    "Sign in with ChatGPT needs an installation id and a code pasted back from the browser, and Hearth cannot ask you for the code yet. Paste a ChatGPT API key for openai instead.",
+    "Sign in with ChatGPT needs an installation id and a code pasted back from the browser, and this client cannot pass that question through to you. Paste a ChatGPT API key instead, or start the sign-in from Ember on the machine running this Hearth.",
   "github-copilot":
     "GitHub Copilot's sign-in asks which host and organisation to authenticate against, and Hearth cannot ask you that. Paste a Copilot token instead.",
 };
 
-export const loginSupport = (providerId: string): LoginSupport =>
-  CAN_COMPLETE.has(providerId)
-    ? { supported: true }
-    : {
-        supported: false,
-        reason:
-          OBSTRUCTIONS[providerId] ??
-          "Hearth has not been shown to finish this provider's sign-in, so it does not offer it. Paste an API key for this provider instead.",
-      };
+/**
+ * The refusal for a browser-only flow when the client cannot relay a question: a fact about the
+ * connection, not about the provider, because the same button works from the machine running Hearth.
+ */
+const browserSignInNeedsTheHost = (what: string): string =>
+  `${what} finishes in a browser that can reach this Hearth's loopback callback, and this connection cannot pass the redirect URL back to it. Use Ember on the machine running this Hearth, or paste an API key instead.`;
 
-export const canCompleteLogin = (providerId: string): boolean => CAN_COMPLETE.has(providerId);
+/**
+ * Whether a flow is offered, for a client that can relay a question (`input.prompt`).
+ *
+ * Three answers, not two: a flow Hearth finishes unattended is always offered; a browser-callback
+ * flow is offered to a client that can carry the pasted redirect URL and refused — naming the
+ * reason and the way round it — to one that cannot. `input` defaults to "cannot ask", which keeps
+ * the decision safe for any caller that predates the field: a flow offered on a promise it cannot
+ * keep is a button that fails halfway.
+ */
+export const loginSupport = (providerId: string, input: LoginInput = { prompt: false }): LoginSupport => {
+  if (CAN_COMPLETE.has(providerId)) return { supported: true };
+  if (BROWSER_SIGN_IN.has(providerId)) {
+    // Refused with the provider's own explanation: an OpenAI key on openai is a different provider
+    // from ChatGPT on openai-codex, and offering the wrong one is the confusion this note prevents.
+    return input.prompt ? { supported: true } : { supported: false, reason: OBSTRUCTIONS["openai"] ?? "" };
+  }
+  return {
+    supported: false,
+    reason:
+      OBSTRUCTIONS[providerId] ??
+      "Hearth has not been shown to finish this provider's sign-in, so it does not offer it. Paste an API key for this provider instead.",
+  };
+};
+
+export const canCompleteLogin = (providerId: string, input: LoginInput = { prompt: false }): boolean =>
+  loginSupport(providerId, input).supported;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -168,6 +255,22 @@ export const credentialTypeOf = (credential: unknown): string =>
  */
 const DEVICE_CODE_LABELS = /device\s*code|headless|another device/i;
 
+/**
+ * How a question with nowhere to go is reported.
+ *
+ * Both halves of the wire use this sentence: the supervisor puts it on the failure the client reads,
+ * and the poll route answers with it when a flow is found blocked on a question that client cannot
+ * carry. One sentence, so the two cannot drift apart.
+ */
+export const unreachableQuestion = (message: string): string =>
+  `This sign-in asked "${message}", and the client that started it cannot pass a question to you. Start the sign-in from Ember on the machine running this Hearth, or paste an API key instead.`;
+
+/**
+ * The question handler for a flow whose client cannot carry questions.
+ *
+ * `chooseHeadlessMethod` answers what can be answered on the human's behalf; anything else throws
+ * (see `start`, which also records the question), and the failure carries it.
+ */
 const chooseHeadlessMethod = async (prompt: LoginPrompt): Promise<string> => {
   if (prompt.type === "select" && Array.isArray(prompt.options)) {
     const match = prompt.options.find((option) => DEVICE_CODE_LABELS.test(option.label) || DEVICE_CODE_LABELS.test(option.id));
@@ -221,14 +324,19 @@ export const createLoginSupervisor = (
      * which for a device-code flow is the code the human needs. Throws when the provider cannot
      * sign in interactively — or when Hearth cannot finish that particular flow — so the caller can
      * answer with a clear 400.
+     *
+     * `input.prompt` is what the client can do with a mid-flow question; see `LoginInput`. It gates
+     * *whether* a browser-callback flow starts, and it is deliberately not remembered: a second
+     * start without it is refused rather than resumed, because a flow whose question has nowhere to
+     * go can only sit until the human notices it never moved.
      */
-    async start(providerId: string): Promise<LoginState> {
+    async start(providerId: string, input: LoginInput = { prompt: false }): Promise<LoginState> {
       sweep();
       const provider = resolveProvider(providerId);
       if (!provider) throw new Error(`unknown provider: ${providerId}`);
       const oauth = provider.oauth;
       if (!oauth?.login) throw new Error(`provider ${providerId} does not support signing in`);
-      const support = loginSupport(providerId);
+      const support = loginSupport(providerId, input);
       if (!support.supported) throw new Error(support.reason);
 
       aborts.get(providerId)?.abort();
@@ -259,6 +367,63 @@ export const createLoginSupervisor = (
         forget();
       };
 
+      /**
+       * The delivery for a client that cannot carry questions.
+       *
+       * It must exist either way: a flow that only asks when one is present would take a different
+       * route here — fail for a reason that has nothing to do with the person, and say nothing about
+       * what it needed. This one records the question, exactly like a real one, and then throws it:
+       * nothing will ever answer, so waiting would be a lie.
+       */
+      const askForHuman = async (prompt: LoginPrompt): Promise<string> => {
+        if (owns()) state.question = { message: prompt.message };
+        throw new Error(unreachableQuestion(prompt.message));
+      };
+
+      /**
+       * Ask the human, when this client can carry a question.
+       *
+       * The flow parks on this promise, which is the point: a browser sign-in cannot progress without
+       * the redirect URL, and inventing one rejects the exchange. Besides a real answer, two things
+       * end the wait — the client cancels, or a newer flow replaces this one — and both reject rather
+       * than hang, so `start` always settles.
+       *
+       * Only a flow that actually asks gets it: one provider can ship several flows, and handing this
+       * to a device-code flow would leave it looking for answers to a question it never asked.
+       */
+      const ask = input.prompt
+        ? (prompt: LoginPrompt): Promise<string> =>
+            new Promise<string>((resolve, reject) => {
+              if (controller.signal.aborted) {
+                reject(new Error("login cancelled"));
+                return;
+              }
+              const onAbort = () => {
+                if (owns()) state.answer = undefined;
+                reject(new Error("login cancelled"));
+              };
+              controller.signal.addEventListener("abort", onAbort, { once: true });
+              state.question = { message: prompt.message };
+              state.answer = (value) => {
+                controller.signal.removeEventListener("abort", onAbort);
+                if (owns()) {
+                  state.question = undefined;
+                  state.answer = undefined;
+                }
+                resolve(value);
+              };
+              // The question rides the event list as well, so a client that only knows about events
+              // sees it without learning a second scheme, and a failure is reported with it in hand.
+              state.events.push({
+                type: "question",
+                message: prompt.message,
+                ...(prompt.placeholder === undefined ? {} : { placeholder: prompt.placeholder }),
+                ...(prompt.options === undefined
+                  ? {}
+                  : { options: prompt.options.map((option) => ({ id: option.id, label: option.label })) }),
+              });
+            })
+        : undefined;
       // `login` resolves only when the human finishes, so it runs detached; its outcome is read
       // later by `poll`.
       let flow: Promise<unknown>;
@@ -269,7 +434,18 @@ export const createLoginSupervisor = (
             notify: (event) => {
               if (owns()) state.events.push(event);
             },
-            prompt: chooseHeadlessMethod,
+            // With no wire back to the human, only a question that can be answered on their behalf
+            // is answered; a client that carries questions is not a client that needs this. The
+            // question a flow gets stuck on is recorded, so the answer can say what was asked.
+                prompt: async (prompt) => {
+              try {
+                return await chooseHeadlessMethod(prompt);
+              } catch (error) {
+                if (owns()) state.question = { message: prompt.message };
+                throw error;
+              }
+            },
+            ...(ask === undefined ? { ask: askForHuman } : { ask }),
           },
           { agentName: "Hearth" }
         );
@@ -359,6 +535,21 @@ export const createLoginSupervisor = (
         sweep();
       }
       return logins.get(providerId);
+    },
+
+    /**
+     * Hand a human's answer to the question a flow is blocked on.
+     *
+     * The flow is parked inside its own `login` call waiting for this string, so there is exactly
+     * one recipient and no ordering to get wrong. Answers arrive with the flow that asked them,
+     * through `state.answer`, which dies when that flow does.
+     */
+    answer(providerId: string, value: string): boolean {
+      sweep();
+      const state = logins.get(providerId);
+      if (state?.status !== "pending" || state.answer === undefined) return false;
+      state.answer(value);
+      return true;
     },
 
     /** Abandon a running login. Idempotent. */
