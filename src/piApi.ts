@@ -1,3 +1,4 @@
+import type { PiQuestion } from './lib/piMapping';
 /**
  * The pi side of the api layer: the same function shapes as the OpenChamber paths, but
  * served over the Hearth wire (`piRequest` through the bridge) and mapped by
@@ -1065,7 +1066,9 @@ export const piReplyPermission = async (
   request_: PermissionRequest,
   reply: PermissionReply
 ): Promise<boolean> => {
-  const [conversationId, key] = request_.id.split(':');
+  const colon = request_.id.indexOf(':');
+  const conversationId = request_.sessionId;
+  const key = request_.id.slice(colon + 1);
   const response = await request(
     endpointId,
     `/approvals/${encodeURIComponent(conversationId)}/${encodeURIComponent(key ?? '')}/reply`,
@@ -1075,12 +1078,12 @@ export const piReplyPermission = async (
 };
 
 export const piLoadQuestions = async (endpointId: string): Promise<QuestionRequest[] | null> => {
-  const response = await request<{ questions?: Array<{ conversationId: string; key: string; question: string; options?: string[] }> }>(
+  const response = await request<{ questions?: PiQuestion[] }>(
     endpointId,
     '/questions'
   );
   if (!response.ok) return null;
-  const questions = parseListField<{ conversationId: string; key: string; question: string; options?: string[] }>(
+  const questions = parseListField<PiQuestion>(
     response.data,
     'questions'
   );
@@ -1094,18 +1097,22 @@ export const piReplyQuestion = async (
   request_: QuestionRequest,
   answers: QuestionAnswers
 ): Promise<boolean> => {
-  const [conversationId, key] = request_.id.split(':');
+  const colon = request_.id.indexOf(':');
+  const conversationId = request_.sessionId;
+  const key = request_.id.slice(colon + 1);
   const answer = (answers[0] ?? []).join('\n');
   const response = await request(
     endpointId,
-    `/questions/${encodeURIComponent(conversationId)}/${encodeURIComponent(key ?? '')}/reply`,
-    { method: 'POST', body: { answer } }
+    `/questions/${encodeURIComponent(conversationId)}/${encodeURIComponent(key ?? '')}/${request_.mutation?.action === 'resume' ? 'resume' : request_.mutation?.action === 'withdraw' ? 'withdraw' : 'reply'}`,
+    { method: 'POST', body: request_.mode === 'async' ? { answer, requestId: request_.mutation?.requestId, revision: request_.mutation?.revision } : { answer } }
   );
   return response.ok;
 };
 
 export const piRejectQuestion = async (endpointId: string, request_: QuestionRequest): Promise<boolean> => {
-  const [conversationId, key] = request_.id.split(':');
+  const colon = request_.id.indexOf(':');
+  const conversationId = request_.sessionId;
+  const key = request_.id.slice(colon + 1);
   const response = await request(
     endpointId,
     `/questions/${encodeURIComponent(conversationId)}/${encodeURIComponent(key ?? '')}/reply`,

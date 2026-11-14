@@ -71,7 +71,8 @@ import {
   setAutoAccept,
   type ApprovalDecision,
 } from "./approvals";
-import { clearPendingQuestions, pendingQuestions, replyQuestion } from "./ask";
+import { clearPendingQuestions, pendingQuestions, replyQuestion, QuestionsDoc } from "./ask";
+import { listQuestions, answerQuestion, withdrawQuestion, authorizeQuestionResume, resumeQuestions, reconcileQuestions } from "./questions";
 import { archiveCrew, unarchiveCrew, markWorkerStopped } from "./crew";
 import {
   createContextRule,
@@ -289,10 +290,8 @@ const clearPendingPrompts = async (
       await clearPendingApprovals(harness, conversationId, context);
       cleared.push("approvals");
     }
-    if ((await pendingQuestions(harness, [conversationId], context)).length > 0) {
-      await clearPendingQuestions(harness, conversationId, context);
-      cleared.push("questions");
-    }
+    if ((await pendingQuestions(harness, [conversationId], context)).length > 0) cleared.push("questions");
+    await clearPendingQuestions(harness, conversationId, context);
   } catch (error) {
     console.error("[hearth] clearing parked prompts failed", error instanceof Error ? error.message : error);
   }
@@ -1053,7 +1052,7 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/approvals$/, ["GET"]],
   [/^\/approvals\/[^/]+\/[^/]+\/reply$/, ["POST"]],
   [/^\/questions$/, ["GET"]],
-  [/^\/questions\/[^/]+\/[^/]+\/reply$/, ["POST"]],
+  [/^\/questions\/[^/]+\/[^/]+\/(reply|withdraw|resume)$/, ["POST"]],
 ];
 
 /** The actions a conversation answers, for the same 404 sentence. */
@@ -2160,6 +2159,8 @@ const server = Bun.serve<{
             const text = inputTextOf(draft.content);
             if (text.trim()) await injectContextForInput(harness, conversationId, text, context);
           }
+          const restartingFailure = draft.type === "input" && Boolean((await harness.snapshot(LiveDoc, conversationId, context))?.runFailure);
+          const restartingStop = draft.type === "input" && Boolean((await harness.snapshot(MetaDoc, conversationId, context))?.stoppedAt);
           const toPlace = attempt?.key === undefined ? draft : { ...draft, requestId: attempt.key };
           // `Conversation.submit` has two overloads (a draft and a context, or a transaction and a
           // draft); `ReturnType` takes the last, which returns an id.
@@ -2170,6 +2171,13 @@ const server = Bun.serve<{
             if (!(error instanceof ConversationBusy)) throw error;
             return busyRefusal(conversationId);
           }
+          if (restartingStop || restartingFailure) await harness.commit(async tx => {
+            const meta = await tx.doc(MetaDoc, conversationId);
+            if (meta.stoppedAt || restartingFailure) {
+              for (const q of Object.values((await tx.doc(QuestionsDoc, conversationId)).items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
+              delete meta.stoppedAt;
+            }
+          }, context);
           // The full status set, not just the happy two: `queued` (waiting behind a turn),
           // `placed` (in the transcript, a run owns it), `done` (a write entry appended) and
           // `unanswered` (settled without an answer — `reason` says why: aborted, stale, a provider
@@ -2547,16 +2555,47 @@ const server = Bun.serve<{
 
       if (path === "/questions" && request.method === "GET") {
         const ids = (await allConversations(storage)).map((record) => record.id);
-        return json({ questions: await pendingQuestions(harness, ids, context) });
+        const rawLimit = url.searchParams.get("limit");
+        const rawCursor = url.searchParams.get("cursor");
+        const paginated = rawLimit !== null || rawCursor !== null;
+        const limit = rawLimit === null ? 200 : Number(rawLimit);
+        const cursor = Number(rawCursor ?? "0");
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || !Number.isSafeInteger(cursor) || cursor < 0) return badRequest("Use a Questions page size from 1–500 and the next cursor returned by Kiln.");
+        const questions = await listQuestions(harness, ids, context);
+        // Compatibility readers do not follow cursors. Never silently truncate their live
+        // questions (including workers absent from their session page). Pagination is opt-in;
+        // discovery still scans history until a durable Questions index exists.
+        if (!paginated) return json({ questions });
+        const page = questions.slice(cursor, cursor + limit);
+        while (page.length > 1 && Buffer.byteLength(JSON.stringify(page)) > PAGE_BYTE_BUDGET) page.pop();
+        const next = cursor + page.length;
+        return json({ questions: page, ...(next < questions.length ? { next: String(next) } : {}) });
       }
-      const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/reply$/.exec(path);
+      const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/(reply|withdraw|resume)$/.exec(path);
       if (questionReply && request.method === "POST") {
         const body = await readBody(request);
         const answer = body.answer;
-        if (answer !== null && typeof answer !== "string") return badRequest("answer must be a string or null");
         const conversationId = idOf<ConversationId>(decodeSegment(questionReply[1]));
         if (!conversationId) return badRequest("invalid conversation id");
         const key = decodeSegment(questionReply[2]);
+        await reconcileQuestions(harness, conversationId, context);
+        const existing = (await harness.snapshot(QuestionsDoc, conversationId, context))?.items[key];
+        if (!existing) return notFound("Kiln no longer has this question. Refresh Questions to review the current inbox.");
+        if (existing.mode === "async") {
+          const revision = body.revision;
+          const requestId = body.requestId;
+          if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1 || typeof requestId !== "string" || !requestId.trim() || requestId.length > 200) return badRequest("Review the question's revision and provide a requestId (up to 200 characters).");
+          const action = questionReply[3];
+          if (action === "reply" && (typeof answer !== "string" || !answer.trim() || answer.length > 32000)) return badRequest("Write an answer of 1–32,000 characters, or use Withdraw to close the question.");
+          const result = action === "withdraw" ? await withdrawQuestion(harness, conversationId, key, revision, requestId, context) :
+            action === "resume" ? await authorizeQuestionResume(harness, conversationId, key, revision, requestId, context) :
+            await answerQuestion(harness, conversationId, key, answer as string, revision, requestId, context);
+          if (!result.ok) return result.error === "missing" ? notFound("Kiln no longer has this question. Refresh Questions to review the current inbox.") : json({ error: "This question changed. Refresh Questions before trying again." }, 409);
+          await resumeQuestions(harness, conversationId, context);
+          return json(result);
+        }
+        if (questionReply[3] !== "reply") return badRequest("This is a legacy waiting question. Answer or dismiss it using Reply.");
+        if (answer !== null && typeof answer !== "string") return badRequest("answer must be a string or null");
         const found = await replyQuestion(harness, conversationId, key, answer, context);
         return found
           ? json({ ok: true })

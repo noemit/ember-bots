@@ -1146,10 +1146,15 @@ export const piApprovalToPermissionRequest = (
   },
 });
 
+export type PiQuestion = {
+  conversationId: string; key: string; question: string; options?: string[];
+} & Pick<QuestionRequest, 'mode' | 'revision' | 'status' | 'context' | 'recommendation' | 'source' | 'origin' | 'assignment' | 'ancestry' | 'receipt' | 'answer' | 'delivery' | 'resumeRequired' | 'decision' | 'freeText' | 'createdAt' | 'updatedAt'>;
+
 export const piQuestionToQuestionRequest = (
   endpointId: string,
-  question: { conversationId: string; key: string; question: string; options?: string[] }
+  question: PiQuestion
 ): QuestionRequest => ({
+  ...question,
   id: `${question.conversationId}:${question.key}`,
   instanceId: endpointId,
   sessionId: String(question.conversationId),
@@ -1161,7 +1166,7 @@ export const piQuestionToQuestionRequest = (
       question: question.question,
       options: (question.options ?? []).map((label) => ({ label, description: '', value: label })),
       multiple: false,
-      custom: true,
+      custom: question.freeText !== false,
     },
   ],
 });

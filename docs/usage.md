@@ -53,6 +53,22 @@ under the same supervisor, rather than adding a third level. The requester keeps
 work it asked for; unrelated siblings do not gain access to each other. Spawn rate and budget
 safeguards still apply, and no replacement or extra worker is started automatically.
 
+## Questions
+
+The **Questions** shelf collects decisions from the current chat and its workers, grouped by their
+source. A question does not stop unrelated work. Work that depends on your decision must wait;
+silence is never permission. Security approvals remain separate and still block the action.
+
+Read the context, options and recommendation, then choose an option or write an answer. The shelf
+keeps the question’s history and shows whether Kiln is holding your answer or has admitted it to the
+originating chat. Saving an answer is not proof that the agent has read or acted on it. Answers wait
+for the current turn and queued human directions rather than interrupting them.
+
+A stopped, hidden, missing or reassigned origin cannot silently restart or receive permission for a
+new assignment. Its answer stays held for explicit review. Withdrawing a question ends that request;
+it does not undo work already performed. Older blocking questions and OpenChamber forms continue to
+appear in the conversation.
+
 ## Context and compaction
 
 Ember offers a quiet **Compact** recommendation above the composer at approximately 100,000

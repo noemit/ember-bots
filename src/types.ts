@@ -462,7 +462,28 @@ export type QuestionInfo = {
   valueType?: 'string' | 'number' | 'integer' | 'boolean' | 'multiselect' | 'external';
 };
 
+export type QuestionAncestry = { conversationId: string; title?: string; lead?: string };
+export type AsyncQuestionStatus = 'pending' | 'answered' | 'withdrawn' | 'cancelled' | 'superseded';
 export type QuestionRequest = {
+  mode?: 'async' | 'blocking';
+  revision?: number;
+  status?: AsyncQuestionStatus;
+  context?: string;
+  recommendation?: string;
+  source?: string;
+  origin?: { conversationId: string; toolTaskId?: string; taskOwnerId?: string; taskKey?: string; assignmentVersion?: string; supervisorId?: string };
+  assignment?: { conversationId?: string; title?: string };
+  ancestry?: QuestionAncestry[];
+  receipt?: { requestId: string; answer: string; at: number; revision: number };
+  delivery?: { requestId: string; status: 'held' | 'admitted' | 'placed' | 'seen' | 'executed'; holdReason?: string; admittedAt?: number; submissionId?: string };
+  resumeRequired?: boolean;
+  decision?: string;
+  freeText?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  answer?: string;
+  /** Retry identity belongs to the human mutation, not to the question or render. */
+  mutation?: { requestId: string; revision: number; action?: 'answer' | 'withdraw' | 'resume' };
   id: string;
   instanceId: string;
   sessionId: string;

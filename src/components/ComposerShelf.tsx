@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** The trays that live above the composer. One shelf, one open at a time. */
-export type ShelfSectionId = 'queue' | 'notes' | 'crew' | 'processes';
+export type ShelfSectionId = 'queue' | 'notes' | 'crew' | 'processes' | 'questions';
 
 export type ShelfSection = {
   id: ShelfSectionId;

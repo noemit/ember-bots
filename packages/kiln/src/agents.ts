@@ -456,7 +456,7 @@ const summaryFor = async (
     api.snapshot(QuestionsDoc, id, context),
   ]);
   const pendingApproval = Object.values(approvals?.items ?? {}).some((item) => item.status === "pending");
-  const pendingQuestion = Object.values(questions?.items ?? {}).some((item) => item.status === "pending");
+  const pendingQuestion = Object.values(questions?.items ?? {}).some((item) => item.status === "pending" && item.mode !== "async");
   return {
     ...(meta?.title ? { title: meta.title } : {}),
     ...(meta?.archived !== undefined ? { archived: meta.archived } : {}),

@@ -1,4 +1,5 @@
 import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
+import { isAsyncQuestion, questionsForSupervisor } from './lib/asyncQuestions';
 import { questionKey, questionsFromThreads } from './lib/threadQuestions';
 import { sessionVisibilityFailure } from './lib/sessionVisibility';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
@@ -1279,7 +1280,7 @@ export default function App() {
     Object.entries(summaries).forEach(([key, summary]) => {
       if (summary.failed && (merged[key] ?? 'unknown') === 'idle') merged[key] = 'error';
     });
-    [...permissions, ...questions].forEach((request) => {
+    [...permissions, ...questions.filter((request) => !isAsyncQuestion(request))].forEach((request) => {
       merged[sessionKey({ instanceId: request.instanceId, sessionId: request.sessionId })] = 'needs-input';
     });
     // A worker's pending request is the leader's decision too: roll it up the lead chain so a
@@ -1296,7 +1297,7 @@ export default function App() {
     permissions.forEach((request) => {
       kinds[sessionKey({ instanceId: request.instanceId, sessionId: request.sessionId })] = 'input';
     });
-    questions.forEach((request) => {
+    questions.filter((request) => !isAsyncQuestion(request)).forEach((request) => {
       kinds[sessionKey({ instanceId: request.instanceId, sessionId: request.sessionId })] = 'question';
     });
     // A rolled-up crew need has no prompt of its own: show the question tilt, not a padlock.
@@ -2940,13 +2941,13 @@ export default function App() {
     for (const key of watchedSessionKeys) {
       const ref = parseSessionKey(key);
       const session = ref && (sessionsByInstance[ref.instanceId] ?? []).find((entry) => entry.id === ref.sessionId);
-      if (!ref || !session) continue;
+      if (!ref || (!session && key !== threadModalKey)) continue;
       known.add(key);
-      const behind = (session.updated ?? 0) > (transcriptVersion.current.get(key) ?? -1);
+      const behind = (session?.updated ?? 0) > (transcriptVersion.current.get(key) ?? -1);
       if (!previouslyVisible.current.has(key) || behind) showTranscript(ref);
     }
     previouslyVisible.current = known;
-  }, [watchedSessionKeys, sessionsByInstance, showTranscript]);
+  }, [watchedSessionKeys, sessionsByInstance, showTranscript, threadModalKey]);
 
   // Only the columns actually on screen poll their transcripts; overflow/minimized tabs rely on
   // the preview cache and the session list's `updated`.
@@ -4178,7 +4179,7 @@ export default function App() {
       // answered may be mid-turn, and archiving it closes the column while the run goes on.
       !isQuietlyArchivable(sessionStatusAnswer(moods, session)) ||
       permissions.some((entry) => entry.instanceId === ref.instanceId && entry.sessionId === ref.sessionId) ||
-      questions.some((entry) => entry.instanceId === ref.instanceId && entry.sessionId === ref.sessionId) ||
+      questions.some((entry) => !isAsyncQuestion(entry) && entry.instanceId === ref.instanceId && entry.sessionId === ref.sessionId) ||
       (queuesByInstance[ref.instanceId] ?? []).some(
         (entry) => entry.sessionId === ref.sessionId && entry.items.length > 0
       ) ||
@@ -4386,24 +4387,27 @@ export default function App() {
     showActionError(null);
     const host = instances.find((instance) => instance.id === request.instanceId)?.label || 'The host';
     const source = sessionByKey.get(sessionKey(request))?.title?.trim() || 'this conversation';
-    const failure = `${host} did not confirm the ${answers ? 'answer' : 'dismissal'} for ${source}. Your answer is still in the question card; try again there.`;
+    const operation = request.mutation?.action === 'resume' ? 'resume' : request.mutation?.action === 'withdraw' ? 'withdrawal' : answers ? 'answer' : 'dismissal';
+    const failure = host + ' did not confirm the ' + operation + ' for ' + source + '. Your answer is still in the question card; try again there.';
     try {
       const directory = request.directory ?? sessionDirectory(request.instanceId, request.sessionId);
       const ok = answers
         ? await replyQuestion(request, answers, directory)
         : await rejectQuestion(request, directory);
       if (!ok) {
+        if (isAsyncQuestion(request)) void refreshQuestions([request.instanceId]);
         showActionError(
           failure,
           () => void handleQuestion(request, answers)
         );
         return false;
       }
-      dropQuestion(request);
+      if (!isAsyncQuestion(request)) dropQuestion(request);
       // Refresh the origin, not whichever leader column currently has focus.
       void refreshStates([request.instanceId]);
       void refreshSessions([request.instanceId]);
-      void refreshQuestions([request.instanceId]);
+      if (isAsyncQuestion(request)) await refreshQuestions([request.instanceId]);
+      else void refreshQuestions([request.instanceId]);
       return true;
     } catch {
       showActionError(
@@ -5025,7 +5029,7 @@ export default function App() {
     return out;
   }, [sessionsByInstance]);
   const selectedPermissions = React.useMemo(() => forSession(permissions, selected), [permissions, selected]);
-  const selectedQuestions = React.useMemo(() => forSession(questions, selected), [questions, selected]);
+  const selectedQuestions = React.useMemo(() => forSession(questions.filter((request) => !isAsyncQuestion(request)), selected), [questions, selected]);
 
   React.useEffect(() => {
     if (!selectedKey) {
@@ -5080,8 +5084,18 @@ export default function App() {
     Object.values(sessionsByInstance)
       .flat()
       .forEach((session) => map.set(sessionKey(session), session));
+    // Questions carry source identity even when the session summary page omits a descendant.
+    questions.filter(isAsyncQuestion).forEach((request) => {
+      const key = sessionKey(request);
+      if (!map.has(key)) map.set(key, {
+        id: request.sessionId, instanceId: request.instanceId,
+        title: 'Question source · ' + request.sessionId,
+        kind: request.ancestry?.length ? 'worker' : undefined,
+        lead: request.ancestry?.[0] ? { instanceId: request.instanceId, sessionId: request.ancestry[0].conversationId } : undefined,
+      });
+    });
     return map;
-  }, [sessionsByInstance]);
+  }, [sessionsByInstance, questions]);
 
   const inspectedThread = threadModalKey ? sessionByKey.get(threadModalKey) : undefined;
   React.useEffect(() => {
@@ -5133,7 +5147,7 @@ export default function App() {
       (request) => request.instanceId === ref.instanceId && request.sessionId === ref.sessionId
     );
     const columnQuestions = questions.filter(
-      (request) => request.instanceId === ref.instanceId && request.sessionId === ref.sessionId
+      (request) => !isAsyncQuestion(request) && request.instanceId === ref.instanceId && request.sessionId === ref.sessionId
     );
     const models = modelsByInstance[ref.instanceId];
     const policy = autoAcceptByInstance[ref.instanceId];
@@ -5179,7 +5193,8 @@ export default function App() {
           instanceLabel={instance?.label}
           permissions={columnPermissions}
           questions={columnQuestions}
-          threadQuestions={questionsFromThreads(threadDescendants(session, crewWorkers), questions)}
+          asyncQuestions={questionsForSupervisor(session, questions)}
+          threadQuestions={questionsFromThreads(threadDescendants(session, crewWorkers), questions.filter((request) => !isAsyncQuestion(request)))}
           models={models?.models ?? []}
           onModelsRefresh={() => void refreshModels(ref.instanceId)}
           defaultModelId={models?.defaultModelId ?? null}

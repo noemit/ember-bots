@@ -17,7 +17,7 @@ import {
   type Tx,
 } from "@earendil-works/pi-durable";
 import { AutoAcceptDoc, clearPendingApprovals, pendingApprovals } from "./approvals";
-import { clearPendingQuestions, pendingQuestions } from "./ask";
+import { clearPendingQuestions, pendingQuestions, QuestionsDoc } from "./ask";
 import { MetaDoc, type HearthMeta } from "./meta";
 import { recordRetrieved, resultRetrieved, threadTask } from "./threadResults";
 import { registerAgentWithSuffix } from "./agents";
@@ -173,6 +173,8 @@ export type CrewEntry = {
   continuationId?: ConversationId;
   /** Supervisory membership reference; task state lives only in the requester's document. */
   taskOwner?: { conversationId: ConversationId; key: string };
+  /** Same-assignment question continuations retain each earlier outcome. */
+  questionContinuations?: Array<{ questionId: string; requestId: string; assignmentVersion: string; at: number; priorReport?: CrewEntry["report"]; priorSilentReport?: CrewEntry["silentReport"] }>;
 
   kind: "worker" | "peer";
   conversationId: ConversationId;
@@ -946,9 +948,7 @@ export const SessionTool = defineTool({
           if ((await pendingApprovals(api, [entry.conversationId], context)).length > 0) {
             await clearPendingApprovals(api, entry.conversationId, context);
           }
-          if ((await pendingQuestions(api, [entry.conversationId], context)).length > 0) {
-            await clearPendingQuestions(api, entry.conversationId, context);
-          }
+          await clearPendingQuestions(api, entry.conversationId, context);
         } catch (error) {
           console.error(
             "[hearth] clearing a stopped worker's parked prompts failed",
@@ -958,6 +958,9 @@ export const SessionTool = defineTool({
         await api.commit(async (tx) => {
           const owner = entry.taskOwner ?? { conversationId: spawner, key };
           const doc = await tx.doc(SessionsDoc, owner.conversationId);
+          const meta = await tx.doc(MetaDoc, entry.conversationId);
+          meta.stoppedAt = Date.now();
+          for (const q of Object.values((await tx.doc(QuestionsDoc, entry.conversationId)).items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
           const current = doc.items[owner.key];
           if (current) {
             current.state = "stopped";

@@ -22,6 +22,7 @@ import { resumeThreads, continuationRecipient } from "./threadSupervisor";
 import { MetaDoc } from "./meta";
 import { ApprovalsDoc, clearPendingApprovals } from "./approvals";
 import { QuestionsDoc, clearPendingQuestions } from "./ask";
+import { resumeQuestions } from "./questions";
 import {
   DELEGATION_OFF,
   REPORT_CAP,
@@ -197,6 +198,9 @@ export const collectWorkerIds = async (
 /** Persist a human stop on the authoritative membership, separate from ordinary idleness. */
 export const markWorkerStopped = async (tx: Tx, id: ConversationId): Promise<void> => {
   const meta = await tx.doc(MetaDoc, id);
+  meta.stoppedAt = Date.now();
+  const questions = await tx.doc(QuestionsDoc, id);
+  for (const q of Object.values(questions.items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
   if (meta.kind !== "worker" || !meta.lead || meta.lead.host !== "local") return;
   const owner = (meta.creatorId ?? meta.lead.conversationId) as ConversationId;
   const doc = await tx.doc(SessionsDoc, owner);
@@ -237,6 +241,7 @@ export const archiveCrew = async (
   }
   await harness.commit(async (tx) => {
     const doc = await tx.doc(MetaDoc, root);
+    for (const q of Object.values((await tx.doc(QuestionsDoc, root)).items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
     doc.archived = archivedAt;
     doc.archiveBatch = batch;
     if (title === null) delete doc.title;
@@ -247,6 +252,7 @@ export const archiveCrew = async (
     // writing a failure nobody asked to read into a conversation that was just put away.
     for (const id of descendants) {
       const worker = await tx.doc(MetaDoc, id);
+      for (const q of Object.values((await tx.doc(QuestionsDoc, id)).items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
       worker.archived = archivedAt;
       worker.archiveBatch = batch;
       const lead = worker.lead;
@@ -347,6 +353,8 @@ export const tick = async (
   let actions = 0;
   const now = Date.now();
   for (const record of await allConversations(storage, context)) {
+    try { actions += await resumeQuestions(harness, record.id, context); }
+    catch (error) { console.error("[hearth] question continuation failed:", error); }
     const snapshot = await harness.snapshot(SessionsDoc, record.id, context);
     if (!snapshot) continue;
     // The cheap signal first: a crew with nobody owing an answer can neither report nor be due a
@@ -424,7 +432,7 @@ export const tick = async (
         at: Date.now(),
         // One report per (worker, task): a re-tasked worker's new answer has to be a new report, or
         // the wake key below cannot tell it from the answer the leader has already read.
-        requestId: `hearth.crew.report:${record.id}:${name}:${since}`,
+        requestId: `hearth.crew.report:${record.id}:${name}:${since}` + (entry.questionContinuations?.length ? `:question:${entry.questionContinuations.length}` : ""),
         ...(answered && newest ? { entryId: newest.id as number } : {}),
       };
       /**
@@ -440,7 +448,7 @@ export const tick = async (
       await harness.commit(async (tx) => {
         const doc = await tx.doc(SessionsDoc, record.id);
         const item = doc.items[name];
-        if (!item || threadTask(item) !== threadTask(entry) || !isActiveWorker(item)) return;
+        if (!item || threadTask(item) !== threadTask(entry) || item.answerFrom !== entry.answerFrom || item.questionContinuations?.length !== entry.questionContinuations?.length || !isActiveWorker(item)) return;
         item.state = status === "ok" ? "reported" : "failed";
         // The queued task's answer has now been settled; the next tick must not re-settle it.
         delete item.followUpAt;

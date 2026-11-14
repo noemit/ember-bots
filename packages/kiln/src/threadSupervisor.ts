@@ -11,7 +11,7 @@ type Notice = { name: string; entry: CrewEntry; token: string; kind: 'result' | 
 
 const pendingKeys = (entry: CrewEntry, approvals: ApprovalsState | undefined, questions: QuestionsState | undefined): string[] => [
   ...Object.values(approvals?.items ?? {}).filter((item) => item.status === 'pending').map((item) => `${threadTask(entry)}:approval:${item.key}`),
-  ...Object.values(questions?.items ?? {}).filter((item) => item.status === 'pending').map((item) => `${threadTask(entry)}:question:${item.key}`),
+  ...Object.values(questions?.items ?? {}).filter((item) => item.status === 'pending' && item.mode !== 'async').map((item) => `${threadTask(entry)}:question:${item.key}`),
 ].sort();
 
 /** Exactly one destination, based on durable terminal evidence, never mere idleness. */

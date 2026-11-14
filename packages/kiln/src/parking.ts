@@ -57,7 +57,9 @@ export type ParkedInput = {
  */
 export const parkedInputs = (items: readonly InboxItem[]): ParkedInput[] =>
   items.flatMap((item) =>
-    item.mode === "write"
+    // Internal Question answers have their own correlated retry/hold lifecycle. Re-parking
+    // them as plain human input would discard provenance and bypass explicit Question resume.
+    item.mode === "write" || item.entry?.kind === "hearth.question-answer"
       ? []
       : [{ mode: item.mode, content: item.content as unknown, id: String(item.id) } as const]
   );

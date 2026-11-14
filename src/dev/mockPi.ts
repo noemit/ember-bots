@@ -1,3 +1,4 @@
+import type { PiQuestion } from '../lib/piMapping';
 /**
  * The pi mock: an in-memory Hearth for `bun run dev:web`. It serves the same wire the real
  * host does (`piRequest`), emits the same `pi:<event>` invalidation hints main forwards,
@@ -585,6 +586,18 @@ const fixtureI = makeConversation({
 });
 
 conversations.push(fixtureA, fixtureB, fixtureC, fixtureD, fixtureE, fixtureF, fixtureG, fixtureH, fixtureI);
+
+// Async Questions are durable host records, not parked calls or session summary flags.
+const asyncQuestionFixture: PiQuestion[] = fixtureParam === 'async-questions' ? [
+  { conversationId: '16', key: 'own:decision', question: 'Keep the rollout gradual?', options: ['Gradual', 'All at once'], mode: 'async', revision: 1, status: 'pending', context: 'The bot can keep preparing the release while you decide.', recommendation: 'Start with a small group.', source: 'Crew: auth refactor · message e94', ancestry: [] },
+  { conversationId: '81', key: 'nested:decision', question: 'Keep the migration backup?', options: ['Keep', 'Remove'], mode: 'async', revision: 3, status: 'pending', context: 'This nested worker is not in the session listing.', recommendation: 'Keep it until the rollout is verified.', source: 'Backup audit · message e810', origin: { conversationId: '81', toolTaskId: 'nested:decision', taskKey: 'backup-review', assignmentVersion: '81:1' }, ancestry: [{ conversationId: '18', title: 'Migrate schema' }, { conversationId: '16', title: 'Crew: auth refactor' }] },
+  { conversationId: '81', key: 'previous', question: 'Use a dry run first?', options: [], mode: 'async', revision: 1, status: 'answered', delivery: { requestId: 'prior', status: 'seen' }, answer: 'Yes, dry run first.', source: 'Backup audit', ancestry: [{ conversationId: '18', title: 'Migrate schema' }, { conversationId: '16', title: 'Crew: auth refactor' }] },
+] : [];
+if (fixtureParam === 'async-questions') {
+  fixtureI.questions = [];
+  fixtureI.parked = undefined;
+  conversations.push(makeConversation({ id: 81, title: 'Backup audit', cwd: '/workspace/hearth', kind: 'worker', lead: { conversationId: 18, host: 'local' }, entries: [{ id: 810, kind: 'pi.user', model: [userMessage('Review the backup policy.', minutes(2))] }] }));
+}
 
 // Opt-in grandchild question: the root leader must surface decisions at any depth without
 // exposing unrelated conversations' questions or changing the default crew fixtures.
@@ -1395,15 +1408,26 @@ const piRequest = async (
   }
   if (url.pathname === '/questions' && method === 'GET') {
     return ok({
-      questions: conversations.flatMap((conversation) =>
+      questions: [...asyncQuestionFixture, ...conversations.flatMap((conversation) =>
         conversation.questions
           .filter((question) => question.status === 'pending')
           .map((question) => ({ ...question, conversationId: String(conversation.id) }))
-      ),
+      )],
     });
   }
-  const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/reply$/.exec(url.pathname);
+  const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/(reply|withdraw|resume)$/.exec(url.pathname);
   if (questionReply && method === 'POST') {
+    const asyncQuestion = asyncQuestionFixture.find((item) => item.conversationId === decodeURIComponent(questionReply[1]) && item.key === decodeURIComponent(questionReply[2]));
+    if (asyncQuestion) {
+      if (asyncQuestion.receipt && asyncQuestion.receipt.requestId === body.requestId && asyncQuestion.receipt.revision === body.revision && asyncQuestion.receipt.answer === body.answer) return ok({ ok: true, question: asyncQuestion });
+      if (body.revision !== asyncQuestion.revision) return fail(409, 'Question changed; refresh it before answering.');
+      if (questionReply[3] === 'withdraw') { asyncQuestion.status = 'withdrawn'; asyncQuestion.answer = undefined; }
+      else if (questionReply[3] === 'resume') asyncQuestion.delivery = { requestId: String(body.requestId), status: 'admitted' };
+      else { asyncQuestion.status = 'answered'; asyncQuestion.delivery = { requestId: String(body.requestId), status: 'held', holdReason: 'The origin conversation is held. Resume explicitly when ready.' }; asyncQuestion.answer = String(body.answer); }
+      asyncQuestion.receipt = { requestId: String(body.requestId), answer: asyncQuestion.answer || '', revision: Number(body.revision), at: Date.now() };
+      asyncQuestion.revision!++;
+      return ok({ ok: true, question: asyncQuestion });
+    }
     const conversation = conversationById(decodeURIComponent(questionReply[1]));
     if (!conversation) return fail(404, 'no such conversation');
     const answer = body.answer;
@@ -1447,7 +1471,7 @@ const piRequest = async (
     return ok({ agents: [...agents, ...registered] });
   }
   if (url.pathname === '/conversations' && method === 'GET') {
-    return ok({ conversations: conversations.map(summaryOf) });
+    return ok({ conversations: conversations.filter((item) => fixtureParam !== 'async-questions' || item.id !== 81).map(summaryOf) });
   }
   if (url.pathname === '/conversations' && method === 'POST') {
     if (slowCreateFixture) await waitForCreateRelease();

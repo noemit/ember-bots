@@ -1,3 +1,4 @@
+import QuestionsShelf from './QuestionsShelf';
 import type { ThreadQuestion } from '../lib/threadQuestions';
 import { threadShelfStatus } from '../lib/crew';
 import { ThreadLinkContext } from './threadLinkContext';
@@ -177,6 +178,7 @@ type Props = {
   instanceLabel?: string;
   permissions: PermissionRequest[];
   questions: QuestionRequest[];
+  asyncQuestions?: QuestionRequest[];
   threadQuestions?: ThreadQuestion[];
   models: ModelOption[];
   defaultModelId: string | null;
@@ -478,6 +480,7 @@ function ChatView({
   permissions,
   questions,
   threadQuestions,
+  asyncQuestions = [],
   models,
   defaultModelId,
   instanceDefaultModelId,
@@ -2215,6 +2218,12 @@ function ChatView({
                         },
                       ]
                     : []),
+                  {
+                    id: 'questions', label: 'Questions', count: asyncQuestions.length,
+                    alert: asyncQuestions.some((request) => request.status === 'pending'),
+                    content: <QuestionsShelf hostLabel={instanceLabel} requests={asyncQuestions} sessionId={session.id} onAnswer={onQuestion}
+                      onOpenSource={onOpenWorker ? (request) => onOpenWorker({ id: request.sessionId, instanceId: request.instanceId, title: 'Question source', kind: request.ancestry?.length ? 'worker' : undefined } as Session) : undefined} />,
+                  },
                 ]}
               />
             ) : null}

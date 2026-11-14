@@ -21,6 +21,8 @@ import { defineDoc } from "@earendil-works/pi-durable";
 export type HearthMeta = {
   /** Actual spawn requester; does not grant rights to arbitrary siblings. */
   creatorId?: number;
+  /** Explicit human stop, unlike ordinary idleness. Async answers never restart it. */
+  stoppedAt?: number;
   title?: string;
   /** Epoch ms when the conversation was archived; absent means active. */
   archived?: number;
