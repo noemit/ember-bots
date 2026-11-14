@@ -10,6 +10,31 @@ when Ember quits. On macOS, closing a window does not quit the app. History stay
 Ember can connect to other Kilns without owning their lifetime. A standalone backend continues
 running when you quit Ember.
 
+## Ollama
+
+Open **Settings → Providers**, select the Kiln that should run the model, and find **Ollama**.
+The same option appears during onboarding. No account or API key is needed.
+
+Install and start [Ollama](https://ollama.com/download) on that Kiln’s computer. Install a model
+there, for example with `ollama pull llama3.2:3b`, choosing one that fits the computer’s memory.
+Downloads can be large; Ember never installs software, downloads models or changes network settings.
+Choose **Test / Refresh** to discover installed models, then keep the current default or explicitly
+choose a new one. Existing chat selections do not change.
+
+The default service address is `http://127.0.0.1:11434` **on the selected Kiln**, not on the computer
+showing this window. **Change address** supports another computer or container that Kiln can already
+reach. Enter the service address without `/v1`; **Test / Refresh** saves it on that host.
+**Reset address** removes the saved override and restores the host’s `OLLAMA_HOST` setting, or the
+loopback default if no environment setting exists. An invalid environment address is reported so you
+can correct it with **Change address**. You do not need to edit environment files.
+Do not expose a keyless Ollama service to the public internet. For an authenticated proxy, use a
+custom provider instead.
+
+Ollama discovery reads `/api/tags`; inference uses the existing OpenAI-compatible transport at
+`/v1/chat/completions`. Models are offered conservatively as text-only, without reasoning controls,
+with an 8k context / 4k output budget. An empty installation offers no invented models: pull one on
+the Ollama computer, then refresh.
+
 ## Self-hosted OpenAI-compatible models
 
 In **Settings → Providers**, select the Kiln that should make inference requests, then choose

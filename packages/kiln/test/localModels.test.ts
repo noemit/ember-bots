@@ -79,11 +79,12 @@ describe('probing a runtime', () => {
     expect(probe.problem).toContain('not with an Ollama model list');
   });
 
-  test('a non-2xx answer reports the status rather than pretending it is up', async () => {
+  test('a non-2xx answer describes a reachable wrong or refusing service', async () => {
     respond({}, 500);
     const probe = await probeLocalRuntime('ollama');
-    expect(probe.running).toBe(false);
-    expect(probe.problem).toContain('500');
+    expect(probe.running).toBe(true);
+    expect(probe.problem).toContain('Ollama');
+    expect(probe.problem).toContain('Check');
   });
 });
 
@@ -103,7 +104,7 @@ describe('the providers need no credential', () => {
       signal: AbortSignal.timeout(1000),
     });
     expect(resolved).toBeDefined();
-    expect(resolved?.auth.apiKey).toBeUndefined();
+    expect(resolved?.auth.headers?.Authorization).toBeNull();
     // The source is what stops the picker hiding a provider with no stored credential.
     expect(resolved?.source).toBe('local');
   });

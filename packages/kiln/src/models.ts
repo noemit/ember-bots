@@ -1,3 +1,4 @@
+import { OllamaSettings } from "./ollama-settings";
 import { CustomProviders } from "./custom-providers";
 import { dirname, join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
@@ -35,7 +36,7 @@ import {
   type DeepInfraCatalogEntry,
 } from "./deepinfra";
 import { orcarouterModel, orcarouterOptions, routerLimits, type RouterCatalogEntry } from "./orcarouter";
-import { lmStudioProvider, ollamaProvider, probeLocalRuntimes, type LocalRuntimeProbe } from "./local-models";
+import { lmStudioProvider, probeLocalRuntime, type LocalRuntimeProbe } from "./local-models";
 
 // Embed the SDK OAuth flows before any provider can load one. Variable imports cannot
 // resolve relative modules once Kiln or Tinder is compiled into a standalone executable.
@@ -282,6 +283,7 @@ export const hearthModels = async (
    */
   localRuntimes: LocalRuntimeProbe[];
   customProviders: CustomProviders;
+  ollamaSettings: OllamaSettings;
 }> => {
   const store = new FileCredentialStore(authFile);
   // Retired the env bridge: instead of copying OpenCode's keys into the environment, adopt them
@@ -332,12 +334,12 @@ export const hearthModels = async (
   // something is listening right now. A probe is local and cheap (loopback, 1.5s), and doing it
   // here is what keeps a stopped Ollama out of the picker instead of offering models that would
   // fail on send. The results ride along so `/providers` can explain *why* one is missing.
-  const localRuntimes = await probeLocalRuntimes();
-  for (const runtime of localRuntimes) {
-    if (!runtime.running || !runtime.hasModels) continue;
-    models.setProvider(runtime.id === "ollama" ? ollamaProvider({ baseUrl: runtime.baseUrl }) : lmStudioProvider({ baseUrl: runtime.baseUrl }));
-  }
+  const localRuntimes: LocalRuntimeProbe[] = [await probeLocalRuntime('lmstudio')];
+  const lmstudio = localRuntimes[0]!;
+  if (lmstudio.hasModels && !lmstudio.problem) models.setProvider(lmStudioProvider({ baseUrl: lmstudio.baseUrl }));
+  const ollamaSettings = new OllamaSettings(dirname(authFile), models, localRuntimes);
+  await ollamaSettings.ready;
   const customProviders = new CustomProviders(dirname(authFile), store, models);
   await customProviders.ready;
-  return { models, seeded, store, localRuntimes, customProviders };
+  return { models, seeded, store, localRuntimes, customProviders, ollamaSettings };
 };

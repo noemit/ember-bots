@@ -1468,3 +1468,27 @@ export async function piCustomProviders<T>(endpointId: string, suffix = '', meth
   if (!response.ok) throw new Error(providerErrorText(response.data, 'This Kiln did not answer. Retry, or update Kiln if custom providers are unavailable.'));
   return response.data;
 }
+
+export type PiOllamaState = {
+  baseUrl: string;
+  defaultBaseUrl: string;
+  customAddress: boolean;
+  running: boolean;
+  hasModels: boolean;
+  models: string[];
+  problem?: string;
+};
+
+/** Always sent to the selected Kiln: loopback is that host's, never this renderer's. */
+export async function piOllamaSettings(endpointId: string, method: 'GET' | 'PUT' | 'DELETE' = 'GET', baseUrl?: string): Promise<PiOllamaState> {
+  const response = await request<PiOllamaState>(endpointId, '/local-runtimes/ollama', { method, ...(method === 'PUT' ? { body: { baseUrl } } : {}) });
+  if (!response.ok) throw new Error(providerErrorText(response.data, 'Kiln did not answer. Test / Refresh to retry, or update Kiln on this host.'));
+  const state = response.data;
+  if (!state || typeof state.baseUrl !== 'string' || typeof state.defaultBaseUrl !== 'string' ||
+      typeof state.customAddress !== 'boolean' || typeof state.running !== 'boolean' || typeof state.hasModels !== 'boolean' ||
+      state.problem !== undefined && typeof state.problem !== 'string' ||
+      !Array.isArray(state.models) || state.models.some(id => typeof id !== 'string')) {
+    throw new Error('Kiln returned an unreadable Ollama status. Update Kiln, then Test / Refresh again.');
+  }
+  return state;
+}

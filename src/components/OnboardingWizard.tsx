@@ -557,11 +557,11 @@ function Providers({
   return (
     <div className="flex flex-col gap-4">
       <h3 className="text-base font-semibold">{providersReady ? 'Connected AI services' : 'First, connect an AI service'}</h3>
-      {!providersReady ? <p className="font-medium">Sign in or save an API key below. Once a provider is connected, choose your default model here.</p> : null}
+      {!providersReady ? <p className="font-medium">Connect Ollama, sign in, or save an API key below. Then choose the default model for new chats.</p> : null}
       <p className="text-base leading-relaxed text-muted-foreground">
-        Your bots need an AI service, such as OpenAI or Anthropic. Use a sign-in option below, or paste
-        an API key — an access code you get from that service. If you use Ollama or LM Studio to run AI on
-        your own computer, start it first and Ember will show it here.
+        Your bots can use Ollama without an account or API key. Start Ollama on the selected Kiln’s
+        computer, then choose Test / Refresh in the Ollama section below. Or connect an AI service
+        such as OpenAI or Anthropic by signing in or pasting its API key.
       </p>
       <div className="flex items-center gap-3">
         <span aria-hidden="true" className="relative inline-flex size-20 flex-none">

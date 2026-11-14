@@ -1196,6 +1196,20 @@ const piRequest = async (
     return fail(0, 'Ember → Studio Mac: the host is not answering');
   }
   if (url.pathname === '/health' && method === 'GET') return ok({ ok: true, service: 'hearth', version: 'mock' });
+  const ollama = ollamaStates.get(endpointId);
+  if (url.pathname === '/local-runtimes/ollama') {
+    const baseUrl = method === 'DELETE' ? 'http://127.0.0.1:11434' : String(body.baseUrl ?? ollama?.baseUrl ?? 'http://127.0.0.1:11434');
+    if (method === 'GET') return ok(ollama ?? { baseUrl, defaultBaseUrl: 'http://127.0.0.1:11434', customAddress: false, running: false, hasModels: false, models: [] });
+    let address: URL;
+    try { address = new URL(baseUrl); } catch { return fail(400, 'Kiln needs a complete Ollama service address. Check the address and Test / Refresh again.'); }
+    if (!['http:', 'https:'].includes(address.protocol) || address.username || address.password || address.search || address.hash || address.pathname !== '/') return fail(400, 'Kiln needs an Ollama address without credentials or an API path. Check the address and Test / Refresh again.');
+    const running = !address.hostname.includes('down');
+    const problem = !running ? 'Ollama is not answering. Start it on this Kiln’s computer and Test / Refresh again.' : address.hostname.includes('wrong') ? 'The service answered, but not with an Ollama model list. Check the address and Test / Refresh again.' : undefined;
+    const ids = !problem && !address.hostname.includes('empty') ? ['llama3.2:3b'] : [];
+    const next = { baseUrl, defaultBaseUrl: 'http://127.0.0.1:11434', customAddress: method !== 'DELETE', running, hasModels: ids.length > 0, models: ids, ...(problem ? { problem } : {}) };
+    ollamaStates.set(endpointId, next);
+    return ok(next);
+  }
   const custom = customProviders.get(endpointId) ?? [];
   if (url.pathname === '/custom-providers' && method === 'GET') return ok({ providers: custom });
   if (url.pathname === '/custom-providers/discover' && method === 'POST') {
@@ -1221,7 +1235,7 @@ const piRequest = async (
       ...(keyed('openrouter') ? OPENROUTER_MODELS : []),
       ...(keyed('deepinfra') ? DEEPINFRA_MODELS : []),
     ];
-    return ok({ models: [...models, ...providerModels, ...custom.flatMap(provider => provider.modelIds.map(id => ({ type: 'chat', id, name: id, provider: provider.id, providerName: provider.name, api: 'openai-completions', contextWindow: 8192, maxTokens: 4096, reasoning: false, input: ['text'], cost: { input: 0, output: 0 } })))], default: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' } });
+    return ok({ models: [...models, ...(ollama?.models ?? []).map(id => ({ type: 'chat', id, name: id, provider: 'ollama', api: 'openai-completions', baseUrl: ollama!.baseUrl + '/v1', contextWindow: 8192, maxTokens: 4096, reasoning: false, input: ['text'], cost: { input: 0, output: 0 } })), ...providerModels, ...custom.flatMap(provider => provider.modelIds.map(id => ({ type: 'chat', id, name: id, provider: provider.id, providerName: provider.name, api: 'openai-completions', contextWindow: 8192, maxTokens: 4096, reasoning: false, input: ['text'], cost: { input: 0, output: 0 } })))], default: { provider: 'faux-hearth', modelId: 'glm-5.3-flash' } });
   }
   if (url.pathname === '/providers' && method === 'GET') {
     return ok({
@@ -1853,6 +1867,7 @@ const providers = [
     signIn: { label: 'Sign in with SuperGrok or X Premium' },
   },
 ];
+const ollamaStates = new Map<string, { baseUrl: string; defaultBaseUrl: string; customAddress: boolean; running: boolean; hasModels: boolean; models: string[]; problem?: string }>();
 const customProviders = new Map<string, Array<{ id: string; name: string; baseUrl: string; modelIds: string[]; hasApiKey: boolean }>>();
 const providerCredentials = new Map<string, 'api_key' | 'oauth'>(new URLSearchParams(window.location.search).has('noProviders') ? [] : [['faux-hearth', 'api_key']]);
 /** In-flight mock sign-ins, keyed by provider id. */

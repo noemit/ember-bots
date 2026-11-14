@@ -1,3 +1,4 @@
+import type { OllamaSettings } from "./ollama-settings";
 import type { CustomProviders } from "./custom-providers";
 import { alignmentProviders, importCredentials, importApiKeys, mergePeers, portablePeer, shareApiKeys, type ShareTarget, type AlignmentConfig } from "./alignment";
 import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
@@ -131,6 +132,7 @@ type Deps = {
    */
   localRuntimes?: readonly LocalRuntimeProbe[];
   customProviders?: CustomProviders;
+  ollamaSettings?: OllamaSettings;
   /**
    * The host's process table and memory. Production leaves this out; a test passes a fake so the
    * routes can be exercised without depending on what is running on the machine under test.
@@ -1028,6 +1030,7 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/custom-providers$/, ["GET", "POST"]],
   [/^\/custom-providers\/discover$/, ["POST"]],
   [/^\/custom-providers\/[^/]+$/, ["PUT", "DELETE"]],
+  [/^\/local-runtimes\/ollama$/, ["GET", "PUT", "DELETE"]],
   [/^\/providers$/, ["GET"]],
   [/^\/providers\/import$/, ["POST"]],
   [/^\/providers\/[^/]+\/login$/, ["GET", "POST", "DELETE"]],
@@ -1328,6 +1331,15 @@ const server = Bun.serve<{
       }
 
       // These routes use the same bearer authentication and bounded request reader as credentials.
+      if (path === "/local-runtimes/ollama") {
+        const settings = deps.ollamaSettings;
+        if (!settings) return badRequest("This Kiln cannot set up Ollama yet. Update Kiln, then Test / Refresh again.");
+        try {
+          if (request.method === "GET") return json(settings.state());
+          if (request.method === "PUT") return json(await settings.save((await readBody(request)).baseUrl));
+          if (request.method === "DELETE") return json(await settings.save(undefined, true));
+        } catch { return badRequest("Kiln could not save the Ollama address. Use a complete HTTP or HTTPS service address without credentials or an API path, then Test / Refresh again."); }
+      }
       if (path === "/custom-providers" || path.startsWith("/custom-providers/")) {
         const custom = deps.customProviders;
         if (!custom) return badRequest("This Kiln cannot manage custom providers yet. Update Kiln, then try again.");

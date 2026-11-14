@@ -21,6 +21,7 @@ import type { InstanceDefaults, ModelRef, Instance, PiEndpoint } from '../types'
 import ProviderSignInDialog from '@/components/ProviderSignInDialog';
 import ProviderSharing from './ProviderSharing';
 import CustomProviders from './CustomProviders';
+import OllamaSetup from './OllamaSetup';
 
 type Props = {
   endpoints: PiEndpoint[];
@@ -239,6 +240,11 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
         <p className="text-[12px] text-muted-foreground">This ember-harness reports no providers.</p>
       ) : null}
 
+      <OllamaSetup key={'ollama-' + endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async connected => {
+        await load(endpointId);
+        notifyChanged(endpointId);
+        if (connected) await confirmDefault(endpointId, 'Ollama');
+      }} />
       <CustomProviders key={endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async (name) => {
         await load(endpointId);
         notifyChanged(endpointId);
@@ -246,7 +252,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
       }} />
       <ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={(id) => { notifyChanged(id); if (id === endpointId) void load(id); }} />
 
-      {providers?.filter(provider => !provider.custom).map((provider) => {
+      {providers?.filter(provider => !provider.custom && provider.id !== 'ollama').map((provider) => {
         const draft = drafts[provider.id] ?? '';
         const isBusy = busy === provider.id;
         return (
