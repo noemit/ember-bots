@@ -1,6 +1,6 @@
 .blob-gallery-page { overflow: auto; }
 .blob-gallery-page #root { height: auto; min-height: 100dvh; }
-.blob-gallery { max-width: 1440px; margin: 0 auto; padding: 56px 40px 32px; color: var(--foreground); }
+.blob-gallery { min-width: 0; width: 100%; max-width: 1440px; margin: 0 auto; padding: 56px 40px 32px; color: var(--foreground); }
 .gallery-intro { max-width: 760px; margin-bottom: 32px; }
 .gallery-eyebrow { font-size: 10px; letter-spacing: .16em; font-weight: 650; color: var(--muted-foreground); }
 .gallery-intro h1 { font-size: clamp(32px, 4vw, 52px); letter-spacing: -.045em; font-weight: 550; line-height: 1.15; margin: 12px 0 18px; }
