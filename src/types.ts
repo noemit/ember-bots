@@ -716,8 +716,8 @@ export type EmberSettings = {
   readSince?: number;
   /** Sessions whose unread messages should not raise notification indicators. */
   mutedSessions?: string[];
-  /** Initial automatic titles still awaiting their first completed exchange. No history is enrolled. */
-  automaticTitleSeeds?: Record<string, string>;
+  /** Plain-task policy creation seeds awaiting their first exchange. Never migrate legacy automaticTitleSeeds. */
+  taskTitleSeeds?: Record<string, string>;
   /** Manually snoozed session keys (`instance::session`); independent of hide, mute and read state. */
   snoozedSessions: string[];
   composerDrafts: Record<string, StoredComposerDraft>;

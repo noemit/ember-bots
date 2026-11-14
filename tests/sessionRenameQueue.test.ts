@@ -47,7 +47,7 @@ describe('which sessions are worth upgrading', () => {
     ...over,
   });
 
-  const REPLY = 'I changed src/lib/sessionNames.ts so the subject comes from the reply, and added tests.';
+  const REPLY = 'I fixed the login redirect so returning users reach their original page after signing in.';
 
   test('only sessions still marked provisional are eligible', () => {
     expect(isRenamable(candidate({ provisional: true }))).toBe(true);
@@ -68,7 +68,7 @@ describe('which sessions are worth upgrading', () => {
   test('a provisional name from an intent-only request upgrades once a reply lands', () => {
     const name = renameFor(candidate({ request: 'lets close the design gap' }), REPLY, []);
     expect(name).not.toBeNull();
-    expect(name).toBe('Test Cartographer');
+    expect(name).toBe('Login redirect');
   });
 
   test('a request that named its own subject is left alone', () => {
@@ -153,9 +153,9 @@ describe('evidence boundaries', () => {
   });
 });
 
-test('refinement preserves the creation character and collision suffix from the exact seed', () => {
-  const title = 'Login Gatekeeper 2';
+test('refinement collisions preserve the informative object', () => {
+  const title = 'Login 2';
   expect(renameFor({ key: 'chat', provisional: true, request: 'fix login', currentTitle: title, expectedTitle: title },
-    'I fixed the login redirect so returning users reach their original page after signing in.', []))
-    .toBe('Login Redirect Gatekeeper 2');
+    'I fixed the login redirect so returning users reach their original page after signing in.', ['Login redirect']))
+    .toBe('Login redirect 2');
 });

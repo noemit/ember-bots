@@ -3235,8 +3235,8 @@ export default function App() {
     // A retry/adoption must not re-enrol an already consumed session.
     const titleKey = sessionKey(session);
     if (!pendingCreatedSessions.current.has(titleKey)) {
-      handleSettings({ automaticTitleSeeds: Object.fromEntries([
-        ...Object.entries(settingsRef.current.automaticTitleSeeds ?? {}),
+      handleSettings({ taskTitleSeeds: Object.fromEntries([
+        ...Object.entries(settingsRef.current.taskTitleSeeds ?? {}),
         [titleKey, pending.title],
       ].slice(-2000)) });
     }
@@ -4145,15 +4145,15 @@ export default function App() {
   /** One attempt, including failure: never surprise the human with a delayed retry after restart. */
   function forgetAutomaticTitle(key: string) {
     assessedTitles.current.add(key);
-    const seeds = { ...settingsRef.current.automaticTitleSeeds };
+    const seeds = { ...settingsRef.current.taskTitleSeeds };
     if (!(key in seeds)) return;
     delete seeds[key];
-    handleSettings({ automaticTitleSeeds: seeds });
+    handleSettings({ taskTitleSeeds: seeds });
   }
 
   React.useEffect(() => {
     if (!settingsLoaded) return;
-    const seeds = settingsRef.current.automaticTitleSeeds ?? {};
+    const seeds = settingsRef.current.taskTitleSeeds ?? {};
     const sessions = Object.values(sessionsByInstanceRef.current).flat();
     for (const session of sessions) {
       const key = sessionKey(session);

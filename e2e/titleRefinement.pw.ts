@@ -15,8 +15,8 @@ test.setTimeout(120_000);
  * mockPi intentionally forgets host conversations on reload; replaying this one conversation
  * before App boots models a durable host independently of the persisted renderer settings.
  */
-async function installNamingHost(page: Page, answer: 'substantive' | 'ack' = 'substantive', seedWorker = false, slowTurn = false) {
-  await page.addInitScript(({ answer, substantive, seedWorker, slowTurn, vagueRequest }) => {
+async function installNamingHost(page: Page, answer: 'substantive' | 'ack' = 'substantive', seedWorker = false, slowTurn = false, legacy = false, prompt = REQUEST) {
+  await page.addInitScript(({ answer, substantive, seedWorker, slowTurn, vagueRequest, legacy }) => {
     const HOST = 'title-refinement-host';
     const SETTINGS = 'title-refinement-settings';
     type Host = { id: string; title: string; prompts: string[] };
@@ -67,13 +67,13 @@ async function installNamingHost(page: Page, answer: 'substantive' | 'ack' = 'su
         let boot: Promise<void> | undefined;
         bridge.getSettings = async () => {
           boot ??= (async () => {
-            const host = readHost();
+            const host = readHost() ?? (legacy ? { id: '', title: 'GitHub Overflow Scout', prompts: [vagueRequest] } : null);
             if (!host) {
               if (seedWorker) {
                 await request('pi:hearth', '/conversations/17/abort', { method: 'POST' });
                 await request('pi:hearth', '/conversations/17/submit', { method: 'POST', body: { content: vagueRequest } });
                 await new Promise(resolve => setTimeout(resolve, 650));
-                await setSettings({ automaticTitleSeeds: { 'pi:hearth::17': 'Parse config' } });
+                await setSettings({ taskTitleSeeds: { 'pi:hearth::17': 'Parse config' } });
               }
               return;
             }
@@ -85,7 +85,7 @@ async function installNamingHost(page: Page, answer: 'substantive' | 'ack' = 'su
               await request('pi:hearth', `/conversations/${host.id}/submit`, { method: 'POST', body: { content: prompt } });
               await new Promise(resolve => setTimeout(resolve, 650));
             }
-            await setSettings({ ...JSON.parse(sessionStorage.getItem(SETTINGS) ?? '{}'), openSessions: [`pi:hearth::${host.id}`], activeSession: `pi:hearth::${host.id}` });
+            await setSettings({ ...(legacy ? { automaticTitleSeeds: { ['pi:hearth::' + host.id]: host.title } } : {}), ...JSON.parse(sessionStorage.getItem(SETTINGS) ?? '{}'), openSessions: [`pi:hearth::${host.id}`], activeSession: `pi:hearth::${host.id}` });
           })();
           await boot;
           return getSettings();
@@ -97,7 +97,7 @@ async function installNamingHost(page: Page, answer: 'substantive' | 'ack' = 'su
         };
         bridge.setSettings = async patch => {
           const result = await setSettings(patch);
-          sessionStorage.setItem(SETTINGS, JSON.stringify({ automaticTitleSeeds: result.automaticTitleSeeds }));
+          sessionStorage.setItem(SETTINGS, JSON.stringify({ taskTitleSeeds: result.taskTitleSeeds }));
           return result;
         };
         bridge.piRequest = async <T = unknown>(instance: string, path: string, init?: { method?: string; body?: unknown }) => {
@@ -129,7 +129,7 @@ async function installNamingHost(page: Page, answer: 'substantive' | 'ack' = 'su
         };
       },
     });
-  }, { answer, substantive: ANSWER, seedWorker, slowTurn, vagueRequest: REQUEST });
+  }, { answer, substantive: ANSWER, seedWorker, slowTurn, vagueRequest: prompt, legacy });
 }
 
 async function createVagueChat(page: Page) {
@@ -142,14 +142,14 @@ async function createVagueChat(page: Page) {
   const column = page.locator('main[data-session-key]');
   await expect(column).toBeVisible();
   const key = (await column.getAttribute('data-session-key'))!;
-  const seed = await page.evaluate(async key => (await window.ember.getSettings()).automaticTitleSeeds?.[key], key);
+  const seed = await page.evaluate(async key => (await window.ember.getSettings()).taskTitleSeeds?.[key], key);
   expect(seed, 'create must explicitly enrol the automatic title').toBeTruthy();
   return { column, key, seed: seed! };
 }
 
 const advanceTurn = (page: Page, through: number) => page.evaluate(through => window.dispatchEvent(new CustomEvent('title-refinement-advance', { detail: through })), through);
 const writes = (page: Page) => page.evaluate(() => JSON.parse(sessionStorage.getItem('title-refinement-writes') ?? '[]') as string[]);
-const eligibility = (page: Page, key: string) => page.evaluate(async key => (await window.ember.getSettings()).automaticTitleSeeds?.[key], key);
+const eligibility = (page: Page, key: string) => page.evaluate(async key => (await window.ember.getSettings()).taskTitleSeeds?.[key], key);
 
 // No exact generated character/placeholder requirement: the improvement must name the real topic.
 test('a vague new chat gains the completed answer’s topic, never its live preview', async ({ page }, testInfo) => {
@@ -224,5 +224,37 @@ test('even a mistakenly persisted seed cannot rename a worker with a useful answ
   await expect(worker.getByRole('log', { name: 'Conversation' })).toContainText(ANSWER);
   await expect(worker.locator('header')).toContainText('Parse config');
   await expect.poll(() => eligibility(page, 'pi:hearth::17')).toBeUndefined();
+  expect(await writes(page)).toEqual([]);
+});
+
+
+test('installing the new policy never refines a historical eligible chat', async ({ page }) => {
+  await installNamingHost(page, 'substantive', false, false, true);
+  await page.goto('/?noDock');
+  const column = page.locator('main[data-session-key]');
+  await expect(column.getByRole('log', { name: 'Conversation' })).toContainText(ANSWER);
+  await expect(column.locator('header')).toContainText('GitHub Overflow Scout');
+  await page.waitForTimeout(1500);
+  expect(await writes(page)).toEqual([]);
+  await page.reload();
+  await expect(column.locator('header')).toContainText('GitHub Overflow Scout');
+  expect(await writes(page)).toEqual([]);
+});
+
+test('new compound task keeps plain objects through answer and reload', async ({ page }) => {
+  const prompt = 'Fix the page copy and add an MIT license';
+  await installNamingHost(page, 'substantive', false, false, false, prompt);
+  await page.goto('/?noDock');
+  await page.getByRole('button', { name: 'New bot', exact: true }).first().click();
+  const composer = page.locator('textarea').first();
+  await composer.fill(prompt);
+  await composer.press('Enter');
+  const column = page.locator('main[data-session-key]');
+  await expect(column.locator('header')).toContainText('Page copy and MIT license');
+  await expect(column.getByRole('log', { name: 'Conversation' })).toContainText(ANSWER);
+  await expect(column.getByRole('button', { name: /Stop/ })).toHaveCount(0);
+  expect(await writes(page)).toEqual([]);
+  await page.reload();
+  await expect(column.locator('header')).toContainText('Page copy and MIT license');
   expect(await writes(page)).toEqual([]);
 });

@@ -478,7 +478,8 @@ const readEmberSettings = (): EmberSettings => {
     mutedSessions: parseMutedSessions(root.mutedSessions, root.readMarks),
     snoozedSessions: parseSnoozedSessions(root.snoozedSessions),
     readSince: typeof root.readSince === 'number' && Number.isFinite(root.readSince) && root.readSince > 0 ? root.readSince : undefined,
-    automaticTitleSeeds: parseStringRecord(root.automaticTitleSeeds),
+    // A separate policy namespace deliberately leaves all pre-update titles untouched.
+    taskTitleSeeds: parseStringRecord(root.taskTitleSeeds),
     composerDrafts: parseComposerDrafts(root.composerDrafts),
     scheduledSessionBindings: parseStringRecord(root.scheduledSessionBindings),
     autoArchiveScheduledRuns: root.autoArchiveScheduledRuns !== false,
@@ -1096,7 +1097,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (typeof value.readSince === 'number' && Number.isFinite(value.readSince) && value.readSince > 0) {
     settings.readSince = value.readSince;
   }
-  if (value.automaticTitleSeeds !== undefined) settings.automaticTitleSeeds = parseStringRecord(value.automaticTitleSeeds);
+  if (value.taskTitleSeeds !== undefined) settings.taskTitleSeeds = parseStringRecord(value.taskTitleSeeds);
   if (value.composerDrafts !== undefined) settings.composerDrafts = parseComposerDrafts(value.composerDrafts);
   if (value.composerDraftChanges && typeof value.composerDraftChanges === 'object') {
     const changes = value.composerDraftChanges as Record<string, unknown>;
