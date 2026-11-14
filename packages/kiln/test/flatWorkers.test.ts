@@ -57,6 +57,9 @@ const setup = async (storage: Storage = new MemoryStorage()) => {
     await harness.commit(async (tx) => {
       await tx.appendEntry(sibling, { kind: 'pi.assistant', model: [fauxAssistantMessage([fauxText('verified outcome')])] });
     }, context);
+    if ((await state(requester))!.items.sibling.taskLifecycle === 'explicit') await call(sibling, {
+      action: 'complete', task: threadTask((await state(requester))!.items.sibling), summary: 'verified outcome', evidence: 'worker evidence', remaining: 'none',
+    });
     await tick(harness, storage, context);
   };
   return { harness, storage, root: root.id, l1, requester, sibling, call, apiFor, text, state, spawn, notices, settle };
@@ -226,11 +229,14 @@ describe('one flat worker layer with explicit requester rights', () => {
     try {
       await h.commit(async (tx) => { await tx.appendEntry(f.sibling, { kind: 'pi.assistant',
         model: [fauxAssistantMessage([fauxText('restart outcome')])] }); }, context);
+      await SessionTool.execute({ action: 'complete', task: threadTask((await h.snapshot(SessionsDoc, f.requester, context))!.items.sibling), summary: 'restart outcome', evidence: 'restart evidence', remaining: 'none' }, {
+        conversationId: f.sibling, taskId: 'restart-complete', commit: h.commit.bind(h), snapshot: h.snapshot.bind(h),
+      } as unknown as ToolExecutionApi, context);
       await tick(h, storage, context);
       const item = (await h.snapshot(SessionsDoc, f.requester, context))!.items.sibling;
       expect(item.creatorId).toBe(f.requester); expect(item.notifiedResult).toBe(item.report!.requestId);
       const resolved = await crewState((id) => h.snapshot(SessionsDoc, id, context), f.root, (id) => h.snapshot(MetaDoc, id, context));
-      expect(Object.values(resolved!.items).find((e) => e.conversationId === f.sibling)?.report?.text).toBe('restart outcome');
+      expect(Object.values(resolved!.items).find((e) => e.conversationId === f.sibling)?.completion?.summary).toBe('restart outcome');
       await tick(h, storage, context);
       const entries = (await (await h.conversation(f.requester, context))!.entries({}, 100, undefined, context)).items;
       expect(entries.filter((e) => e.kind === 'hearth.thread-result')).toHaveLength(1);
@@ -240,7 +246,7 @@ describe('one flat worker layer with explicit requester rights', () => {
   test('delivery-less sibling keeps legacy report delivery with no mirrored supervisor digest', async () => {
     const f = await setup();
     try {
-      await f.harness.commit(async (tx) => { delete (await tx.doc(SessionsDoc, f.requester)).items.sibling.delivery; }, context);
+      await f.harness.commit(async (tx) => { const entry = (await tx.doc(SessionsDoc, f.requester)).items.sibling; delete entry.delivery; delete entry.taskLifecycle; }, context);
       await f.settle();
       const entries = (await (await f.harness.conversation(f.requester, context))!.entries({}, 100, undefined, context)).items;
       expect(entries.some((e) => e.kind === 'hearth.crew-report')).toBe(true);

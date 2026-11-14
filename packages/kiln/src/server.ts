@@ -52,6 +52,10 @@ import {
   type PeerEndpoint,
 } from "./agents";
 import {
+  explicitDone,
+  workerAssignment,
+  rearmWorker,
+  type TaskCompletion,
   CREW_DEADLINE_MS,
   SessionsDoc,
   WORKER_INSTRUCTIONS,
@@ -364,6 +368,7 @@ type ConversationSummary = {
   lead?: { conversationId: number; host: string };
   /** Whether this conversation offers the `session` tool + crew section. */
   creatorId?: number;
+  task?: { id: string; title: string; status: "working" | "waiting" | "blocked" | "done" | "stopped" | "failed"; completion?: TaskCompletion };
   delegates: boolean;
   /** Set on a worker after a human promotes it; the peer fork that now carries its name. */
   promotedTo?: number;
@@ -490,9 +495,18 @@ const summaryOf = async (
       ...(own?.parent ? { minEntryId: (Number(own.parent.at) + 1) as EntryId } : {}),
     }, 1, undefined, context)),
   ]);
+  const assignment = await workerAssignment(id => harness.snapshot(SessionsDoc, id, context), record.id, meta);
+  const task = assignment?.entry.taskLifecycle === "explicit" ? {
+    id: String(assignment.entry.conversationId) + ":" + (assignment.entry.taskAt ?? assignment.entry.spawnedAt),
+    title: assignment.entry.title,
+    status: (explicitDone(assignment.entry) ? "done" : assignment.entry.state === "failed" ? "failed" : assignment.entry.state === "stopped" ? "stopped" :
+      approvals.length || questions.length ? "blocked" : live?.run ? "working" : "waiting") as "working" | "waiting" | "blocked" | "done" | "stopped" | "failed",
+    ...(explicitDone(assignment.entry) ? { completion: assignment.entry.completion } : {}),
+  } : undefined;
   const processes = processesField(leftovers);
   return {
     id: record.id,
+    ...(task ? { task } : {}),
     ...(record.parent ? { parent: record.parent } : {}),
     ...(record.owner ? { owner: record.owner } : {}),
     cwd: agent?.cwd,
@@ -2193,7 +2207,15 @@ const server = Bun.serve<{
           // draft); `ReturnType` takes the last, which returns an id.
           let submission: Submission;
           try {
-            submission = await conversation.submit(toPlace, context);
+            const submissionId = await harness.commit(async tx => {
+              const prior = toPlace.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, toPlace.requestId);
+              if (draft.type === "input" && !prior) {
+                const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, await tx.doc(MetaDoc, conversationId));
+                if (assignment && explicitDone(assignment.entry)) await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
+              }
+              return conversation.submit(tx, toPlace);
+            }, context);
+            submission = (await harness.submission(submissionId, context))!;
           } catch (error) {
             if (!(error instanceof ConversationBusy)) throw error;
             return busyRefusal(conversationId);

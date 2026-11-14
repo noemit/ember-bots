@@ -120,3 +120,14 @@ thread subscriptions and releases the tool round; legacy crews keep the blocking
 Only metadata goes in `hearth.thread-result` and `hearth.thread-notice`; result prose stays in the
 worker/result document. Failures and human blockers remain actionable without a subscription. The
 leader must never answer or approve on the human's behalf merely because a thread is blocked.
+
+## Explicit task completion
+
+New default thread workers carry `taskLifecycle: "explicit"`. Only their own `session complete`
+with the current required assignment token and bounded summary/evidence/remaining fields records Done;
+reply endings, idle, result retrieval and verification are independent. `session status` without a
+name exposes the worker's assignment. Authorized coordinator/human corrections explicitly reopen
+that same conversation/key under a fresh version. Nonblocking Question answers must never reopen Done.
+Keep the admission check inside the Questions transaction. See [the protocol](docs/task-lifecycle.md)
+for wire fields, examples, bounded receipts, command safety and legacy compatibility. Spawn safeguards
+are unchanged; completion is not authorization for another crew.

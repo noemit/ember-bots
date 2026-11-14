@@ -371,7 +371,7 @@ export const tick = async (
           await harness.commit(async (tx) => {
             const doc = await tx.doc(SessionsDoc, record.id);
             const item = doc.items[name];
-            if (item) item.state = "running";
+            if (item && isActiveWorker(item) && threadTask(item) === threadTask(entry)) item.state = "running";
           }, context);
           actions += 1;
         }
@@ -426,6 +426,10 @@ export const tick = async (
       } else if (brieflyDead) {
         text = "This worker never started: its brief was withdrawn or its session ended first. Do not wait for it.";
       }
+      if (entry.taskLifecycle === "explicit" && live?.runFailure) { status = "failed"; text = "This worker's run failed. Review its transcript before explicitly reopening the task."; }
+      if (entry.taskLifecycle === "explicit" && status === "ok") continue;
+      // Explicit idle tasks wait for complete; only genuine failure may settle without it.
+      if (entry.taskLifecycle === "explicit" && !live?.runFailure && !brieflyDead && !answered) continue;
       const report = {
         status: status as "ok" | "failed",
         text,

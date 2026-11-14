@@ -3,7 +3,7 @@ import type { Context } from '@earendil-works/chord';
 import { InboxDoc, LiveDoc, type ConversationId, type Harness, type ToolExecutionApi, type Tx } from '@earendil-works/pi-durable';
 import { QuestionsDoc, type ParkedQuestion, type QuestionHost, type QuestionOrigin, type QuestionsState } from './ask';
 import { MetaDoc } from './meta';
-import { SessionsDoc, type CrewEntry } from './sessions';
+import { explicitDone, SessionsDoc, type CrewEntry } from './sessions';
 
 const assignment = (entry: CrewEntry): string => `${entry.conversationId}:${entry.taskAt ?? entry.spawnedAt}`;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -232,6 +232,7 @@ export const resumeQuestions = async (harness: Harness, id: ConversationId, cont
         live.runFailure ? 'The origin conversation failed. Recover it explicitly before resuming this answer.' :
         (origin?.kind === 'worker' || meta.kind === 'worker') && (origin?.assignmentMissing || !origin?.assignmentVersion || !entry) ? 'The origin worker assignment is missing. This answer remains here for human review.' :
         origin?.assignmentVersion !== undefined && (!entry || entry.taskOwner || assignment(entry) !== origin.assignmentVersion) ? 'The origin assignment changed. This answer remains here for human review.' :
+        entry && explicitDone(entry) ? 'The origin task is Done. Its coordinator or human must explicitly reopen it before this answer can continue work.' :
         entry && (entry.state === 'stopped' || entry.state === 'failed') ? 'The origin worker was stopped or failed. This answer remains here for human review.' :
         undefined;
       const hold = unsafe ?? (live.run || inbox.items.length ? 'Waiting for the conversation and its human inbox to clear.' : undefined);
@@ -269,7 +270,7 @@ export const resumeQuestions = async (harness: Harness, id: ConversationId, cont
       // Admitted is not a claim of execution or even human-visible placement.
       q.delivery = { requestId: q.delivery.requestId, ...(q.delivery.attempt === undefined ? {} : { attempt: q.delivery.attempt }), status: 'admitted', placement: 'unknown', admittedAt: Date.now(), submissionId: String(submission) };
       q.updatedAt = Date.now(); q.revision = (q.revision ?? 1) + 1;
-      if (entry && entry.state === 'reported') {
+      if (entry && entry.state === 'reported' && !explicitDone(entry)) {
         entry.questionContinuations ??= [];
         entry.questionContinuations.push({ questionId: q.key, requestId: q.delivery.requestId, assignmentVersion: origin!.assignmentVersion!, at: Date.now(), ...(entry.report ? { priorReport: clone(entry.report) } : {}), ...(entry.silentReport ? { priorSilentReport: clone(entry.silentReport) } : {}) });
         entry.state = 'starting'; entry.answerFrom = newest; delete entry.followUpAt;

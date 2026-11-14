@@ -1148,7 +1148,7 @@ describe("hearth wire", () => {
     for (let attempt = 0; attempt < 200; attempt += 1) {
       const snapshot = await body(await api(`/conversations/${worker.id}`));
       const first = snapshot.entries.find((entry: any) => entry.kind === "pi.user");
-      if (first?.model?.[0]?.content === "Say hello from the worker.") {
+      if (first?.model?.[0]?.content?.startsWith("Say hello from the worker.\n\nTask assignment version:")) {
         briefLanded = true;
         break;
       }
@@ -1368,7 +1368,7 @@ describe("hearth wire", () => {
     let gotSecondTask = false;
     for (let attempt = 0; attempt < 400; attempt += 1) {
       const snapshot = await body(await api(`/conversations/${worker.id}`));
-      if (snapshot.entries.some((entry: any) => entry.model?.[0]?.content === "Second task.")) {
+      if (snapshot.entries.some((entry: any) => typeof entry.model?.[0]?.content === "string" && entry.model[0].content.startsWith("Second task.\n\nTask assignment version:"))) {
         gotSecondTask = true;
         break;
       }

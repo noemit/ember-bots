@@ -1,3 +1,7 @@
+import { createQuestion } from '../src/questions';
+import { SessionTool, Sessions, SessionsDoc } from '../src/sessions';
+import { MetaDoc } from '../src/meta';
+import type { ConversationId, ToolExecutionApi } from '@earendil-works/pi-durable';
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,6 +47,7 @@ let home: string;
 let harness: HarnessType;
 let server: HearthServer;
 let faux: ReturnType<typeof fauxProvider>;
+let afterComplete: (() => Promise<void>) | undefined;
 
 const api = (path: string, init?: RequestInit): Promise<Response> =>
   fetch(`${server.url}${path}`, {
@@ -116,6 +121,11 @@ beforeAll(async () => {
   const registry = createRegistry();
   registry.install(CodingTools);
   registry.install(Slow);
+  registry.install({ ...Sessions, tools: [{ ...SessionTool, execute: async (args: Parameters<typeof SessionTool.execute>[0], api: ToolExecutionApi, ctx: typeof context) => {
+    const result = await SessionTool.execute(args, api, ctx);
+    if (args.action === 'complete' && result.control?.terminate) await afterComplete?.();
+    return result;
+  } }] });
   const storage = await openNodeSqliteStorage(join(home, "hearth.sqlite"));
   harness = await Harness.open(
     storage,
@@ -253,4 +263,94 @@ describe("submission actions", () => {
     await settle(conversation);
     expect(await userEntries(conversation, "said once")).toBe(1);
   });
+  test("explicit task summary exposes Done and human correction reopens atomically without retry reassignment", async () => {
+    const owner = await createConversation("Task coordinator") as ConversationId;
+    const worker = await createConversation("Worker renamed title") as ConversationId;
+    await harness.commit(async tx => {
+      Object.assign(await tx.doc(MetaDoc, worker), { kind: 'worker', creatorId: owner, lead: { conversationId: owner, host: 'local' } });
+      (await tx.doc(SessionsDoc, owner)).items.work = { kind: 'worker', conversationId: worker, creatorId: owner,
+        title: 'Stable outcome title', state: 'running', spawnedAt: 100, generation: 1, briefRequestId: 'brief', delivery: 'thread', taskLifecycle: 'explicit' };
+    }, context);
+    const questionApi = { taskId: 'wire-async-question', conversationId: worker, commit: harness.commit.bind(harness) } as unknown as ToolExecutionApi;
+    await createQuestion(questionApi, { question: 'Optional follow-up decision?' }, context);
+    const pending = (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+    expect(pending.task.status).toBe('waiting'); expect(pending.needsInput).toBe(false);
+    const toolApi = { taskId: 'wire-complete', conversationId: worker, commit: harness.commit.bind(harness), snapshot: harness.snapshot.bind(harness) } as unknown as ToolExecutionApi;
+    expect((await SessionTool.execute({ action: 'complete', task: String(worker) + ':100', summary: 'Implemented', evidence: 'tests green', remaining: 'none' }, toolApi, context)).control?.terminate).toBe(true);
+    const done = (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+    expect(done.task).toMatchObject({ id: String(worker) + ':100', title: 'Stable outcome title', status: 'done', completion: { summary: 'Implemented' } });
+    faux.setResponses([fauxAssistantMessage([fauxText('Correction processed')])]);
+    const response = await submit(worker, { type: 'input', content: 'Correction: test one more case', requestId: 'human-correction' });
+    expect(response.status).toBe(201); await settle(worker);
+    const reopened = (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+    expect(reopened.task.status).toBe('waiting'); expect(reopened.task.completion).toBeUndefined();
+    expect(reopened.task.id).not.toBe(done.task.id); expect(reopened.task.title).toBe(done.task.title);
+    const retry = await submit(worker, { type: 'input', content: 'Correction: test one more case', requestId: 'human-correction' });
+    expect(retry.status).toBe(201);
+    expect(((await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker)).task.id).toBe(reopened.task.id);
+    expect(await userEntries(worker, 'Correction: test one more case')).toBe(1);
+    await harness.commit(async tx => { (await tx.doc(SessionsDoc, owner)).items.work.state = 'failed'; }, context);
+    expect((await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker).task.status).toBe('failed');
+    await harness.commit(async tx => { (await tx.doc(SessionsDoc, owner)).items.work.state = 'stopped'; }, context);
+    expect((await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker).task.status).toBe('stopped');
+
+  });
+
+  test("HTTP correction after complete commit but before tool return survives termination and reopens once", async () => {
+    const owner = await createConversation('Race coordinator') as ConversationId;
+    const worker = await createConversation('Race worker') as ConversationId;
+    await harness.commit(async tx => {
+      Object.assign(await tx.doc(MetaDoc, worker), { kind: 'worker', creatorId: owner, lead: { conversationId: owner, host: 'local' } });
+      (await tx.doc(SessionsDoc, owner)).items.work = { kind: 'worker', creatorId: owner, conversationId: worker, title: 'Preserve corrections',
+        state: 'running', spawnedAt: 100, generation: 1, briefRequestId: 'race-brief', delivery: 'thread', taskLifecycle: 'explicit' };
+    }, context);
+    let persisted!: () => void; const saved = new Promise<void>(resolve => { persisted = resolve; });
+    let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+    afterComplete = async () => { persisted(); await gate; };
+    try {
+      faux.setResponses([
+        fauxAssistantMessage([fauxToolCall('session', { action: 'complete', task: String(worker) + ':100', summary: 'Original done', evidence: 'Original evidence', remaining: 'none' })], { stopReason: 'toolUse' }),
+        fauxAssistantMessage([fauxText('Late correction processed')]),
+      ]);
+      expect((await submit(worker, { type: 'input', content: 'Finish original' })).status).toBe(201);
+      await saved;
+      const done = (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+      expect(done.task.status).toBe('done'); expect(done.busy).toBe(true);
+      const correction = await body(await submit(worker, { type: 'input', content: 'Late correction', whenBusy: 'followUp', requestId: 'post-complete-correction' }));
+      expect(correction.status).toBe('queued');
+      const reopened = (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+      expect(reopened.task.id).not.toBe(done.task.id); expect(reopened.task.status).not.toBe('done');
+      release(); await settle(worker);
+      expect(await userEntries(worker, 'Late correction')).toBe(1);
+      const final = (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+      expect(final.task.status).toBe('waiting'); expect(final.task.id).toBe(reopened.task.id);
+      const entries = await body(await api('/conversations/' + worker + '/entries?limit=100'));
+      expect(JSON.stringify(entries)).toContain('Late correction processed');
+      expect(entries.entries.filter((e: any) => e.kind === 'hearth.task-completion')).toHaveLength(1);
+    } finally { afterComplete = undefined; release(); }
+  });
+
+  test('parallel command tool finishes normally when a co-round complete saves Done', async () => {
+    const owner = await createConversation('Command coordinator') as ConversationId;
+    const worker = await createConversation('Command worker') as ConversationId;
+    await harness.commit(async tx => {
+      Object.assign(await tx.doc(MetaDoc, worker), { kind: 'worker', creatorId: owner, lead: { conversationId: owner, host: 'local' } });
+      (await tx.doc(SessionsDoc, owner)).items.work = { kind: 'worker', creatorId: owner, conversationId: worker, title: 'Retain commands',
+        state: 'running', spawnedAt: 100, generation: 1, briefRequestId: 'command-brief', delivery: 'thread', taskLifecycle: 'explicit' };
+    }, context);
+    faux.setResponses([
+      fauxAssistantMessage([
+        fauxToolCall('slowecho', { text: 'command must finish' }),
+        fauxToolCall('session', { action: 'complete', task: String(worker) + ':100', summary: 'Saved', evidence: 'command still finishing', remaining: 'Wait for command output' }),
+      ], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxText('Command completed normally')]),
+    ]);
+    expect((await submit(worker, { type: 'input', content: 'Run command then finish' })).status).toBe(201);
+    await settle(worker);
+    const entries = await body(await api('/conversations/' + worker + '/entries?limit=100'));
+    expect(JSON.stringify(entries)).toContain('echo: command must finish');
+    expect(JSON.stringify(entries)).toContain('Command completed normally');
+    expect((await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker).task.status).toBe('done');
+  });
+
 });
