@@ -2,7 +2,7 @@ import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { Eye, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, EyeOff } from 'lucide-react';
+import { AlarmClock, AlarmClockOff, Eye, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, EyeOff } from 'lucide-react';
 import Blob from '../blob/Blob';
 import ProjectCleanupMenu from './ProjectCleanupMenu';
 import RailDescription from './RailDescription';
@@ -66,6 +66,9 @@ export type SessionRowProps = {
   /** Right-click "Mark all as read": offered for a session Home says has unread messages. */
   onMarkAllRead?: (session: Session) => void;
   hasUnread?: boolean;
+  /** Rail placement only: never changes reading, notifications or host state. */
+  snoozed?: boolean;
+  onSnooze?: (session: Session, snoozed: boolean) => void;
   /** True when the session is set to "New Messages: Don't Notify" (`readMark.quiet`). */
   quiet?: boolean;
   /** Toggle "New Messages: Don't Notify" vs "Notify" for this session. */
@@ -87,6 +90,8 @@ type SessionMenuProps = {
   onGroupWith?: (session: Session) => void;
   onMarkAllRead?: (session: Session) => void;
   hasUnread?: boolean;
+  snoozed?: boolean;
+  onSnooze?: (session: Session, snoozed: boolean) => void;
   quiet?: boolean;
   onQuietChange?: (session: Session, quiet: boolean) => void;
 };
@@ -108,6 +113,8 @@ export const SessionContextMenuContent = ({
   hasUnread,
   quiet,
   onQuietChange,
+  snoozed,
+  onSnooze,
 }: SessionMenuProps) => {
   const archived = Boolean(session.archived);
   const archiveLabel = archived ? 'Unhide session' : 'Hide session';
@@ -136,6 +143,12 @@ export const SessionContextMenuContent = ({
           ) : null}
           <ContextMenuSeparator />
         </>
+      ) : null}
+      {onSnooze && !archived && session.kind !== 'worker' ? (
+        <ContextMenuItem onSelect={() => onSnooze(session, !snoozed)}>
+          {snoozed ? <AlarmClockOff /> : <AlarmClock />}
+          {snoozed ? 'Unsnooze session' : 'Snooze session'}
+        </ContextMenuItem>
       ) : null}
       <ContextMenuItem disabled={reloading} onSelect={() => onReload(session)}>
         <RefreshCw className={cn(reloading && 'animate-spin')} />
@@ -209,6 +222,8 @@ const SessionRow = React.memo(function SessionRow({
   hasUnread,
   quiet,
   onQuietChange,
+  snoozed,
+  onSnooze,
 }: SessionRowProps) {
   const key = sessionKey(session);
   // Blank is not a title: a `''` (or whitespace) title used to win the `??` chain and render an
@@ -222,7 +237,7 @@ const SessionRow = React.memo(function SessionRow({
   const archiveBusyLabel = archived ? 'Unhiding…' : 'Hiding…';
   const ArchiveIcon = archived ? Eye : EyeOff;
   const actionsAlwaysVisible = Boolean(archiving || scheduledRunning || onArchiveMany);
-  const actionSpace = 26 * (1 + Number(Boolean(onNewAgent)) + Number(Boolean(scheduledTask)) + Number(Boolean(onArchiveMany))) + 8;
+  const actionSpace = 26 * (1 + Number(Boolean(onNewAgent)) + Number(Boolean(scheduledTask)) + Number(Boolean(onArchiveMany)) + Number(Boolean(onSnooze && !archived))) + 8;
 
   return (
     <motion.div
@@ -277,6 +292,7 @@ const SessionRow = React.memo(function SessionRow({
                 ) : null}
               </div>
               <div data-rail-title-row="" className="flex min-w-0 items-baseline gap-2">
+                {snoozed ? <span className="flex-none text-[10px] text-muted-foreground">Snoozed</span> : null}
                 {/* A run the scheduler started is an ordinary session; this mark is the only thing
                     that says so, and the tooltip names the task so it can be found in the rail's
                     own Scheduled section. */}
@@ -354,6 +370,8 @@ const SessionRow = React.memo(function SessionRow({
           hasUnread={hasUnread}
           quiet={quiet}
           onQuietChange={onQuietChange}
+          snoozed={snoozed}
+          onSnooze={onSnooze}
         />
       </ContextMenu>
 
@@ -361,9 +379,16 @@ const SessionRow = React.memo(function SessionRow({
         data-rail-actions=""
         className={cn(
           'absolute top-1.5 right-2 z-20 flex items-center gap-0.5 rounded-md border bg-card p-0.5 shadow-sm transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
-          actionsAlwaysVisible ? 'opacity-100' : 'opacity-0'
+          actionsAlwaysVisible ? 'opacity-100' : 'opacity-0 [@media(pointer:coarse)]:opacity-100 [@media(hover:none)]:opacity-100'
         )}
       >
+        {onSnooze && !archived && session.kind !== 'worker' ? (
+          <Button variant="ghost" size="icon-xs" aria-label={snoozed ? 'Unsnooze session' : 'Snooze session'}
+            title={snoozed ? 'Unsnooze session' : 'Snooze session'}
+            onClick={() => onSnooze(session, !snoozed)}>
+            {snoozed ? <AlarmClockOff /> : <AlarmClock />}
+          </Button>
+        ) : null}
         {onArchiveMany ? <ProjectCleanupMenu name={title} sessions={[session]} moods={{ [key]: mood }} onArchiveMany={onArchiveMany} /> : null}
         {onNewAgent ? (
           <Tooltip>

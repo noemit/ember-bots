@@ -6,7 +6,7 @@
  * pi transition builds parity. New work targets the pi mock
  * (`src/dev/mockPi.ts`), which is the default.
  */
-import { mergeAvatarAssignments } from '../../electron/transport';
+import { mergeAvatarAssignments, parseSnoozedSessions } from '../../electron/transport';
 import type { ActivityEntry, ActivityPage, ActivityQuery, EmberBridge, EmberSettings, EmberSettingsPatch } from '../types';
 import type { ModelObservation } from '../lib/modelStats';
 import { activityDayKey } from '@/lib/activityView';
@@ -280,6 +280,12 @@ const queueSnapshot = (instanceId: string) => ({
   })),
 });
 
+const SNOOZED_SESSIONS_KEY = 'ember-legacy-snoozed-sessions';
+const storedSnoozedSessions = (): string[] => {
+  try { return parseSnoozedSessions(JSON.parse(localStorage.getItem(SNOOZED_SESSIONS_KEY) ?? 'null')); }
+  catch { return []; }
+};
+
 let settings: EmberSettings = {
   theme: 'stone',
   blobStyle: 'buddy',
@@ -345,6 +351,7 @@ let settings: EmberSettings = {
   openSessions: [],
   activeSession: null,
   minimizedSessions: [],
+  snoozedSessions: storedSnoozedSessions(),
   piEndpoints: [],
   remoteAccessEnabled: false,
   remotePasswordConfigured: false,
@@ -726,12 +733,14 @@ export const bridge: EmberBridge = {
     settings = {
       ...settings,
       ...safePatch,
+      snoozedSessions: patch.snoozedSessions === undefined ? settings.snoozedSessions : parseSnoozedSessions(patch.snoozedSessions),
       avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments),
       ...(composerDraftChanges ? { composerDrafts: drafts } : {}),
       ...(remotePassword !== undefined
         ? { remotePasswordConfigured: typeof remotePassword === 'string' && remotePassword.length >= 8 }
         : {}),
     };
+    if (patch.snoozedSessions !== undefined) localStorage.setItem(SNOOZED_SESSIONS_KEY, JSON.stringify(settings.snoozedSessions));
     if (performanceFixture) sessionStorage.setItem('ember-performance-settings', JSON.stringify(settings));
     return delay(settings);
   },

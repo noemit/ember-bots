@@ -1,3 +1,4 @@
+import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
 import { questionKey, questionsFromThreads } from './lib/threadQuestions';
 import { sessionVisibilityFailure } from './lib/sessionVisibility';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
@@ -2078,6 +2079,25 @@ export default function App() {
     if (Object.keys(next).length === Object.keys(current).length) return;
     handleSettings({ readMarks: next }, { preserveActionError: true });
   }, [sessionsByInstance, instances, instancesLoaded, handleSettings, settingsRef]);
+
+  // A hidden session keeps its snooze preference so restoring it does not promote it to the main list.
+  // Partial/older host snapshots are not proof of deletion; only removed hosts and known workers prune.
+  React.useEffect(() => {
+    if (!instancesLoaded) return;
+    const current = settingsRef.current.snoozedSessions;
+    const hosts = new Set(instances.map((instance) => instance.id));
+    const removedInstanceIds = new Set<string>();
+    const deletedSessionKeys = new Set<string>();
+    for (const key of current) {
+      const ref = parseSessionKey(key);
+      if (!ref) continue; // The settings boundary already rejects malformed keys.
+      if (!hosts.has(ref.instanceId)) removedInstanceIds.add(ref.instanceId);
+      const session = sessionsByInstance[ref.instanceId]?.find((entry) => entry.id === ref.sessionId);
+      if (session && isWorker(session)) deletedSessionKeys.add(key);
+    }
+    const next = pruneSnoozedSessions(current, { removedInstanceIds, deletedSessionKeys });
+    if (next.length !== current.length) handleSettings({ snoozedSessions: next }, { preserveActionError: true });
+  }, [instancesLoaded, instances, sessionsByInstance, settings.snoozedSessions, handleSettings, settingsRef]);
 
   // Recovery for notes a previous build stranded on the shared project key: 0.13.0's migration
   // (removed in this release) moved a project session's notes onto the project key and deleted the
@@ -4930,6 +4950,21 @@ export default function App() {
     handleSettings({ mutedSessions: [...muted] }, { preserveActionError: true });
   };
 
+  /** Snoozing changes rail placement only; running work and explicit read marks stay intact. */
+  const handleSnooze = (session: Session, snoozed: boolean) => {
+    if (isWorker(session)) return;
+    const key = sessionKey(session);
+    const change = (next: boolean) => {
+      handleSettings({ snoozedSessions: setSessionSnoozed(settingsRef.current.snoozedSessions, key, next) }, { preserveActionError: true });
+    };
+    change(snoozed);
+    setActionNotice({
+      message: snoozed ? 'Session moved to Snoozed. Its work and notifications stay on.' : 'Session returned to the main list.',
+      actionLabel: 'Undo',
+      action: () => change(!snoozed),
+    });
+  };
+
   /** Right-click "Mark all as read": everything the host has, including out-of-order marks. */
   const handleMarkAllRead = (session: Session) => {
     const key = sessionKey(session);
@@ -5222,6 +5257,8 @@ export default function App() {
             setSettingsActivated(true);
             setSettingsOpen(true);
           }}
+          snoozed={settings.snoozedSessions.includes(key)}
+          onSnooze={isWorker(session) ? undefined : () => handleSnooze(session, !settings.snoozedSessions.includes(key))}
           onArchive={session.kind === 'worker' ? undefined : () => requestArchive(session)}
           onNewBotInFolder={modal ? undefined : () => beginNewAgent(session.instanceId, session.directory)}
           onRename={(title) => void renameByHuman(session, title)}
@@ -5509,6 +5546,8 @@ export default function App() {
               onMarkAllRead={handleMarkAllRead}
               unreadKeys={unreadKeys}
               quietKeys={quietKeys}
+              snoozedSessions={settings.snoozedSessions}
+              onSnooze={handleSnooze}
               onQuietChange={handleQuietChange}
               onNewAgent={(instanceId, directory) => {
                 beginNewAgent(instanceId, directory);

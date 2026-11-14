@@ -44,6 +44,8 @@ type Props = {
   onNewAgent: (instanceId: string, directory?: string) => void;
   onReload: (session: Session) => void;
   onArchive: (session: Session, archived: boolean) => void;
+  snoozedKeys?: ReadonlySet<string>;
+  onSnooze?: (session: Session, snoozed: boolean) => void;
   /** Bulk archive from the `+N` menu; one notice/undo covers the whole batch. */
   onArchiveMany: (sessions: Session[]) => void;
   onCustomizeAppearance: (session: Session) => void;
@@ -85,6 +87,8 @@ export default function ProjectCard({
   onNewAgent,
   onReload,
   onArchive,
+  snoozedKeys,
+  onSnooze,
   onArchiveMany,
   onCustomizeAppearance,
   onMarkAllRead,
@@ -178,6 +182,8 @@ export default function ProjectCard({
                 archiving={archivingKeys.has(key)}
                 onReload={onReload}
                 onArchive={onArchive}
+                snoozed={snoozedKeys?.has(key)}
+                onSnooze={onSnooze}
                 onCustomizeAppearance={onCustomizeAppearance}
                 onMarkAllRead={onMarkAllRead}
                 hasUnread={unreadKeys?.has(key)}

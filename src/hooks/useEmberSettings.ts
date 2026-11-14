@@ -42,6 +42,7 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   openSessions: [],
   activeSession: null,
   minimizedSessions: [],
+  snoozedSessions: [],
   piEndpoints: [],
   remoteAccessEnabled: false,
   remotePasswordConfigured: false,

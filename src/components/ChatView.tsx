@@ -6,7 +6,7 @@ import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, EyeOff, UserPlus, X, Zap } from 'lucide-react';
+import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, Moon, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, EyeOff, UserPlus, X, Zap } from 'lucide-react';
 import Blob from '../blob/Blob';
 import { freezeDraftAppearance, previewDraftAppearance } from '../lib/draftAppearance';
 import { blobColor } from '../blob/color';
@@ -299,6 +299,8 @@ type Props = {
   onMinimize?: () => void;
   /** Column chrome: archive this session (Undo is offered by the app-level notice). */
   onArchive?: () => void;
+  snoozed?: boolean;
+  onSnooze?: () => void;
   /** Start a draft on this session’s host in its current folder. */
   onNewBotInFolder?: () => void;
   /**
@@ -541,6 +543,8 @@ function ChatView({
   onActivate,
   onOpenProviders,
   onArchive,
+  snoozed = false,
+  onSnooze,
   onNewBotInFolder,
   onPromote,
   onRename,
@@ -1754,7 +1758,7 @@ function ChatView({
                     : undefined
                 }
               />
-              {onMinimize || onArchive ? (
+              {onMinimize || onArchive || onSnooze ? (
                 <div className="flex items-center gap-0.5">
                   {onMinimize ? (
                     <Tooltip>
@@ -1769,6 +1773,18 @@ function ChatView({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>Close this column: the session stays in the list</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                  {onSnooze ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" onClick={onSnooze}
+                          aria-label={snoozed ? 'Unsnooze session' : 'Snooze session'}
+                          aria-pressed={snoozed}>
+                          <Moon className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{snoozed ? 'Unsnooze session' : 'Snooze session — work and notifications stay on'}</TooltipContent>
                     </Tooltip>
                   ) : null}
                   {onArchive ? (

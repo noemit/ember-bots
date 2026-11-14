@@ -45,6 +45,8 @@ type Props = {
   onNewAgent?: () => void;
   onReload: (session: Session) => void;
   onArchive: (session: Session, archived: boolean) => void;
+  snoozedKeys?: ReadonlySet<string>;
+  onSnooze?: (session: Session, snoozed: boolean) => void;
   /** Bulk archive from the `+N` menu; one notice/undo covers the whole batch. */
   onArchiveMany: (sessions: Session[]) => void;
   onCustomizeAppearance: (session: Session) => void;
@@ -70,6 +72,8 @@ export default function GroupRow({
   onNewAgent,
   onReload,
   onArchive,
+  snoozedKeys,
+  onSnooze,
   onArchiveMany,
   onCustomizeAppearance,
   onManage,
@@ -233,6 +237,8 @@ export default function GroupRow({
                     archiving={archivingKeys?.has(key) ?? false}
                     onReload={onReload}
                     onArchive={onArchive}
+                    snoozed={snoozedKeys?.has(key)}
+                    onSnooze={onSnooze}
                     onCustomizeAppearance={onCustomizeAppearance}
                   />
                 </ContextMenu>

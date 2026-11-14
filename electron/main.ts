@@ -16,6 +16,7 @@ import {
   parseAvatarAssignments,
   mergeAvatarAssignments,
   parseMutedSessions,
+  parseSnoozedSessions,
   parseColorAssignments,
   parseComposerDrafts,
   parseInstanceDefaults,
@@ -468,6 +469,7 @@ const readEmberSettings = (): EmberSettings => {
     sessionNotes: parseSessionNotes(root.sessionNotes),
     readMarks: Object.fromEntries(Object.entries(parseReadMarks(root.readMarks)).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark])),
     mutedSessions: parseMutedSessions(root.mutedSessions, root.readMarks),
+    snoozedSessions: parseSnoozedSessions(root.snoozedSessions),
     readSince: typeof root.readSince === 'number' && Number.isFinite(root.readSince) && root.readSince > 0 ? root.readSince : undefined,
     automaticTitleSeeds: parseStringRecord(root.automaticTitleSeeds),
     composerDrafts: parseComposerDrafts(root.composerDrafts),
@@ -1078,6 +1080,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (value.instanceDefaults !== undefined) settings.instanceDefaults = parseInstanceDefaults(value.instanceDefaults);
   if (value.sessionNotes !== undefined) settings.sessionNotes = parseSessionNotes(value.sessionNotes);
   if (value.mutedSessions !== undefined) settings.mutedSessions = parseStringArray(value.mutedSessions);
+  if (value.snoozedSessions !== undefined) settings.snoozedSessions = parseSnoozedSessions(value.snoozedSessions);
   if (value.readMarks !== undefined) settings.readMarks = parseReadMarks(value.readMarks);
   if (typeof value.readSince === 'number' && Number.isFinite(value.readSince) && value.readSince > 0) {
     settings.readSince = value.readSince;

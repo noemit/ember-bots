@@ -15,6 +15,13 @@ The current bot beside the composer keeps both actions: hover it or tab to **Hid
 **New bot in this folder**. New bot opens a draft on that bot’s instance in the same folder; nothing
 is created until you send. These actions also work in the mini rail and beside an undocked composer.
 
+**Snooze session** moves one chat into **Snoozed**, directly below rail search. The section starts
+collapsed and still shows its count, unread messages and requests needing you. Expand it or search
+to open a snoozed chat; opening it does not unsnooze it. **Unsnooze session** returns it to the main list.
+There is no timer or automatic wake-up: work, queues, drafts and notifications continue unchanged,
+and nothing is marked read. Hide is separate; hiding a snoozed chat keeps its snooze preference when
+you unhide it. Snoozing never applies to a whole project or to the **For later** notes tray.
+
 Draft text and model choices persist across launches. Attachments and reply context stay in memory.
 An unavailable model or reasoning level keeps your draft and choice visible: refresh the catalogue
 or choose a replacement explicitly. **Server default** is an intentional selection.

@@ -10,6 +10,7 @@ import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { AnimatePresence, LayoutGroup } from 'motion/react';
 import {
+  AlarmClock,
   Box,
   ChevronDown,
   Plus,
@@ -22,6 +23,8 @@ import { normalizeDirectory, projectForSession, projectIdentityKey } from '../bl
 import { cn } from '@/lib/utils';
 import Blob from '../blob/Blob';
 import { useStableCallback } from '@/lib/useStableCallback';
+import { splitSnoozedRail } from '@/lib/snoozedRail';
+import { isWorker } from '@/lib/crew';
 import { groupNewAgentTarget } from '@/lib/railStrip';
 import { endpointState, instanceReady, outageCopy, railEmptyCopy, type SilentInstance } from '@/lib/instanceHealth';
 import {
@@ -68,6 +71,8 @@ type Props = {
   projectsByInstance: Record<string, Project[]>;
   instanceDefaults: Record<string, InstanceDefaults>;
   sessions: Session[];
+  snoozedSessions: string[];
+  onSnooze: (session: Session, snoozed: boolean) => void;
   /** Every session (active and archived, ignoring the recency window) for broadened search. */
   everySession: Session[];
   moods: Record<string, BallMood>;
@@ -156,6 +161,8 @@ export default function LeftRail({
   instanceDefaults,
   sessions,
   everySession,
+  snoozedSessions,
+  onSnooze,
   moods,
   previews,
   selectedKey,
@@ -207,6 +214,9 @@ export default function LeftRail({
   React.useLayoutEffect(() => {
     if (docked && focusDock.current) { dockElement.current?.focus({ preventScroll: true }); focusDock.current = false; }
   }, [docked, selectedKey]);
+  const [snoozedOpen, setSnoozedOpen] = React.useState(false);
+  const snoozedId = React.useId();
+  const snoozedKeys = React.useMemo(() => new Set(snoozedSessions), [snoozedSessions]);
   const [query, setQuery] = React.useState('');
   // Search starts scoped to the current view; the empty state can widen it to all time/archived.
   const [searchAllTime, setSearchAllTime] = React.useState(false);
@@ -229,11 +239,11 @@ export default function LeftRail({
   const needle = query.trim().toLowerCase();
 
   const activeEverywhere = React.useMemo(
-    () => everySession.filter((session) => !session.archived),
+    () => everySession.filter((session) => !session.archived && !isWorker(session)),
     [everySession]
   );
   const archivedEverywhere = React.useMemo(
-    () => everySession.filter((session) => session.archived),
+    () => everySession.filter((session) => session.archived && !isWorker(session)),
     [everySession]
   );
 
@@ -246,9 +256,13 @@ export default function LeftRail({
     [sessions, selectedSession]
   );
 
+  const placement = React.useMemo(
+    () => splitSnoozedRail(itemSessions, everySession, snoozedKeys, selectedKey, docked),
+    [itemSessions, everySession, snoozedKeys, selectedKey, docked]
+  );
   const entries = React.useMemo(
-    () => buildRailEntries(itemSessions.filter(session => !docked || sessionKey(session) !== selectedKey), projectsByInstance, groups).sort((a, b) => a.updated - b.updated || a.id.localeCompare(b.id)),
-    [itemSessions, projectsByInstance, groups, docked, selectedKey]
+    () => buildRailEntries(placement.main, projectsByInstance, groups).sort((a, b) => a.updated - b.updated || a.id.localeCompare(b.id)),
+    [placement.main, projectsByInstance, groups]
   );
 
   const matchesSession = React.useCallback(
@@ -275,9 +289,9 @@ export default function LeftRail({
   // Search pools: active matches keep the project grouping; archived matches stay individual rows.
   const activeMatches = React.useMemo(() => {
     if (!needle) return [];
-    const pool = searchAllTime ? activeEverywhere : itemSessions;
+    const pool = searchAllTime ? activeEverywhere : [...new Map([...itemSessions, ...placement.snoozed].filter(session => !session.archived && !isWorker(session)).map(session => [sessionKey(session), session])).values()];
     return pool.filter(matchesSession);
-  }, [needle, searchAllTime, activeEverywhere, itemSessions, matchesSession]);
+  }, [needle, searchAllTime, activeEverywhere, itemSessions, matchesSession, placement.snoozed]);
 
   const archivedMatches = React.useMemo(() => {
     if (!needle || !searchArchived) return [];
@@ -286,9 +300,14 @@ export default function LeftRail({
 
   const railEntries = React.useMemo(() => {
     if (!needle) return entries;
-    // `groups` in, so a matching group keeps its card and its members stay inside it (they are
-    // grouped sessions: buildRailEntries would otherwise make them standalone rows).
-    const withSessions = buildRailEntries(activeMatches, projectsByInstance, groups);
+    // Unsnoozed hits retain their groups; snoozed hits stay individual, as in their section.
+    // The activeMatches pool is keyed, so a selected snoozed chat appears only once.
+    const withSessions: RailEntry[] = [
+      ...buildRailEntries(activeMatches.filter(session => !snoozedKeys.has(sessionKey(session))), projectsByInstance, groups),
+      ...activeMatches.filter(session => snoozedKeys.has(sessionKey(session))).map(session => ({
+        kind: 'session' as const, id: sessionKey(session), session, updated: session.updated ?? 0,
+      })),
+    ];
     const represented = new Set(
       withSessions
         .filter((entry): entry is ProjectEntry => entry.kind === 'project')
@@ -298,7 +317,7 @@ export default function LeftRail({
     Object.entries(projectsByInstance).forEach(([instanceId, projects]) => {
       projects.forEach((project) => {
         const id = projectIdentityKey(instanceId, project.id);
-        if (represented.has(id)) return;
+        if (represented.has(id) || activeMatches.some(session => session.instanceId === instanceId && projectForSession(session, projects)?.id === project.id)) return;
         if (!matchesQuery([project.name, project.path], needle)) return;
         emptyProjects.push({
           kind: 'project',
@@ -311,31 +330,8 @@ export default function LeftRail({
       });
     });
     emptyProjects.sort((a, b) => a.project.name.localeCompare(b.project.name) || a.id.localeCompare(b.id));
-    // A group whose name matches but whose members don't is still a real hit (the same courtesy
-    // `emptyProjects` gives a project name). It is found by name, so every member must resolve —
-    // otherwise the card would claim agents it cannot open.
-    const matchedGroups = groups.flatMap((group) => {
-      if (!matchesQuery([group.name], needle)) return [];
-      const members = group.keys.flatMap((key) => activeMatches.find((session) => sessionKey(session) === key) ?? []);
-      if (members.length === 0) return [];
-      const sorted = [...members].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
-      return [{
-        kind: 'group' as const,
-        id: group.id,
-        name: group.name,
-        keys: [...group.keys],
-        members: sorted,
-        instanceIds: [...new Set(sorted.map((member) => member.instanceId))],
-        primaryKey:
-          group.primaryKey !== undefined && group.keys.includes(group.primaryKey)
-            ? group.primaryKey
-            : sessionKey(sorted[0]),
-        updated: sorted.length > 0 ? (sorted[0].updated ?? 0) : 0,
-      }];
-    });
-    // Group cards found by name go first, like buildRailEntries' own ordering, then projects.
-    return [...matchedGroups, ...withSessions, ...emptyProjects];
-  }, [needle, entries, activeMatches, projectsByInstance, groups]);
+    return [...withSessions, ...emptyProjects];
+  }, [needle, entries, activeMatches, projectsByInstance, groups, snoozedKeys]);
 
   React.useLayoutEffect(() => {
     if (followBottom.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
@@ -528,6 +524,7 @@ export default function LeftRail({
         onSelect={selectSession}
         onReload={reloadSession}
         onArchive={archiveSession}
+        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
         onCustomizeAppearance={customizeAppearance}
         onMarkAllRead={markAllRead}
         hasUnread={unreadKeys?.has(key) ?? false}
@@ -572,6 +569,7 @@ export default function LeftRail({
           onNewAgent={groupNewAgent(entry)}
           onReload={reloadSession}
           onArchive={archiveSession}
+          snoozedKeys={snoozedKeys} onSnooze={onSnooze}
           onArchiveMany={archiveMany}
           onCustomizeAppearance={customizeAppearance}
           onUngroup={() => onUngroup(entry.id)}
@@ -615,6 +613,7 @@ export default function LeftRail({
           onNewAgent={projectNewAgent.current.get(newAgentKey)}
           onReload={reloadSession}
           onArchive={archiveSession}
+        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
           onCustomizeAppearance={customizeAppearance}
           onMarkAllRead={markAllRead}
           hasUnread={unreadKeys?.has(key) ?? false}
@@ -643,6 +642,7 @@ export default function LeftRail({
         onNewAgent={newAgent}
         onReload={reloadSession}
         onArchive={archiveSession}
+        snoozedKeys={snoozedKeys} onSnooze={onSnooze}
         onArchiveMany={archiveMany}
         onCustomizeAppearance={customizeAppearance}
         onMarkAllRead={markAllRead}
@@ -679,6 +679,7 @@ export default function LeftRail({
         onSelect={() => archiveSession(session, false)}
         onReload={reloadSession}
         onArchive={archiveSession}
+        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
         onCustomizeAppearance={customizeAppearance}
         onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
       />
@@ -686,6 +687,60 @@ export default function LeftRail({
   };
 
   const miniAvatarSize = useAvatarSize(40);
+  const renderMiniSession = (session: Session) => {
+    const key = sessionKey(session);
+    const label = session.title?.trim() || projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name || session.id;
+    return (
+      <ContextMenu key={key}><ContextMenuTrigger asChild><span className="group/mini relative block">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => openSession(session)}
+            aria-label={label}
+            data-mini-session={key}
+            style={{ width: miniAvatarSize + 8, height: miniAvatarSize + 8 }}
+            className={cn(
+              'relative grid place-items-center rounded-lg transition-colors',
+              key === selectedKey ? 'bg-muted' : 'hover:bg-muted/60'
+            )}
+          >
+            <Blob
+              style={blobStyle}
+              seed={key}
+              identity={avatarIdentities[key]}
+              size={miniAvatarSize}
+              mood={moods[key] ?? 'unknown'}
+            />
+            <ProcessIndicator session={session} overlay />
+            <InstanceMarker color={instanceMarkerColor(session.instanceId, instanceDefaults[session.instanceId])} className="bottom-0.5" />
+            {visibleColumnKeys.has(key) ? (
+              <span
+                data-column-underline
+                aria-hidden="true"
+                className="pointer-events-none absolute -bottom-0.5 left-1/2 h-[3px] w-6 -translate-x-1/2 rounded-full bg-highlight"
+              />
+            ) : null}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {label}
+          {previews[key] ? <span className="mt-1 block max-w-[280px] text-inherit">{previews[key]}</span> : null}
+        </TooltipContent>
+      </Tooltip>
+      <Button variant="ghost" size="icon-xs" className="absolute -right-1 top-0 z-10 bg-card opacity-0 group-hover/mini:opacity-100 group-focus-within/mini:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(hover:none)]:opacity-100"
+        aria-label={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
+        title={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
+        onClick={() => onSnooze(session, !snoozedKeys.has(key))}><AlarmClock className="size-3" /></Button>
+      </span></ContextMenuTrigger><SessionContextMenuContent session={session}
+        reloading={reloadingKeys.has(key)} archiving={archivingKeys.has(key)}
+        onReload={reloadSession} onArchive={archiveSession} onCustomizeAppearance={customizeAppearance}
+        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
+        hasUnread={unreadKeys?.has(key)} onMarkAllRead={markAllRead}
+        quiet={quietKeys?.has(key)} onQuietChange={onQuietChange} /></ContextMenu>
+    );
+  };
+
 
   return (
     <LayoutGroup id="rail-connection"><AvatarTransitionContext.Provider value={docked && !needle}>
@@ -818,55 +873,33 @@ export default function LeftRail({
       </div>
 
 
+      {!needle && placement.snoozed.length > 0 ? (
+        <section aria-label="Snoozed sessions" className="flex-none border-b">
+          <button type="button" aria-expanded={snoozedOpen} aria-controls={snoozedId}
+            aria-label={`Snoozed ${placement.snoozed.length}${placement.snoozed.some(session => unreadKeys?.has(sessionKey(session))) ? ', unread messages' : ''}${placement.snoozed.some(session => ['input', 'question'].includes(moods[sessionKey(session)])) ? ', needs input' : ''}`}
+            onClick={() => setSnoozedOpen(open => !open)}
+            className={cn('flex min-h-11 w-full items-center gap-1.5 px-3 text-xs text-muted-foreground hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring', mode === 'mini' && 'flex-wrap justify-center px-1')}>
+            <AlarmClock className="size-3.5 flex-none" aria-hidden="true" />
+            <span className={mode === 'mini' ? 'sr-only' : ''}>Snoozed</span>
+            <span className="tabular-nums">{placement.snoozed.length}</span>
+            {placement.snoozed.some(session => unreadKeys?.has(sessionKey(session))) ? <span aria-hidden="true" className="size-1.5 rounded-full bg-highlight" /> : null}
+            {placement.snoozed.some(session => ['input', 'question'].includes(moods[sessionKey(session)])) ? <span aria-hidden="true" className="font-medium text-attention">?</span> : null}
+            <ChevronDown aria-hidden="true" className={cn('ml-auto size-3 transition-transform', snoozedOpen && 'rotate-180', mode === 'mini' && 'ml-0')} />
+          </button>
+          <div id={snoozedId} hidden={!snoozedOpen} className="max-h-[35vh] overflow-y-auto px-1">
+            {placement.snoozed.every(session => sessionKey(session) === selectedKey) ? <p className="px-2 py-2 text-xs text-muted-foreground">{mode === 'mini' ? 'Current chat' : 'Your current snoozed chat stays visible below.'}</p> : null}
+            {placement.snoozed.filter(session => sessionKey(session) !== selectedKey).map(session => mode === 'mini' ? renderMiniSession(session) : renderSession(session))}
+          </div>
+        </section>
+      ) : null}
+
       <div ref={scroller} data-rail-scroll onScroll={event => { const el = event.currentTarget; followBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }} className={cn('min-h-0 flex-1 overflow-y-auto', mode === 'mini' ? 'px-1 py-1' : 'px-1.5 py-1.5')}>
         <div className="flex min-h-full flex-col justify-end">
         {mode === 'mini' ? (
           <div className="flex flex-col items-center gap-1">
-            {[...itemSessions]
-              .filter((session) => !session.archived && (!docked || sessionKey(session) !== selectedKey))
+            {[...placement.main]
               .sort((a, b) => (a.updated ?? 0) - (b.updated ?? 0))
-              .map((session) => {
-                const key = sessionKey(session);
-                const label = session.title?.trim() || projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name || session.id;
-                return (
-                  <Tooltip key={key}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => openSession(session)}
-                        aria-label={label}
-                        data-mini-session={key}
-                        style={{ width: miniAvatarSize + 8, height: miniAvatarSize + 8 }}
-                        className={cn(
-                          'relative grid place-items-center rounded-lg transition-colors',
-                          key === selectedKey ? 'bg-muted' : 'hover:bg-muted/60'
-                        )}
-                      >
-                        <Blob
-                          style={blobStyle}
-                          seed={key}
-                          identity={avatarIdentities[key]}
-                          size={miniAvatarSize}
-                          mood={moods[key] ?? 'unknown'}
-                        />
-                        <ProcessIndicator session={session} overlay />
-                        <InstanceMarker color={instanceMarkerColor(session.instanceId, instanceDefaults[session.instanceId])} className="bottom-0.5" />
-                        {visibleColumnKeys.has(key) ? (
-                          <span
-                            data-column-underline
-                            aria-hidden="true"
-                            className="pointer-events-none absolute -bottom-0.5 left-1/2 h-[3px] w-6 -translate-x-1/2 rounded-full bg-highlight"
-                          />
-                        ) : null}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {label}
-                      {previews[key] ? <span className="mt-1 block max-w-[280px] text-inherit">{previews[key]}</span> : null}
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })}
+              .map(renderMiniSession)}
           </div>
         ) : null}
         {mode === 'mini' ? null : (
@@ -946,7 +979,8 @@ export default function LeftRail({
             </div>
           </ContextMenuTrigger><SessionContextMenuContent session={selectedSession}
             reloading={reloadingKeys.has(sessionKey(selectedSession))} archiving={archivingKeys.has(sessionKey(selectedSession))}
-            onReload={reloadSession} onArchive={archiveSession} onCustomizeAppearance={customizeAppearance}
+            onReload={reloadSession} onArchive={archiveSession}
+        snoozed={snoozedKeys.has(sessionKey(selectedSession))} onSnooze={onSnooze} onCustomizeAppearance={customizeAppearance}
             onMarkAllRead={markAllRead} hasUnread={unreadKeys?.has(sessionKey(selectedSession))}
             quiet={quietKeys?.has(sessionKey(selectedSession))} onQuietChange={onQuietChange}
             scheduledTask={scheduledTaskBySession[sessionKey(selectedSession)]}

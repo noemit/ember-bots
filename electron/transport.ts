@@ -161,6 +161,17 @@ export const parseStringArray = (value: unknown, limit = 40, maxLength = 500): s
   return out;
 };
 
+/** Manual snoozes have no legacy source: missing fields migrate to an empty list. */
+export const parseSnoozedSessions = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return parseStringArray(value.filter((entry): entry is string => {
+    if (typeof entry !== 'string' || /\s/.test(entry)) return false;
+    if ([...entry].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return false;
+    const parts = entry.split('::');
+    return parts.length === 2 && parts.every((part) => part.length > 0);
+  }), 10_000);
+};
+
 export type PiEndpoint = {
   id: string;
   label: string;
@@ -698,6 +709,8 @@ export type EmberSettings = {
   mutedSessions?: string[];
   /** Initial automatic titles still awaiting their first completed exchange. No history is enrolled. */
   automaticTitleSeeds?: Record<string, string>;
+  /** Manually snoozed session keys (`instance::session`); independent of hide, mute and read state. */
+  snoozedSessions: string[];
   composerDrafts: Record<string, StoredComposerDraft>;
   scheduledSessionBindings: Record<string, string>;
   /** Archive finished scheduled-task runs once they're a day old. */

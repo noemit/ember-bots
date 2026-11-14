@@ -8,7 +8,7 @@
  */
 import { longDemoPrompt, longDemoReview, longDemoFollowUp } from './longMessages';
 import { randomId } from '../lib/randomId';
-import { parseAvatarOverrides, parseAvatarAssignments, mergeAvatarAssignments } from '../../electron/transport';
+import { parseAvatarOverrides, parseAvatarAssignments, mergeAvatarAssignments, parseSnoozedSessions } from '../../electron/transport';
 import { generateToken } from '../../electron/tokenWords';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
 
@@ -1884,7 +1884,7 @@ const READ_STATE_KEY = 'ember-pi-read-state';
  */
 const NOTES_KEY = 'ember-pi-notes';
 
-const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'avatarAssignments' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
+const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'snoozedSessions' | 'instanceDefaults' | 'avatarOverrides' | 'avatarAssignments' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
   try {
     return JSON.parse(window.localStorage.getItem(READ_STATE_KEY) ?? 'null') ?? {};
   } catch {
@@ -1932,6 +1932,7 @@ let settings: EmberSettings = {
   readMarks: storedRead.readMarks ?? {},
   readSince: storedRead.readSince ?? 0,
   mutedSessions: storedRead.mutedSessions ?? [],
+  snoozedSessions: parseSnoozedSessions(storedRead.snoozedSessions),
   composerDrafts: {},
   scheduledSessionBindings: {},
   autoArchiveScheduledRuns: true,
@@ -2008,11 +2009,11 @@ export const bridge: EmberBridge = {
       else drafts[key] = draft;
     }
     if (patch.sessionNotes !== undefined) window.localStorage.setItem(NOTES_KEY, JSON.stringify(patch.sessionNotes));
-    settings = { ...settings, ...safe, avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
-    if (patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
+    settings = { ...settings, ...safe, snoozedSessions: patch.snoozedSessions === undefined ? settings.snoozedSessions : parseSnoozedSessions(patch.snoozedSessions), avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
+    if (patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.snoozedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,
-        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, instanceDefaults: settings.instanceDefaults, avatarOverrides: settings.avatarOverrides, avatarAssignments: settings.avatarAssignments, theme: settings.theme, blobStyle: settings.blobStyle, conversationFontSize: settings.conversationFontSize })
+        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, snoozedSessions: settings.snoozedSessions, instanceDefaults: settings.instanceDefaults, avatarOverrides: settings.avatarOverrides, avatarAssignments: settings.avatarAssignments, theme: settings.theme, blobStyle: settings.blobStyle, conversationFontSize: settings.conversationFontSize })
       );
     }
     return settings;
