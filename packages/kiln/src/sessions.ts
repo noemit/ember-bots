@@ -5,6 +5,7 @@ import {
   defineDoc,
   defineTool,
   LiveDoc,
+  InboxDoc,
   section,
   type Agent,
   type ConversationId,
@@ -36,7 +37,10 @@ import { registerAgentWithSuffix } from "./agents";
 export const WORKER_INSTRUCTIONS =
   "You are a background thread working toward the concrete outcome in your brief. Your final message records the result: " +
   "status, what you changed, evidence with file/entry references, and blockers. You may ask the human when blocked; the question " +
-  "reaches your leader too.";
+  "reaches your leader too. Keep the final handoff concise: progress, files, commits, tests, blockers and next steps; " +
+  "say none or not run where appropriate. Around 100k current-context tokens, finish the active bounded task and " +
+  "recommend a fresh Sol/Luna worker for substantial new work; small completion work or an explicit override may continue. " +
+  "Never discard pending human or leader directions, automatically spawn a replacement, or change models for this policy.";
 
 /** The worker instruction naming its own delegation, for a worker that keeps the crew tool. */
 export const WORKER_DELEGATION_INSTRUCTIONS =
@@ -212,6 +216,10 @@ export type CrewEntry = {
   notifiedResult?: string;
   notifiedBlockers?: string[];
   notifiedDeadline?: string;
+  /** Advisory only; reassignments invalidate its task version without touching the inbox. */
+  contextAdvisory?: { epoch: string; task: string; tokens: number; answerEntryId: number; throughEntryId?: number };
+  /** Durable once-per-context-episode receipt, independent from result retrieval. */
+  notifiedContextEpoch?: string;
   /** Input admission and reassignment share a commit; tool replay must not create a new task. */
   lastMessageRequestId?: string;
   /**
@@ -532,8 +540,27 @@ export const crewOutcome = (
  * names the reason, and is rendered as `FAILED` rather than as a bare `(no report yet)` that reads
  * like it is still coming. A `stopped` worker says who ended it.
  */
+/** All input paths (including scheduler and raw submissions) change the run, inbox or transcript.
+ * Check these on the Session line rather than assuming every caller rearms crew membership.
+ * A replay has no new boundary and therefore neither clears advice nor loses its receipt.
+ */
+export const contextAdvisoryIsCurrent = async (tx: Tx, entry: CrewEntry): Promise<boolean> => {
+  const advice = entry.contextAdvisory;
+  if (!advice || advice.task !== threadTask(entry)) return false;
+  if (await tx.latestEntryId(entry.conversationId) !== (advice.throughEntryId ?? advice.answerEntryId)) return false;
+  if ((await tx.doc(LiveDoc, entry.conversationId)).run) return false;
+  return !(await tx.doc(InboxDoc, entry.conversationId)).items.some((item) => item.mode !== "write");
+};
+
+export const contextAdvisoryText = (entry: CrewEntry): string => {
+  const advice = entry.contextAdvisory;
+  if (!advice || advice.task !== threadTask(entry)) return "";
+  return `\nLast measured context ~${advice.tokens} tokens; fresh Sol/Luna worker recommended for substantial work (advisory; small completion or explicit override allowed). ` +
+    `Handoff: [worker](/threads/${entry.conversationId}) entry ${advice.answerEntryId}.`;
+};
+
 export const crewEntryText = (key: string, entry: CrewEntry): string => {
-  const header = `${key} (${entry.kind}/${entry.state}): ${entry.title}`;
+  const header = `${key} (${entry.kind}/${entry.state}): ${entry.title}${contextAdvisoryText(entry)}`;
   if (entry.report) return `${header}\n${entry.report.text.slice(0, REPORT_CAP)}\n` +
     `Result: ${entry.report.requestId}; task: ${threadTask(entry)}; evidence: [${entry.title.replace(/[\[\]]/g, '')}](/threads/${entry.conversationId})` +
     (entry.report.entryId === undefined ? '' : ` (entry ${entry.report.entryId})`);
@@ -687,11 +714,24 @@ export const SessionTool = defineTool({
     if (action === "spawn" && delegationRefused(await api.snapshot(MetaDoc, spawner, context))) {
       return reply("Refused: this conversation is set not to delegate (`delegates: false`). Do the work here.");
     }
-    const state = (await api.snapshot(SessionsDoc, spawner, context)) ?? {
+    const storedState = (await api.snapshot(SessionsDoc, spawner, context)) ?? {
       generation: 0,
       items: {},
       spawnedAt: [],
     };
+
+    // Recheck committed transcript/run/inbox boundaries for every submission path, not merely
+    // crew messages. This read-only commit neither consumes input nor changes replay identities.
+    const state: SessionsState = { ...storedState, items: { ...storedState.items } };
+    if (Object.values(state.items).some((entry) => entry.contextAdvisory)) {
+      await api.commit(async (tx) => {
+        for (const [key, entry] of Object.entries(state.items)) {
+          if (entry.contextAdvisory && !await contextAdvisoryIsCurrent(tx, entry)) {
+            state.items[key] = { ...entry, contextAdvisory: undefined };
+          }
+        }
+      }, context);
+    }
 
     /** Reports for every crew member, newest first, bounded to `REPORT_CAP` each. */
     const resultsText = (snapshot: Readonly<SessionsState>): string => crewReportText(snapshot.items);
@@ -701,7 +741,7 @@ export const SessionTool = defineTool({
       if (items.length === 0) return reply("No crew.");
       return reply(
         items
-          .map(([key, entry]) => `${key}: [${entry.kind}/${entry.state}] conversation ${entry.conversationId} — ${entry.title}`)
+          .map(([key, entry]) => `${key}: [${entry.kind}/${entry.state}] conversation ${entry.conversationId} — ${entry.title}${contextAdvisoryText(entry)}`)
           .join("\n")
       );
     }
@@ -822,7 +862,7 @@ export const SessionTool = defineTool({
       // Busy while it has a run (pi.live.run set), same signal Ember's summary uses.
       const busy = (await api.snapshot(LiveDoc, entry.conversationId, context))?.run !== undefined;
       return reply(
-        `${entry.title}: ${busy ? "working" : "idle"} — [${entry.kind}/${entry.state}] ${entry.title}`
+        `${entry.title}: ${busy ? "working" : "idle"} — [${entry.kind}/${entry.state}] ${entry.title}${contextAdvisoryText(entry)}`
       );
     }
 

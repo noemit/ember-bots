@@ -8,6 +8,7 @@ import {
   piAbortSession,
   piAskSideQuestion,
   piCompactSession,
+  piLoadCompactionStatus,
   piCreateSession,
   piEnqueueMessage,
   piLoadAutoAcceptPolicy,
@@ -308,6 +309,11 @@ export const renameSession = async (session: Session, title: string): Promise<bo
   );
   return response.ok;
 };
+
+export const loadCompactionStatus = async (
+  session: Session, taskId: number
+): Promise<import('./lib/compaction').CompactionTaskResult | null> =>
+  isPiInstance(session.instanceId) ? piLoadCompactionStatus(session.instanceId, session.id, taskId) : null;
 
 export type CompactionReceipt = {
   accepted: boolean;

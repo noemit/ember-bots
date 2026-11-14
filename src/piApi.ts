@@ -944,6 +944,17 @@ export const piSetSessionArchived = async (
   return response.ok;
 };
 
+export const piLoadCompactionStatus = async (
+  endpointId: string, conversationId: string, taskId: number
+): Promise<import('./lib/compaction').CompactionTaskResult | null> => {
+  const response = await request<{ status?: unknown; error?: unknown }>(endpointId,
+    `/conversations/${encodeURIComponent(conversationId)}/compact/${taskId}`);
+  if (!response.ok || !response.data) return null; // Older Kilns do not offer task status.
+  const { status, error } = response.data;
+  if (status !== 'running' && status !== 'pending' && status !== 'landed' && status !== 'nothing' && status !== 'failed' && status !== 'aborted') return null;
+  return { status, ...(typeof error === 'string' ? { error } : {}) };
+};
+
 export type PiCompactionReceipt = {
   accepted: boolean;
   taskId?: number;

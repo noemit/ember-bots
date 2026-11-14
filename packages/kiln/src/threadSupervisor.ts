@@ -4,10 +4,10 @@ import { InboxDoc, LiveDoc, type ConversationId, type Harness } from '@earendil-
 import { ApprovalsDoc, type ApprovalsState } from './approvals';
 import { QuestionsDoc, type QuestionsState } from './ask';
 import { MetaDoc } from './meta';
-import { SessionsDoc, isActiveWorker, type CrewEntry, type SessionsState } from './sessions';
+import { SessionsDoc, isActiveWorker, contextAdvisoryIsCurrent, type CrewEntry, type SessionsState } from './sessions';
 import { threadCompletionDue, threadNotice, threadTask } from './threadResults';
 
-type Notice = { name: string; entry: CrewEntry; token: string; kind: 'result' | 'blocker' | 'deadline'; text?: string; blockers?: string[] };
+type Notice = { name: string; entry: CrewEntry; token: string; kind: 'result' | 'blocker' | 'deadline' | 'context'; text?: string; blockers?: string[] };
 
 const pendingKeys = (entry: CrewEntry, approvals: ApprovalsState | undefined, questions: QuestionsState | undefined): string[] => [
   ...Object.values(approvals?.items ?? {}).filter((item) => item.status === 'pending').map((item) => `${threadTask(entry)}:approval:${item.key}`),
@@ -20,14 +20,23 @@ const pendingKeys = (entry: CrewEntry, approvals: ApprovalsState | undefined, qu
 export const resumeThreads = async (
   harness: Harness, leaderId: ConversationId, state: SessionsState, now: number, context: Context
 ): Promise<number> => {
-  const threads = Object.entries(state.items).filter(([, entry]) => entry.delivery === 'thread');
+  const threads = Object.entries(state.items).filter(([, entry]) => entry.delivery === 'thread' || entry.contextAdvisory !== undefined);
   if (!threads.length || (await harness.snapshot(MetaDoc, leaderId, context))?.archived) return 0;
   const notices: Notice[] = [];
   for (const [name, entry] of threads) {
-    if (threadCompletionDue(entry)) {
+    const advisory = entry.contextAdvisory;
+    if (advisory && advisory.task === threadTask(entry) && entry.notifiedContextEpoch !== advisory.epoch) {
+      notices.push({ name, entry, token: advisory.epoch, kind: 'context',
+        text: `${name}: Kiln estimates ${advisory.tokens} current-context tokens, not lifetime usage. ` +
+          `Review the handoff at [worker](/threads/${entry.conversationId}), answer entry ${advisory.answerEntryId}. ` +
+          'Prefer a fresh Sol/Luna worker for substantial new work; small completion or explicit override can continue here. ' +
+          'Do not automatically spawn or change models. Preserve pending directions and review progress, files, commits, tests, blockers and next steps. ' +
+          'This is advisory, not a hard gate or proof the task succeeded.' });
+    }
+    if (entry.delivery === 'thread' && threadCompletionDue(entry)) {
       notices.push({ name, entry, token: entry.report!.requestId, kind: 'result' });
     }
-    if (!isActiveWorker(entry)) continue;
+    if (entry.delivery !== 'thread' || !isActiveWorker(entry)) continue;
     const approvals = await harness.snapshot(ApprovalsDoc, entry.conversationId, context);
     const questions = await harness.snapshot(QuestionsDoc, entry.conversationId, context);
     const pending = pendingKeys(entry, approvals, questions).filter((key) => !entry.notifiedBlockers?.includes(key));
@@ -58,6 +67,22 @@ export const resumeThreads = async (
       if (!entry || threadTask(entry) !== threadTask(notice.entry)) continue;
       if (notice.kind === 'result') {
         if (threadCompletionDue(entry) && entry.report?.requestId === notice.token) admitted.push(notice);
+      } else if (notice.kind === 'context') {
+        // A summary/reset placed after the worker finished invalidates the old context advice.
+        const head = await tx.latestHeadMarker(entry.conversationId);
+        const epoch = head ? String(head.id) : 'initial';
+        if (!await contextAdvisoryIsCurrent(tx, entry)) {
+          // A direct/scheduled input need not pass through rearmWorker. Drop only its stale
+          // advisory, never the new input, active task, or once-per-epoch delivery receipt.
+          const advice = entry.contextAdvisory;
+          if (advice && (await tx.latestEntryId(entry.conversationId) !== (advice.throughEntryId ?? advice.answerEntryId) ||
+              (await tx.doc(InboxDoc, entry.conversationId)).items.some((item) => item.mode !== 'write'))) delete entry.contextAdvisory;
+        } else if (entry.contextAdvisory?.epoch === notice.token &&
+            epoch === notice.token && entry.notifiedContextEpoch !== notice.token &&
+            // The same task/epoch can finish another directly submitted bounded assignment
+            // between scan and admission. Never receipt the old handoff as the new one's notice.
+            entry.contextAdvisory.answerEntryId === notice.entry.contextAdvisory?.answerEntryId &&
+            entry.contextAdvisory.throughEntryId === notice.entry.contextAdvisory?.throughEntryId) admitted.push(notice);
       } else if (notice.kind === 'blocker' && isActiveWorker(entry)) {
         // A human may have answered since the scan. Only newly pending request ids need a wake;
         // resolving one of several requests must not re-deliver those already announced.
@@ -81,6 +106,7 @@ export const resumeThreads = async (
       if (notice.kind === 'result') entry.notifiedResult = notice.token;
       if (notice.kind === 'blocker') entry.notifiedBlockers = [...new Set([...(entry.notifiedBlockers ?? []), ...(notice.blockers ?? [])])];
       if (notice.kind === 'deadline') entry.notifiedDeadline = notice.token;
+      if (notice.kind === 'context') entry.notifiedContextEpoch = notice.token;
     }
     doc.suspended = false;
     doc.woke = true;

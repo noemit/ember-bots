@@ -93,6 +93,8 @@ type MockConversation = {
   busy: boolean;
   /** True while a compaction task is in flight (manual, threshold or overflow). */
   compacting: boolean;
+  currentContextTokens?: number;
+  currentContextEpoch?: string;
   approvals: MockApproval[];
   questions: MockQuestion[];
   inbox: Array<{ id: number; mode: 'steer' | 'followUp'; content: MockContent }>;
@@ -1043,6 +1045,8 @@ const summaryOf = (conversation: MockConversation): Record<string, unknown> => (
   busy: conversation.busy,
   autoAccept: conversation.autoAccept.enabled,
   compacting: conversation.compacting,
+  currentContextTokens: conversation.currentContextTokens,
+  currentContextEpoch: conversation.currentContextEpoch,
   // Hearth sends `cost` on every summary; the mock has to as well, or the badge's "never ran" and
   // "unknown" states are indistinguishable in dev:web.
   cost: ledgerCostOf(conversation),
@@ -1571,6 +1575,7 @@ const piRequest = async (
     });
   }
   if (action === 'compact' && method === 'POST') {
+    contextCompactionCalls.push(conversation.id);
     // `?compactNoop` is what Hearth does when the transcript already fits the kept window: it answers
     // 202 with a task id and then posts no summary, no flag and no event. The client has to notice
     // the silence and say so (`npm run dev:web` → "Nothing to compact").
@@ -1582,6 +1587,10 @@ const piRequest = async (
     conversation.entries.push({ id: nextEntryId(), kind: 'pi.compaction' });
     schedule(conversation, 1_500, () => {
       conversation.compacting = false;
+      if (conversation.currentContextTokens !== undefined) {
+        conversation.currentContextTokens = 20_000;
+        conversation.currentContextEpoch = 'compact-' + nextEntryId();
+      }
       emit(conversation.id, 'compaction_end');
     });
     return ok({ taskId: nextEntryId() }, 202);
@@ -2009,4 +2018,22 @@ export const bridge: EmberBridge = {
 };
 
 // Keep the exported helpers referenced for tests/fixtures.
-export const mockInternals = { conversations, processStopCalls };
+const contextCompactionCalls: number[] = [];
+export const mockInternals = {
+  conversations,
+  processStopCalls,
+  contextCompactionCalls,
+  /** Deterministic current-context snapshots and invalidation; never runs a model. */
+  setCurrentContext(id: number, tokens: number, epoch = 'initial', busy = false) {
+    const conversation = conversations.find((entry) => entry.id === id);
+    if (!conversation) throw new Error('Unknown fixture conversation');
+    conversation.currentContextTokens = tokens;
+    conversation.currentContextEpoch = epoch;
+    conversation.busy = busy;
+    // run_start invalidates states only; this hook also changes session-summary metadata.
+    // submission is the production hint that refreshes both sessions and states. Do not rely
+    // on a safety poll (or an idle run_end) to make the synthetic snapshot observable.
+    emit(id, 'submission');
+    emit(id, 'usage_changed');
+  },
+};

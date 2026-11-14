@@ -102,32 +102,6 @@ describe('contextMeterState', () => {
   });
 });
 
-describe('the meter threshold', () => {
-  /**
-   * The compaction decision as the composer makes it: only a known percentage can cross 85%.
-   * Kept here so the rule is pinned without rendering, and so an unknown ratio can never fire.
-   */
-  const wouldAutoCompact = (state: ReturnType<typeof contextMeterState>): boolean =>
-    state.kind === 'known' && state.percent >= 85;
-
-  test('a matching denominator past 85% still compacts', () => {
-    expect(wouldAutoCompact(contextMeterState([user(), assistant({ tokens: usage(180_000) })], model(TURN_MODEL, 200_000)))).toBe(true);
-  });
-
-  test('a mismatched denominator never compacts, however small the new window', () => {
-    // 190k against a 200k window is 95%; against the newly selected 8k window it would be 2375%.
-    const messages = [user(), assistant({ tokens: usage(190_000) })];
-    const state = contextMeterState(messages, model(OTHER_MODEL, 8_000));
-    expect(state.kind).toBe('unknown');
-    expect(wouldAutoCompact(state)).toBe(false);
-  });
-
-  test('no usage or no window never compacts', () => {
-    expect(wouldAutoCompact(contextMeterState([user(), assistant({ tokens: undefined })], model(TURN_MODEL, 200_000)))).toBe(false);
-    expect(wouldAutoCompact(contextMeterState([user(), assistant()], model(TURN_MODEL)))).toBe(false);
-  });
-});
-
 describe('context meter copy', () => {
   test('the known label states the percentage and the click', () => {
     const state = contextMeterState([user(), assistant()], model(TURN_MODEL, 200_000));

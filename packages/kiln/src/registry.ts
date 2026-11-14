@@ -12,6 +12,7 @@ import { hearthConfig } from "./config";
 import { Diagnostics } from "./diagnostics";
 import { View } from "./view";
 import { Schedule } from "./schedule";
+import { WorkerContext } from "./workerContext";
 
 /** The ask tool bundled as its own extension so conversations can deselect it. */
 const Ask = {
@@ -76,6 +77,7 @@ export const hearthRegistry = (
   // `agents`: the local name directory, direct sends, and pin/unpin (no register — humans promote).
   registry.install(agentsExtension(home));
   registry.install(Diagnostics);
+  registry.install(WorkerContext);
   // The reasoning level a turn ran at is recorded by pi-durable itself since 1.5.0 (it sets
   // `thinkingLevel` on the stored assistant message from the request it made), so Hearth's own
   // `levelStamp` hook — and the gap it existed to fill — is gone.

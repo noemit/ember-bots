@@ -78,6 +78,9 @@ export type PiConversationSummary = {
   busy?: boolean;
   /** Server-side YOLO policy for this conversation (Hearth exposes it on the summary). */
   autoAccept?: boolean;
+  /** Current context snapshot; absent on older hosts, not the usage ledger. */
+  currentContextTokens?: number;
+  currentContextEpoch?: string;
   /** True while a compaction task (manual/threshold/overflow) is in flight. */
   compacting?: boolean;
   /** The newest compaction failure (`pi.live.compactionFailure`). */
@@ -129,6 +132,11 @@ export const piConversationToSession = (
   promotedTo: conversation.promotedTo !== undefined ? String(conversation.promotedTo) : undefined,
   needsInput: conversation.needsInput === true,
   delegates: conversation.delegates === true,
+  currentContextTokens:
+    typeof conversation.currentContextTokens === 'number' && Number.isFinite(conversation.currentContextTokens) && conversation.currentContextTokens >= 0
+      ? conversation.currentContextTokens
+      : undefined,
+  currentContextEpoch: typeof conversation.currentContextEpoch === 'string' ? conversation.currentContextEpoch : undefined,
   compacting: conversation.compacting === true,
   compactionFailure:
     conversation.compactionFailure && typeof conversation.compactionFailure.error === 'string'

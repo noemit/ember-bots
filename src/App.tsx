@@ -75,6 +75,7 @@ import {
   updateScheduledTaskModel,
   askSideQuestion,
   compactSession,
+  loadCompactionStatus,
   promoteSession,
   type AutoAcceptPolicy,
   type ModelList,
@@ -109,6 +110,11 @@ import {
   compactionLogLine,
   compactionNotice,
   compactionOutcome,
+  watchCompaction,
+  rememberCompactionTask,
+  forgetCompactionTask,
+  consumeCompactionFailure,
+  type ObservedCompactions,
 } from '@/lib/compaction';
 import { crewCostOf, crewCostState } from '@/lib/crewCost';
 import { reconcileOutageDismissals, silentInstances, type SilentInstance } from '@/lib/instanceHealth';
@@ -376,6 +382,7 @@ export default function App() {
   // stop button shows a spinner and the send button stays disabled until the run settles.
   const [stoppingKeys, setStoppingKeys] = React.useState<Set<string>>(() => new Set());
   const [archivingKeys, setArchivingKeys] = React.useState<Set<string>>(() => new Set());
+  const observedCompactions = React.useRef<ObservedCompactions>({});
   const [compactingKeys, setCompactingKeys] = React.useState<Set<string>>(() => new Set());
   const [askingSideQuestionKeys, setAskingSideQuestionKeys] = React.useState<Set<string>>(() => new Set());
   // Local fallback for instances whose OpenChamber predates server-side auto-accept.
@@ -4607,14 +4614,6 @@ export default function App() {
   };
 
   // Summarize/compact the session's context on the instance, then pull the rewritten transcript.
-  /**
-   * How long to watch for a compaction actually starting: five polls of 400ms. A host that has not
-   * flagged one within two seconds is the signature of a request accepted and then dropped, and
-   * waiting longer only makes the click feel more broken.
-   */
-  const COMPACTION_WATCH_POLLS = 5;
-  const COMPACTION_WATCH_MS = 400;
-
   const handleCompact = async (session: Session) => {
     const key = sessionKey(session);
     if (compactingKeys.has(key)) return;
@@ -4624,36 +4623,28 @@ export default function App() {
     const entriesBefore =
       (messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages ?? []).length;
     const previousFailureTaskId = session.compactionFailure?.taskId;
-    let sawCompacting = false;
-    let compactionError: string | undefined;
     try {
       const receipt = await compactSession(session);
       if (!receipt.accepted) {
         showActionError('Could not compact this session.', () => void handleCompact(session));
         return;
       }
-      // Watch the summary for the flag the host sets while a compaction runs, or for a failure the
-      // task recorded on `pi.live.compactionFailure`. The host answers 202 for *every* request:
-      // when the transcript already fits the kept window it posts no summary, no event and no flag,
-      // and when the task fails immediately (`no_model`, `model_error`) it clears `compactions` and
-      // sets `compactionFailure` in the same commit.
-      for (let attempt = 0; attempt < COMPACTION_WATCH_POLLS && !sawCompacting && !compactionError; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, COMPACTION_WATCH_MS));
-        await refreshSessions([session.instanceId]);
-        const fresh = (sessionsByInstanceRef.current[session.instanceId] ?? []).find(
-          (entry) => entry.id === session.id
-        );
-        sawCompacting = fresh?.compacting === true;
-        const failure = fresh?.compactionFailure;
-        if (
-          failure?.error &&
-          (receipt.taskId !== undefined
-            ? failure.taskId === receipt.taskId
-            : failure.taskId !== previousFailureTaskId)
-        ) {
-          compactionError = failure.error;
-        }
+      if (receipt.taskId !== undefined) {
+        observedCompactions.current = rememberCompactionTask(observedCompactions.current, key, receipt.taskId);
       }
+      const watched = await watchCompaction({
+        taskId: receipt.taskId,
+        previousFailureTaskId,
+        readTask: (taskId) => loadCompactionStatus(session, taskId),
+        readSummary: async () => {
+          await refreshSessions([session.instanceId]);
+          return (sessionsByInstanceRef.current[session.instanceId] ?? []).find(
+            (entry) => entry.id === session.id
+          );
+        },
+        delay: () => new Promise((resolve) => setTimeout(resolve, 400)),
+      });
+      const { sawCompacting, error: compactionError } = watched;
       // Clear any repair-breaker halt before re-reading so the full read is allowed and the banner
       // updates if the conversation now fits (or re-evaluates honestly if it still does not).
       if (repairBudget.current.halt(ref)) {
@@ -4671,16 +4662,24 @@ export default function App() {
       const trace = {
         accepted: receipt.accepted,
         sawCompacting,
+        taskStatus: watched.taskStatus,
         entriesBefore,
         entriesAfter,
         ...(compactionError ? { error: compactionError } : {}),
       };
       const outcome = compactionOutcome(trace);
-      if (compactionError) {
-        showActionError(compactionFailureMessage(compactionError), () => void handleCompact(session));
+      if (outcome === 'failed') {
+        if (receipt.taskId === undefined) {
+          showActionError(compactionFailureMessage(compactionError, `“${session.title?.trim() || 'Untitled session'}” on ${instanceLabelOf(session.instanceId)}`), () => void handleCompact(session));
+        } else {
+          reportObservedCompactionFailure(session, { taskId: receipt.taskId, error: compactionError ?? 'Compaction did not finish' });
+        }
       } else {
         const notice = compactionNotice(outcome);
         if (notice) setActionNotice({ message: notice });
+      }
+      if (receipt.taskId !== undefined && (outcome === 'landed' || outcome === 'nothing' || outcome === 'aborted')) {
+        observedCompactions.current = forgetCompactionTask(observedCompactions.current, key, receipt.taskId);
       }
       // Written down either way: the next "nothing happened" should be answerable from a file.
       void window.ember
@@ -4702,6 +4701,20 @@ export default function App() {
       });
     }
   };
+
+  const reportObservedCompactionFailure = useStableCallback((session: Session,
+    failure: { taskId?: number; error?: string } | undefined) => {
+    const claimed = consumeCompactionFailure(observedCompactions.current, sessionKey(session), failure);
+    observedCompactions.current = claimed.state;
+    if (claimed.error) showActionError(compactionFailureMessage(claimed.error, `“${session.title?.trim() || 'Untitled session'}” on ${instanceLabelOf(session.instanceId)}`), () => void handleCompact(session));
+  });
+  // Existing summary refreshes observe our own accepted tasks after the bounded watcher ends.
+  // Never announce historical failures; claim once across both observation paths.
+  React.useEffect(() => {
+    for (const list of Object.values(sessionsByInstance)) {
+      for (const session of list) reportObservedCompactionFailure(session, session.compactionFailure);
+    }
+  }, [sessionsByInstance, reportObservedCompactionFailure]);
 
   /**
    * Ask a side question ("btw …") on a Kiln/Hearth session: forks the conversation into a hidden

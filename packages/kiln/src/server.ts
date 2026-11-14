@@ -1,4 +1,5 @@
 import { importApiKeys, mergePeers, portablePeer, shareApiKeys } from "./alignment";
+import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
 import { timingSafeEqual } from "node:crypto";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, statSync } from "node:fs";
@@ -26,6 +27,8 @@ import {
   type SubmissionId,
   type SubmissionRecord,
   type TaskGraphWatch,
+  type TaskId,
+  type CompactionResult,
   type UsageState,
   type ConversationView,
   type ConversationWatch,
@@ -365,9 +368,12 @@ type ConversationSummary = {
   busy?: boolean;
   /** USD this conversation has spent, summed from its own usage ledger; 0 when it has never run. */
   cost: number;
+  /** Estimate of the active model context, not lifetime usage; epoch changes on reset/compaction. */
+  currentContextTokens?: number;
+  currentContextEpoch?: string;
   /** Server-side YOLO policy: permission prompts auto-accept for this conversation. */
   autoAccept?: boolean;
-  /** True while a compaction task is in flight (manual, threshold, or overflow). */
+  /** True while summarizing or while its summary write waits for a turn boundary. */
   compacting?: boolean;
   /** The newest compaction failure from `pi.live.compactionFailure`, cleared when a compaction produces a summary. */
   compactionFailure?: {
@@ -452,7 +458,7 @@ const summaryOf = async (
   record: ConversationRecord,
   leftovers?: readonly LeftProcess[]
 ): Promise<ConversationSummary> => {
-  const [meta, agent, newest, live, auto, approvals, questions, usage] = await Promise.all([
+  const [meta, agent, newest, live, auto, approvals, questions, usage, currentContext, inbox] = await Promise.all([
     harness.snapshot(MetaDoc, record.id, context),
     harness.snapshot(AgentDoc, record.id, context),
     harness.conversation(record.id, context).then((conversation) =>
@@ -463,6 +469,8 @@ const summaryOf = async (
     pendingApprovals(harness, [record.id], context),
     pendingQuestions(harness, [record.id], context),
     harness.snapshot(UsageDoc, record.id, context),
+    harness.snapshot(CurrentContextDoc, record.id, context),
+    harness.snapshot(InboxDoc, record.id, context),
   ]);
   const processes = processesField(leftovers);
   return {
@@ -483,8 +491,16 @@ const summaryOf = async (
     updatedAt: newest?.items[0] ? entryTimestamp(newest.items[0]) : undefined,
     busy: Boolean(live?.run),
     cost: costOfUsage(usage),
+    // A crash may have stored an entry but not its asynchronously derived snapshot. Never expose
+    // the old size (especially a pre-compaction high watermark) as the current context.
+    ...(currentContext?.sourceEntryId === (newest?.items[0]?.id ?? 0) ? {
+      currentContextTokens: currentContext.currentContextTokens,
+      currentContextEpoch: currentContext.currentContextEpoch,
+    } : {}),
     autoAccept: Boolean(auto?.enabled),
-    compacting: Boolean(live?.compactions?.length),
+    compacting: Boolean(live?.compactions?.length) || Boolean(inbox?.items.some(
+      (item) => item.mode === 'write' && item.entry.kind === 'pi.compaction'
+    )),
     ...(live?.compactionFailure && typeof live.compactionFailure.error === "string"
       ? {
           compactionFailure: {
@@ -718,6 +734,7 @@ const scheduledTaskRefusal = (body: Record<string, unknown>): string => {
 /** Start the Hearth wire: authenticated HTTP for lists and actions, WebSockets for streams. */
 export const startHearthServer = (deps: Deps): HearthServer => {
   const { config, token, storage, harness, models, defaultAgent, store, version, build, restart, localRuntimes } = deps;
+  const contextTracking = attachCurrentContextTracking(harness, context);
   // The host's process table and memory, injectable for tests (see `Deps.processes`).
   const scan = deps.processes?.scan ?? scanLeftovers;
   const memory = deps.processes?.memory ?? hostMemory;
@@ -2162,6 +2179,31 @@ const server = Bun.serve<{
           });
         }
 
+        // A 202 is admission, not completion. Inspect exactly the task returned to this caller:
+        // a summary may have completed but still be queued behind a running turn.
+        const compactionMatch = /^compact\/(\d+)$/.exec(action);
+        if (compactionMatch && request.method === "GET") {
+          const taskId = idOf<TaskId<CompactionResult>>(compactionMatch[1]);
+          const task = taskId ? await harness.getTask(taskId, context) : undefined;
+          if (!task || task.conversationId !== conversationId || task.kind !== 'pi.compaction') {
+            return notFound(`there is no compaction ${compactionMatch[1]} in conversation ${conversationId}`);
+          }
+          if (task.state.status !== 'terminal') return json({ taskId: task.id, status: 'running' });
+          const outcome = task.state.outcome;
+          if (outcome.status !== 'completed') {
+            return json({ taskId: task.id, status: outcome.status === 'aborted' ? 'aborted' : 'failed',
+              error: outcome.error?.message ?? outcome.reason ?? 'Compaction did not finish' });
+          }
+          const { entryId, submissionId } = outcome.result;
+          if (entryId !== undefined) return json({ taskId: task.id, status: 'landed' });
+          if (submissionId === undefined) return json({ taskId: task.id, status: 'nothing' });
+          const submission = await harness.submission(submissionId, context);
+          const placed = await submission?.status(context);
+          if (placed?.status === 'done') return json({ taskId: task.id, status: 'landed' });
+          if (placed?.status === 'queued') return json({ taskId: task.id, status: 'pending' });
+          return json({ taskId: task.id, status: 'failed', error: 'The summary could not be placed. Try compacting again.' });
+        }
+
         if (action === "compact" && request.method === "POST") {
           const body = await readBody(request);
           const instructions = string(body.instructions, 2_000);
@@ -2459,6 +2501,7 @@ const server = Bun.serve<{
     port: server.port ?? config.port,
     url: `http://127.0.0.1:${server.port ?? config.port}`,
     close: async () => {
+      await contextTracking.close();
       server.stop(true);
     },
   };

@@ -72,6 +72,7 @@ import type {
 import { isSettledFailure, transcriptNotice, type TranscriptFailureSource } from '../lib/transcriptStatus';
 import type { RepairHalt } from '../lib/repairBudget';
 import ContextMeter from './ContextMeter';
+import ContextRecommendation from './ContextRecommendation';
 import { contextMeterState } from '../lib/contextMeter';
 import { COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE, hostReportsCost, sessionCostState } from '../lib/sessionCost';
 import { crewCostLabel, crewCostTitle, type CrewCostState } from '../lib/crewCost';
@@ -1275,26 +1276,7 @@ function ChatView({
     () => contextMeterState(messages, model ?? defaultModel),
     [messages, model, defaultModel]
   );
-  // Hearth does not compact on its own, so Ember does it for the session you are looking at: once
-  // past 85% of the window, when the turn is finished and nothing is already compacting. The ref
-  // makes it once per crossing rather than every render, and it rearms once usage drops back.
-  // An unknown ratio never compacts: it is not a measurement, so it can't cross a threshold, and a
-  // silent rewrite of the history on a guess is the worst thing this control could do.
-  const autoCompactedRef = React.useRef<string | null>(null);
-  const contextPercent = contextMeter.kind === 'known' ? contextMeter.percent : null;
   const turnBusy = sending || state === 'active';
-  React.useEffect(() => {
-    if (!session || compacting || turnBusy) return;
-    if (contextPercent === null) return;
-    const key = sessionKey(session);
-    if (contextPercent < 85) {
-      if (autoCompactedRef.current === key) autoCompactedRef.current = null;
-      return;
-    }
-    if (autoCompactedRef.current === key) return;
-    autoCompactedRef.current = key;
-    onCompact();
-  }, [session, compacting, turnBusy, contextPercent, onCompact]);
 
   // Up-arrow history: recall the most recent thing the user sent, like a shell.
   const lastSentMessage = React.useMemo(() => {
@@ -2298,6 +2280,18 @@ function ChatView({
               </form>
             ) : null}
           </div>
+          {session ? (
+            <ContextRecommendation
+              key={sessionKey(session)}
+              scope={sessionKey(session)}
+              tokens={session.currentContextTokens}
+              epoch={session.currentContextEpoch}
+              window={(model ?? defaultModel)?.details?.contextTokens}
+              compacting={compacting}
+              busy={turnBusy}
+              onCompact={onCompact}
+            />
+          ) : null}
           <div ref={connection.footer} data-connection-composer={connection.connected || undefined} className={cn("safe-composer relative border-t p-2.5 sm:p-3", connection.connected && "connection-band")}>
             {connection.connected ? <span key={seed} data-connection-trace aria-hidden="true" /> : null}
             <motion.div

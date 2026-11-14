@@ -329,7 +329,9 @@ export const tick = async (
     // The cheap signal first: a crew with nobody owing an answer can neither report nor be due a
     // wake, so such a conversation costs this tick exactly one snapshot read.
     const active = Object.entries(snapshot.items).filter(([, entry]) => isActiveWorker(entry));
-    if (active.length === 0 && !Object.values(snapshot.items).some((entry) => entry.delivery === "thread")) continue;
+    if (active.length === 0 && !Object.values(snapshot.items).some((entry) =>
+      entry.delivery === "thread" || (entry.contextAdvisory?.task === threadTask(entry) &&
+        entry.notifiedContextEpoch !== entry.contextAdvisory?.epoch))) continue;
 
     for (const [name, entry] of active) {
       const live = await harness.snapshot(LiveDoc, entry.conversationId, context);

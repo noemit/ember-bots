@@ -33,6 +33,29 @@ is above the view and none of your messages is visible; jumping never marks anyt
 Select part of a response or plan to comment on it. Comments remain drafts in a tray until you send
 them together. Internal thread-result retrieval does not change your read marks.
 
+## Context and compaction
+
+Ember offers a quiet **Compact** recommendation above the composer at approximately 100,000
+current-context tokens, or 60% of the selected model’s context window if that is lower. The smaller-window
+threshold leaves room for the next reply and tool output; it is conservative advice, not a guarantee
+that a particular prompt fits. This measures the active context, not summed billed tokens or crew usage.
+Hosts that do not report current context do not show the recommendation.
+
+Compaction is your choice. Ember does not automatically compact from this recommendation, interrupt a
+running turn, start a worker, or change your model. Kiln’s existing near-limit/overflow safety
+compaction remains unchanged. Wait for the turn to finish, then choose **Compact**
+to summarize older context while retaining recent messages. A conversation that already fits may have
+nothing to compact. Dismiss hides the advice through further growth and polling; a new context prefix
+(after compaction/reset) or a substantial drop in usage rearms it. Dismissal is local to the mounted
+conversation view, not a permanent setting.
+
+Kiln workers reaching about 100,000 current-context tokens receive advisory instructions to finish
+their bounded assignment and leave a concise durable handoff: progress, files, commits, tests, blockers
+and next steps. Their leader is advised to prefer a fresh Sol/Luna worker for substantial new work.
+Small completion work and an explicit override may continue; this is guidance, not a hard execution
+ban. Queued directions are retained, and no replacement worker is started automatically. Older Kilns
+without this policy continue their existing worker behavior.
+
 ## Providers
 
 Open **Settings → Providers**, choose the Kiln instance, and paste a key. Credentials stay on that

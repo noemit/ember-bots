@@ -154,6 +154,10 @@ export type Session = {
   needsInput?: boolean;
   /** Whether this session offers the delegation tool (can lead a crew). */
   delegates?: boolean;
+  /** Host snapshot of the current model context, never cumulative billed/crew usage. */
+  currentContextTokens?: number;
+  /** Host context generation: changes after a reset or successful compaction. */
+  currentContextEpoch?: string;
   /** True while a context compaction task is in flight (Hearth's `pi.live.compactions`). */
   compacting?: boolean;
   /** The newest compaction failure reported by the host (`pi.live.compactionFailure`). */
