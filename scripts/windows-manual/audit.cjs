@@ -21,7 +21,7 @@ const pe = file => {
   const offset = b.readUInt32LE(0x3c);
   assert.equal(b.toString('ascii', offset, offset + 4), 'PE\0\0');
   assert.equal(b.readUInt16LE(offset + 4), 0x8664);
-  console.log(`PE x64 verified: `);
+  console.log('PE x64 verified: ' + file);
 };
 for (const file of ['win-unpacked/Ember.exe', 'win-unpacked/resources/kiln.exe', 'tinder-cli.exe']) pe(path.join(release, file));
 const result = spawnSync(path.join(release, 'tinder-cli.exe'), ['help'], {encoding:'utf8', timeout:20000, cwd:process.env.RUNNER_TEMP,
@@ -34,6 +34,6 @@ assert.equal(names.some(n => n.endsWith('.exe')), true);
 assert.equal(names.some(n => n.endsWith('.zip')), true);
 fs.copyFileSync(path.join(release, 'tinder-cli.exe'), path.join(release, 'tinder-windows-x64.exe'));
 names.push('tinder-windows-x64.exe');
-fs.writeFileSync(path.join(release, 'SHA256SUMS-windows.txt'), names.sort().map(n => `  \n`).join(''));
-fs.writeFileSync(path.join(release, 'MANUAL-WINDOWS.txt'), `Ember 1.23.0 unsigned manual Windows x64 build\nProduct commit: 2c46cb55018f5113300f4376caffc7a921e3cf30\nValidation/overlay commit: \nBuilder override: publish=null; extraMetadata={}; no stable marker, latest.yml, or app-update.yml.\nRuntime signature verification remains enabled in product source.\nWindows may show SmartScreen or Unknown publisher because this installer is unsigned. Only proceed if you trust this download and its checked SHA-256.\nAutomatic updates are disabled. Download future releases manually, quit Ember, replace/install, and reopen; preserve your data folder.\nNative test profiles and OAuth exchange are isolated/offline; no live provider requests.\nSigned A-to-B update/publisher rejection are not applicable to this manual distribution and are not claimed.\nNSIS installation/uninstallation was not exercised by this run.\n`);
+fs.writeFileSync(path.join(release, 'SHA256SUMS-windows.txt'), names.sort().map(n => crypto.createHash('sha256').update(fs.readFileSync(path.join(release,n))).digest('hex') + '  ' + n + '\n').join(''));
+fs.writeFileSync(path.join(release, 'MANUAL-WINDOWS.txt'), `Ember 1.23.0 unsigned manual Windows x64 build\nProduct commit: 2c46cb55018f5113300f4376caffc7a921e3cf30\nValidation/overlay commit recorded by GitHub Actions run head SHA.\nBuilder override: publish=null; extraMetadata={}; no stable marker, latest.yml, or app-update.yml.\nRuntime signature verification remains enabled in product source.\nWindows may show SmartScreen or Unknown publisher because this installer is unsigned. Only proceed if you trust this download and its checked SHA-256.\nAutomatic updates are disabled. Download future releases manually, quit Ember, replace/install, and reopen; preserve your data folder.\nNative test profiles and OAuth exchange are isolated/offline; no live provider requests.\nSigned A-to-B update/publisher rejection are not applicable to this manual distribution and are not claimed.\nNSIS installation/uninstallation was not exercised by this run.\n`);
 console.log('Packaged version, absent stable marker/feed, actual CLI, PE x64 and SHA256SUMS verified.');

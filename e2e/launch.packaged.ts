@@ -29,6 +29,10 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await window.screenshot({ path: test.info().outputPath('packaged-first-window.png') });
     await expect(window.getByTestId('onboarding')).toBeVisible();
     await expect(window.getByRole('heading', { name: 'Setting up Ember Bots' })).toBeVisible();
+    const updateState = await window.evaluate(() => window.ember.getUpdateState!());
+    expect(updateState.phase).toBe('disabled');
+    expect(updateState.supported).toBe(false);
+    expect(updateState.currentVersion).toBe('1.23.0');
     const headingRow = window.getByRole('heading', { name: 'Setting up Ember Bots' }).locator('..');
     await expect(headingRow).toHaveCSS('padding-top', '26px');
     await expect(headingRow).toHaveCSS('padding-bottom', '26px');
