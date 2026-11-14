@@ -83,6 +83,8 @@ export default function ArchiveDialog({
         session={session}
         instanceLabel={multiInstance ? instanceById[session.instanceId]?.label : undefined}
         projectName={projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name}
+        // This is a reading dialog, not the normal-width rail: keep its descriptions.
+        expanded
         preview={previews[key]}
         selected={false}
         mood={moods[key] ?? 'unknown'}

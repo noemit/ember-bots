@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { normalizeDirectory } from '../blob/seed';
 
 const relativeTime = (timestamp: number | undefined, now: number): string => {
   if (!timestamp) return '';
@@ -25,10 +24,9 @@ export const RelativeTime = ({ timestamp, className }: { timestamp: number | und
 };
 
 /** Keep the time beside the final description line, never competing with the bot's title. */
-export default function RailDescription({ preview, timestamp, directory, compact = false }: {
+export default function RailDescription({ preview, timestamp, compact = false }: {
   preview: string | undefined;
   timestamp: number | undefined;
-  directory?: string;
   compact?: boolean;
 }) {
   const [settled, setSettled] = React.useState(false);
@@ -55,9 +53,6 @@ export default function RailDescription({ preview, timestamp, directory, compact
       <span aria-hidden="true" className="my-0.5 block h-2.5 w-3/4 animate-pulse rounded bg-muted" />
     ) : null}
     <span data-session-time-meta="" className="flex min-w-0 items-baseline gap-2 text-[11.5px] leading-4">
-      {!compact && (preview !== undefined || settled) && directory ? <span className="min-w-0 truncate" title={directory}>
-        {normalizeDirectory(directory).split(/[\\/]/).pop()}
-      </span> : null}
       {time}
     </span>
   </>;

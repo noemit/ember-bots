@@ -123,9 +123,12 @@ export default function ProjectCard({
       }}
       className="cursor-pointer rounded-lg border bg-card/40 px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-highlight"
     >
-      <div className="flex items-center gap-1.5 px-1">
+      <div className="flex flex-wrap items-start gap-1.5 px-1">
         <span
-          className="min-w-0 truncate text-[11.5px] font-semibold text-foreground"
+          data-rail-folder=""
+          title={project.path}
+          aria-label={project.path ? project.name + ' — ' + project.path : project.name}
+          className="min-w-0 basis-full whitespace-normal text-[11.5px] leading-4 font-semibold text-foreground [overflow-wrap:anywhere]"
           data-instance-marker={markerColor}
           style={markerColor === undefined ? undefined : {
             textDecoration: 'underline',

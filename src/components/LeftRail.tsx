@@ -1,5 +1,6 @@
 import { NotificationSizeContext } from '../blob/overlays';
 import RailItem from './RailItem';
+import RailFolder from './RailFolder';
 import ComposerIdentity from './ComposerIdentity';
 import InstanceMarker from './InstanceMarker';
 import { useWorkspaceConnection } from './workspaceConnection';
@@ -209,6 +210,20 @@ export default function LeftRail({
   const docked = Boolean(composerConnection.activeKey && selectedSession);
   const scroller = React.useRef<HTMLDivElement>(null);
   const dockElement = React.useRef<HTMLDivElement>(null);
+  // Preserve composer-centre alignment unless the full folder needs more vertical room.
+  // Measure the dock itself, not a guessed line count: folder names have no length limit.
+  const [dockHeight, setDockHeight] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const element = dockElement.current;
+    if (!docked || !element) return;
+    const measure = () => setDockHeight(element.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [docked, mode, selectedKey]);
+  const dockCentre = Math.max(composerConnection.metrics?.centre ?? 64, dockHeight / 2);
+  const dockBandHeight = Math.max(composerConnection.metrics?.height ?? 128, dockCentre + dockHeight / 2);
   const focusDock = React.useRef(false);
   const followBottom = React.useRef(true);
   React.useLayoutEffect(() => {
@@ -484,13 +499,12 @@ export default function LeftRail({
     const folder = folderNameOf(session);
     const instance = instanceLabelOf(session);
     if (!folder && !instance) return undefined;
-    const key = JSON.stringify([folder, instance]);
+    const key = JSON.stringify([folder, instance, session.directory]);
     if (!metadataCache.current.has(key)) metadataCache.current.set(key, (
-      <>
-        {folder ? <span className="truncate">{folder}</span> : null}
-        {folder && instance ? <span aria-hidden>·</span> : null}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <RailFolder name={folder} path={session.directory} />
         {instance ? instanceMeta(instance) : null}
-      </>
+      </span>
     ));
     return metadataCache.current.get(key);
   };
@@ -552,10 +566,11 @@ export default function LeftRail({
     if (entry.kind === 'group') {
       return (
         <GroupRow
+          expanded={mode === 'wide'}
           key={entry.id}
           entry={entry}
+          folderNames={Object.fromEntries(entry.members.map(member => [sessionKey(member), folderNameOf(member)]))}
           previews={previews}
-          compact={compact && mode !== 'wide'}
           instanceLabels={Object.fromEntries(instances.map((instance) => [instance.id, instance.label]))}
           instanceMarkers={Object.fromEntries(instances.map(instance => [instance.id, instanceMarkerColor(instance.id, instanceDefaults[instance.id])]))}
           avatarIdentities={avatarIdentities}
@@ -584,8 +599,7 @@ export default function LeftRail({
     const openProject = () => onOpenProject(entry.instanceId, entry.project, entry.sessions);
     const newAgentKey = `${entry.instanceId}\u0000${entry.project.path ?? ''}`;
     if (!projectNewAgent.current.has(newAgentKey)) projectNewAgent.current.set(newAgentKey, () => newAgent(entry.instanceId, entry.project.path));
-    // A lone session keeps the familiar full row (big blob, project name as the title); the
-    // grouped card is only worth it once a project has several sessions to show off.
+    // A lone project keeps its folder heading and its individual session title.
     if (entry.sessions.length === 1) {
       const session = entry.sessions[0];
       const key = sessionKey(session);
@@ -594,10 +608,9 @@ export default function LeftRail({
           key={entry.id}
           session={session}
           instanceLabel={multiInstance ? instance?.label : undefined}
-          projectName={undefined}
-          titleOverride={entry.project.name}
+          projectName={entry.project.name}
           onArchiveMany={archiveMany}
-          topMeta={instance?.label ? instanceMeta(instance.label) : undefined}
+          topMeta={topMetaFor(session)}
           preview={previews[key]}
           selected={key === selectedKey}
           visibleColumn={visibleColumnKeys.has(key)}
@@ -666,6 +679,7 @@ export default function LeftRail({
         session={session}
         instanceLabel={multiInstance ? instance?.label : undefined}
         projectName={projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name}
+        topMeta={topMetaFor(session)}
         preview={previews[key]}
         selected={false}
         mood={moods[key] ?? 'unknown'}
@@ -747,7 +761,8 @@ export default function LeftRail({
     <NotificationSizeContext.Provider value={10}>
     <aside
       id="session-sidebar"
-      style={{ '--mini-rail-width': `${miniAvatarSize + 24}px` } as React.CSSProperties}
+      // Mobile safe-area padding must not lift the desktop dock off the composer's bottom edge.
+      style={{ '--mini-rail-width': `${miniAvatarSize + 24}px`, paddingBottom: docked ? 0 : undefined } as React.CSSProperties}
       data-testid="session-rail"
       onPointerDownCapture={() => { focusDock.current = false; }}
       onKeyDownCapture={event => {
@@ -960,12 +975,12 @@ export default function LeftRail({
       </div>
 
       {docked && selectedSession ? (
-        <div data-active-chat={selectedKey} aria-label={`Current chat: ${selectedSession.title?.trim() || selectedSession.id}`} className="connection-band relative flex-none border-t" style={{ height: composerConnection.metrics?.height ?? 128 }}>
+        <div data-active-chat={selectedKey} aria-label={`Current chat: ${selectedSession.title?.trim() || selectedSession.id}`} className="connection-band relative flex-none border-t" style={{ height: dockBandHeight }}>
           <ContextMenu><ContextMenuTrigger asChild>
-            <div ref={dockElement} role="button" tabIndex={0} aria-label={selectedSession.title?.trim() || selectedSession.id} data-selected="true" aria-current="true" title={[selectedSession.title, folderNameOf(selectedSession), instanceLabelOf(selectedSession)].filter(Boolean).join(' · ')} data-mini-session={mode === 'mini' ? selectedKey : undefined}
+            <div ref={dockElement} role="button" tabIndex={0} aria-label={selectedSession.title?.trim() || selectedSession.id} data-selected="true" aria-current="true" title={[selectedSession.title, selectedSession.directory || folderNameOf(selectedSession), instanceLabelOf(selectedSession), mode === 'mini' ? previews[sessionKey(selectedSession)] : undefined].filter(Boolean).join(' · ')} data-mini-session={mode === 'mini' ? selectedKey : undefined}
               onClick={event => { if (!(event.target instanceof Element && event.target.closest('input'))) selectSession(selectedSession); }}
               onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectSession(selectedSession); } }}
-              className="group/dock absolute inset-x-0 translate-y-1/2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" style={{ bottom: composerConnection.metrics?.centre ?? 64 }}>
+              className="group/dock absolute inset-x-0 translate-y-1/2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" style={{ bottom: dockCentre }}>
               <motion.div key={selectedKey} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .35 }}>
                 <ComposerIdentity docked compact={mode === 'mini'} name={selectedSession.title?.trim() || selectedSession.id}
                   seed={sessionKey(selectedSession)} identity={avatarIdentities[sessionKey(selectedSession)]}

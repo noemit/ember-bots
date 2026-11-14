@@ -6,6 +6,7 @@ import { AlarmClock, AlarmClockOff, Eye, Bell, BellOff, CalendarClock, CheckChec
 import Blob from '../blob/Blob';
 import ProjectCleanupMenu from './ProjectCleanupMenu';
 import RailDescription from './RailDescription';
+import RailFolder from './RailFolder';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,14 +41,10 @@ export type SessionRowProps = {
   markerColor: number | undefined;
   identity: AvatarIdentity | undefined;
   blobStyle: BlobStyle;
-  /** Compact rail row: smaller blob, no preview line. */
+  /** Compact rail row: smaller blob and tighter padding. */
   compact?: boolean;
-  /**
-   * The rail is widened: retain descriptions even when compact rows are enabled.
-   */
+  /** Show descriptions in the wide rail (or an explicit reading dialog), never normal. */
   expanded?: boolean;
-  /** Overrides the title text; used by a one-session project row to show the project name. */
-  titleOverride?: string;
   /** Shown as a small line above the title (e.g. "Project · instance"); moves it out of the meta row. */
   topMeta?: React.ReactNode;
   /** When set, renders a `+` that starts a new session in the row's project. */
@@ -206,7 +203,6 @@ const SessionRow = React.memo(function SessionRow({
   blobStyle,
   compact = false,
   expanded = false,
-  titleOverride,
   topMeta,
   onNewAgent,
   scheduledTask,
@@ -228,7 +224,7 @@ const SessionRow = React.memo(function SessionRow({
   const key = sessionKey(session);
   // Blank is not a title: a `''` (or whitespace) title used to win the `??` chain and render an
   // empty row, which reads as a broken session rather than an untitled one.
-  const title = titleOverride?.trim() || session.title?.trim() || session.id;
+  const title = session.title?.trim() || session.id;
   // Per row, not per view: the selected session is pinned into the active list even when
   // it's archived, and its button must offer "Unhide" rather than hiding it again.
   const avatarSize = useAvatarSize(compact ? 40 : 55);
@@ -237,7 +233,6 @@ const SessionRow = React.memo(function SessionRow({
   const archiveBusyLabel = archived ? 'Unhiding…' : 'Hiding…';
   const ArchiveIcon = archived ? Eye : EyeOff;
   const actionsAlwaysVisible = Boolean(archiving || scheduledRunning || onArchiveMany);
-  const actionSpace = 26 * (1 + Number(Boolean(onNewAgent)) + Number(Boolean(scheduledTask)) + Number(Boolean(onArchiveMany)) + Number(Boolean(onSnooze && !archived))) + 8;
 
   return (
     <motion.div
@@ -247,7 +242,6 @@ const SessionRow = React.memo(function SessionRow({
       exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
       transition={spring}
       className="group relative"
-      style={{ '--rail-action-space': `${actionSpace}px` } as React.CSSProperties}
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -282,14 +276,14 @@ const SessionRow = React.memo(function SessionRow({
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              {/* Actions share only the metadata band. Its reserved height also protects rows
-                  without metadata, while the title and description keep their full width on hover. */}
-              <div data-rail-heading="" className="flex min-h-[30px] min-w-0 items-center pr-[var(--rail-action-space)]">
+              {/* Keep a dedicated action band above the full-width folder. Reserving action
+                  width on every wrapped line made long folder names needlessly tall. */}
+              <div data-rail-heading="" className="flex min-w-0 flex-col items-stretch pt-[30px]">
                 {topMeta ? (
-                  <span className="flex min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">
+                  <span className="flex min-w-0 flex-1 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">
                     {topMeta}
                   </span>
-                ) : null}
+                ) : <RailFolder name={projectName} path={session.directory} />}
               </div>
               <div data-rail-title-row="" className="flex min-w-0 items-baseline gap-2">
                 {snoozed ? <span className="flex-none text-[10px] text-muted-foreground">Snoozed</span> : null}
@@ -325,8 +319,8 @@ const SessionRow = React.memo(function SessionRow({
                   {title}
                 </span>
               </div>
-              <RailDescription preview={preview} timestamp={session.updated} directory={session.directory} compact={compact && !expanded} />
-              {mood === 'input' || mood === 'question' || mood === 'error' || (!topMeta && (projectName || instanceLabel)) ? (
+              <RailDescription preview={preview} timestamp={session.updated} compact={!expanded} />
+              {mood === 'input' || mood === 'question' || mood === 'error' || (!topMeta && instanceLabel) ? (
                 <span className="flex items-center gap-1 truncate text-[10.5px] text-muted-foreground">
                   {mood === 'input' || mood === 'question' ? (
                     <Badge variant="outline" className="flex-none border-highlight/40 px-1 py-0 text-[10px] font-medium text-highlight">
@@ -339,16 +333,14 @@ const SessionRow = React.memo(function SessionRow({
                   ) : null}
                   {!topMeta &&
                   (mood === 'input' || mood === 'question' || mood === 'error') &&
-                  (projectName || instanceLabel) ? (
+                  instanceLabel ? (
                     <span aria-hidden>·</span>
                   ) : null}
                   {!topMeta && instanceLabel ? (
                     <>
                       <span className="truncate">{instanceLabel}</span>
-                      {projectName ? <span aria-hidden>·</span> : null}
                     </>
                   ) : null}
-                  {!topMeta && projectName ? <span className="truncate">{projectName}</span> : null}
                 </span>
               ) : null}
             </div>
@@ -396,7 +388,7 @@ const SessionRow = React.memo(function SessionRow({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label={`New session in ${titleOverride ?? 'project'}`}
+                aria-label={`New session in ${projectName ?? 'project'}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   onNewAgent();
@@ -406,7 +398,7 @@ const SessionRow = React.memo(function SessionRow({
                 <Plus />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="left">New session in {titleOverride ?? 'project'}</TooltipContent>
+            <TooltipContent side="left">New session in {projectName ?? 'project'}</TooltipContent>
           </Tooltip>
         ) : null}
 

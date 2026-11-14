@@ -105,7 +105,7 @@ test('trays sit above the composer and do not enlarge its connected agent row', 
   const column = page.locator('main[data-session-key="pi:hearth::16"]');
   const band = column.locator('[data-connection-composer]');
   const extras = column.locator('[data-composer-extras]');
-  await expect(extras.getByRole('tab', { name: /Threads/ })).toBeVisible();
+  await expect(extras.getByRole('tab', { name: /Tasks/ })).toBeVisible();
   await expect(band.getByRole('tab')).toHaveCount(0);
   const expanded = (await band.boundingBox())!;
   const above = (await extras.boundingBox())!;

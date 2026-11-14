@@ -47,7 +47,7 @@ for (const style of ['Buddy', 'Crystal', 'Mosaic', 'Lava']) {
     await page.goto('/?noDock');
     const rail = page.getByTestId('session-rail');
     await expect(rail.locator('[data-badge="unread"]').first()).toBeVisible();
-    await rail.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: new RegExp('^' + style + ' ') }).click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -87,7 +87,7 @@ for (const style of ['Buddy', 'Crystal', 'Mosaic', 'Lava']) {
     };
 
     for (const label of ['Standard', 'Large', 'Extra large']) {
-      await rail.getByRole('button', { name: 'Settings', exact: true }).click();
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
       await sampleDuring(() => page.getByRole('button', { name: label + ' avatars', exact: true }).click());
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -111,7 +111,7 @@ test('collapsed rail previews use readable tooltip foreground in light and dark 
   await page.keyboard.press('ControlOrMeta+b');
   await page.keyboard.press('ControlOrMeta+b');
   for (const theme of ['Stone', 'Graphite']) {
-    await rail.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: theme, exact: true }).click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);

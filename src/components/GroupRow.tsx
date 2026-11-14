@@ -1,6 +1,7 @@
 import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import RailDescription from './RailDescription';
+import RailFolder from './RailFolder';
 import * as React from 'react';
 import { Box, Group as GroupIcon, Plus, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -24,8 +25,9 @@ import type { AvatarIdentity, BallMood, BlobStyle, Session } from '../types';
 type Props = {
   entry: GroupEntry;
   previews?: Record<string, string>;
-  /** Compact rows hide descriptions, except in the wide rail. */
-  compact?: boolean;
+  folderNames?: Record<string, string | undefined>;
+  /** Descriptions belong only in the wide rail, independent of density. */
+  expanded?: boolean;
   /** Instance label per id, for the footer's instance chips. */
   instanceLabels: Record<string, string>;
   instanceMarkers?: Record<string, number | undefined>;
@@ -58,7 +60,8 @@ type Props = {
 export default function GroupRow({
   entry,
   previews = {},
-  compact = false,
+  folderNames = {},
+  expanded = false,
   instanceLabels,
   instanceMarkers = {},
   avatarIdentities,
@@ -209,6 +212,7 @@ export default function GroupRow({
                         ) : null}
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <RailFolder name={folderNames[key]} path={member.directory} />
                         <span data-group-member-title="" data-instance-marker={markerColor}
                           style={markerColor === undefined ? undefined : {
                             textDecoration: 'underline',
@@ -219,7 +223,7 @@ export default function GroupRow({
                           className="line-clamp-2 text-[11.5px] leading-4 text-foreground [overflow-wrap:anywhere]">
                           {member.title?.trim() || member.id}
                         </span>
-                        <RailDescription preview={previews[key]} timestamp={member.updated} directory={member.directory} compact={compact} />
+                        <RailDescription preview={previews[key]} timestamp={member.updated} compact={!expanded} />
                       </span>
                       <ProcessIndicator session={member} />
                       {member.needsInput ? (

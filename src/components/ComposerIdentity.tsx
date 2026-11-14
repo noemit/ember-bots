@@ -2,6 +2,7 @@ import * as React from 'react';
 import { EyeOff, Plus } from 'lucide-react';
 import Blob from '../blob/Blob';
 import InstanceMarker from './InstanceMarker';
+import RailFolder from './RailFolder';
 import { useAvatarSize } from '../blob/size';
 import type { AvatarIdentity, BallMood, BlobStyle } from '../types';
 
@@ -33,6 +34,7 @@ export default function ComposerIdentity({ name, seed, identity, style, mood, do
   return <div data-composer-identity className={docked ? (compact ? "group/identity relative flex min-w-0 items-center justify-center px-1 py-2" : "group/identity flex min-w-0 items-center gap-3 px-4 py-3") : "group/identity flex min-w-0 items-center gap-2 px-3 pt-2 pb-[3px]"}>
     {showAvatar ? <span className={compact ? "relative inline-flex flex-none pb-1" : "relative inline-flex flex-none"}><Blob style={style} seed={seed} identity={identity} size={size} mood={mood} />{avatarOverlay}{compact ? <InstanceMarker color={markerColor} className="bottom-0" /> : null}</span> : null}
     {!compact ? <div className="min-w-0 flex-1">
+      {docked && !topMeta ? <RailFolder name={folder} path={directory} /> : null}
       {docked && topMeta ? <span data-composer-context className="mb-1 flex min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">{topMeta}</span> : null}
       {editing ? <input autoFocus aria-label="Rename session" defaultValue={name} className="w-full min-w-0 rounded border bg-background px-1 py-0.5 text-[13px]"
         onKeyDown={event => { if (event.key === 'Escape') { cancelled.current = true; setEditing(false); } else if (event.key === 'Enter') event.currentTarget.blur(); }}
@@ -45,7 +47,6 @@ export default function ComposerIdentity({ name, seed, identity, style, mood, do
                             textUnderlineOffset: '3px',
                           }} data-composer-name="" className="line-clamp-2 text-[13px] leading-[18px] font-medium text-foreground [overflow-wrap:anywhere]" title={onRename ? `${name} — double-click to rename` : name}
           onDoubleClick={onRename ? () => { cancelled.current = false; setEditing(true); } : undefined}>{name}</span>}
-      {docked && !topMeta && folder ? <span className="mt-1 block truncate text-[11px] text-muted-foreground" title={directory}>{folder}</span> : null}
     </div> : null}
     {onNewBot || onHide ? <div data-composer-identity-actions className={`flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/identity:opacity-100 group-focus-within/identity:opacity-100 group-focus-within/dock:opacity-100 [@media(hover:none)]:opacity-100${compact ? ' absolute top-[calc(100%-8px)]' : ''}`}
       onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
