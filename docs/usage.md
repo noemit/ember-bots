@@ -33,6 +33,19 @@ is above the view and none of your messages is visible; jumping never marks anyt
 Select part of a response or plan to comment on it. Comments remain drafts in a tray until you send
 them together. Internal thread-result retrieval does not change your read marks.
 
+## Background threads
+
+The **Threads** shelf shows the chat’s workers grouped under their first-level supervisor, with
+second-level workers indented. Open any row to read its live conversation, answer a question or
+follow its result links without leaving the main chat. Older, deeper crews remain readable too.
+Thread retrieval and navigation never acknowledge messages on your behalf.
+
+New crews have two worker levels: the main chat starts a first-level worker, which can start
+second-level workers. If a second-level worker needs help, its new worker joins it as a sibling
+under the same supervisor, rather than adding a third level. The requester keeps access to the
+work it asked for; unrelated siblings do not gain access to each other. Spawn rate and budget
+safeguards still apply, and no replacement or extra worker is started automatically.
+
 ## Context and compaction
 
 Ember offers a quiet **Compact** recommendation above the composer at approximately 100,000

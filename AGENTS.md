@@ -107,6 +107,14 @@ their existing names; archive references in the implementation notes below descr
 
 ## Background threads (1.18.0 / Kiln 1.9.0)
 
+- New crews have at most two worker levels below the root. A level-2 spawn creates a sibling
+  under its level-1 supervisor, not a level-3 child. Stable creator/task access is distinct from
+  supervisory `lead` ownership: a requester keeps access to its spawned sibling, never arbitrary
+  siblings. Existing deeper crews remain readable. Spawn-rate, budget and cancellation safeguards
+  still apply; this policy never starts replacement workers automatically.
+- The root's Threads shelf shows every known descendant grouped by its first-level supervisor,
+  with nested workers indented. Status, human blockers and result links stay reachable without
+  marking any human messages read.
 - New Kiln workers default to `delivery: thread` in `hearth.sessions`. A final result stays in the
   result document and worker transcript; `hearth.thread-result` records only identifiers/status and
   evidence references. Existing delivery-less entries retain the legacy report contract.
@@ -439,11 +447,10 @@ their existing names; archive references in the implementation notes below descr
   retain their own identity. The `role="group"` supplies the accessible boundary without a card.
   The shelf owns opening and folding; Previous still reveals finished threads, and pending nested
   workers remain directly reachable. Clicking a row opens the worker in a **session dialog** — a live ChatView with its own composer and prompt controls, while the main workspace and selected session stay unchanged. The dialog key is never persisted; its transcript joins visible-column event refresh, polling and cache protection. Closing or Escape returns to the same workspace. Promoted workers link to their peer in the normal workspace, and promotion from an open dialog hands over to that peer. Because the strip is
-  the only place a worker is visible, it also carries a row for every worker blocked on the human
-  **below** the direct crew, at any depth (`blockedCrewByLeader` in App, one `blockedWorkersUnder`
-  per leader), marked with its depth and opening the conversation that is actually waiting — a
-  sub-agent's question used to be invisible until you opened the worker above it. Workers that are
-  not blocked stay hidden, exactly as before. `App.tsx` derives
+  the only place a worker is visible, it includes every known descendant grouped under its
+  first-level supervisor and indented by depth (`threadRows` in `lib/crew.ts`). Running, finished
+  and blocked nested workers are all directly reachable; each blocked worker keeps its own
+  needs-you status. `App.tsx` derives
   `crewByLeader`, rolls a worker's `needsInput` up its `lead` chain to the leader's mood, and
   warns through `ArchiveSessionDialog` before a cascade archiving stops a working crew. The
   `[crew] …` wake Hearth sends at quiescence renders in `Transcript` as a "Crew report" card

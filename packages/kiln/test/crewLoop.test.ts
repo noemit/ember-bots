@@ -101,7 +101,7 @@ describe("spawn loop guards", () => {
         context
       );
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((await toolTextOf(isolated.harness, record.id as unknown as number)).includes("Refused")) break;
+        if ((await toolTextOf(isolated.harness, record.id as unknown as number)).includes("Started worker")) break;
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(await toolTextOf(isolated.harness, record.id as unknown as number)).toContain("not to delegate");
@@ -197,7 +197,7 @@ describe("spawn loop guards", () => {
     }
   }, 30_000);
 
-  test("a worker at the depth cap does not get the crew tool, and a spawn there is refused", async () => {
+  test("a level-2 worker spawns a sibling under the level-1 supervisor", async () => {
     const isolated = await open();
     try {
       isolated.faux.setResponses([WORKER_SPAWN, fauxAssistantMessage([fauxText("understood")])]);
@@ -215,11 +215,16 @@ describe("spawn loop guards", () => {
         context
       );
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((await toolTextOf(isolated.harness, parent.id as unknown as number)).includes("Refused")) break;
+        if ((await toolTextOf(isolated.harness, parent.id as unknown as number)).includes("Started worker")) break;
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
-      expect(await toolTextOf(isolated.harness, parent.id as unknown as number)).toContain("depth 3");
-      expect(await conversationsOf(isolated.storage)).toHaveLength(3);
+      expect(await toolTextOf(isolated.harness, parent.id as unknown as number)).toContain("Started worker");
+      expect(await conversationsOf(isolated.storage)).toHaveLength(4);
+      const task = (await isolated.harness.snapshot(SessionsDoc, parent.id, context))!.items.helper;
+      const meta = await isolated.harness.snapshot(MetaDoc, task.conversationId, context);
+      expect(meta?.lead?.conversationId).toBe(middle.id);
+      expect(meta?.creatorId).toBe(parent.id);
+      expect(meta?.delegates).toBe(true);
     } finally {
       await isolated.harness.close(context);
       await rm(isolated.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => undefined);

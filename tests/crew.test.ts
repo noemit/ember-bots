@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   threadDescendants,
+  threadRows,
+  threadSourcesFor,
   workerKeySet,
   threadShelfStatus,
   blockedWorkersAmong,
@@ -39,6 +41,42 @@ const worker = (id: string, leadId: string, extra: Partial<Session> = {}): Sessi
     lead: { instanceId: 'hearth', sessionId: leadId },
     ...extra,
   });
+
+describe('threadRows', () => {
+  test('groups siblings by their reporting lead, keeps legacy depth and rejects cycles and other hosts', () => {
+    const root = session('1');
+    const a = worker('2', '1', { title: 'First lead' });
+    const b = worker('3', '1', { title: 'Second lead' });
+    const child = worker('4', '2');
+    const sibling = worker('5', '2', { needsInput: true });
+    const oldGrandchild = worker('6', '4');
+    const peer = session('7', { kind: 'peer', lead: { instanceId: 'hearth', sessionId: '2' } });
+    const otherHost = worker('8', '2', { instanceId: 'other' });
+    const cycle = worker('9', '6', { lead: { instanceId: 'hearth', sessionId: '9' } });
+    const rows = threadRows(root, crewByLeader([root, a, b, child, sibling, oldGrandchild, peer, otherHost, cycle]));
+    expect(rows.map(({ worker, depth, group }) => [worker.id, depth, group.id])).toEqual([
+      ['2', 1, '2'], ['4', 2, '2'], ['6', 3, '2'], ['5', 2, '2'], ['3', 1, '3'],
+    ]);
+    expect(threadRows(child, crewByLeader([root, a, b, child, sibling, oldGrandchild]))
+      .map(({ worker }) => worker.id)).toEqual(['6']);
+  });
+});
+
+describe('source link authorization', () => {
+  test('a level-2 requester sees only its spawned sibling, while the root sees all descendants', () => {
+    const root = session('1');
+    const lead = worker('2', '1');
+    const requester = worker('3', '2');
+    const sibling = worker('4', '2', { creator: { instanceId: 'hearth', sessionId: '3' } });
+    const unrelated = worker('5', '2', { creator: { instanceId: 'hearth', sessionId: '2' } });
+    const otherHost = worker('6', '2', { instanceId: 'remote', creator: { instanceId: 'hearth', sessionId: '3' } });
+    const peer = session('7', { kind: 'peer', creator: { instanceId: 'hearth', sessionId: '3' } });
+    const sessions = [root, lead, requester, sibling, unrelated, otherHost, peer];
+    const crews = crewByLeader(sessions);
+    expect(threadSourcesFor(requester, crews, sessions).map(({ id }) => id)).toEqual(['4']);
+    expect(threadSourcesFor(root, crews, sessions).map(({ id }) => id).sort()).toEqual(['2', '3', '4', '5']);
+  });
+});
 
 describe('isWorker', () => {
   test('only kind "worker" is a crew worker; peers and plain sessions are not', () => {

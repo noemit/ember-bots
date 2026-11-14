@@ -45,6 +45,7 @@ export const WORKER_INSTRUCTIONS =
 /** The worker instruction naming its own delegation, for a worker that keeps the crew tool. */
 export const WORKER_DELEGATION_INSTRUCTIONS =
   " When you spawn threads of your own, give each a concrete outcome title, a self-contained brief, and acceptance criteria. " +
+  "At level 2, spawn creates a sibling under your level-1 supervisor; you retain task access, not ownership of arbitrary siblings. " +
   "Do not spawn to relay a result; finish directly in your own thread. ";
 
 /** True when a conversation may lead a crew at all. Pure. */
@@ -99,16 +100,8 @@ export const briefTitle = (brief: string, name: string): string =>
 export const CREW_DEADLINE_MS = 15 * 60 * 1000;
 /** How long `session wait` blocks before returning what it knows. */
 export const CREW_WAIT_MS = 10 * 60 * 1000;
-/**
- * Depth: root 0. A depth-2 worker's spawn is refused, and a depth-3 worker loses the `session` tool
- * and gets `delegates: false`.
- *
- * The refusal lands one level *before* the cap on purpose. Without `lead` in its meta doc the
- * `depthOf` chain stops, so a worker whose meta is missing reads as a root (depth 0) and could
- * spawn for ever; keeping the tool until depth 3 means every conversation that still has it loses
- * it at depth 3 whatever the chain says.
- */
-export const MAX_DEPTH = 3;
+/** Root is level 0; level-2 workers spawn siblings under their level-1 supervisor. */
+export const MAX_DEPTH = 2;
 /**
  * A leader may start a new generation's crew only this long after the previous crew's wake. One
  * generation's spawns are instantaneous (a leader fans out, then waits); a *second* crew right after
@@ -172,6 +165,15 @@ export const REPORT_CAP = 8_000;
 
 /** One crew member this conversation started. */
 export type CrewEntry = {
+  /** Stable actual requester, independent of supervisory lead and promotion history. */
+  creatorId?: ConversationId;
+  /** Supervisory fallback remains available even when requester metadata is missing. */
+  supervisorId?: ConversationId;
+  /** Single current continuation recipient; receipts remain on this task, not on a mirror. */
+  continuationId?: ConversationId;
+  /** Supervisory membership reference; task state lives only in the requester's document. */
+  taskOwner?: { conversationId: ConversationId; key: string };
+
   kind: "worker" | "peer";
   conversationId: ConversationId;
   /** The title we set, so `status`/`list` can show it even after a rename. */
@@ -303,6 +305,27 @@ export const SessionsDoc = defineDoc<SessionsState>({
   },
 });
 
+/** Resolve only explicit membership references, never arbitrary siblings. */
+export const crewState = async (
+  read: (id: ConversationId) => Promise<SessionsState | undefined>, id: ConversationId,
+  readMeta: (id: ConversationId) => Promise<HearthMeta | undefined>
+): Promise<SessionsState | undefined> => {
+  const state = await read(id);
+  if (!state) return state;
+  const items: Record<string, CrewEntry> = {};
+  for (const [key, entry] of Object.entries(state.items)) {
+    if (!entry.taskOwner) { items[key] = entry; continue; }
+    const owner = entry.taskOwner;
+    const actual = (await read(owner.conversationId))?.items[owner.key];
+    const meta = await readMeta(entry.conversationId);
+    if (actual && !actual.taskOwner && actual.conversationId === entry.conversationId && actual.creatorId === owner.conversationId &&
+        meta?.creatorId === owner.conversationId && meta.lead?.host === "local" && meta.lead.conversationId === id) {
+      items[key] = { ...actual, taskOwner: owner };
+    }
+  }
+  return { ...state, items };
+};
+
 /** Walk the `lead` chain to this conversation's depth (root 0). Pure over a meta reader. */
 export const depthOf = async (
   readMeta: (id: ConversationId) => Promise<HearthMeta | undefined>,
@@ -312,12 +335,41 @@ export const depthOf = async (
   let depth = 0;
   let current = start;
   for (let hops = 0; hops < max; hops += 1) {
-    const lead = (await readMeta(current))?.lead;
+    const meta = await readMeta(current);
+    if (meta?.kind === "peer") return depth;
+    const lead = meta?.lead;
     if (!lead) return depth;
     depth += 1;
     current = lead.conversationId as ConversationId;
   }
   return depth;
+};
+
+/** Validate ancestry before new work. Old deep trees flatten new work, never rewrite history.
+ * Missing worker leads, missing ancestors, foreign hosts and cycles fail closed.
+ */
+export const spawnSupervisor = async (
+  read: (id: ConversationId) => Promise<HearthMeta | undefined>, start: ConversationId
+): Promise<{ supervisor: ConversationId; depth: number } | undefined> => {
+  const path: ConversationId[] = [];
+  const seen = new Set<ConversationId>();
+  let current = start;
+  for (let hops = 0; hops < 64; hops += 1) {
+    if (seen.has(current)) return undefined;
+    seen.add(current);
+    path.push(current);
+    const meta = await read(current);
+    if (!meta) return undefined;
+    if (meta.kind === "peer" || !meta.lead) {
+      if (meta.kind === "worker") return undefined;
+      const depth = path.length - 1;
+      return { supervisor: depth >= MAX_DEPTH ? path[path.length - 2] : start,
+        depth: Math.min(depth + 1, MAX_DEPTH) };
+    }
+    if (meta.lead.host !== "local") return undefined;
+    current = meta.lead.conversationId as ConversationId;
+  }
+  return undefined;
 };
 
 /** True when `count` spawns happened within the window ending at `now`. Pure. */
@@ -450,6 +502,8 @@ export const rearmWorker = async (
   // new one — including when the new task is *queued* behind that answer.
   const newest = (await tx.scanEntries({ conversationId: worker }, 1)).items[0] as { id: number } | undefined;
   delete item.notifiedBlockers;
+  delete item.continuationId;
+  delete item.resumeTask;
   if (isActiveWorker(item)) {
     // Already active: the supervisor is watching its in-flight answer, and that answer is *not* the
     // reply to this message. Mark the follow-up so the supervisor keeps watching past it, and moves
@@ -493,10 +547,11 @@ export const submitCrewMessage = async (
 ): Promise<boolean> => {
   const requestId = crewMessageRequestId(api.conversationId, key, entry.spawnedAt, api.taskId);
   return api.commit(async (tx) => {
-    const doc = await tx.doc(SessionsDoc, api.conversationId);
-    const current = doc.items[key];
+    const owner = entry.taskOwner ?? { conversationId: api.conversationId, key };
+    const doc = await tx.doc(SessionsDoc, owner.conversationId);
+    const current = doc.items[owner.key];
     if (current?.lastMessageRequestId === requestId) return false;
-    await rearmWorker(tx, api.conversationId, key, entry.conversationId, Date.now());
+    await rearmWorker(tx, owner.conversationId, owner.key, entry.conversationId, Date.now());
     await handle.submit(tx, { type: "input", content: message,
       whenBusy: followUp ? "followUp" : "steer", requestId });
     if (current) current.lastMessageRequestId = requestId;
@@ -612,11 +667,11 @@ export const SessionTool = defineTool({
     "Default report=thread stores a durable result without copying it into your conversation. " +
     "list/status show progress; read(name,cursor?) pages through messages and tool evidence (12 entries/page). " +
     "results(name?) retrieves bounded final outcomes with evidence links, recording retrieval separately from verification. " +
-    "wait(name?) registers a durable continuation for thread tasks and returns immediately: end your turn to stay responsive. " +
+    "wait(name?) registers a durable continuation for thread tasks and returns immediately: end your turn to stay responsive. First subscriber per task wins; other authorized readers use results. " +
     "Failures and human blockers get priority; already-retrieved results do not wake you again. " +
     "message steers a thread, followUp=true queues; stop aborts it. kind=peer creates an independent visible conversation. " +
     "Legacy report=always copies reports; on-failure suppresses successful report delivery. " +
-    `Caps: depth ${MAX_DEPTH}, ${workerCapsText()}, ${SPAWN_RATE_LIMIT} spawns/minute.`,
+    `Caps: maximum level 2; level-2 spawn creates a sibling under the same level-1 supervisor, ${workerCapsText()}, ${SPAWN_RATE_LIMIT} spawns/minute.`,
   parameters: obj({
     action: oneOf(["spawn", "models", "list", "status", "message", "stop", "results", "wait", "read"], {
       description: "models: search this host’s available chat models; spawn: start a session; the rest operate on names from `list`/`results`.",
@@ -711,10 +766,11 @@ export const SessionTool = defineTool({
       }
     }
     const spawner: ConversationId = api.conversationId;
+    const spawnerMeta = await api.snapshot(MetaDoc, spawner, context);
     if (action === "spawn" && delegationRefused(await api.snapshot(MetaDoc, spawner, context))) {
       return reply("Refused: this conversation is set not to delegate (`delegates: false`). Do the work here.");
     }
-    const storedState = (await api.snapshot(SessionsDoc, spawner, context)) ?? {
+    const storedState = (await crewState((id) => api.snapshot(SessionsDoc, id, context), spawner, (id) => api.snapshot(MetaDoc, id, context))) ?? {
       generation: 0,
       items: {},
       spawnedAt: [],
@@ -753,7 +809,12 @@ export const SessionTool = defineTool({
       const items = Object.fromEntries(Object.entries(allItems).slice(-3));
       const versions = new Map(Object.entries(items).flatMap(([key, entry]) =>
         entry.report ? [[key, entry.report.requestId] as const] : []));
-      await api.commit(async (tx) => recordRetrieved(await tx.doc(SessionsDoc, spawner), versions), context);
+      await api.commit(async (tx) => {
+        for (const [key, version] of versions) {
+          const owner = items[key].taskOwner ?? { conversationId: spawner, key };
+          recordRetrieved(await tx.doc(SessionsDoc, owner.conversationId), new Map([[owner.key, version]]));
+        }
+      }, context);
       return reply(crewReportText(items) + (Object.keys(allItems).length > 3 ? "\nMore threads available. Use list, then results with a name for another outcome." : ""));
     }
 
@@ -768,21 +829,27 @@ export const SessionTool = defineTool({
         const doc = await tx.doc(SessionsDoc, spawner);
         let count = 0;
         for (const key of keys) {
-          const entry = doc.items[key];
+          const owner = state.items[key]?.taskOwner ?? { conversationId: spawner, key };
+          const entry = (await tx.doc(SessionsDoc, owner.conversationId)).items[owner.key];
           if (entry?.delivery !== "thread") continue;
+          // One durable continuation per task: first subscriber wins until a new task.
+          // Other authorized readers can retrieve results without replacing that subscription.
+          if (entry.resumeTask === threadTask(entry) && entry.continuationId !== undefined && entry.continuationId !== spawner) continue;
           entry.resumeTask = threadTask(entry);
+          entry.continuationId = spawner;
           if (isActiveWorker(entry) || (entry.report && !resultRetrieved(entry) && entry.notifiedResult !== entry.report.requestId)) count += 1;
         }
         if (count) doc.suspended = true;
         return count;
       }, context);
-      if (!pending) return reply("No pending continuation for these threads. Use results for available outcomes and finish or continue the work here.");
+      if (!pending) return reply("No pending continuation was registered. Another authorized requester may already hold this task’s subscription (first subscriber wins). Use results for available outcomes and continue the work here.");
       return { ...reply("Continuation registered. This turn is released so the human can keep steering. " +
         "Kiln will resume you with outcome identifiers when a subscribed task finishes; failures and human blockers have priority. " +
         "Use results for outcomes already retrieved; no acknowledgement is needed."), control: { terminate: true } };
     }
 
     if (action === "wait") {
+      if (name !== undefined && !findCrewTarget(state.items, name)) return reply(`No thread named ` + name + `. Use list to see your threads.`);
       // Bounded quiescence wait: no worker still owing an answer, or ten minutes, whichever first.
       //
       // A worker that reaches `failed` or `stopped` is finished, and the supervisor writes that
@@ -792,7 +859,7 @@ export const SessionTool = defineTool({
       // that is genuinely still running.
       const deadline = Date.now() + CREW_WAIT_MS;
       for (;;) {
-        const snapshot = (await api.snapshot(SessionsDoc, spawner, context)) ?? state;
+        const snapshot = (await crewState((id) => api.snapshot(SessionsDoc, id, context), spawner, (id) => api.snapshot(MetaDoc, id, context))) ?? state;
         if (context.abortSignal?.aborted) return reply("Stopped while waiting for the crew.");
         const active = Object.values(snapshot.items).filter(isActiveWorker);
         // Scoped to the generation this crew is working in: a worker that failed in an earlier
@@ -889,8 +956,9 @@ export const SessionTool = defineTool({
           );
         }
         await api.commit(async (tx) => {
-          const doc = await tx.doc(SessionsDoc, spawner);
-          const current = doc.items[key];
+          const owner = entry.taskOwner ?? { conversationId: spawner, key };
+          const doc = await tx.doc(SessionsDoc, owner.conversationId);
+          const current = doc.items[owner.key];
           if (current) {
             current.state = "stopped";
             if (current.delivery === "thread") current.report = {
@@ -950,18 +1018,24 @@ export const SessionTool = defineTool({
     // (two spawns of one turn commit back to back, so the second must see the first's `wokeAt`).
     const early = spawnKind === "worker" ? spawnRefusal(state, now) : undefined;
     if (early !== undefined) return reply(spawnRefusalText(early));
-    let childDepth = 0;
+    let supervisor = spawner;
     if (spawnKind === "worker") {
-      const parentDepth = await depthOf((id) => api.snapshot(MetaDoc, id, context), spawner);
-      childDepth = parentDepth + 1;
-      // Refuse one level before the tool disappears, so a mis-read `lead` chain cannot let a worker
-      // that lost its meta spawn as though it were a root.
-      if (childDepth >= MAX_DEPTH) {
-        return reply(
-          `Refused: crews may nest only ${MAX_DEPTH} deep, and this would be depth ${childDepth}. ` +
-            `Do the work directly, or reply to your leader with what you have.`
-        );
+      if (!spawnerMeta) {
+        let orphanedWorker = false;
+        let cursor: Cursor | undefined;
+        do {
+          const page = await api.commit((tx) => tx.scanConversations({}, 200, cursor), context);
+          for (const record of page.items) {
+            const crew = await api.snapshot(SessionsDoc, record.id, context);
+            if (Object.values(crew?.items ?? {}).some((entry) => entry.kind === "worker" && entry.conversationId === spawner)) orphanedWorker = true;
+          }
+          cursor = page.next;
+        } while (cursor && !orphanedWorker);
+        if (orphanedWorker) return reply("Kiln cannot verify this worker's missing supervisor metadata. Ask the host operator to repair its membership; keep working here meanwhile.");
       }
+      const placement = await spawnSupervisor(async (id) => (await api.snapshot(MetaDoc, id, context)) ?? (id === spawner && !spawnerMeta ? {} : undefined), spawner);
+      if (!placement) return reply("Kiln cannot verify this worker's supervisor chain. Ask the host operator to repair its membership before spawning; keep working here meanwhile.");
+      supervisor = placement.supervisor;
       const activeWorkers = Object.values(state.items).filter(
         (entry) => entry.kind === "worker" && (entry.state === "starting" || entry.state === "running")
       ).length;
@@ -995,11 +1069,11 @@ export const SessionTool = defineTool({
     const generation = state.woke ? state.generation + 1 : Math.max(state.generation, 1);
     // Kept for a day: the hourly budget (`SPAWN_BUDGET_WINDOW_MS`) has to survive a restart, which a
     // tick that only pruned the burst window would not.
-    const spawnedTimestamps = [...pruneSpawns(state.spawnedAt, now, SPAWN_HISTORY_MS), now];
+
 
     // With crews off (or a registry that no longer offers them) the child has no `session` tool.
     const crewAvailable = agent.extensions.some((extension) => extension.name === Sessions.name);
-    const workerKeepsCrew = childDepth < MAX_DEPTH;
+    const workerKeepsCrew = true;
 
     // Create the conversation and record it in the same commit, so a crash can never orphan the
     // record from the conversation (or vice versa).
@@ -1009,6 +1083,28 @@ export const SessionTool = defineTool({
       // Read the crew first: a worker's role number is derived and written here, and the harness
       // serializes commits, so two simultaneous spawns cannot take the same number.
       const doc = await tx.doc(SessionsDoc, spawner);
+      if (doc.items[name]) {
+        const previous = doc.items[name];
+        return { conversation: { id: previous.conversationId }, sessionTitle: previous.title,
+          briefRequestId: previous.briefRequestId };
+      }
+      const requesterMeta = await tx.doc(MetaDoc, spawner);
+      if (requesterMeta.archived || requesterMeta.delegates === false || (await tx.doc(MetaDoc, supervisor)).archived) {
+        refusedCeiling = "Kiln cannot start work for a hidden or non-delegating requester/supervisor. Restore its conversation or continue here.";
+        return undefined;
+      }
+      if (spawnKind === "worker") {
+        const placement = await spawnSupervisor((id) => tx.doc(MetaDoc, id), spawner);
+        if (!placement || placement.supervisor !== supervisor) {
+          refusedCeiling = "Kiln's supervisor membership changed while spawning. Check the crew list and try again.";
+          return undefined;
+        }
+      }
+      if (requesterMeta.delegates === undefined) requesterMeta.delegates = true;
+      if (rateLimited(doc.spawnedAt, now)) {
+        refusedCeiling = `Refused: burst spawn limit reached in the last minute. Wait a moment before spawning again.`;
+        return undefined;
+      }
       // The loop guards again, inside the serialized commit: two spawns of the same turn commit one
       // after the other, so the second sees the first's `wokeAt` and budget rather than a stale read.
       const fresh = { woke: doc.woke, wokeAt: doc.wokeAt, spawnedAt: doc.spawnedAt } as const;
@@ -1019,11 +1115,26 @@ export const SessionTool = defineTool({
         refusedInside = refusedNow;
         return undefined;
       }
+      if (spawnKind === "worker" && supervisor !== spawner) {
+        const shared = await tx.doc(SessionsDoc, supervisor);
+        if (rateLimited(shared.spawnedAt, now)) {
+          refusedCeiling = "Refused: the supervisor's crew reached its burst spawn limit. Wait a moment before spawning again.";
+          return undefined;
+        }
+        const refusal = spawnRefusal(shared, now);
+        if (refusal) { refusedInside = refusal; return undefined; }
+      }
       // The worker ceiling, again inside the commit for the same reason: a turn that spawns in
       // parallel commits its spawns one at a time, so counting only the snapshot read before the
       // commit lets every spawn of that turn see the same "one active worker" and pass.
       if (spawnKind === "worker") {
-        const activeNow = Object.values(doc.items).filter(isActiveWorker).length;
+        const supervising = supervisor === spawner ? doc : await tx.doc(SessionsDoc, supervisor);
+        let activeNow = 0;
+        for (const item of Object.values(supervising.items)) {
+          const actual = item.taskOwner
+            ? (await tx.doc(SessionsDoc, item.taskOwner.conversationId)).items[item.taskOwner.key] : item;
+          if (actual && isActiveWorker(actual)) activeNow += 1;
+        }
         const ceilingNow = workerCeilingRefusal(activeNow);
         if (ceilingNow !== undefined) {
           refusedCeiling = ceilingNow;
@@ -1033,7 +1144,7 @@ export const SessionTool = defineTool({
       // A worker is named by its role: "<Role> #<n>", numbered per (this leader, role). A peer
       // keeps the brief-derived title, and an explicit title always wins.
       const workerRole = spawnKind === "worker" ? requestedRole ?? DEFAULT_WORKER_ROLE : undefined;
-      const roleIndex = workerRole === undefined ? undefined : nextRoleIndex(doc.items, workerRole);
+      const roleIndex = workerRole === undefined ? undefined : nextRoleIndex((await tx.doc(SessionsDoc, supervisor)).items, workerRole);
       const sessionTitle =
         explicitTitle ??
         (spawnKind === "worker" && (report === undefined || report === "thread")
@@ -1066,8 +1177,9 @@ export const SessionTool = defineTool({
       meta.title = sessionTitle;
       if (spawnKind === "worker") {
         meta.kind = "worker";
-        meta.lead = { conversationId: spawner, host: "local" };
-        meta.delegates = childDepth < MAX_DEPTH;
+        meta.lead = { conversationId: supervisor, host: "local" };
+        meta.creatorId = spawner;
+        meta.delegates = true;
         // Auto-accept is copied at spawn, in the same commit, then the worker is independent.
         (await tx.doc(AutoAcceptDoc, conversation.id)).enabled = autoAccept?.enabled ?? false;
       } else {
@@ -1090,8 +1202,10 @@ export const SessionTool = defineTool({
       doc.woke = false;
       delete doc.wokeAt;
       doc.deadlineAt = now + CREW_DEADLINE_MS;
-      doc.spawnedAt = spawnedTimestamps;
+      doc.spawnedAt = [...pruneSpawns(doc.spawnedAt, now, SPAWN_HISTORY_MS), now];
       doc.items[name] = {
+        creatorId: spawner,
+        supervisorId: supervisor,
         kind: spawnKind,
         conversationId: conversation.id,
         title: sessionTitle,
@@ -1105,7 +1219,17 @@ export const SessionTool = defineTool({
         // ticks after this tool returned, and `rearmWorker` (a follow-up) must keep the same policy.
         ...(spawnKind === "worker" ? { delivery: report ?? "thread" } : {}),
       };
-      return { conversation, sessionTitle };
+      if (spawnKind === "worker" && supervisor !== spawner) {
+        const membership = await tx.doc(SessionsDoc, supervisor);
+        membership.generation = membership.woke ? membership.generation + 1 : Math.max(1, membership.generation);
+        membership.woke = false;
+        delete membership.wokeAt;
+        membership.spawnedAt = [...pruneSpawns(membership.spawnedAt, now, SPAWN_HISTORY_MS), now];
+        membership.items[`requester:${spawner}:${name}`] = {
+          ...doc.items[name], taskOwner: { conversationId: spawner, key: name },
+        };
+      }
+      return { conversation, sessionTitle, briefRequestId };
     }, context);
     if (spawned === undefined) {
       if (refusedCeiling !== undefined) return reply(refusedCeiling);
@@ -1119,7 +1243,7 @@ export const SessionTool = defineTool({
     const handle = await api.conversation(created.id, context);
     if (!handle) return reply(`Created ${name} (conversation ${created.id}) but could not reach it.`, created.id);
     const submission = await handle.submit(
-      { type: "input", content: brief, requestId: briefRequestId },
+      { type: "input", content: brief, requestId: spawned.briefRequestId },
       context
     );
     const settled = await submission.status(context);

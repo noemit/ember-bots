@@ -54,6 +54,7 @@ import {
   CREW_DEADLINE_MS,
   SessionsDoc,
   WORKER_INSTRUCTIONS,
+  spawnSupervisor,
   nextRoleIndex,
   pruneSpawns,
   workerTitle,
@@ -70,7 +71,7 @@ import {
   type ApprovalDecision,
 } from "./approvals";
 import { clearPendingQuestions, pendingQuestions, replyQuestion } from "./ask";
-import { archiveCrew, unarchiveCrew } from "./crew";
+import { archiveCrew, unarchiveCrew, markWorkerStopped } from "./crew";
 import {
   createContextRule,
   deleteContextRule,
@@ -360,6 +361,7 @@ type ConversationSummary = {
   /** Immediate leader (retained on a promoted peer as history). */
   lead?: { conversationId: number; host: string };
   /** Whether this conversation offers the `session` tool + crew section. */
+  creatorId?: number;
   delegates: boolean;
   /** Set on a worker after a human promotes it; the peer fork that now carries its name. */
   promotedTo?: number;
@@ -489,6 +491,7 @@ const summaryOf = async (
     ...(meta?.kind ? { kind: meta.kind } : {}),
     ...(meta?.lead ? { lead: meta.lead } : {}),
     ...(meta?.promotedTo !== undefined ? { promotedTo: meta.promotedTo } : {}),
+    ...(meta?.creatorId !== undefined ? { creatorId: meta.creatorId } : {}),
     delegates: meta?.delegates ?? true,
     needsInput: approvals.length > 0 || questions.length > 0,
     lastEntryId: newest?.items[0]?.id,
@@ -2182,6 +2185,7 @@ const server = Bun.serve<{
           const first = parkedInputs(inboxBefore?.items ?? []);
           const seen = new Set(first.map((item) => item.id));
           const stop = conversation.abort(context);
+          await harness.commit((tx) => markWorkerStopped(tx, conversationId), context);
           const requeue = stop.then(async () => {
             const latest = await harness.snapshot(InboxDoc, conversationId, context);
             const late = parkedInputs(latest?.items ?? []).filter((item) => !seen.has(item.id));
@@ -2328,8 +2332,12 @@ const server = Bun.serve<{
           const now = Date.now();
           const role = "Aside";
           const spawned = await harness.commit(async (tx) => {
+            const placement = await spawnSupervisor((id) => tx.doc(MetaDoc, id), conversationId);
+            if (!placement) return undefined;
+            const supervisor = placement.supervisor;
             const crew = await tx.doc(SessionsDoc, conversationId);
-            const roleIndex = nextRoleIndex(crew.items, role);
+            const supervisoryCrew = await tx.doc(SessionsDoc, supervisor);
+            const roleIndex = nextRoleIndex(supervisoryCrew.items, role);
             const title = workerTitle(role, roleIndex);
             const key = `btw-${roleIndex}-${now}`;
             const briefRequestId = `hearth.crew.brief:${conversationId}:${key}:${now}`;
@@ -2352,7 +2360,8 @@ const server = Bun.serve<{
             const meta = await tx.doc(MetaDoc, child.id);
             meta.title = title;
             meta.kind = "worker";
-            meta.lead = { conversationId: conversationId as number, host: "local" };
+            meta.lead = { conversationId: supervisor as number, host: "local" };
+            meta.creatorId = conversationId;
             meta.delegates = false;
             (await tx.doc(AutoAcceptDoc, child.id)).enabled = autoAccept?.enabled ?? false;
             crew.generation = generation;
@@ -2361,6 +2370,8 @@ const server = Bun.serve<{
             crew.deadlineAt = now + CREW_DEADLINE_MS;
             crew.spawnedAt = [...pruneSpawns(crew.spawnedAt, now), now];
             crew.items[key] = {
+              creatorId: conversationId,
+              supervisorId: supervisor,
               kind: "worker",
               conversationId: child.id,
               title,
@@ -2374,8 +2385,12 @@ const server = Bun.serve<{
               briefRequestId,
               sideQuestion: question.slice(0, 300),
             };
+            if (supervisor !== conversationId) supervisoryCrew.items["requester:" + conversationId + ":" + key] = {
+              ...crew.items[key], taskOwner: { conversationId, key },
+            };
             return { id: child.id, briefRequestId };
           }, context);
+          if (!spawned) return badRequest("Kiln cannot verify this worker's supervisor chain. Repair its membership before asking a side question.");
           const childHandle = await harness.conversation(spawned.id, context);
           if (childHandle) {
             const prompt =
@@ -2441,6 +2456,10 @@ const server = Bun.serve<{
                 for (const entry of Object.values(crew.items)) {
                   if (entry.kind === "worker" && entry.conversationId === conversationId) {
                     entry.promotedTo = fork.id as number;
+                    if (entry.taskOwner) {
+                      const actual = (await tx.doc(SessionsDoc, entry.taskOwner.conversationId)).items[entry.taskOwner.key];
+                      if (actual) actual.promotedTo = fork.id as number;
+                    }
                   }
                 }
               }

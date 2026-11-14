@@ -12,13 +12,15 @@ import { defineDoc } from "@earendil-works/pi-durable";
  * - `kind: "worker"` is a hidden crew member; `kind: "peer"` is an ownerless, addressable one.
  * - `lead` is the immediate leader, retained as history on a promoted peer.
  * - `delegates` is stored (not derived) so the summary is cheap and the choice survives restarts;
- *   depth 3 forces it false.
+ *   new level-2 workers may request siblings.
  * - `archiveBatch` ties a cascade archive (leader + workers + grandchildren) together so undo
  *   restores exactly that batch.
  * - `promotedTo` is set on a worker after a human promotes it; the fork is the peer that now
  *   carries the name, while the worker stays as hidden history.
  */
 export type HearthMeta = {
+  /** Actual spawn requester; does not grant rights to arbitrary siblings. */
+  creatorId?: number;
   title?: string;
   /** Epoch ms when the conversation was archived; absent means active. */
   archived?: number;

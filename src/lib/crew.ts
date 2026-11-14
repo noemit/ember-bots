@@ -56,6 +56,26 @@ export const threadDescendants = (leader: Session, crews: ReadonlyMap<string, re
 };
 
 /**
+ * Sources visible from this conversation: reporting descendants and workers it actually spawned.
+ * A level-2 requester starts a sibling under its level-1 supervisor, so `lead` alone does not
+ * authorize its own result link. The stable creator does; unrelated siblings and peer forks do not.
+ */
+export const threadSourcesFor = (
+  session: Session,
+  crews: ReadonlyMap<string, readonly Session[]>,
+  sessions: readonly Session[]
+): Session[] => {
+  const targets = new Map(threadDescendants(session, crews).map((worker) => [sessionKey(worker), worker]));
+  for (const worker of sessions) {
+    if (worker.kind !== 'worker' || worker.instanceId !== session.instanceId) continue;
+    if (worker.creator && sessionKey(worker.creator) === sessionKey(session)) {
+      targets.set(sessionKey(worker), worker);
+    }
+  }
+  return [...targets.values()];
+};
+
+/**
  * Every worker's key, at any depth.
  *
  * A worker has no unread management: it is a thread its leader reads, not a place a person reads.
@@ -70,6 +90,38 @@ export const workerKeySet = (
   for (const session of sessions) if (isWorker(session)) keys.add(sessionKey(session));
   for (const workers of crews.values()) for (const worker of workers) keys.add(sessionKey(worker));
   return keys;
+};
+
+/**
+ * Rows in a root leader's Threads shelf. The graph's `lead` is the reporting parent, not the
+ * requester that initiated a spawn; displaying by lead keeps siblings in their actual crew.
+ * Legacy depth-3+ workers remain reachable at their true depth, without duplicating cycles.
+ */
+export type ThreadRow = { worker: Session; depth: number; group: Session };
+
+export const threadRows = (
+  leader: Session,
+  crews: ReadonlyMap<string, readonly Session[]>
+): ThreadRow[] => {
+  const rows: ThreadRow[] = [];
+  const seen = new Set([sessionKey(leader)]);
+  const walk = (parent: Session, group: Session, depth: number) => {
+    for (const worker of crews.get(sessionKey(parent)) ?? []) {
+      const key = sessionKey(worker);
+      if (worker.instanceId !== leader.instanceId || seen.has(key)) continue;
+      seen.add(key);
+      rows.push({ worker, depth, group });
+      walk(worker, group, depth + 1);
+    }
+  };
+  for (const group of crews.get(sessionKey(leader)) ?? []) {
+    const key = sessionKey(group);
+    if (group.instanceId !== leader.instanceId || seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ worker: group, depth: 1, group });
+    walk(group, group, 2);
+  }
+  return rows;
 };
 
 /**

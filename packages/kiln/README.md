@@ -151,7 +151,7 @@ broadening the search or asking the host operator to configure/refresh the provi
 
 Lookup is read-only and allowed with `delegates: false` when the session tool is installed; spawn
 still enforces delegation, depth and rate guards. Conversations without the session extension
-(including workers at the depth limit) do not gain it through this action. This is host-local
+(including explicitly non-delegating workers) do not gain it through this action. This is host-local
 discovery, not access to another host or permission to change credentials.
 
 New spawns default to `report: "thread"`. The supervisor records a versioned outcome and its final
@@ -163,8 +163,34 @@ incorporation, and human read marks. `read(name, cursor?, since?)` returns statu
 entries with bounded evidence; `cursor` pages history and `since` reads new evidence oldest first.
 Raw evidence reads do not mark an outcome retrieved.
 
+Crews have **two worker levels**: root → level 1 → level 2. A level-2 spawn creates a
+level-2 sibling under the same level-1 supervisor, not a deeper child. Old deeper trees remain
+readable; new work from them attaches under their level-1 ancestor. Promoted peers start a new
+root, and explicit `delegates: false` still disables spawn. Missing or cyclic ancestry refuses
+new work rather than guessing a supervisor.
+
+`meta.creatorId` is the actual requester, distinct from supervisory `meta.lead`. The requester
+keeps message/read/results/wait/stop access to its spawned sibling. Its supervisor also has those
+rights through an explicit membership reference; unrelated siblings and directory aliases do not
+gain access. Task state, versions, reports and receipts have one authoritative entry in the
+requester's `hearth.sessions`; the supervisor's `taskOwner` reference resolves that entry rather
+than becoming a second reporting task. Creation and both memberships commit atomically. Spawn
+rate, hourly budget, post-wake gap and optional active-worker ceiling are checked against both
+requester and shared supervisor; role numbering is shared by supervisor.
+
+Cancellation cascades follow `lead` ownership, not creator access. Hiding a requester does not
+cancel a sibling it requested; hiding the supervisor includes its owned workers. Promotion keeps
+the old worker's creator/history without cascading to the promoted peer.
+
 A thread can itself coordinate nested threads: its durable suspended state prevents an intentionally
-released run from being reported as a failure to its parent.
+released run from being reported as a failure to its parent. A task has one continuation recipient:
+**first subscriber wins** until reassignment; another authorized waiter is told to use results,
+not silently substituted. Outcome retrieval is shared across these authorized views; it is not a
+notice receipt or a human read mark. Normal idleness does not retire a requester. If its durable
+membership is stopped/failed, its run failed, it is hidden, or its metadata is gone, the single
+continuation routes to its surviving supervisor instead. The receipt stays on the authoritative
+task, so neither the root nor requester receives a duplicate. Legacy delivery-less entries retain
+the legacy report/digest contract.
 
 `wait(name?)` registers a durable subscription to current thread task versions and ends the tool
 round without another model request when it is the round's only control. It does not poll for ten

@@ -10,17 +10,16 @@ import { seedIdentity } from '../blob/seed';
 import { sessionKey } from '../types';
 import {
   brickStatusSignal,
-  splitCrew,
   workerStateLabel,
-  type BlockedWorker,
+  type ThreadRow,
   type CrewBrickTone,
   type CrewWorkerStatus,
 } from '../lib/crew';
 import type { AvatarIdentity, BallState, BlobStyle, Session } from '../types';
 
 type Props = {
-  /** The leader's workers, newest activity first as the session list returns them. */
-  workers: Session[];
+  /** Every authorized descendant, grouped by its level-one lead. */
+  rows: ThreadRow[];
   /** Inspect a thread in its modal, or open its promoted bot in the workspace. */
   onOpenWorker: (session: Session) => void;
   /** Resolve a promoted worker's peer session (same instance) so the brick links to it. */
@@ -33,12 +32,6 @@ type Props = {
   autoAcceptByKey?: Readonly<Record<string, boolean>>;
   /** Toggle a worker's auto-accept; omit to render the chip read-only. */
   onToggleYolo?: (session: Session, enabled: boolean) => void;
-  /**
-   * Workers **below** this leader's direct crew that are blocked on the human, at any depth, from
-   * `blockedWorkersUnder` in `lib/crew`. They ride alongside the direct bricks; each one opens the
-   * conversation that is actually waiting.
-   */
-  nestedBlocked?: BlockedWorker[];
   /**
    * The blob identity the rail resolves for a promoted bot (project colour, avatar override,
    * scheduled binding), so its chip matches its workspace avatar. Threads draw no blob.
@@ -76,6 +69,8 @@ export const BRICK_CLASS =
  */
 const WorkerBrick = React.memo(function WorkerBrick({
   worker,
+  depth,
+  groupTitle,
   blobStyle,
   state,
   status,
@@ -86,6 +81,8 @@ const WorkerBrick = React.memo(function WorkerBrick({
   identityFor,
 }: {
   worker: Session;
+  depth: number;
+  groupTitle: string;
   blobStyle: BlobStyle;
   state: BallState;
   status: CrewWorkerStatus;
@@ -125,7 +122,10 @@ const WorkerBrick = React.memo(function WorkerBrick({
       transition={springTransition}
       data-crew-brick=""
       data-worker-status={status}
-      className={BRICK_CLASS}
+      data-thread-depth={depth}
+      data-thread-group={groupTitle}
+      aria-level={depth}
+      className={cn(BRICK_CLASS, depth > 1 && 'pl-6 border-l-2 border-border/60')}
     >
       <button
         type="button"
@@ -145,6 +145,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
         /> : null}
         <span className="min-w-0 flex-1">
           <span data-tray-preview="" className="line-clamp-2 leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{title}</span>
+          {depth > 1 ? <span className="sr-only">Under {groupTitle}, level {depth}. </span> : null}
           <span data-tray-meta="" className="mt-1 flex items-center gap-1.5 text-[10.5px] leading-4 text-muted-foreground">
             <span aria-hidden="true" className={cn('size-1.5 flex-none rounded-full', BRICK_DOT[signal.tone])} />
             <span id={statusId} className={cn(signal.tone === 'attention' && 'font-medium text-highlight', signal.tone === 'failed' && 'text-destructive')}>
@@ -211,167 +212,65 @@ const WorkerBrick = React.memo(function WorkerBrick({
 });
 
 /**
- * A worker somewhere below this leader that is blocked on the human. The strip only lists the
- * leader's own workers, so a sub-agent's question used to be invisible unless you opened the worker
- * above it; this brick names it here and opens the conversation that is actually waiting.
- *
- * The status and depth sit below the readable title, without a card or a thread avatar.
- */
-const BlockedWorkerBrick = React.memo(function BlockedWorkerBrick({
-  entry,
-  blobStyle,
-  state,
-  onOpen,
-  identityFor,
-}: {
-  entry: BlockedWorker;
-  blobStyle: BlobStyle;
-  state: BallState;
-  onOpen: (session: Session) => void;
-  identityFor?: (session: Session) => AvatarIdentity | undefined;
-}) {
-  const worker = entry.worker;
-  const identity = React.useMemo(
-    () => identityFor?.(worker) ?? seedIdentity(sessionKey(worker)),
-    [identityFor, worker]
-  );
-  const mood = React.useMemo(() => moodFrom(state, worker.needsInput ? 'question' : undefined, false), [state, worker.needsInput]);
-  const title = worker.title?.trim() || `Worker ${worker.id}`;
-  const nested = entry.depth > 1;
-  return (
-    <motion.li
-      layout="position"
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={springTransition}
-      data-crew-brick=""
-      data-worker-status="needs input"
-      className={BRICK_CLASS}
-    >
-      <button
-        type="button"
-        onClick={() => onOpen(worker)}
-        title={`${nested ? `Open ${title} (crew depth ${entry.depth})` : `Open ${title}`} — needs input`}
-        aria-label={`${title} needs input — open the conversation to answer`}
-        className="flex min-w-0 flex-1 items-start gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {worker.promotedTo ? <Blob
-          style={blobStyle}
-          seed={sessionKey(worker)}
-          identity={identity}
-          size={16}
-          mood={mood}
-          interactive={false}
-        /> : null}
-        <span className="min-w-0 flex-1">
-          <span data-tray-preview="" className="line-clamp-2 leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{title}</span>
-          <span data-tray-meta="" className="mt-1 flex flex-wrap gap-1.5 text-[10.5px] leading-4 text-muted-foreground">
-            <span className="font-medium text-highlight">needs input</span>
-            {nested ? <span title={String(entry.depth) + " levels below this bot"}>Nested · depth {entry.depth}</span> : null}
-          </span>
-        </span>
-      </button>
-    </motion.li>
-  );
-});
-
-/**
- * The Threads tray is a flat list, with readable titles and status beneath. Direct workers keep
- * their open/YOLO controls; nested blocked conversations remain reachable without an avatar.
- * Finished workers stay behind Previous. Only promoted peer links retain their blob.
+ * Every descendant is represented once. A quiet level-one group stays behind Previous together;
+ * a blocked or working child keeps its parent group visible.
  */
 const CrewStrip = React.memo(function CrewStrip({
-  workers,
+  rows,
   onOpenWorker,
   peerFor,
   blobStyle,
   stateFor,
   autoAcceptByKey,
   onToggleYolo,
-  nestedBlocked = [],
   identityFor,
   leaderTitle,
 }: Props) {
-  // Live work remains visible; finished workers are an explicit expansion.
-  const { live, previous } = splitCrew(workers, stateFor);
   const [previousOpen, setPreviousOpen] = React.useState(false);
-  // A blocked worker that is already one of this strip's own bricks is announced by that brick's
-  // status; only the ones further down need a brick of their own here. (It reads `workers`, not the
-  // live list: a worker behind the "+N previous" chip still has its own brick waiting.)
-  const crewKeys = React.useMemo(() => new Set(workers.map((worker) => sessionKey(worker))), [workers]);
-  const extraBlocked = React.useMemo(
-    () => nestedBlocked.filter((entry) => !crewKeys.has(sessionKey(entry.worker))),
-    [nestedBlocked, crewKeys]
-  );
+  if (rows.length === 0) return null;
 
-  if (workers.length === 0 && extraBlocked.length === 0) return null;
-
-  const brick = (worker: Session) => {
-    const state: BallState = stateFor?.(worker) ?? (worker.needsInput ? 'needs-input' : 'unknown');
-    return (
-      <WorkerBrick
-        key={sessionKey(worker)}
-        worker={worker}
-        blobStyle={blobStyle}
-        state={state}
-        status={workerStateLabel(worker, { state })}
-        auto={autoAcceptByKey?.[sessionKey(worker)] === true}
-        peer={worker.promotedTo !== undefined ? peerFor?.(worker) ?? null : null}
-        onOpen={onOpenWorker}
-        onToggleYolo={onToggleYolo}
-        identityFor={identityFor}
-      />
-    );
+  const groupLive = new Set<string>();
+  for (const row of rows) {
+    const state = stateFor?.(row.worker) ?? (row.worker.needsInput ? 'needs-input' : 'unknown');
+    const status = workerStateLabel(row.worker, { state });
+    if ((status !== 'idle' && status !== 'reported') || row.worker.promotedTo) {
+      groupLive.add(sessionKey(row.group));
+    }
+  }
+  const visible = rows.filter((row) => groupLive.has(sessionKey(row.group)));
+  const previous = rows.filter((row) => !groupLive.has(sessionKey(row.group)));
+  const brick = ({ worker, depth, group }: ThreadRow) => {
+    const state = stateFor?.(worker) ?? (worker.needsInput ? 'needs-input' : 'unknown');
+    return <WorkerBrick
+      key={sessionKey(worker)}
+      worker={worker}
+      depth={depth}
+      groupTitle={group.title?.trim() || `Worker ${group.id}`}
+      blobStyle={blobStyle}
+      state={state}
+      status={workerStateLabel(worker, { state })}
+      auto={autoAcceptByKey?.[sessionKey(worker)] === true}
+      peer={worker.promotedTo !== undefined ? peerFor?.(worker) ?? null : null}
+      onOpen={onOpenWorker}
+      onToggleYolo={onToggleYolo}
+      identityFor={identityFor}
+    />;
   };
-
   return (
-    /* One flat list; status stays beneath each title. The shelf owns opening and folding. */
-    <div
-      role="group"
-      aria-label={leaderTitle ? `Crew of ${leaderTitle}` : 'Crew'}
-      className="group/strip @container min-w-0"
-    >
-      {/* Bound large crews like Queue/Notes. Every row, Previous and nested question stays in
-          the same keyboard-scrollable list; nothing is sampled or clipped out of the DOM. */}
-      <ul
-        tabIndex={0}
-        aria-label="Thread conversations"
-        className="flex max-h-48 min-w-0 list-none flex-col divide-y divide-border/50 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <AnimatePresence initial={false} mode="popLayout">
-          {live.map(brick)}
-        </AnimatePresence>
+    <div role="group" aria-label={leaderTitle ? `Crew of ${leaderTitle}` : 'Crew'} className="group/strip @container min-w-0">
+      <ul tabIndex={0} aria-label="Thread conversations, grouped by lead"
+        className="flex max-h-48 min-w-0 list-none flex-col divide-y divide-border/50 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        <AnimatePresence initial={false} mode="popLayout">{visible.map(brick)}</AnimatePresence>
         {previous.length > 0 ? (
           <li className="min-w-0">
-            <button
-              type="button"
-              onClick={() => setPreviousOpen((open) => !open)}
-              aria-expanded={previousOpen}
-              title={
-                previousOpen
-                  ? 'Hide previous worker chats'
-                  : `${previous.length} finished worker ${previous.length === 1 ? 'chat' : 'chats'}`
-              }
-              className="inline-flex items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
+            <button type="button" onClick={() => setPreviousOpen((open) => !open)} aria-expanded={previousOpen}
+              title={previousOpen ? 'Hide previous worker chats' : `${previous.length} finished worker ${previous.length === 1 ? 'chat' : 'chats'}`}
+              className="inline-flex items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {previousOpen ? 'hide previous' : `+${previous.length} previous`}
             </button>
           </li>
         ) : null}
-        <AnimatePresence initial={false} mode="popLayout">
-          {previousOpen ? previous.map(brick) : []}
-          {extraBlocked.map((entry) => (
-            <BlockedWorkerBrick
-              key={`blocked:${sessionKey(entry.worker)}`}
-              entry={entry}
-              blobStyle={blobStyle}
-              state={stateFor?.(entry.worker) ?? 'needs-input'}
-              identityFor={identityFor}
-              onOpen={onOpenWorker}
-            />
-          ))}
-        </AnimatePresence>
+        <AnimatePresence initial={false} mode="popLayout">{previousOpen ? previous.map(brick) : []}</AnimatePresence>
       </ul>
     </div>
   );

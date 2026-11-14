@@ -21,6 +21,7 @@ import { MetaDoc } from "./meta";
 import {
   submitCrewMessage,
   findCrewTarget,
+  crewState,
   SessionsDoc,
   type CrewEntry,
 } from "./sessions";
@@ -589,7 +590,7 @@ export const formatForeignAgentMessage = (senderHost: string, senderName: string
  * `send` resolves the caller's **own crew first** (a worker by the crew name it spawned, or by
  * its title such as `Researcher #1`), then the registered directory, then a unique local session
  * title, and finally configured peer hosts (`state.peers` / `peers.json`). A worker of another
- * leader is refused: a conversation only drives the crew it started.
+ * crew is refused: only explicit creator or supervisory membership authorizes sends.
  */
 export const createAgentsTool = (home: string) =>
   defineTool({
@@ -603,7 +604,7 @@ export const createAgentsTool = (home: string) =>
       "give one of them another task instead of spawning a new worker. Queuing is what you want for " +
       "a busy worker: pass `followUp: true` and the message lands when the worker's current turn " +
       "ends, instead of interrupting it. A worker of another leader cannot be messaged: only the " +
-      "conversation that leads a crew can send to it. There is deliberately no register action: " +
+      "explicit requester or supervisor can send to it. There is deliberately no register action: " +
       "only a human can promote a worker into a named agent.",
     parameters: obj({
       action: oneOf(["directory", "send", "pin", "unpin"], {
@@ -713,7 +714,7 @@ export const createAgentsTool = (home: string) =>
 
       // Resolution order: the caller's own crew first, then the registered directory, then a
       // unique local session title, then configured peer hosts.
-      const crew = await api.snapshot(SessionsDoc, api.conversationId, context);
+      const crew = await crewState((id) => api.snapshot(SessionsDoc, id, context), api.conversationId, (id) => api.snapshot(MetaDoc, id, context));
       const crewTarget = crew ? findCrewTarget(crew.items, trimmedName) : undefined;
       if (crewTarget) {
         const label = crewTarget.entry.title || crewTarget.key;
@@ -726,6 +727,18 @@ export const createAgentsTool = (home: string) =>
       }
 
       if (found) {
+        const targetMeta = await api.snapshot(MetaDoc, found.conversationId as ConversationId, context);
+        if (targetMeta?.kind === "worker") {
+          // Directory aliases need the same explicit membership as crew handles. Matching an id
+          // in the authorized view permits creator/supervisor sends without opening siblings.
+          const member = Object.entries(crew?.items ?? {}).find(([, entry]) => entry.conversationId === found.conversationId);
+          if (!member) return reply("Refused: " + name + " is another requester's worker. Only its requester or supervisor can message it. Use your own crew list.");
+          const handle = await api.conversation(member[1].conversationId, context);
+          if (!handle) return reply("Worker " + name + " is gone. Use your crew list to choose another worker.");
+          const sent = await submitCrewMessage(api, handle, member[0], member[1], message, followUp === true, context);
+          if (sent) await chargeBudget();
+          return reply("Sent to " + name + ".", member[1].conversationId);
+        }
         const handle = await api.conversation(found.conversationId as ConversationId, context);
         if (!handle) {
           return reply(

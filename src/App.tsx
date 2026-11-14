@@ -168,7 +168,7 @@ import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups
 import { upsertGroup } from './lib/sessionGroups';
 import { recoverStrandedNotes } from './lib/notes';
 import { addNote, removeNote, updateNote } from './lib/noteStore';
-import { blockedWorkersUnder, crewByLeader, isWorker, leaderNeedsInput, workerKeySet } from './lib/crew';
+import { crewByLeader, isWorker, leaderNeedsInput, threadRows, threadSourcesFor, workerKeySet } from './lib/crew';
 import { processesToStopOnHide } from './lib/hideProcesses';
 import { hideElsewhereNote, hideForceStopAsk, hideStopFailure, refusedPids } from './lib/hideStopCopy';
 import { InvalidationQueue, invalidationsFor, parseEmberEvent, sessionIsLoaded, type Invalidation } from '@/lib/invalidation';
@@ -1265,27 +1265,6 @@ export default function App() {
       keys.add(sessionKey(session));
     }
     return keys;
-  }, [sessionsByInstance]);
-
-  /**
-   * Leader key → the workers **below** it that are blocked on the human, at any depth
-   * (`blockedWorkersUnder`). A leader's blob already glows for a nested need, but the rail hides
-   * workers, so without this the human could not see *which* sub-agent is asking: the crew strip
-   * only lists the leader's direct workers, and a sub-agent's question lives one strip deeper.
-   *
-   * Derived from the session list on every poll, so answering a question drops the entry — nothing
-   * accumulates. Only direct crews are walked (`blockedWorkersUnder` skips an entry it has already
-   * visited), and only keys with something blocked are stored, so a calm rail costs nothing.
-   */
-  const blockedCrewByLeader = React.useMemo(() => {
-    const map = new Map<string, ReturnType<typeof blockedWorkersUnder>>();
-    const all = Object.values(sessionsByInstance).flat();
-    all.forEach((session) => {
-      if (isWorker(session) && session.needsInput !== true) return;
-      const blocked = blockedWorkersUnder(session, all);
-      if (blocked.length > 0) map.set(sessionKey(session), blocked);
-    });
-    return map;
   }, [sessionsByInstance]);
 
   const permissions = React.useMemo(
@@ -5276,11 +5255,11 @@ export default function App() {
           onNewBotInFolder={modal ? undefined : () => beginNewAgent(session.instanceId, session.directory)}
           onRename={(title) => void renameByHuman(session, title)}
           crew={crewWorkers.get(key) ?? []}
-          threadTargets={threadDescendants(session, crewWorkers)}
+          threadRows={threadRows(session, crewWorkers)}
+          threadTargets={threadSourcesFor(session, crewWorkers, sessionsByInstance[session.instanceId] ?? [])}
           crewCost={crewCostByKey.get(key)}
-          nestedBlocked={blockedCrewByLeader.get(key) ?? []}
           workerState={(worker) => states[sessionKey(worker)] ?? 'unknown'}
-          workerAutoAcceptByKey={Object.fromEntries((crewWorkers.get(key) ?? []).map((worker) => [
+          workerAutoAcceptByKey={Object.fromEntries(threadDescendants(session, crewWorkers).map((worker) => [
             sessionKey(worker),
             Boolean(autoAcceptByInstance[worker.instanceId]?.sessions[worker.id] ?? false),
           ]))}

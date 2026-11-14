@@ -1504,7 +1504,7 @@ describe("hearth wire", () => {
     expect(peer.delegates).toBe(true);
   }, 20_000);
 
-  test("a depth-3 leader refuses to spawn a fourth level", async () => {
+  test("an old depth-3 leader flattens new work under its level-1 supervisor", async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [fauxToolCall("session", { action: "spawn", name: "too-deep", brief: "Nested brief." })],
@@ -1540,12 +1540,35 @@ describe("hearth wire", () => {
         .map((entry: any) => entry.model?.[0]?.content ?? "")
         .flatMap((content: any) => (Array.isArray(content) ? content.map((part: any) => part.text ?? "") : []))
         .join("\n");
-      if (toolText.includes("Refused")) break;
+      if (toolText.includes("Started worker")) break;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    expect(toolText).toContain("Refused");
-    expect(toolText).toContain("depth 4");
+    expect(toolText).toContain("Started worker");
+    const task = (await stack.harness.snapshot(SessionsDoc, leaf.id, context))!.items["too-deep"];
+    const sibling = (await body(await api("/conversations"))).conversations.find((item: any) => item.id === task.conversationId);
+    expect(sibling.lead.conversationId).toBe(mid.id);
+    expect(sibling.creatorId).toBe(leaf.id);
+    expect(sibling.delegates).toBe(true);
   }, 20_000);
+
+  test("a human side question from level 2 creates a sibling and retains its requester", async () => {
+    faux.setResponses([fauxAssistantMessage([fauxText("Side answer.")])]);
+    const make = async (): Promise<any> => body(await api("/conversations", { method: "POST",
+      body: JSON.stringify({ model: { provider: "faux", modelId: "faux-1" } }) }));
+    const root = await make(); const supervisor = await make(); const requester = await make();
+    await stack.harness.commit(async (tx) => {
+      Object.assign(await tx.doc(MetaDoc, supervisor.id), { kind: "worker", lead: { conversationId: root.id, host: "local" } });
+      Object.assign(await tx.doc(MetaDoc, requester.id), { kind: "worker", lead: { conversationId: supervisor.id, host: "local" } });
+    }, context);
+    const response = await api(`/conversations/` + requester.id + "/btw", { method: "POST", body: JSON.stringify({ question: "Which option?" }) });
+    expect(response.status).toBe(201);
+    const aside = await body(response);
+    expect(aside.lead.conversationId).toBe(supervisor.id);
+    expect(aside.creatorId).toBe(requester.id);
+    expect(aside.delegates).toBe(false);
+    const members = (await stack.harness.snapshot(SessionsDoc, supervisor.id, context))!.items;
+    expect(Object.values(members).some((entry) => entry.conversationId === aside.id && entry.taskOwner?.conversationId === requester.id)).toBe(true);
+  });
 
   test("a conversation created with delegates:false is refused a spawn, and stays refused", async () => {
     faux.setResponses([

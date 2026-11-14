@@ -83,8 +83,9 @@ type MockConversation = {
   autoAccept: { enabled: boolean; allowed: string[] };
   /** Coagent role: a hidden crew `worker`, or an addressable `peer`. */
   kind?: 'worker' | 'peer';
-  /** The immediate leader; workers carry it, peers keep it as history. */
+  /** The immediate supervisor, distinct from the worker that requested a sibling. */
   lead?: { conversationId: number; host: string };
+  creatorId?: number;
   /** Set on a worker once a human promoted it; the peer fork's conversation id. */
   promotedTo?: number;
   /** Whether the conversation offers the delegation tool + leader section. */
@@ -606,6 +607,31 @@ if (fixtureParam === 'thread-questions') {
   }));
 }
 
+// A level-2 worker can request a sibling under its level-1 lead. The requester has
+// access to the sibling's result, but not to arbitrary other siblings of that lead.
+if (fixtureParam === 'two-level-crew') {
+  fixtureI.delegates = true;
+  fixtureH.entries.push({ id: 220, kind: 'pi.assistant', model: [assistantMessage(
+    text('The migration check is in [Audit migration](/threads/22); [Migrate schema](/threads/18) belongs to another requester.'),
+    'stop', minutes(1)
+  )] });
+  const sibling = makeConversation({
+    id: 22, cwd: '/workspace/hearth', title: 'Audit migration', kind: 'worker',
+    lead: { conversationId: 16, host: 'local' }, creatorId: 17,
+    entries: [
+      { id: 220, kind: 'pi.user', model: [userMessage('Audit migration without changing the schema.', minutes(2))] },
+      { id: 221, kind: 'pi.assistant', model: [assistantMessage(text('Audit complete; ready for review.'), 'stop', minutes(1))] },
+    ],
+  });
+  const levelTwo = makeConversation({
+    id: 23, cwd: '/workspace/hearth', title: 'Inspect migration', kind: 'worker',
+    lead: { conversationId: 17, host: 'local' }, creatorId: 17, busy: true,
+    entries: [{ id: 230, kind: 'pi.user', model: [userMessage('Inspect the migration before the audit.', minutes(2))] }],
+  });
+  conversations.push(levelTwo);
+  conversations.push(sibling);
+}
+
 // A worker a human already promoted (`?promoted`): the strip row links to the peer fork and the
 // peer shows in the rail, while the worker itself stays hidden.
 const fixturePromotedWorker = makeConversation({
@@ -1028,6 +1054,7 @@ const summaryOf = (conversation: MockConversation): Record<string, unknown> => (
   ...(conversation.archived ? { archived: conversation.archived } : {}),
   ...(conversation.kind ? { kind: conversation.kind } : {}),
   ...(conversation.lead ? { lead: conversation.lead } : {}),
+  ...(conversation.creatorId !== undefined ? { creatorId: conversation.creatorId } : {}),
   ...(conversation.promotedTo !== undefined ? { promotedTo: conversation.promotedTo } : {}),
   ...(conversation.delegates ? { delegates: conversation.delegates } : {}),
   // Hearth computes this from the pending approval + question docs; mirror it so the crew strip

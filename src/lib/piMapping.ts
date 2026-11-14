@@ -93,6 +93,8 @@ export type PiConversationSummary = {
   kind?: 'worker' | 'peer';
   /** The immediate leader, with `host` (`"local"` in Phase 1). Workers carry it; peers keep it as history. */
   lead?: { conversationId: number; host: string };
+  /** Stable actual requester; level-2 siblings may be requested by another worker. */
+  creatorId?: number;
   /** Set on a worker once a human promoted it; the peer conversation's id (the fork). */
   promotedTo?: number;
   /** Hearth-computed: a pending approval or question exists (so the strip needs no extra reads). */
@@ -127,6 +129,9 @@ export const piConversationToSession = (
   kind: conversation.kind,
   lead: conversation.lead
     ? { instanceId: endpointId, sessionId: String(conversation.lead.conversationId) }
+    : undefined,
+  creator: typeof conversation.creatorId === 'number' && Number.isSafeInteger(conversation.creatorId)
+    ? { instanceId: endpointId, sessionId: String(conversation.creatorId) }
     : undefined,
   // Set once a human promotes the worker; the peer conversation id, stringified like `id`.
   promotedTo: conversation.promotedTo !== undefined ? String(conversation.promotedTo) : undefined,

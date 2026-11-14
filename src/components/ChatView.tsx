@@ -13,7 +13,7 @@ import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
 import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
 import type { ModelPrefill } from '../lib/newSessionDefaults';
-import type { BlockedWorker } from '../lib/crew';
+import type { ThreadRow } from '../lib/crew';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import type { PromptInput } from '../api';
 import { ModelPickerFallback } from './ModelPickerFallback';
@@ -317,8 +317,10 @@ type Props = {
   onActivate?: () => void;
   /** The column the user is working in; inactive columns trim their composer chrome. Defaults true. */
   active?: boolean;
-  /** A leader's crew workers; empty or absent for everyone else (they are hidden from the rail). */
+  /** A leader's direct workers; used in transcript status. */
   crew?: Session[];
+  /** Authorized descendants ordered by reporting lead for the Threads shelf. */
+  threadRows?: ThreadRow[];
   /** Known descendants for inline source links, including unblocked nested threads. */
   threadTargets?: Session[];
   /**
@@ -327,11 +329,6 @@ type Props = {
    * the session's own ledger alone.
    */
   crewCost?: CrewCostState;
-  /**
-   * Workers below this leader's direct crew that are blocked on the human, at any depth. The strip
-   * is the only place a worker is visible, so a sub-agent's question has to be named there too.
-   */
-  nestedBlocked?: BlockedWorker[];
   /** Coarse ball state per worker, from the instance's status poll. */
   workerState?: (worker: Session) => BallState;
   /** Data crosses both memo boundaries; a stabilized lookup callback cannot signal YOLO changes. */
@@ -550,7 +547,7 @@ function ChatView({
   active = true,
   crew = [],
   crewCost,
-  nestedBlocked,
+  threadRows = [],
   workerState,
   threadTargets,
   workerAutoAcceptByKey,
@@ -1106,7 +1103,7 @@ function ChatView({
    * Whether the crew is waiting on the human: a worker that asked a question, or one further down
    * the delegation chain that is blocked. It is what puts the dot on the shelf's Crew tab.
    */
-  const threadStatus = threadShelfStatus(crew, nestedBlocked ?? [], workerState);
+  const threadStatus = threadShelfStatus(threadRows.map((row) => row.worker), [], workerState);
   const crewNeedsInput = threadStatus.needsHuman > 0;
   /**
    * New things bring their own section forward — a queued message opens Queue, a saved note opens
@@ -1505,8 +1502,6 @@ function ChatView({
     pendingSendLabels?: { retry?: string; discard?: string };
     /** The draft has no crew, pins or scrub rail; a session passes the column's own. */
     crew?: Session[];
-  /** Known descendants for inline source links, including unblocked nested threads. */
-  threadTargets?: Session[];
     workerState?: (worker: Session) => BallState;
     showActivityRail?: boolean;
   }) => (
@@ -1576,7 +1571,7 @@ function ChatView({
     : undefined;
 
   const threadLinks = React.useMemo(() => {
-    const targets = new Map((threadTargets ?? [...crew, ...(nestedBlocked ?? []).map((entry) => entry.worker)])
+    const targets = new Map((threadTargets ?? threadRows.map((row) => row.worker))
       .map((worker) => [worker.id, worker]));
     return {
       has: (id: string) => Boolean(onOpenWorker) && targets.has(id),
@@ -1585,7 +1580,7 @@ function ChatView({
         if (worker) onOpenWorker?.(worker);
       },
     };
-  }, [threadTargets, crew, nestedBlocked, onOpenWorker]);
+  }, [threadTargets, threadRows, onOpenWorker]);
 
   return (
     <ThreadLinkContext.Provider value={threadLinks}>
@@ -2185,8 +2180,7 @@ function ChatView({
                           alert: crewNeedsInput,
                           content: (
                             <CrewStrip
-                              workers={crew}
-                              nestedBlocked={nestedBlocked}
+                              rows={threadRows}
                               onOpenWorker={onOpenWorker}
                               peerFor={workerPeer}
                               blobStyle={blobStyle}

@@ -60,7 +60,7 @@ const ungroupedLeader: AvatarIdentity = {
 };
 
 const render = (props: React.ComponentProps<typeof CrewStrip>) =>
-  renderToStaticMarkup(<CrewStrip onOpenWorker={() => {}} blobStyle="buddy" {...props} />);
+  renderToStaticMarkup(<CrewStrip onOpenWorker={() => {}} blobStyle="buddy" {...props} rows={props.rows ?? (props.workers ?? []).map((worker) => ({ worker, depth: 1, group: worker }))} />);
 
 /** How many bricks the markup draws. One per worker, plus one per extra blocked worker. */
 const bricks = (html: string) => html.split('data-crew-brick=""').length - 1;
@@ -98,12 +98,12 @@ describe('the crew strip is a flat readable list', () => {
       workers: [...many, worker('finished')],
       stateFor: (session) => session.id === 'finished' ? 'idle' : 'active',
       onToggleYolo: () => {},
-      nestedBlocked: [{ worker: worker('deep', { needsInput: true, title: 'Deep question' }), depth: 3, title: 'Deep question' }],
+      rows: [...many.map((entry) => ({ worker: entry, depth: 1, group: entry })), { worker: worker('deep', { needsInput: true, title: 'Deep question' }), depth: 2, group: many[0] }, { worker: worker('finished'), depth: 1, group: worker('finished') }],
     });
     expect(bricks(html)).toBe(21);
     expect(html).toContain('max-h-48');
     expect(html).toContain('overflow-y-auto');
-    expect(html).toMatch(/<ul[^>]+tabindex="0"[^>]+aria-label="Thread conversations"/);
+    expect(html).toMatch(/<ul[^>]+tabindex="0"[^>]+aria-label="Thread conversations, grouped by lead"/);
     expect(html).toContain('focus-visible:ring-inset');
     for (const session of many) {
       expect(html).toContain('aria-label="' + session.title + '"');
@@ -111,7 +111,7 @@ describe('the crew strip is a flat readable list', () => {
     }
     expect(html).toContain('+1 previous');
     expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('aria-label="Deep question needs input — open the conversation to answer"');
+    expect(html).toContain('aria-label="Deep question"');
     expect(html).not.toContain('overflow-hidden');
   });
 
@@ -334,26 +334,22 @@ describe('the parts that must survive the layout change', () => {
     expect(html).toContain('hidden @[420px]:inline">Yolo<');
   });
 
-  test('a blocked worker below the crew gets its own brick, with its depth', () => {
-    const html = render({
-      workers: [worker('a')],
-      nestedBlocked: [
-        { worker: worker('deep', { needsInput: true, title: 'Deep ask' }), depth: 2, title: 'Deep ask' },
-        // Already a brick of its own: it must not be listed twice.
-        { worker: worker('a', { title: 'Worker a' }), depth: 1, title: 'Worker a' },
-      ],
-      stateFor: () => 'active',
-    });
+  test('a blocked grandchild renders once beneath its lead, not as a detached alert', () => {
+    const parent = worker('a');
+    const deep = worker('deep', { lead: { instanceId: 'hearth', sessionId: 'a' }, needsInput: true, title: 'Deep ask' });
+    const html = render({ rows: [
+      { worker: parent, depth: 1, group: parent },
+      { worker: deep, depth: 2, group: parent },
+    ], stateFor: (item) => item.id === 'deep' ? 'needs-input' : 'idle' });
     expect(bricks(html)).toBe(2);
-    expect(html).toContain('Deep ask');
-    expect(html).toContain('Nested · depth 2');
-    expect(html).toContain('title="2 levels below this bot"');
-    expect(html).toContain('aria-label="Deep ask needs input — open the conversation to answer"');
-    expect(html).not.toMatch(/class="blob(?: |")/);
-    expect(html).toContain('>needs input<');
+    expect(html).toContain('data-thread-depth="2"');
+    expect(html).toContain('data-thread-group="Worker a"');
+    expect(html).toContain('Under Worker a, level 2.');
+    expect(html).toContain('pl-6 border-l-2');
+    expect(html).not.toContain('previous');
   });
 
   test('a crew with nobody in it renders nothing at all', () => {
-    expect(render({ workers: [] })).toBe('');
+    expect(render({ rows: [] })).toBe('');
   });
 });

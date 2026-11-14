@@ -143,8 +143,10 @@ export type Session = {
    * session). Absent on plain sessions, including OpenChamber ones.
    */
   kind?: 'worker' | 'peer';
-  /** The immediate leader a worker reports to, as an Ember instance/session pair. */
+  /** The immediate supervisory leader; a level-2 spawn reports to its level-1 lead. */
   lead?: { instanceId: string; sessionId: string };
+  /** The actual spawn requester, separate from supervisory lead (for authorized result links). */
+  creator?: { instanceId: string; sessionId: string };
   /**
    * Set on a worker once a human promoted it: the peer conversation's id (stringified like
    * `id`), living on the same `instanceId`. The strip renders such a row as a peer link.

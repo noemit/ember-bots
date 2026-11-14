@@ -15,9 +15,10 @@ import {
   type Extension,
   type Harness,
   type Storage,
+  type Tx,
 } from "@earendil-works/pi-durable";
 import { threadTask } from "./threadResults";
-import { resumeThreads } from "./threadSupervisor";
+import { resumeThreads, continuationRecipient } from "./threadSupervisor";
 import { MetaDoc } from "./meta";
 import { ApprovalsDoc, clearPendingApprovals } from "./approvals";
 import { QuestionsDoc, clearPendingQuestions } from "./ask";
@@ -182,6 +183,8 @@ export const collectWorkerIds = async (
       // Never cascade to peers; a promoted worker is detached from the cascade.
       if (entry.kind !== "worker" || entry.promotedTo !== undefined) continue;
       const id = entry.conversationId;
+      const meta = await harness.snapshot(MetaDoc, id, context);
+      if (meta?.promotedTo !== undefined || (meta?.lead && meta.lead.conversationId !== leader)) continue;
       if (seen.has(id as number)) continue;
       seen.add(id as number);
       found.push(id);
@@ -189,6 +192,22 @@ export const collectWorkerIds = async (
     }
   }
   return found;
+};
+
+/** Persist a human stop on the authoritative membership, separate from ordinary idleness. */
+export const markWorkerStopped = async (tx: Tx, id: ConversationId): Promise<void> => {
+  const meta = await tx.doc(MetaDoc, id);
+  if (meta.kind !== "worker" || !meta.lead || meta.lead.host !== "local") return;
+  const owner = (meta.creatorId ?? meta.lead.conversationId) as ConversationId;
+  const doc = await tx.doc(SessionsDoc, owner);
+  for (const entry of Object.values(doc.items)) {
+    if (entry.conversationId !== id || entry.taskOwner) continue;
+    entry.state = "stopped";
+    delete entry.followUpAt;
+    if (entry.delivery === "thread") entry.report = { status: "aborted",
+      text: "This thread was stopped before finishing its outcome.", at: Date.now(),
+      requestId: "hearth.thread.stopped:" + threadTask(entry) };
+  }
 };
 
 /**
@@ -235,7 +254,11 @@ export const archiveCrew = async (
       const crew = await tx.doc(SessionsDoc, lead.conversationId as ConversationId);
       for (const entry of Object.values(crew.items)) {
         if (entry.kind !== "worker" || entry.conversationId !== id) continue;
-        if (entry.state === "starting" || entry.state === "running") entry.state = "stopped";
+        const actual = entry.taskOwner
+          ? (await tx.doc(SessionsDoc, entry.taskOwner.conversationId)).items[entry.taskOwner.key] : entry;
+        if (!actual) continue;
+        if (actual.state === "starting" || actual.state === "running") actual.state = "stopped";
+        delete actual.followUpAt;
         delete entry.followUpAt;
       }
     }
@@ -328,10 +351,10 @@ export const tick = async (
     if (!snapshot) continue;
     // The cheap signal first: a crew with nobody owing an answer can neither report nor be due a
     // wake, so such a conversation costs this tick exactly one snapshot read.
-    const active = Object.entries(snapshot.items).filter(([, entry]) => isActiveWorker(entry));
+    const active = Object.entries(snapshot.items).filter(([, entry]) => !entry.taskOwner && isActiveWorker(entry));
     if (active.length === 0 && !Object.values(snapshot.items).some((entry) =>
-      entry.delivery === "thread" || (entry.contextAdvisory?.task === threadTask(entry) &&
-        entry.notifiedContextEpoch !== entry.contextAdvisory?.epoch))) continue;
+      !entry.taskOwner && (entry.delivery === "thread" || (entry.contextAdvisory?.task === threadTask(entry) &&
+        entry.notifiedContextEpoch !== entry.contextAdvisory?.epoch)))) continue;
 
     for (const [name, entry] of active) {
       const live = await harness.snapshot(LiveDoc, entry.conversationId, context);
@@ -466,7 +489,7 @@ export const tick = async (
       continue;
     }
     // Old workers retain their delivery contract; new threads never enter the report/digest path.
-    const legacyItems = Object.fromEntries(Object.entries(snapshotAfter.items).filter(([, item]) => item.delivery !== "thread"));
+    const legacyItems = Object.fromEntries(Object.entries(snapshotAfter.items).filter(([, item]) => !item.taskOwner && item.delivery !== "thread"));
     if (Object.keys(legacyItems).length === 0) continue;
     const fresh = { ...snapshotAfter, items: legacyItems };
     const generation = fresh.generation;
@@ -494,9 +517,11 @@ export const tick = async (
       }, context);
       continue;
     }
-    if ((await harness.snapshot(MetaDoc, record.id, context))?.archived) continue;
-
-    const leader = await harness.conversation(record.id, context);
+    const recipient = await continuationRecipient((id) => harness.snapshot(MetaDoc, id, context),
+      (id) => harness.snapshot(LiveDoc, id, context), (id) => harness.snapshot(SessionsDoc, id, context),
+      record.id, Object.values(legacyItems));
+    if (recipient === undefined) continue;
+    const leader = await harness.conversation(recipient, context);
     if (!leader) continue;
     try {
       await leader.submit(

@@ -90,6 +90,13 @@ describe('a running call, with its output patched from the live slot', () => {
 });
 
 describe('conversation → session', () => {
+  test('keeps the stable requester distinct from the supervisory lead', () => {
+    const session = piConversationToSession('hearth', {
+      id: 44, kind: 'worker', lead: { conversationId: 16, host: 'local' }, creatorId: 17,
+    });
+    expect(session.lead).toEqual({ instanceId: 'hearth', sessionId: '16' });
+    expect(session.creator).toEqual({ instanceId: 'hearth', sessionId: '17' });
+  });
   test('an unset Kiln thinking setting resolves to off without inventing levels for old replies', () => {
     const session = piConversationToSession('hearth', {
       id: 42, model: { provider: 'deepseek', modelId: 'deepseek-flash' },
