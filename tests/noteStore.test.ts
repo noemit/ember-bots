@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   addNote,
+  editNote,
   cleanNoteText,
   MAX_NOTES_PER_SESSION,
   noteModelChoice,
@@ -107,5 +108,28 @@ describe('which model a note sends with', () => {
     expect(noteModelChoice(note('a', 'text', { modelId: 'openai/gpt-5', variant: 'high' }))).toEqual({
       kind: 'note', modelId: 'openai/gpt-5', variant: 'high',
     });
+  });
+});
+
+
+describe('the explicit snapshot sent from the note editor', () => {
+  test.each(['off', 'high', 'default', ''])('persistence and dispatch agree for effort %s and retain linked identity', (variant) => {
+    const original = note('a', 'old', { modelId: 'old/model', variant: 'high', quoteLinkId: 'source-link' });
+    const patch = { text: '  edited  ', modelId: 'new/model', variant };
+    const snapshot = editNote(original, patch)!;
+    expect(snapshot).toEqual(updateNote({ session: [original] }, 'session', 'a', patch).session![0]);
+    expect(snapshot).toMatchObject({ id: 'a', text: 'edited', modelId: 'new/model', quoteLinkId: 'source-link' });
+    expect(snapshot.variant).toBe(variant && variant !== 'default' ? variant : undefined);
+    expect(original.text).toBe('old');
+  });
+
+  test.each(['', 'default'])('explicit composer choice %s clears the old note model and effort', (modelId) => {
+    const snapshot = editNote(note('a', 'old', { modelId: 'old/model', variant: 'high', quoteLinkId: 'link' }), { text: 'new', modelId, variant: 'off' })!;
+    expect(snapshot).toEqual({ id: 'a', text: 'new', quoteLinkId: 'link' });
+    expect(noteModelChoice(snapshot)).toEqual({ kind: 'composer' });
+  });
+
+  test('blank drafts cannot dispatch an earlier saved value', () => {
+    expect(editNote(note('a', 'old'), { text: '  ' })).toBeNull();
   });
 });

@@ -51,10 +51,22 @@ export const updateNote = (
   if (!existing) return store;
   const index = existing.findIndex((note) => note.id === noteId);
   if (index < 0) return store;
-  const text = patch.text === undefined ? existing[index].text : cleanNoteText(patch.text);
+  const updated = editNote(existing[index], patch);
+  if (!updated) return store;
+  const notes = existing.slice();
+  notes[index] = updated;
+  return { ...store, [key]: notes };
+};
+
+/** One explicit edit snapshot, shared by persistence and immediate dispatch. Keeps linked sources. */
+export const editNote = (
+  note: SessionNote,
+  patch: { text?: string; modelId?: string; variant?: string }
+): SessionNote | null => {
+  const text = patch.text === undefined ? note.text : cleanNoteText(patch.text);
   // Clearing the text would silently delete the note through the editor; refuse instead.
-  if (!text) return store;
-  const updated: SessionNote = { ...existing[index], text };
+  if (!text) return null;
+  const updated: SessionNote = { ...note, text };
   if (patch.modelId === undefined) {
     // Untouched: keep whatever the note already carried.
   } else if (!patch.modelId || patch.modelId === DEFAULT_MODEL) {
@@ -66,9 +78,7 @@ export const updateNote = (
     if (patch.variant && patch.variant !== 'default') updated.variant = patch.variant;
     else delete updated.variant;
   }
-  const notes = existing.slice();
-  notes[index] = updated;
-  return { ...store, [key]: notes };
+  return updated;
 };
 
 /** Remove a note, dropping the session's key when it has none left (the store's own rule). */

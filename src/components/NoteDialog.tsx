@@ -24,7 +24,7 @@ type Props = {
   canSend?: boolean;
   onModelsRefresh?: () => void;
   onSave: (text: string, model: NoteModelEdit) => void;
-  onSend: () => void;
+  onSend: (text: string, model: NoteModelEdit) => void;
   onClose: () => void;
 };
 
@@ -147,10 +147,9 @@ export default function NoteDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            disabled={busy || !canSend}
+            disabled={busy || !canSend || !clean}
             onClick={() => {
-              if (dirty) save();
-              onSend();
+              if (clean) onSend(text, { modelId, variant });
             }}
           >
             <ArrowUp />

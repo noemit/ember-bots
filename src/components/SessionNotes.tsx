@@ -1,3 +1,4 @@
+import { editNote } from '../lib/noteStore';
 import AnnotationSources from './AnnotationSources';
 import type { QuoteLink } from '../types';
 import * as React from 'react';
@@ -62,12 +63,16 @@ export default function SessionNotes({
   const [readingId, setReadingId] = React.useState<string | null>(null);
   React.useEffect(() => { if (focusItem) setReadingId(focusItem.id); }, [focusItem]);
 
+  // Lock synchronously too: two dispatches must not fit between state updates.
+  const sending = React.useRef(false);
   const send = async (note: SessionNote) => {
-    if (busyNoteId || !canSend) return;
+    if (sending.current || !canSend) return;
+    sending.current = true;
     setBusyNoteId(note.id);
     try {
       await onSend(note);
     } finally {
+      sending.current = false;
       setBusyNoteId((current) => (current === note.id ? null : current));
     }
   };
@@ -166,8 +171,12 @@ export default function SessionNotes({
           canSend={canSend}
           onModelsRefresh={onModelsRefresh}
           onSave={(text, model) => onUpdate(readingNote, { text, modelId: model.modelId, variant: model.variant })}
-          onSend={() => {
-            const note = readingNote;
+          onSend={(text, model) => {
+            const patch = { text, modelId: model.modelId, variant: model.variant };
+            const note = editNote(readingNote, patch);
+            if (!note || sending.current || !canSend) return;
+            // Retain edits if dispatch is refused or fails. Do not wait for a rerender to send them.
+            onUpdate(readingNote, patch);
             setReadingId(null);
             void send(note);
           }}
