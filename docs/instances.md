@@ -168,3 +168,70 @@ provider source, but cannot receive keys from another computer through its loopb
 Older or offline hosts are reported rather than blocking the rest; update both Kilns to a build
 that supports reviewed provider sharing, check their connections, then review again. Alignment is
 available in the desktop app; remote browser clients cannot access alignment routes.
+
+## Add another Kiln
+
+In **Settings → Instances → Add instance**, choose **On this computer** or **On another
+computer**. For another computer, enter its name, Kiln URL and bearer token. Test the connection,
+then add it. You do not need to choose a networking product first. Reverse-proxy URL paths and
+IPv6 addresses (in brackets) are supported. Use HTTPS outside a trusted private network.
+
+**Connection help** explains Tailscale, Cloudflare Tunnel and a custom address without changing
+network settings. Under **Advanced**, a Cloudflare Access service token supplies a client ID and
+client secret *in addition to* Kiln’s bearer token. Access requires HTTPS. Ember sends both
+credentials on API requests and live WebSocket connections; it refuses redirects rather than
+forwarding credentials to a different location. A changed server origin requires re-entering the
+Access secret. The desktop stores Access credentials encrypted with its system credential store;
+on Linux, unlock a supported keyring first (the plaintext `basic_text` backend is not accepted).
+Remote browsers cannot edit these desktop-only credentials or enable host sharing.
+
+## Share this computer’s Kiln
+
+Kiln stays on loopback by default for new installations. Existing explicit bind addresses and
+pre-upgrade standalone databases retain their previous bind behavior; changing that old setup is
+a separate, deliberate administrator action.
+
+On the computer running Kiln, open **Settings → Instances → Share this Kiln**, then choose
+**Enable remote Kiln access**. This is an explicit network configuration change. Ember checks
+Tailscale membership, checks that Kiln rejects anonymous API requests, and creates one persistent
+background **Serve TCP** forward only when its port is unused. It never enables Funnel and does
+not replace another Serve setup. It verifies the forwarded address both without and with the
+bearer token before offering **Reveal connection details**. Merely detecting a Tailscale IP does
+not prove Kiln is reachable. Tailscale ACLs must still allow the other computer to connect.
+
+The copyable URL and bearer token belong in **On another computer** on the second desktop.
+Keep the token private: it grants control of Kiln. **Turn off remote Kiln access** removes only
+the forward Ember recorded as its own; changed or conflicting rules require administrator review.
+A failed readiness check can still leave sharing enabled if rollback could not complete: use the
+stop-sharing action and read its result rather than assuming the forward was removed.
+
+The forward persists in Tailscale, not an Ember-owned helper process. The bundled Kiln still
+stops when Ember quits, and resumes with Ember; closing a macOS window is not quitting. An
+already-running Tinder-managed Kiln remains independently owned. Sharing never stops it.
+**Allow Ember browser access over Tailscale** is different: that setting serves Ember’s browser
+UI on port **57821**, not the Kiln agent API.
+
+### Administrator verification (only after choosing to share)
+
+No real tailnet, macOS or Windows exposure was exercised by the fixture-based development tests.
+On the hosting computer, these read-only commands help review the actual setup:
+
+```sh
+tailscale version
+tailscale status --json
+tailscale serve status --json
+```
+
+Look for a background TCP forward to numeric loopback on the selected port, and no Funnel
+permission for that port. Do not paste output containing private configuration into public issues.
+From the second authorized tailnet computer, test the copied URL without credentials first:
+
+```sh
+curl --max-time 10 --output /dev/null --write-out '%{http_code}\n' "$KILN_URL/conversations"
+```
+
+Expect an authentication rejection. Then test with the bearer token using a private HTTP client
+or Ember’s **Test connection** (avoid putting tokens in shell history or command-line arguments).
+Verify an authenticated conversation listing, live output, restart persistence and stop sharing.
+If Tailscale is missing, lacks Serve permission, or the network ACL blocks the request, fix that
+host/network policy and test again. Never use `serve reset` to recover Ember’s single forward.

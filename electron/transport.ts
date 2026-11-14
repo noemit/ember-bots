@@ -166,6 +166,8 @@ export type PiEndpoint = {
   label: string;
   url: string;
   token: string;
+  access?: { clientId: string; clientSecret: string };
+  hasAccessSecret?: boolean;
 };
 
 /** Trusted Hearth endpoints: ids unique and namespaced with `pi:`, URLs http(s), tokens bounded. */
@@ -198,7 +200,12 @@ export const parsePiEndpoints = (value: unknown, limit = 20): PiEndpoint[] => {
     if (seenHosts.has(host)) continue;
     seen.add(id);
     seenHosts.add(host);
-    out.push({ id, label, url, token });
+    const rawAccess = raw.access && typeof raw.access === 'object' ? raw.access as Record<string, unknown> : null;
+    const access = rawAccess && typeof rawAccess.clientId === 'string' && typeof rawAccess.clientSecret === 'string' &&
+      rawAccess.clientId.length <= 4096 && rawAccess.clientSecret.length <= 4096 &&
+      !/[\r\n]/.test(rawAccess.clientId + rawAccess.clientSecret)
+      ? { clientId: rawAccess.clientId, clientSecret: rawAccess.clientSecret } : undefined;
+    out.push({ id, label, url, token, ...(access ? { access } : {}), ...(raw.hasAccessSecret === true ? { hasAccessSecret: true } : {}) });
     if (out.length >= limit) break;
   }
   return out;

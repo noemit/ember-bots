@@ -18,7 +18,13 @@ export type PiEndpoint = {
   token: string;
   /** Present on the remote surface; `false` there means the desktop has no token stored either. */
   hasToken?: boolean;
+  access?: { clientId: string; clientSecret: string };
+  hasAccessSecret?: boolean;
 };
+
+export type KilnSharingStatus = { state: 'ready' | 'off' | 'blocked'; message: string; url?: string; enabled: boolean };
+export type EndpointTestDraft = { label: string; url: string; token: string; access?: { clientId: string; clientSecret: string }; id?: string; hasAccessSecret?: boolean };
+export type EndpointTestResult = { outcome: 'ready' | 'unreachable' | 'auth-rejected' | 'wrong-service' | 'tls-error' | 'timeout'; host: string; message: string };
 
 export type Instance = {
   id: string;
@@ -854,6 +860,9 @@ export type EmberBridge = {
    * Absent on older bridges and on the mock, so callers must treat it as optional.
    */
   retryLocalHarness?(): Promise<unknown>;
+  testPiEndpoint?(draft: EndpointTestDraft): Promise<EndpointTestResult>;
+  kilnSharing?(action: 'inspect' | 'enable' | 'disable'): Promise<KilnSharingStatus>;
+  kilnSharingDetails?(): Promise<{ url: string; token: string } | null>;
   localHarnessToken?(options?: { rotate?: boolean }): Promise<LocalHarnessToken>;
   /** Open an http(s) URL in the default browser or reveal a local path in Finder. */
   openExternal(target: string): Promise<boolean>;

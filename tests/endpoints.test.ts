@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { endpointError, endpointIdFrom, maskToken, normalizeEndpointUrl, removeEndpoint, upsertEndpoint } from '../src/lib/endpoints';
+import { endpointError, endpointTestCopy, endpointIdFrom, maskToken, normalizeEndpointUrl, removeEndpoint, upsertEndpoint } from '../src/lib/endpoints';
 import type { PiEndpoint } from '../src/types';
 
 const endpoint = (overrides: Partial<PiEndpoint> = {}): PiEndpoint => ({
@@ -62,5 +62,33 @@ describe('token masking', () => {
   test('never shows more than the last four characters', () => {
     expect(maskToken('a'.repeat(64))).toBe(`••••••••${'a'.repeat(4)}`);
     expect(maskToken('abc')).toBe('••••');
+  });
+});
+
+
+describe('optional Access credentials', () => {
+  test('requires the pair, preserves saved-secret markers, and removes both deliberately', () => {
+    const draft = { label: 'Studio', url: 'https://kiln.example.com', token: 'bearer', access: { clientId: 'service', clientSecret: '' } };
+    expect(endpointError(draft)).toContain('both');
+    expect(endpointError({ ...draft, hasAccessSecret: true })).toBeNull();
+    const saved = upsertEndpoint([], { ...draft, hasAccessSecret: true });
+    expect(saved[0]).toMatchObject({ hasAccessSecret: true, access: { clientId: 'service', clientSecret: '' } });
+    const removed = upsertEndpoint(saved, { ...saved[0], access: undefined, hasAccessSecret: undefined });
+    expect(removed[0].access).toBeUndefined();
+    expect(removed[0].hasAccessSecret).toBeUndefined();
+  });
+});
+
+describe('connection result copy', () => {
+  test('names the host, explains the conclusion, and gives recovery without diagnostics', () => {
+    for (const outcome of ['ready', 'unreachable', 'auth-rejected', 'wrong-service', 'tls-error', 'timeout']) {
+      const text = endpointTestCopy('Studio Mac', outcome);
+      expect(text).toContain('Studio Mac');
+      expect(text).not.toMatch(/HTTP [0-9]|undefined|null|stack|!/);
+      expect(text).toMatch(outcome === 'ready' ? /add this instance/ : /test again/);
+    }
+    expect(endpointTestCopy('Studio Mac', 'wrong-service')).toContain('browser UI');
+    expect(endpointTestCopy('Studio Mac', 'tls-error')).toContain('certificate');
+    expect(endpointTestCopy('Studio Mac', 'timeout')).toContain('time');
   });
 });

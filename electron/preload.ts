@@ -22,6 +22,9 @@ const ember = {
    * harness; main refuses both on a harness Ember did not start, and refuses everything when the
    * sender is the remotely served page rather than the app's own window.
    */
+  testPiEndpoint: (draft: unknown) => ipcRenderer.invoke('ember:pi:test', draft),
+  kilnSharing: (action: 'inspect' | 'enable' | 'disable') => ipcRenderer.invoke('ember:kiln:sharing', action),
+  kilnSharingDetails: () => ipcRenderer.invoke('ember:kiln:sharing-details'),
   retryLocalHarness: (): Promise<unknown> => ipcRenderer.invoke('ember:local-harness-retry'),
   localHarnessToken: (options?: { rotate?: boolean }): Promise<LocalHarnessToken> =>
     ipcRenderer.invoke('ember:local-harness-token', options ?? {}),

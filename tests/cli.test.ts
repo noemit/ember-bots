@@ -84,12 +84,13 @@ describe('Tinder / Ember CLI', () => {
 
     expect(result.tokenCreated).toBe(true);
     expect(result.localUrl).toBe('http://127.0.0.1:3012');
-    expect(result.tailscaleUrl).toBe('http://100.64.0.1:3012');
+    expect(result.tailscaleUrl).toBeUndefined();
     expect(result.servicePath).toBe(path.join(userHome, '.config', 'systemd', 'user', 'ember-kiln.service'));
     expect(fs.existsSync(result.servicePath!)).toBe(true);
 
     expect(result.output).toContain('http://127.0.0.1:3012');
-    expect(result.output).toContain('http://100.64.0.1:3012');
+    expect(result.output).not.toContain('http://100.64.0.1:3012');
+    expect(result.output).toContain('explicitly share Kiln');
     expect(result.output).toContain(result.token);
     expect(result.output).toContain('ember-kiln.service');
     expect(result.output).not.toContain('Ember Desktop GUI:');
@@ -135,7 +136,7 @@ describe('Tinder / Ember CLI', () => {
     };
 
     expect(parsed.localUrl).toBe('http://127.0.0.1:3005');
-    expect(parsed.tailscaleUrl).toBe('http://100.64.0.2:3005');
+    expect(parsed.tailscaleUrl).toBeUndefined();
     expect(parsed.token).toMatch(/^[a-z]+(-[a-z]+){3}$/);
     expect(parsed.tokenPath).toBe(path.join(home, 'ember.token'));
   });

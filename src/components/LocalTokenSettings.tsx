@@ -34,7 +34,7 @@ const MASK = '••••••••';
  * - **Regenerating is one operation, not two.** A token is read by the harness at startup, so writing
  *   the file under a running process would show a new token while it still accepted the old one. Main
  *   stops it, writes, restarts — see `ember:local-harness-token` — and this screen only reports it.
- * - **Say who is affected.** A new token breaks every other machine and browser pointed at this host,
+ * - **Say who is affected.** A new token disconnects every API client pointed at this host,
  *   and that has to be in the sentence the person reads before they click.
  */
 export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInstances }: Props) {
@@ -155,8 +155,8 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Other machines and browsers use this to connect to this one. Anyone who has it can use this
-            computer's bots, so treat it like a password.
+            Other Ember desktops and API clients use this Kiln token. Anyone who has it can control this
+            computer’s bots. Ember’s browser UI uses a separate password.
           </p>
           {canRotate ? (
             confirming ? (
@@ -164,8 +164,8 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
                 <span className="flex items-start gap-1.5 text-[11.5px]">
                   <ShieldAlert className="mt-px size-3.5 flex-none text-destructive" />
                   <span>
-                    Every other machine and browser pointed at this host will stop connecting until
-                    you copy the new token across. The bots themselves are untouched.
+                    Other Ember desktops and API clients using this Kiln will stop connecting until
+                    you copy the new token across. The bots and Ember browser password are unchanged.
                   </span>
                 </span>
                 <div className="flex items-center gap-1.5">

@@ -439,7 +439,7 @@ const InstanceDefaultsSettings = ({
 /**
  * What the listener is actually doing.
  *
- * "Allow access over Tailscale: On" is a stored preference, not a fact: if Tailscale was not up
+ * "Allow Ember browser access over Tailscale: On" is a stored preference, not a fact: if Tailscale was not up
  * when Ember started, the socket was never bound and the old UI had no way to say so.
  */
 const RemoteListenerStatus = ({
@@ -626,9 +626,9 @@ export default function SettingsPanel({
                     <div className="flex min-w-0 items-start gap-2.5">
                       <KeyRound className="mt-0.5 size-4 flex-none text-muted-foreground" />
                       <div className="flex min-w-0 flex-col gap-0.5">
-                        <span className="font-medium">Allow access over Tailscale</span>
+                        <span className="font-medium">Allow Ember browser access over Tailscale</span>
                         <span className="text-[11px] text-muted-foreground">
-                          Requires a password and is available only to your Tailnet.
+                          Opens the Ember browser UI on port 57821, with a password, only to your tailnet. This does not share the Kiln API.
                         </span>
                       </div>
                     </div>
@@ -638,7 +638,7 @@ export default function SettingsPanel({
                       onPressedChange={(enabled) => onChange({ remoteAccessEnabled: enabled })}
                       variant="outline"
                       size="sm"
-                      aria-label="Allow remote access over Tailscale"
+                      aria-label="Allow Ember browser access over Tailscale"
                     >
                       {settings.remoteAccessEnabled ? 'On' : 'Off'}
                     </Toggle>
@@ -841,16 +841,17 @@ export default function SettingsPanel({
             </TabsContent>
 
             <TabsContent value="instances" className="mt-0 flex flex-col gap-4">
-              {/* The harness this app runs on this computer, first: its token is what the other
-                  machines need, and it was previously only reachable from a terminal. */}
-              <Card>
+              {/* Token rotation stays available without competing with the connection flow. */}
+              <details className="rounded-lg border p-3">
+                <summary className="cursor-pointer text-xs font-medium">Advanced: local Kiln token</summary>
+              <Card className="mt-3 border-0 shadow-none">
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     This computer
                   </CardTitle>
                   <CardDescription>
-                    Ember runs ember-harness for you here. Its token is what another machine — or a
-                    browser you pair over remote access — uses to connect.
+                    Manage this computer’s Kiln bearer token. Sharing below creates a reachable
+                    API address; Ember’s browser access uses its own separate password.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-3 pt-2">
@@ -863,14 +864,15 @@ export default function SettingsPanel({
                   />
                 </CardContent>
               </Card>
+              </details>
               <Card>
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    ember-harness endpoints
+                    Kiln instances
                   </CardTitle>
                   <CardDescription>
-                    Devices running ember-harness. Each keeps its own conversations; Ember lists
-                    them together in the rail.
+                    Each Kiln keeps its own conversations. Connect another computer or share this
+                    computer’s Kiln below.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-3 pt-2">

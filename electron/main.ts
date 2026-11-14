@@ -1,9 +1,12 @@
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, powerMonitor, shell, safeStorage } from 'electron';
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createKilnSharing } from './kilnSharing';
+import { testPiEndpoint } from './piConnection';
+import { unlockEndpointSecrets, lockEndpointSecrets, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
 import {
   discoverLocalPiEndpoint,
   isLocalHttpUrl,
@@ -481,7 +484,7 @@ const readEmberSettings = (): EmberSettings => {
         : null,
     minimizedSessions: parseStringArray(root.minimizedSessions),
     piEndpoints: (() => {
-      const configured = parsePiEndpoints(root.piEndpoints);
+      const configured = parsePiEndpoints(unlockEndpointSecrets(root.piEndpoints, safeStorage));
       const discovered: PiEndpoint[] =
         configured.length > 0 || Array.isArray(root.piEndpoints) || canaryBuild
           ? configured
@@ -1014,7 +1017,7 @@ ipcMain.handle('ember:app-version', () => app.getVersion());
 
 ipcMain.handle('ember:settings:get', (event) => {
   assertTrustedSender(event);
-  return readEmberSettings();
+  return maskEndpointSecrets(readEmberSettings());
 });
 
 ipcMain.handle('ember:models:stats', (event) => { assertTrustedSender(event); return modelStats.list(); });
@@ -1100,7 +1103,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
         : null;
   }
   if (value.minimizedSessions !== undefined) settings.minimizedSessions = parseStringArray(value.minimizedSessions);
-  if (value.piEndpoints !== undefined) settings.piEndpoints = parsePiEndpoints(value.piEndpoints);
+  if (value.piEndpoints !== undefined) settings.piEndpoints = parsePiEndpoints(restoreEndpointSecrets(value.piEndpoints, settings.piEndpoints));
   // The guide's dismissal is the person's decision, so a patch may set it. `onboardedAt` is not:
   // that one records a fact main observed (a host answered), and a client claiming it would let a
   // stale window suppress the guide on a genuinely fresh install.
@@ -1140,13 +1143,14 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (!remotePasswordHash) settings.remoteAccessEnabled = false;
   await writeJson(emberSettingsPath(), {
     ...persistedSettings(settings),
+    piEndpoints: lockEndpointSecrets(settings.piEndpoints, root.piEndpoints, safeStorage),
     ...(remotePasswordHash ? { remotePasswordHash } : {}),
   });
   if (
     settings.remoteAccessEnabled !== previousRemoteAccessEnabled ||
     remotePasswordHash !== previousRemotePasswordHash
   ) refreshRemoteServer();
-  return settings;
+  return maskEndpointSecrets(settings);
 };
 
 let settingsWrites: Promise<unknown> = Promise.resolve();
@@ -1455,6 +1459,49 @@ ipcMain.handle('ember:events:status', (event) => {
   return { ...eventStreams.snapshot(), ...piClient.status() };
 });
 
+// These credential-bearing operations exist only on trusted desktop IPC, never the remote router.
+ipcMain.handle('ember:pi:test', async (event, value: unknown) => {
+  assertTrustedSender(event);
+  const input = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const draft = restoreEndpointSecrets([input], piEndpoints()) as unknown[];
+  const parsed = parsePiEndpoints([{ ...draft[0] as object, id: 'pi:test' }]);
+  if (!parsed[0]) return { outcome: 'wrong-service', host: 'This Kiln', message: 'Ember needs a valid server address and Kiln bearer token. Check both, then test again.' };
+  return testPiEndpoint(parsed[0]);
+});
+let sharingController: ReturnType<typeof createKilnSharing> | undefined;
+let sharingIdentity = '';
+let sharingOperations: Promise<unknown> = Promise.resolve();
+const withKilnSharing = <T,>(operation: (controller: ReturnType<typeof createKilnSharing>, token: string) => Promise<T>): Promise<T> => {
+  const run = sharingOperations.catch(() => {}).then(async () => {
+    // Unsharing must remain possible after Kiln was stopped or disabled. Its forward is
+    // independently persistent and removal uses only the durable ownership record.
+    const local = localHarnessEndpointInfo() ?? {
+      url: 'http://127.0.0.1:' + String(localHarness.options.port ?? LOCAL_HARNESS_PORT),
+      token: harnessTokenOnDisk(harnessHome()) ?? '',
+    };
+    const identity = JSON.stringify([local.url, local.token]);
+    if (!sharingController || sharingIdentity !== identity) {
+      sharingController = createKilnSharing({ hostLabel: 'This computer', localUrl: local.url, token: local.token, statePath: path.join(emberHome, 'kiln-sharing.json') });
+      sharingIdentity = identity;
+    }
+    return operation(sharingController, local.token);
+  });
+  sharingOperations = run;
+  return run;
+};
+ipcMain.handle('ember:kiln:sharing', (event, action: unknown) => {
+  assertTrustedSender(event);
+  if (action !== 'inspect' && action !== 'enable' && action !== 'disable') throw new Error('Choose whether to check, share or stop sharing this computer’s Kiln.');
+  return withKilnSharing((controller) => controller[action]());
+});
+ipcMain.handle('ember:kiln:sharing-details', (event) => {
+  assertTrustedSender(event);
+  return withKilnSharing(async (controller, token) => {
+    const status = await controller.inspect();
+    return status.state === 'ready' && status.url ? { url: status.url, token } : null;
+  });
+});
+
 ipcMain.handle('ember:pi:request', (event, args: unknown) => {
   assertTrustedSender(event);
   const input = args && typeof args === 'object' ? (args as Record<string, unknown>) : {};
@@ -1482,7 +1529,7 @@ const remoteListener = new RemoteListener(
       // The remote surface gets the settings with every endpoint token removed, and cannot write
       // `piEndpoints` back: it has no way to use or supply one (see transport.ts).
       getSettings: () => redactRemoteSettings(readEmberSettings()),
-      setSettings: (patch) => updateSettings(withoutDesktopOnlySettings(patch)),
+      setSettings: async (patch) => redactRemoteSettings(await updateSettings(withoutDesktopOnlySettings(patch))),
       request: proxyApiRequest,
       piRequest: (endpointId, reqPath, init) => piClient.request(endpointId, reqPath, init),
       activityList: (opts) => activityLog.list(parseActivityQuery(opts)),

@@ -1973,6 +1973,7 @@ let settings: EmberSettings = {
 
 /** Stands in for `~/.ember/hearth.token`, so the rotate button does something visible in the mock. */
 let mockHarnessToken = 'amber-anchor-brisk-copper';
+let mockKilnShared = false;
 
 export const bridge: EmberBridge = {
   appName: 'Ember',
@@ -1984,6 +1985,14 @@ export const bridge: EmberBridge = {
     // endpoint it is listed from; a mismatch reads as one working remote and no local host.
     return [onboardingFixture ? { ...ENDPOINT, id: 'pi:local', label: 'This computer' } : ENDPOINT];
   },
+  // Synthetic only: browser review must never inspect or change the machine's network.
+  testPiEndpoint: async draft => ({ outcome: 'ready', host: draft.label, message: 'The mock Kiln accepted the connection.' }),
+  kilnSharing: async action => {
+    if (action === 'enable') mockKilnShared = true;
+    if (action === 'disable') mockKilnShared = false;
+    return { state: mockKilnShared ? 'ready' : 'off', enabled: mockKilnShared, message: mockKilnShared ? 'This computer’s mock Kiln is shared over the mock Tailscale connection.' : 'This computer’s Kiln is local only.' };
+  },
+  kilnSharingDetails: async () => mockKilnShared ? { url: 'http://100.64.0.99:3003', token: 'synthetic-sharing-token' } : null,
   getSettings: async () => settings,
   localHarnessToken: async (options?: { rotate?: boolean }) => {
     if (options?.rotate) {

@@ -11,6 +11,8 @@
  * endpoints sync (the 60s instance watchdog drives that).
  */
 import type { PiEndpoint } from './transport';
+import { WebSocket } from 'undici';
+import { connectionFailure, connectionMessage, piConnectionHeaders, testPiEndpoint } from './piConnection';
 import { describePiEvent } from './eventStream';
 import {
   freshBackoff,
@@ -226,7 +228,7 @@ type Broadcaster = (event: PiOutbound) => void;
 
 type Subscription = {
   url: string;
-  socket?: WebSocket;
+  socket?: InstanceType<typeof WebSocket>;
   timer?: ReturnType<typeof setTimeout>;
   /**
    * Retry history, forgiven only by a **stable** connection (see streamBackoff). It used to be a
@@ -298,7 +300,7 @@ export class PiClient {
     const wanted = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
     for (const [id, endpoint] of wanted) {
       const prev = this.endpoints.get(id);
-      if (prev && (prev.url.replace(/\/+$/, '') !== endpoint.url.replace(/\/+$/, '') || prev.token !== endpoint.token)) {
+      if (prev && (prev.url.replace(/\/+$/, '') !== endpoint.url.replace(/\/+$/, '') || prev.token !== endpoint.token || JSON.stringify(prev.access) !== JSON.stringify(endpoint.access))) {
         this.dropEndpoint(id);
       }
       this.endpoints.set(id, endpoint);
@@ -332,7 +334,7 @@ export class PiClient {
     await Promise.all(
       endpoints.map(async (target) => {
         const peers = endpoints
-          .filter((other) => other.id !== target.id && other.url !== target.url)
+          .filter((other) => other.id !== target.id && other.url !== target.url && !other.access)
           .map((other) => ({
             id: other.id,
             label: other.label || other.id,
@@ -365,23 +367,10 @@ export class PiClient {
     return true;
   }
 
-  /** `GET /health` with the token; a thrown or non-2xx answer means unreachable. */
+  /** Verify Kiln identity and authenticated readiness, not just a successful HTTP page. */
   async probe(endpoint: PiEndpoint): Promise<{ healthy: boolean; version?: string; commit?: string }> {
-    try {
-      const response = await fetch(`${endpoint.url.replace(/\/+$/, '')}/health`, {
-        headers: { authorization: `Bearer ${endpoint.token}` },
-        signal: AbortSignal.timeout(4_000),
-      });
-      if (!response.ok) return { healthy: false };
-      const body = (await response.json().catch(() => ({}))) as { version?: unknown; commit?: unknown };
-      return {
-        healthy: true,
-        version: typeof body.version === 'string' ? body.version : undefined,
-        commit: typeof body.commit === 'string' ? body.commit : undefined,
-      };
-    } catch {
-      return { healthy: false };
-    }
+    const result = await testPiEndpoint(endpoint);
+    return { healthy: result.outcome === 'ready', version: result.version, commit: result.commit };
   }
 
   /** Authenticated REST proxy for the renderer; error shape matches `ember:api`. */
@@ -418,7 +407,7 @@ export class PiClient {
       const response = await fetch(`${endpoint.url.replace(/\/+$/, '')}${path}`, {
         method,
         headers: {
-          authorization: `Bearer ${endpoint.token}`,
+          ...piConnectionHeaders(endpoint),
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         body,
@@ -445,19 +434,10 @@ export class PiClient {
           },
         };
       }
-      // `fetch failed` is undici's wording for "the socket died", which is not a sentence a person
-      // can act on and reads as though the host is gone. Name what happened and what it means.
-      const raw = error instanceof Error ? error.message : String(error);
-      const dropped = /fetch failed|socket|ECONNRESET|ECONNREFUSED|other side closed/i.test(raw);
       return {
         ok: false,
         status: 0,
-        data: {
-          error: dropped
-            ? `Ember lost its connection to ${label} partway through. Nothing was answered — try that again.`
-            : `Could not reach ${label}: ${raw}`,
-          source: 'ember',
-        },
+        data: { error: connectionMessage(label, connectionFailure(error)), source: 'ember' },
       };
     }
   }
@@ -500,7 +480,7 @@ export class PiClient {
     if (!endpoint) return;
     const key = `events:${endpointId}:${conversationId}`;
     if (this.conversations.has(key)) return;
-    this.conversations.set(key, this.subscribe(endpointId, `${endpoint.url.replace(/\/+$/, '')}/conversations/${conversationId}/events?token=${encodeURIComponent(endpoint.token)}`, (message) => {
+    this.conversations.set(key, this.subscribe(endpointId, `${endpoint.url.replace(/\/+$/, '')}/conversations/${conversationId}/events`, (message) => {
       this.forwardEvents(endpointId, String(conversationId), message);
     }));
   }
@@ -513,7 +493,7 @@ export class PiClient {
     if (this.tasks.has(key)) return;
     this.tasks.set(
       key,
-      this.subscribe(endpointId, `${endpoint.url.replace(/\/+$/, '')}/tasks/stream?token=${encodeURIComponent(endpoint.token)}`, () => {
+      this.subscribe(endpointId, `${endpoint.url.replace(/\/+$/, '')}/tasks/stream`, () => {
         this.broadcast({ instanceId: endpointId, type: 'pi:tasks' });
       })
     );
@@ -564,7 +544,22 @@ export class PiClient {
         return;
       }
       this.sockets.set(endpointId, held + 1);
-      const socket = new WebSocket(url);
+      const endpoint = this.endpoints.get(endpointId);
+      if (!endpoint) {
+        this.sockets.set(endpointId, Math.max(0, held));
+        return;
+      }
+      // Undici's WebSocket handshake uses redirect:error; neither Access nor bearer credentials
+      // can follow a proxy redirect. Browser WebSocket cannot supply these separate headers.
+      let headers: Record<string, string>;
+      try {
+        headers = piConnectionHeaders(endpoint);
+      } catch {
+        // Locked/missing Access credentials need a settings edit, not a bearer-only retry.
+        this.sockets.set(endpointId, Math.max(0, held));
+        return;
+      }
+      const socket = new WebSocket(url.replace(/^http/, 'ws'), { headers });
       subscription.socket = socket;
       // Per-socket, so a stop before the socket ever opened cannot unbalance the endpoint's count.
       let opened = false;

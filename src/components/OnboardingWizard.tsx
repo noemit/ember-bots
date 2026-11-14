@@ -10,7 +10,6 @@ import type { PiProviderInfo } from '../piApi';
 import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
 import ProjectPicker from './ProjectPicker';
-import { copyText } from '@/lib/clipboard';
 import { withInstanceDefaultModel } from '@/lib/instanceDefaultModel';
 import { cn } from '@/lib/utils';
 import {
@@ -500,75 +499,16 @@ function Token({
   );
 }
 
-const TAILSCALE_PROMPT = `Help me connect Ember on my personal computer to a standalone Kiln on [other computer] using Tailscale. Check how Kiln is installed and whether Tailscale is available on both computers. Configure the connection, keep Kiln's password out of source files, and verify that Ember can connect. Finish by telling me which address to enter in Ember and where to find the connection password.`;
-
-function SetupPrompt() {
-  const [result, setResult] = React.useState('');
-  return (
-    <div className="mt-3 flex flex-col gap-2">
-      <p className="font-medium text-foreground">Ask a bot to help</p>
-      <p className="text-base leading-relaxed">Replace [other computer] with its name or description before using this prompt.</p>
-      <p className="select-text rounded-md bg-background p-3 text-base leading-relaxed">{TAILSCALE_PROMPT}</p>
-      <Button className="self-start" size="sm" variant="secondary" onClick={async () => {
-        const ok = await copyText(TAILSCALE_PROMPT);
-        setResult(ok ? 'Copied' : 'Ember could not copy the prompt. Select the text above and copy it manually.');
-      }}>Copy setup prompt</Button>
-      <span role="status" className="text-base">{result}</span>
-    </div>
-  );
-}
-
 function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
   endpoints: PiEndpoint[];
   instances: Instance[];
   onChange: (patch: EmberSettingsPatch) => void;
   onAdded: () => void;
 }) {
-  const disclosure = 'rounded-lg border bg-muted/10 p-3 text-base leading-relaxed text-muted-foreground';
-  const summary = 'cursor-pointer text-base font-medium text-foreground';
   return (
-    <div className="flex flex-col gap-2">
-      <details className={disclosure}>
-        <summary className={summary}>Use Ember on another computer</summary>
-        <p className="mt-3">
-          Install Ember there to get its own included Kiln. That Kiln starts and stops with that copy of Ember.
-          For a Kiln you can connect to from this window over the network, use Tinder below.
-        </p>
-      </details>
-      <details className={disclosure}>
-        <summary className={summary}>Run Kiln on its own with Tinder</summary>
-        <p className="mt-3">
-          Tinder is our launcher for Kiln without the Ember application. Download the matching Tinder executable
-          from Ember’s releases and keep it in a permanent folder on the computer that will do the work.
-        </p>
-        <Button size="sm" variant="link" className="h-auto px-0" onClick={() => void window.ember.openExternal('https://github.com/noemit/ember-bots/releases')}>Ember and Tinder downloads</Button>
-        <p className="mt-2">On macOS or Linux, name the downloaded executable tinder, open a terminal in its folder, and run:</p>
-        <pre className="mt-2 overflow-x-auto rounded bg-background p-2 text-base">{`chmod +x ./tinder
-./tinder serve --home ~/.ember-kiln --port 3003`}</pre>
-        <p className="mt-2">Keep that terminal open. In a second terminal, print the connection password:</p>
-        <pre className="mt-2 overflow-x-auto rounded bg-background p-2 text-base">./tinder token --home ~/.ember-kiln --port 3003</pre>
-        <p className="mt-2">To run Kiln as a background service instead, use:</p>
-        <pre className="mt-2 overflow-x-auto rounded bg-background p-2 text-base">./tinder setup --headless --home ~/.ember-kiln --port 3003</pre>
-        <p className="mt-2">Tinder prints the command to enable and start that service. Follow it, then add the address and password below.</p>
-      </details>
-      <details className={disclosure}>
-        <summary className={summary}>Connect over Tailscale</summary>
-        <p className="mt-3">You don’t need this for the Kiln included on this computer. Use it to reach a separate Kiln on another computer.</p>
-        <ol className="mt-2 list-decimal space-y-2 pl-5">
-          <li>Install Tailscale on both computers and connect them to the same Tailscale network.</li>
-          <li>Start Kiln with Tinder on the computer doing the work. For a container, make its Kiln port reachable from that computer’s Tailscale connection.</li>
-          <li>Find that computer’s Tailscale address in the Tailscale app, or run <code>tailscale ip -4</code> there.</li>
-          <li>Add the Kiln below using an address such as <code>http://100.x.y.z:3003</code> and the password printed by <code>tinder token</code>. Use the port you chose for Kiln.</li>
-        </ol>
-        <p className="mt-2">Tailscale connects the computers; Kiln’s connection password determines who can direct its bots.</p>
-        <Button size="sm" variant="link" className="h-auto px-0" onClick={() => void window.ember.openExternal('https://tailscale.com/docs/how-to/quickstart')}>Tailscale setup guide</Button>
-        <SetupPrompt />
-      </details>
-      <details className={disclosure}>
-        <summary className={summary}>Connect a Kiln that is already running</summary>
-        <p className="my-3">Enter that Kiln’s address and connection password. You can also do this later in Settings → Instances.</p>
-        <EndpointsInline endpoints={endpoints} instances={instances} onChange={onChange} onAdded={onAdded} />
-      </details>
+    <div className="flex flex-col gap-3">
+      <p className="text-base text-muted-foreground">Connect to another computer with its Kiln URL and bearer token. Ember’s included Kiln can be shared deliberately from Settings → Instances → Share this Kiln on that computer. Tinder runs a standalone Kiln independently of Ember.</p>
+      <EndpointsInline endpoints={endpoints} instances={instances} onChange={onChange} onAdded={onAdded} />
     </div>
   );
 }

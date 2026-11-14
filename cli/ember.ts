@@ -32,6 +32,7 @@ export type CliFlags = {
   harnessDir?: string;
   url?: string;
   platform: ServicePlatform;
+  bind?: string;
 };
 
 export type SetupResult = {
@@ -152,6 +153,7 @@ export const ensureHarnessToken = (
 
 export type ServiceConfigOptions = {
   platform: ServicePlatform;
+  bind?: string;
   homeDir: string;
   port: number;
   workspaceDir: string;
@@ -203,6 +205,7 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       `Environment=${systemdQuote(`EMBER_HOME=${opts.homeDir}`)}`,
       `Environment=${systemdQuote(`HEARTH_HOME=${opts.homeDir}`)}`,
       `Environment="HEARTH_PORT=${opts.port}"`,
+      `Environment=${systemdQuote(`HEARTH_BIND=${opts.bind ?? '127.0.0.1'}`)}`,
       `Environment=${systemdQuote(`HEARTH_WORKSPACE=${opts.workspaceDir}`)}`,
       `ExecStart=${command.map((arg) => systemdQuote(arg).replace(/\$/g, '$$$$')).join(' ')}`,
       'Restart=on-failure',
@@ -236,6 +239,8 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       `      <string>${xml(opts.homeDir)}</string>`,
       '      <key>HEARTH_WORKSPACE</key>',
       `      <string>${xml(opts.workspaceDir)}</string>`,
+      '      <key>HEARTH_BIND</key>',
+      `      <string>${xml(opts.bind ?? '127.0.0.1')}</string>`,
       '      <key>HEARTH_PORT</key>',
       `      <string>${opts.port}</string>`,
       '    </dict>',
@@ -258,6 +263,7 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
     `$env:EMBER_HOME = ${ps(opts.homeDir)}`,
     `$env:HEARTH_HOME = ${ps(opts.homeDir)}`,
     `$env:HEARTH_PORT = ${ps(String(opts.port))}`,
+    `$env:HEARTH_BIND = ${ps(opts.bind ?? '127.0.0.1')}`,
     `$env:HEARTH_WORKSPACE = ${ps(opts.workspaceDir)}`,
     `& ${command.map(ps).join(' ')}`,
     'exit $LASTEXITCODE',
@@ -386,7 +392,7 @@ export const generateDefaultAgentsMd = (opts: {
     '',
     '## Adding & Pairing Remote Hosts',
     '',
-    `1. **On the remote machine (macOS, Windows, or headless Linux):** Run \`ember setup --headless\` (or \`ember token\`). It initializes \`${opts.homeDir}\`, starts Kiln on port \`${opts.port}\`, and prints the URL (including Tailscale IPv4 \`http://100.x.y.z:${opts.port}\` when Tailscale is active) plus the 64-character bearer token.`,
+    `1. **On the remote machine:** Run \`ember setup --headless\` to initialize \`${opts.homeDir}\` and write a standalone service. New services listen only on loopback. Remote access needs an explicitly enabled, authenticated tailnet forward; a Tailscale IP alone does not expose Kiln.`,
     '2. **In Ember Desktop:** Open **Settings → Instances → Add endpoint**, enter a label (e.g. `Studio`), the remote URL, and the bearer token. Ember automatically syncs peer lists across your connected hosts so agents can message each other by name across machines.',
     '',
   ].join('\n');
@@ -437,6 +443,7 @@ export const parseArgs = (
     home: defaultEmberHome(homedir, env),
     workspace: process.cwd(),
     platform: detectedPlatform,
+    bind: env.HEARTH_BIND?.trim() || env.EMBER_BIND?.trim() || undefined,
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -450,6 +457,8 @@ export const parseArgs = (
     else if (arg === '--port' && args[i + 1]) {
       const parsed = Number(args[++i]);
       if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535) flags.port = parsed;
+    } else if (arg === '--bind' && args[i + 1]) {
+      flags.bind = args[++i];
     } else if (arg === '--home' && args[i + 1]) {
       flags.home = path.resolve(args[++i]);
     } else if (arg === '--workspace' && args[i + 1]) {
@@ -485,7 +494,7 @@ export const formatHelp = (): string =>
     'Commands:',
     '  setup, install    Initialize ~/.ember, generate ember.token (0600), and optionally write service files',
     '  serve             Run standalone Kiln in the foreground; stop with Ctrl+C',
-    '  token             Print endpoint URLs (local + Tailscale) and the bearer token',
+    '  token             Print the local endpoint URL and bearer token',
     '  status            Probe Kiln (/health) and report its version, build, and conversation count',
     '  service-config    Print the background service config for systemd, launchd, or Windows Task Scheduler',
     '  help              Show this usage guide',
@@ -496,6 +505,7 @@ export const formatHelp = (): string =>
     '  --gui-only        Print desktop GUI instructions only',
     '  --service         Write the OS background service definition for Kiln',
     '  --port <port>     Kiln HTTP port (default: 3002)',
+    '  --bind <address>  Explicit standalone listen address (new installs default to loopback)',
     '  --home <dir>      Kiln data directory (default: ~/.ember or $EMBER_HOME)',
     '  --workspace <dir> Default working directory for Kiln sessions',
     '',
@@ -518,8 +528,8 @@ export const runSetup = (
   opts: { userHome?: string; tailscaleIp?: string } = {}
 ): SetupResult => {
   const localUrl = `http://127.0.0.1:${flags.port}`;
-  const tsIp = opts.tailscaleIp ?? detectTailscaleIp();
-  const tailscaleUrl = tsIp ? `http://${tsIp}:${flags.port}` : undefined;
+  // A Tailscale interface is not proof of forwarding or authenticated reachability.
+  const tailscaleUrl: string | undefined = undefined;
 
   if (flags.guiOnly) {
     const lines = [
@@ -563,6 +573,7 @@ export const runSetup = (
   if (flags.service || flags.headless) {
     const svcOpts: ServiceConfigOptions = {
       platform: flags.platform,
+      bind: flags.bind,
       homeDir: flags.home,
       port: flags.port,
       workspaceDir: flags.workspace,
@@ -572,11 +583,13 @@ export const runSetup = (
     servicePath = serviceFilePath(svcOpts);
     serviceContent = generateServiceConfig(svcOpts);
     fs.mkdirSync(path.dirname(servicePath), { recursive: true });
-    fs.writeFileSync(servicePath, serviceContent, 'utf8');
+    const existingService = fs.existsSync(servicePath);
+    if (existingService) serviceContent = fs.readFileSync(servicePath, 'utf8');
+    else fs.writeFileSync(servicePath, serviceContent, { encoding: 'utf8', flag: 'wx' });
 
     lines.push('');
     lines.push('Background service configuration:');
-    lines.push(`  Wrote: ${servicePath}`);
+    lines.push(`  ${existingService ? 'Preserved existing configuration' : 'Wrote'}: ${servicePath}`);
     if (flags.platform === 'linux') {
       lines.push('  Enable & start: systemctl --user daemon-reload && systemctl --user enable --now ember-kiln.service');
     } else if (flags.platform === 'darwin') {
@@ -588,8 +601,9 @@ export const runSetup = (
 
   if (flags.headless || flags.harnessOnly) {
     lines.push('');
-    lines.push('Connect from Ember on your laptop:');
-    lines.push(`  Open Settings → Instances → Add endpoint, paste ${tailscaleUrl ?? localUrl} and the bearer token above.`);
+    lines.push('Connect from Ember:');
+    lines.push(`  On this computer, add ${localUrl} and the bearer token in Settings → Instances.`);
+    lines.push('  For another computer, explicitly share Kiln over your tailnet first. A Tailscale IP alone does not forward this local port.');
   } else {
     lines.push('');
     lines.push('Ember Desktop GUI:');
@@ -615,12 +629,11 @@ export const runSetup = (
 
 export const runToken = (
   flags: CliFlags,
-  opts: { tailscaleIp?: string } = {}
+  _opts: { tailscaleIp?: string } = {}
 ): { localUrl: string; tailscaleUrl?: string; token: string; tokenPath: string; output: string } => {
   const { token, tokenPath } = ensureHarnessToken(flags.home);
   const localUrl = `http://127.0.0.1:${flags.port}`;
-  const tsIp = opts.tailscaleIp ?? detectTailscaleIp();
-  const tailscaleUrl = tsIp ? `http://${tsIp}:${flags.port}` : undefined;
+  const tailscaleUrl: string | undefined = undefined;
 
   if (flags.json) {
     const payload = {
@@ -748,7 +761,8 @@ export const runCli = async (argv: readonly string[] = process.argv.slice(2)): P
       : fileURLToPath(new URL('../packages/kiln/src/index.ts', import.meta.url));
     const child = spawn(process.execPath, ['run', entry], {
       stdio: 'inherit', env: { ...process.env, HEARTH_HOME: flags.home, EMBER_HOME: flags.home,
-        HEARTH_PORT: String(flags.port), HEARTH_WORKSPACE: flags.workspace },
+        HEARTH_PORT: String(flags.port), HEARTH_WORKSPACE: flags.workspace,
+        ...(flags.bind ? { HEARTH_BIND: flags.bind } : {}) },
     });
     const forward = () => child.kill('SIGTERM');
     process.once('SIGTERM', forward);
@@ -783,6 +797,7 @@ export const runCli = async (argv: readonly string[] = process.argv.slice(2)): P
   if (command === 'service-config') {
     const content = generateServiceConfig({
       platform: flags.platform,
+      bind: flags.bind,
       homeDir: flags.home,
       port: flags.port,
       workspaceDir: flags.workspace,

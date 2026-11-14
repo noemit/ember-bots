@@ -19,7 +19,7 @@ export const PI_ENDPOINT_PREFIX = 'pi:';
 
 export const isPiEndpointId = (id: string): boolean => id.startsWith(PI_ENDPOINT_PREFIX);
 
-export type EndpointDraft = { id?: string; label: string; url: string; token: string };
+export type EndpointDraft = { id?: string; label: string; url: string; token: string; hasAccessSecret?: boolean; access?: { clientId: string; clientSecret: string } };
 
 const slug = (value: string): string =>
   value
@@ -71,6 +71,8 @@ export const endpointError = (draft: EndpointDraft, existing: readonly PiEndpoin
   const url = normalizeEndpointUrl(draft.url);
   if (!url) return 'Enter an http(s) address, e.g. http://100.64.0.1:3002.';
   if (draft.url.length > MAX_URL) return 'That address is too long.';
+  if (draft.access && (!draft.access.clientId.trim() || (!draft.access.clientSecret.trim() && !draft.hasAccessSecret))) return 'Enter both Cloudflare Access fields, or remove the Access credentials.';
+  if (draft.access && (draft.access.clientId.length > MAX_TOKEN || draft.access.clientSecret.length > MAX_TOKEN)) return 'Those Access credentials are too long. Check the values from Cloudflare.';
   if (draft.token.length > MAX_TOKEN) return 'That token is too long.';
   const duplicate = existing.find(
     (endpoint) => endpoint.id !== draft.id && normalizeEndpointUrl(endpoint.url) === url
@@ -87,7 +89,7 @@ export const upsertEndpoint = (
   const url = normalizeEndpointUrl(draft.url);
   if (!url) return [...endpoints];
   const id = draft.id ?? endpointIdFrom(draft.label, url, endpoints.map((endpoint) => endpoint.id));
-  const next: PiEndpoint = { id, label: draft.label.trim(), url, token: draft.token.trim() };
+  const next: PiEndpoint = { id, label: draft.label.trim(), url, token: draft.token.trim(), ...(draft.access ? { access: { clientId: draft.access.clientId.trim(), clientSecret: draft.access.clientSecret.trim() }, ...(draft.hasAccessSecret ? { hasAccessSecret: true } : {}) } : {}) };
   const index = endpoints.findIndex((endpoint) => endpoint.id === id);
   if (index === -1) return [...endpoints, next];
   return endpoints.map((endpoint, position) => (position === index ? next : endpoint));
@@ -99,3 +101,16 @@ export const removeEndpoint = (endpoints: readonly PiEndpoint[], id: string): Pi
 /** Never render a full token: a fixed mask plus the last four characters. */
 export const maskToken = (token: string): string =>
   token.length <= 4 ? '••••' : `••••••••${token.slice(-4)}`;
+
+/** Use fixed, actionable copy, never raw diagnostics that might contain credentials. */
+export function endpointTestCopy(label: string, outcome: string): string {
+  const actor = label.trim() || 'This Kiln';
+  switch (outcome) {
+    case 'ready': return actor + ` answered as Kiln and accepted the connection. You can add this instance.`;
+    case 'auth-rejected': return actor + ` rejected the credentials. Check the bearer token and, if used, Cloudflare Access credentials, then test again.`;
+    case 'wrong-service': return actor + ` answered, but not as Kiln. Use its Kiln API URL, not Ember’s browser UI or a sign-in page, then test again.`;
+    case 'tls-error': return actor + ` could not establish a trusted secure connection. Ask its owner to check the certificate and HTTPS address, then test again.`;
+    case 'timeout': return actor + ` did not answer in time. Check that the host is awake and Kiln is running, then test again.`;
+    default: return actor + ` could not be reached. Check the URL, host and network connection, then test again.`;
+  }
+}

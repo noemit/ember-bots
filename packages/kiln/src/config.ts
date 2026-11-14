@@ -42,6 +42,18 @@ const defaultHome = (): string => {
   return join(homedir(), ".hearth");
 };
 
+/** Retain the implicit wildcard bind only for a pre-upgrade database. Fresh homes
+ * pin loopback before SQLite is created, so their second start stays private too. */
+export const defaultBind = (home: string): string => {
+  try {
+    const saved = readFileSync(join(home, "kiln-bind-default"), "utf8").trim();
+    return saved === "0.0.0.0" ? saved : "127.0.0.1";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "127.0.0.1";
+  }
+  return existsSync(join(home, "hearth.sqlite")) ? "0.0.0.0" : "127.0.0.1";
+};
+
 export const hearthConfig = (overrides: { home?: string; port?: number; workspace?: string } = {}): HearthConfig => {
   const home = overrides.home ?? envString("HEARTH_HOME") ?? envString("EMBER_HOME") ?? defaultHome();
   const port = overrides.port ?? (Number(envString("HEARTH_PORT") ?? envString("EMBER_PORT")) || 3002);
@@ -54,7 +66,7 @@ export const hearthConfig = (overrides: { home?: string; port?: number; workspac
     databasePath: join(home, "hearth.sqlite"),
     tokenPath: join(home, "hearth.token"),
     port,
-    bind: envString("HEARTH_BIND") ?? envString("EMBER_BIND") ?? "0.0.0.0",
+    bind: envString("HEARTH_BIND") ?? envString("EMBER_BIND") ?? defaultBind(home),
     backupsDir,
     workspace,
   };
@@ -94,6 +106,12 @@ export const ensureToken = (config: HearthConfig): string => {
 export const ensureHome = (config: HearthConfig): boolean => {
   const fresh = !existsSync(config.databasePath);
   mkdirSync(config.home, { recursive: true });
+  try {
+    // Never persist an explicit environment override as the implicit default.
+    writeFileSync(join(config.home, "kiln-bind-default"), `${defaultBind(config.home)}\n`, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
   return fresh;
 };
 

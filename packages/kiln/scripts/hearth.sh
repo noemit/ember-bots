@@ -217,20 +217,15 @@ status() {
 
 url() {
   local host="${HEARTH_URL_HOST:-}"
-  if [ -z "$host" ] && command -v tailscale >/dev/null 2>&1; then
-    host="$(tailscale ip -4 2>/dev/null | head -1 || true)"
-  fi
   if [ -z "$host" ]; then
-    case "$(uname -s)" in
-      Darwin) host="$(ipconfig getifaddr en0 2>/dev/null || true)" ;;
-      Linux) host="$(hostname -I 2>/dev/null | awk '{print $1}')" ;;
-      *) host="" ;;
-    esac
-  fi
-  if [ -z "$host" ]; then
-    echo "note: set HEARTH_URL_HOST to the address other devices reach this one at" >&2
+    echo "Kiln: showing its local address. For another computer, enable authenticated tailnet forwarding first; a Tailscale IP alone does not forward this port." >&2
     host="127.0.0.1"
   fi
+  # An explicit operator address is retained, including IPv6. Do not guess remote reachability.
+  case "$host" in
+    \[*\]) ;;
+    *:*) host="[$host]" ;;
+  esac
   echo "http://${host}:$HEARTH_PORT"
 }
 
