@@ -1,3 +1,4 @@
+import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -20,6 +21,16 @@ const listen = async (server: Server): Promise<string> => {
 const close = async (server: Server) => {
   server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
+};
+
+const resizeContent = async (app: ElectronApplication, width: number, height: number) => {
+  await app.evaluate(({ BrowserWindow }, size) => {
+    BrowserWindow.getAllWindows()[0].setContentSize(size.width, size.height);
+  }, { width, height });
+  const page = await app.firstWindow();
+  // A tiling compositor may refuse the requested size. Fail at the geometry gate, not split view.
+  await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight })))
+    .toEqual({ width, height });
 };
 
 test('built Electron and authenticated remote access preserve local work', async ({ browser }) => {
@@ -64,7 +75,7 @@ test('built Electron and authenticated remote access preserve local work', async
     await mkdir(join(home, 'profile'), { recursive: true });
     await writeFile(join(chamber, 'settings.json'), JSON.stringify({ desktopHosts: [{ id: 'fixture', label: 'Isolated fixture', url: upstreamUrl }] }));
     await writeFile(join(ember, 'settings.json'), JSON.stringify({
-      openSessions: ['fixture::a', 'fixture::b'], activeSession: 'fixture::a', splitView: true, localHarnessEnabled: false, remoteAccessEnabled: false,
+      openSessions: ['fixture::a', 'fixture::b'], activeSession: 'fixture::a', splitView: true, localHarnessEnabled: false, remoteAccessEnabled: false, piEndpoints: [],
     }));
     const bootstrap = join(home, 'bootstrap.cjs');
     await writeFile(bootstrap, `const { app } = require('electron');
@@ -75,16 +86,15 @@ app.setPath('sessionData', process.env.EMBER_TEST_PROFILE);
 require(process.env.EMBER_TEST_ENTRY);
 `);
     const env: Record<string, string> = {
-      ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+      ...isolatedNativeEnvironment(home),
       HOME: home, OPENCHAMBER_DATA_DIR: chamber, EMBER_TEST_HOME: home,
       EMBER_TEST_PROFILE: join(home, 'profile'), EMBER_TEST_ENTRY: resolve('dist-electron/main.js'),
     };
-    delete env.ELECTRON_RUN_AS_NODE;
     app = await electron.launch({ executablePath: loadPackage('electron') as string, args: [bootstrap], env });
     const nativeWindow = await app.firstWindow();
     const errors: string[] = [];
     nativeWindow.on('pageerror', (error) => errors.push(error.message));
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 900));
+    await resizeContent(app, 1400, 900);
     await expect(nativeWindow.locator('textarea')).toHaveCount(2);
     await expect(nativeWindow.getByRole('log', { name: 'Conversation' }).getByText('Native fixture response a', { exact: true })).toBeVisible();
     await expect(nativeWindow.getByRole('log', { name: 'Conversation' }).getByText('Native fixture response b', { exact: true })).toBeVisible();
@@ -100,12 +110,12 @@ require(process.env.EMBER_TEST_ENTRY);
       expect(toggleBox.x + toggleBox.width).toBeLessThan(nameBox.x);
       expect(await control.evaluate(node => getComputedStyle(node).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
       await nativeWindow.screenshot({ path: '/tmp/ember-native-topbar.png' });
-      await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(720, 600));
+      await resizeContent(app!, 720, 600);
       const instances = (await toolbar.getByRole('button', { name: 'Instances', exact: true }).boundingBox())!;
       expect(instances.x + instances.width).toBeLessThanOrEqual(720);
       const mobileControl = (await toolbar.getByRole('button', { name: 'Toggle sessions sidebar', exact: true }).boundingBox())!;
       if (process.platform === 'darwin') expect(mobileControl.x).toBeGreaterThanOrEqual(90);
-      await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 900));
+      await resizeContent(app!, 1400, 900);
     });
 
     await test.step('native IPC saves separate drafts and usage to the isolated home', async () => {
@@ -190,10 +200,12 @@ require(process.env.EMBER_TEST_ENTRY);
       expect(await page.evaluate(() => window.ember.capabilities?.dockIcon)).toBe(false);
     });
 
-    await test.step('the real remote bridge shares persisted data with Electron', async () => {
-      await expect(page.locator('textarea').nth(1)).toHaveValue('Native draft B');
+    await test.step('remote drafts stay in the browser and never replace desktop drafts', async () => {
+      await expect(page.locator('textarea').nth(0)).toHaveValue('');
+      await expect(page.locator('textarea').nth(1)).toHaveValue('');
       await page.locator('textarea').nth(0).fill('Remote draft A');
-      await expect.poll(() => nativeWindow.evaluate(async () => (await window.ember.getSettings()).composerDrafts['fixture::a']?.text)).toBe('Remote draft A');
+      await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).composerDrafts['fixture::a']?.text)).toBe('Remote draft A');
+      expect(await nativeWindow.evaluate(async () => (await window.ember.getSettings()).composerDrafts['fixture::a']?.text)).toBe('Native draft A');
       expect(await nativeWindow.evaluate(async () => (await window.ember.getSettings()).composerDrafts['fixture::b']?.text)).toBe('Native draft B');
       const stream = await page.evaluate(async () => {
         const abort = new AbortController();
@@ -205,6 +217,15 @@ require(process.env.EMBER_TEST_ENTRY);
       expect(stream.type).toContain('text/event-stream');
       expect(stream.encoding).toBeNull();
       expect(stream.text).toContain('ember:stream-status');
+      // Deliberately discard this synthetic unsent browser draft; production warns before leaving.
+      page.once('dialog', dialog => dialog.accept());
+      await page.reload();
+      await expect(page.locator('textarea')).toHaveCount(2);
+      await expect(page.locator('textarea').nth(0)).toHaveValue('');
+      await expect(page.locator('textarea').nth(1)).toHaveValue('');
+      const storedDrafts = JSON.parse(await readFile(join(ember, 'settings.json'), 'utf8')).composerDrafts;
+      expect(storedDrafts['fixture::a']?.text).toBe('Native draft A');
+      expect(storedDrafts['fixture::b']?.text).toBe('Native draft B');
       await context.request.post(`${remoteUrl}/remote/logout`);
       expect((await context.request.post(`${remoteUrl}/remote/model-rating`, { data: { id: 'unknown', rating: 'helpful' } })).status()).toBe(401);
       expect((await context.request.get(`${remoteUrl}/remote/settings`, { maxRedirects: 0 })).status()).toBe(302);

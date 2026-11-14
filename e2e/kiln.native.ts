@@ -1,3 +1,4 @@
+import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -23,15 +24,20 @@ const freePort = (): Promise<number> => new Promise((resolve, reject) => {
 const launch = async (home: string, override = binary): Promise<ElectronApplication> => {
   const profile = join(home, 'profile');
   await mkdir(profile, { recursive: true });
-  const env = { ...process.env, HOME: home, EMBER_DATA_DIR: profile,
+  try {
+    await writeFile(join(profile, 'settings.json'), JSON.stringify({ piEndpoints: [] }), { flag: 'wx' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+  const env = { ...isolatedNativeEnvironment(home), HOME: home, EMBER_DATA_DIR: profile,
     EMBER_BUNDLED_HARNESS: override, OPENCHAMBER_DATA_DIR: join(home, 'openchamber'),
     HEARTH_AUTORELOAD: '0' };
-  delete env.ELECTRON_RUN_AS_NODE;
   // Separate Chromium profiles let two isolated Ember instances run simultaneously.
   const bootstrap = join(home, 'bootstrap.cjs');
   await writeFile(bootstrap, `const { app } = require('electron');
 app.on('browser-window-created', (_event, win) => win.setFocusable(false));
 app.setPath('userData', ${JSON.stringify(join(home, 'chromium'))});
+app.setPath('sessionData', ${JSON.stringify(join(home, 'chromium'))});
 require(${JSON.stringify(resolve('dist-electron/main.js'))});
 `);
   return electron.launch({ executablePath: load('electron') as string, args: [bootstrap], env });
@@ -149,12 +155,12 @@ test('standalone Tinder serves without Bun on PATH and survives quitting a conne
   let app: ElectronApplication | undefined;
   try {
     const printed = spawnSync(tinder, ['token', '--json', '--home', backendHome, '--port', String(port)], {
-      cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root, PATH: '' },
+      cwd: root, encoding: 'utf8', env: { ...isolatedNativeEnvironment(root), HOME: root, PATH: '' },
     });
     expect(printed.status).toBe(0);
     expect(JSON.parse(printed.stdout).localUrl).toBe(url);
     const service = spawnSync(tinder, ['service-config', '--platform', 'darwin', '--home', backendHome, '--port', String(port)], {
-      cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root, PATH: '' },
+      cwd: root, encoding: 'utf8', env: { ...isolatedNativeEnvironment(root), HOME: root, PATH: '' },
     });
     expect(service.status).toBe(0);
     expect(service.stdout.trimStart()).toMatch(/^<\?xml/);
@@ -164,7 +170,7 @@ test('standalone Tinder serves without Bun on PATH and survives quitting a conne
       expect(spawnSync('/usr/bin/plutil', ['-lint', '-'], { input: service.stdout }).status).toBe(0);
     }
     child = spawn(tinder, ['serve', '--home', backendHome, '--port', String(port), '--workspace', root], {
-      cwd: root, stdio: 'ignore', env: { ...process.env, HOME: root, PATH: '', HEARTH_BIND: '127.0.0.1', HEARTH_AUTORELOAD: '0' },
+      cwd: root, stdio: 'ignore', env: { ...isolatedNativeEnvironment(root), HOME: root, PATH: '', HEARTH_BIND: '127.0.0.1', HEARTH_AUTORELOAD: '0' },
     });
     let token = '';
     await expect.poll(async () => {

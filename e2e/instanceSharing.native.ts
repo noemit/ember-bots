@@ -1,3 +1,4 @@
+import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -86,13 +87,12 @@ app.on('browser-window-created', (_event, win) => win.setFocusable(false));
 require(process.env.EMBER_TEST_ENTRY);
 `);
     const env: Record<string, string> = {
-      ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+      ...isolatedNativeEnvironment(home),
       HOME: home, EMBER_DATA_DIR: data, EMBER_TEST_HOME: home, EMBER_TEST_PROFILE: profile,
       EMBER_TEST_ENTRY: resolve('dist-electron/main.js'), OPENCHAMBER_DATA_DIR: join(home, 'openchamber'),
       PATH: `${bin}:/usr/bin:/bin`, EMBER_TEST_TAILSCALE_CALLS: calls,
       EMBER_BUNDLED_HARNESS: join(home, 'deliberately-missing-kiln'),
     };
-    delete env.ELECTRON_RUN_AS_NODE;
     app = await electron.launch({ executablePath: load('electron') as string, args: [bootstrap], env });
     const window = await app.firstWindow();
     await window.waitForFunction(() => Boolean(window.ember?.testPiEndpoint && window.ember?.kilnSharing));

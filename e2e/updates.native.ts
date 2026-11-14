@@ -1,3 +1,4 @@
+import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
 import { _electron as electron, expect, test } from '@playwright/test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,15 +10,15 @@ test('update IPC is disabled in development and rejects an untrusted renderer', 
   const home = await mkdtemp(join(tmpdir(), 'ember-updates-native-'));
   await mkdir(join(home, '.ember'));
   await mkdir(join(home, 'openchamber'));
-  await writeFile(join(home, '.ember/settings.json'), JSON.stringify({ localHarnessEnabled: false }));
+  await writeFile(join(home, '.ember/settings.json'), JSON.stringify({ localHarnessEnabled: false, piEndpoints: [] }));
   await writeFile(join(home, 'openchamber/settings.json'), JSON.stringify({ desktopHosts: [] }));
   const bootstrap = join(home, 'bootstrap.cjs');
   await writeFile(bootstrap, `const { app } = require('electron');
+if (require('node:os').homedir() !== process.env.HOME) throw new Error('Test home is not isolated');
 app.setPath('userData', process.env.EMBER_TEST_PROFILE);
 app.setPath('sessionData', process.env.EMBER_TEST_PROFILE);
 require(process.env.EMBER_TEST_ENTRY);`);
-  const env = { ...process.env, HOME: home, EMBER_DATA_DIR: join(home, '.ember'), OPENCHAMBER_DATA_DIR: join(home, 'openchamber'), EMBER_TEST_PROFILE: join(home, 'profile'), EMBER_TEST_ENTRY: resolve('dist-electron/main.js') };
-  delete env.ELECTRON_RUN_AS_NODE;
+  const env = { ...isolatedNativeEnvironment(home), HOME: home, EMBER_DATA_DIR: join(home, '.ember'), OPENCHAMBER_DATA_DIR: join(home, 'openchamber'), EMBER_TEST_PROFILE: join(home, 'profile'), EMBER_TEST_ENTRY: resolve('dist-electron/main.js') };
   const app = await electron.launch({ executablePath: loadPackage('electron') as string, args: [bootstrap], env });
   try {
     const page = await app.firstWindow();

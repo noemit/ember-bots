@@ -1,3 +1,4 @@
+import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,7 +38,7 @@ app.setPath('sessionData', process.env.EMBER_TEST_PROFILE);
 require(process.env.EMBER_TEST_ENTRY);
 `);
   const env = {
-    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== 'ELECTRON_RUN_AS_NODE')),
+    ...isolatedNativeEnvironment(home),
     HOME: home, OPENCHAMBER_DATA_DIR: join(home, 'openchamber'), EMBER_TEST_HOME: home,
     EMBER_TEST_PROFILE: profile, EMBER_TEST_ENTRY: resolve('dist-electron/main.js'),
   };
