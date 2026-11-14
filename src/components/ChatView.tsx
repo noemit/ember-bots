@@ -5,6 +5,7 @@ import { ThreadLinkContext } from './threadLinkContext';
 import { useComposerConnection } from './workspaceConnection';
 import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
+import { PermissionRulesButton } from './PermissionRules';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, Moon, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, EyeOff, UserPlus, X, Zap } from 'lucide-react';
@@ -1633,6 +1634,7 @@ function ChatView({
             transition={{ duration: connection.connected ? .3 : .16 }}
           >
             <header data-active={active} className="flex min-h-11 flex-none flex-wrap items-center gap-x-2.5 gap-y-1 border-b px-3 py-1 sm:px-4 data-[active=true]:bg-muted/25">
+              {instance?.kind === 'pi' ? <PermissionRulesButton key={`${session.instanceId}:${session.id}`} instanceId={session.instanceId} sessionId={session.id} /> : null}
               {editingTitle ? (
                 <input
                   autoFocus

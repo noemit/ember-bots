@@ -92,6 +92,10 @@ Small completion work and an explicit override may continue; this is guidance, n
 ban. Queued directions are retained, and no replacement worker is started automatically. Older Kilns
 without this policy continue their existing worker behavior.
 
+## Tool approvals
+
+With YOLO off, choose **Allow once**, **Allow similar…**, or **Deny**. Allow similar previews an exact command rule before saving; the header's **Rules** control lists and revokes remembered rules. Rules stay in one conversation and resolved working directory, never shared across a project or inherited by workers. Initial support is intentionally narrow and Linux-only; other commands retain one-time approvals. See [remembered command permissions](permission-rules.md) for the contract and exclusions.
+
 ## Providers
 
 Open **Settings → Providers**, choose the Kiln instance, and paste a key. Credentials stay on that

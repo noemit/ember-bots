@@ -94,7 +94,7 @@ type Page = { entries: { id: number }[]; next?: { after: number } };
 
 beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "hearth-pagebytes-"));
-  stack = await openStack(46191);
+  stack = await openStack(0); // Let parallel worktrees run without sharing a fixed test port.
 });
 
 afterAll(async () => {

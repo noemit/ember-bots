@@ -68,6 +68,7 @@ import {
   clearPendingApprovals,
   pendingApprovals,
   replyApproval,
+  previewPermission, replySimilarApproval, listPermissionRules, revokePermissionRules,
   setAutoAccept,
   type ApprovalDecision,
 } from "./approvals";
@@ -1051,6 +1052,9 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/tasks\/stream$/, ["GET"]],
   [/^\/approvals$/, ["GET"]],
   [/^\/approvals\/[^/]+\/[^/]+\/reply$/, ["POST"]],
+  [/^\/approvals\/[^/]+\/[^/]+\/preview$/, ["POST"]],
+  [/^\/conversations\/[^/]+\/permission-rules$/, ["GET", "DELETE"]],
+  [/^\/conversations\/[^/]+\/permission-rules\/[^/]+$/, ["DELETE"]],
   [/^\/questions$/, ["GET"]],
   [/^\/questions\/[^/]+\/[^/]+\/(reply|withdraw|resume)$/, ["POST"]],
 ];
@@ -1910,6 +1914,18 @@ const server = Bun.serve<{
         return noRoute(request.method, path, routeMethods(path));
       }
 
+      const permissionRules = /^\/conversations\/([^/]+)\/permission-rules(?:\/([^/]+))?$/.exec(path);
+      if (permissionRules && (request.method === "GET" || request.method === "DELETE")) {
+        const id = idOf<ConversationId>(decodeSegment(permissionRules[1]));
+        if (!id) return badRequest("invalid conversation id");
+        if (!(await harness.conversation(id, context))) return notFound("Kiln could not find this conversation. Refresh the session list.");
+        if (request.method === "GET" && !permissionRules[2]) return json({ rules: await listPermissionRules(harness, id, context) });
+        if (request.method === "DELETE") {
+          await revokePermissionRules(harness, id, permissionRules[2] ? decodeSegment(permissionRules[2]) : undefined, context);
+          return json({ ok: true });
+        }
+      }
+
       const conversationMatch = /^\/conversations\/([^/]+)(\/.*)?$/.exec(path);
       if (conversationMatch) {
         const conversationId = idOf<ConversationId>(decodeSegment(conversationMatch[1]));
@@ -2537,17 +2553,32 @@ const server = Bun.serve<{
         const ids = (await allConversations(storage)).map((record) => record.id);
         return json({ approvals: await pendingApprovals(harness, ids, context) });
       }
+      const approvalPreview = /^\/approvals\/([^/]+)\/([^/]+)\/preview$/.exec(path);
+      if (approvalPreview && request.method === "POST") {
+        const id = idOf<ConversationId>(decodeSegment(approvalPreview[1]));
+        if (!id) return badRequest("invalid conversation id");
+        const body = await readBody(request);
+        if (body.command !== undefined && typeof body.command !== "string") return badRequest("Kiln needs command text. Restore the original command and try again.");
+        return json(await previewPermission(harness, id, decodeSegment(approvalPreview[2]), body.command, context));
+      }
       const approvalReply = /^\/approvals\/([^/]+)\/([^/]+)\/reply$/.exec(path);
       if (approvalReply && request.method === "POST") {
         const body = await readBody(request);
         const decision = body.decision;
-        if (decision !== "once" && decision !== "always" && decision !== "reject") {
-          return badRequest("decision must be once, always or reject");
+        if (decision !== "once" && decision !== "always" && decision !== "reject" && decision !== "similar") {
+          return badRequest("decision must be once, always, similar or reject");
         }
         const conversationId = idOf<ConversationId>(decodeSegment(approvalReply[1]));
         if (!conversationId) return badRequest("invalid conversation id");
         const key = decodeSegment(approvalReply[2]);
-        const found = await replyApproval(harness, conversationId, key, decision as ApprovalDecision, context);
+        let found: boolean;
+        if (decision === "similar") {
+          if (body.command !== undefined && typeof body.command !== "string") return badRequest("Kiln needs command text. Restore the original command and try again.");
+          try { found = await replySimilarApproval(harness, conversationId, key, body.command, context); }
+          catch (error) { return badRequest(error instanceof Error ? error.message : "Kiln could not validate this rule. Use Allow once or refresh the approval."); }
+        } else {
+          found = await replyApproval(harness, conversationId, key, decision as ApprovalDecision, context);
+        }
         return found
           ? json({ ok: true })
           : notFound(`conversation ${conversationId} has no approval \"${brief(key, 100)}\" waiting`);

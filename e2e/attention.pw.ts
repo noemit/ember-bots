@@ -103,7 +103,7 @@ test('approval choices identify the same YOLO mode as the composer', async ({ pa
   await page.goto('/');
   await page.locator('aside').getByRole('button', { name: /Wire the pi mock/ }).click();
   const column = page.locator('main[data-session-key="pi:hearth::12"]');
-  await expect(column.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+  await expect(column.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
   await column.getByRole('button', { name: /Switch to Yolo mode/i }).click();
   await expect(column.getByRole('button', { name: /YOLO mode on/ })).toHaveAttribute('aria-pressed', 'true');
 });

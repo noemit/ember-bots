@@ -342,7 +342,7 @@ test('a parked approval shows a permission card and replying runs the tool', asy
   await page.getByRole('button', { name: /Wire the pi mock/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::12"]');
   await expect(column.getByText('About to delete the stale previews.')).toBeVisible();
-  const allowOnce = column.getByRole('button', { name: 'Allow', exact: true });
+  const allowOnce = column.getByRole('button', { name: 'Allow once', exact: true });
   await expect(allowOnce).toBeVisible();
   await allowOnce.click();
   await expect(column.getByRole('log', { name: 'Conversation' })).toContainText('Done. The tool ran and I carried on.');

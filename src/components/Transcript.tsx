@@ -1,5 +1,8 @@
 import { questionKey, type ThreadQuestion } from '../lib/threadQuestions';
 import YoloLabel from './YoloLabel';
+import { SimilarPermissionDialog } from './PermissionRules';
+import { isPiInstance } from '../piApi';
+import { approvalCommand } from '../lib/permissionRules';
 import MessageReadButton from './MessageReadButton';
 import { isUnreadEligible } from '../lib/unreadDigest';
 import * as React from 'react';
@@ -905,7 +908,10 @@ const PermissionCard = ({
   onReply: (reply: PermissionReply) => Promise<boolean>;
 }) => {
   const [busy, setBusy] = React.useState<PermissionReply | null>(null);
-  const detail = permissionDetail(request);
+  const [similarOpen, setSimilarOpen] = React.useState(false);
+  const similarTrigger = React.useRef<HTMLButtonElement>(null);
+  const [remembered, setRemembered] = React.useState(false);
+  const detail = permissionDetail(request) || approvalCommand(request);
   const description = metaString(request.metadata, ['description']);
 
   const reply = async (value: PermissionReply) => {
@@ -913,6 +919,7 @@ const PermissionCard = ({
     if (!(await onReply(value))) setBusy(null);
   };
 
+  if (remembered) return <p role="status" className="p-3 text-sm text-muted-foreground">Kiln saved the rule and allowed this command once.</p>;
   return (
     <motion.div
       layout="position"
@@ -936,21 +943,25 @@ const PermissionCard = ({
               {detail}
             </pre>
           ) : null}
-          <div className="flex items-center gap-1.5 pt-0.5">
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <Button size="xs" disabled={busy !== null} onClick={() => void reply('once')}>
+              {busy === 'once' ? <Loader2 className="animate-spin" /> : <Check />}
+              Allow once
+            </Button>
+            {isPiInstance(request.instanceId) ? <Button ref={similarTrigger} size="xs" variant="outline" disabled={busy !== null} onClick={() => setSimilarOpen(true)}>Allow similar…</Button> : null}
             <Button size="xs" variant="outline" disabled={busy !== null} onClick={() => void reply('reject')}>
               {busy === 'reject' ? <Loader2 className="animate-spin" /> : null}
               Deny
             </Button>
-            <div className="flex-1" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-warning/20 pt-2">
             <Button size="xs" variant="secondary" className="border border-warning/50 bg-warning/10 text-warning hover:bg-warning/20" title="Automatically approve all tools in this conversation, even while Ember is closed" disabled={busy !== null} onClick={() => void reply('always')}>
               {busy === 'always' ? <Loader2 className="animate-spin" /> : null}
               Switch to <YoloLabel /> mode
             </Button>
-            <Button size="xs" disabled={busy !== null} onClick={() => void reply('once')}>
-              {busy === 'once' ? <Loader2 className="animate-spin" /> : <Check />}
-              Allow
-            </Button>
+            <span className="text-xs text-muted-foreground">Approves every tool in this conversation.</span>
           </div>
+          {similarOpen ? <SimilarPermissionDialog request={request} onClose={() => setSimilarOpen(false)} onReturnFocus={() => similarTrigger.current?.focus()} onSaved={() => { setRemembered(true); window.dispatchEvent(new Event('ember:permission-rules-changed')); }} /> : null}
         </CardContent>
       </Card>
     </motion.div>

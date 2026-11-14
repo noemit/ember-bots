@@ -30,6 +30,8 @@ const ENDPOINT: Instance = {
  * answering, so App lists its sessions as last-known rather than asking it again.
  */
 const outageFixture = new URLSearchParams(window.location.search).has('outage');
+const permissionRulesFixture = new URLSearchParams(window.location.search).get('permissionRules');
+const permissionRules = new Map<string, import('../lib/permissionRules').PermissionRule[]>();
 /**
  * `?fixture=firstrun` serves an empty world: no instance answering, nothing configured.
  *
@@ -385,7 +387,7 @@ const fixtureC = makeConversation({
       key: 'fixture-approval',
       callId: 'call_fixture_bash',
       tool: 'bash',
-      arguments: { command: 'vercel rm habit-preview-* --yes' },
+      arguments: { command: permissionRulesFixture ? 'pwd' : 'vercel rm habit-preview-* --yes' },
       status: 'pending',
     },
   ],
@@ -1396,11 +1398,42 @@ const piRequest = async (
       ),
     });
   }
+  const rulesRoute = /^\/conversations\/([^/]+)\/permission-rules(?:\/([^/]+))?$/.exec(url.pathname);
+  if (rulesRoute && (method === 'GET' || method === 'DELETE')) {
+    if (permissionRulesFixture === 'unsupported') return fail(404, 'unsupported');
+    const cid = decodeURIComponent(rulesRoute[1]);
+    const rules = permissionRules.get(cid) ?? [];
+    if (method === 'GET') return ok({ rules });
+    permissionRules.set(cid, rulesRoute[2] ? rules.filter((rule) => rule.id !== decodeURIComponent(rulesRoute[2])) : []);
+    return ok({ ok: true });
+  }
+  const previewRoute = /^\/approvals\/([^/]+)\/([^/]+)\/preview$/.exec(url.pathname);
+  const mockPreview = (cid: string, key: string) => {
+    const conversation = conversationById(cid);
+    const approval = conversation?.approvals.find((entry) => entry.key === key && entry.status === 'pending');
+    if (!conversation || !approval) return { supported: false, reason: 'Kiln no longer has this pending approval. Cancel and refresh the conversation.' };
+    if (permissionRulesFixture === 'nonLinux') return { supported: false, reason: 'Remembered commands currently require a Linux local execution environment. Use Allow once or Deny instead.' };
+    const command = body.command ?? approval.arguments.command;
+    if (approval.tool !== 'bash' || approval.arguments.command !== 'pwd' || (command !== 'pwd' && command !== 'pwd -P')) return { supported: false, reason: 'Kiln cannot remember this exact command. Scripts, shell syntax and code runners need Allow once or Deny instead.' };
+    return { supported: true, reason: 'Exact argv, canonical working directory and executable identity in a clean environment; conversation only. The original command is allowed once separately.', policy: { kind: 'exact-argv-v1' as const, maxTimeoutSeconds: 30 as const, argv: command.split(' '), cwd: conversation.cwd, executable: '/usr/bin/pwd', environment: 'clean-v1' as const } };
+  };
+  if (previewRoute && method === 'POST') {
+    if (permissionRulesFixture === 'unsupported') return fail(404, 'unsupported');
+    return ok(mockPreview(decodeURIComponent(previewRoute[1]), decodeURIComponent(previewRoute[2])));
+  }
   const approvalReply = /^\/approvals\/([^/]+)\/([^/]+)\/reply$/.exec(url.pathname);
   if (approvalReply && method === 'POST') {
     const conversation = conversationById(decodeURIComponent(approvalReply[1]));
     if (!conversation) return fail(404, 'no such conversation');
-    const decision = body.decision;
+    let decision = body.decision;
+    if (decision === 'similar') {
+      if (permissionRulesFixture === 'unsupported') return fail(404, 'unsupported');
+      const cid = String(conversation.id);
+      const preview = mockPreview(cid, decodeURIComponent(approvalReply[2]));
+      if (!preview.supported || !preview.policy) return fail(400, preview.reason);
+      permissionRules.set(cid, [...(permissionRules.get(cid) ?? []), { ...preview.policy, id: `rule-${Date.now()}`, conversationId: cid, createdAt: Date.now() }]);
+      decision = 'once';
+    }
     if (decision !== 'once' && decision !== 'always' && decision !== 'reject') return fail(400, 'bad decision');
     return replyApprovalMock(conversation, decodeURIComponent(approvalReply[2]), decision)
       ? ok({ ok: true })

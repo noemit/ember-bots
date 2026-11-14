@@ -15,6 +15,7 @@ import { startCrewSupervisor } from "./crew";
 import { buildMcpTools, mcpNamespaces, mcpSection, readMcpConfig } from "./mcp";
 import { prepareScopeShell, SHELL_SLICE } from "./shell";
 import { pruneScratch, sessionEnv } from "./scratch";
+import { attestPermissionEnvironment, attestPermissionHost } from "./permissionRules";
 
 /**
  * Every line this process writes carries an ISO timestamp.
@@ -155,14 +156,15 @@ export const runKiln = async (): Promise<void> => {
     {
       models,
       registry,
-      env: ({ cwd, conversationId }) => new NodeExecutionEnv({
+      env: ({ cwd, conversationId }) => attestPermissionEnvironment(new NodeExecutionEnv({
         cwd: cwd ?? process.cwd(),
         shellEnv: shellEnvFor(Number(conversationId)),
         ...(shellPath === undefined ? {} : { shellPath }),
-      }),
+      }), { home: config.home, scopeRequired: shellPath !== undefined }),
     },
     context
   );
+  attestPermissionHost(harness, { home: config.home, scopeRequired: shellPath !== undefined });
   harness.resume();
 
   let server: HearthServer | undefined;
