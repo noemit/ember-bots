@@ -140,7 +140,10 @@ was signed or notarized.
 
 The [Windows workflow](../.github/workflows/windows.yml) builds the installer and Tinder, creates
 checksums, and launches the packaged app with a fresh profile to check its included Kiln lifecycle.
-Successful runs upload the `ember-windows-x64` artifact.
+Successful runs upload the `ember-windows-x64` artifact. Those unsigned native-test artifacts are not
+release candidates. See [Desktop updates and release gates](updating.md) for stable GitHub updater
+metadata, mandatory release signing, publisher verification and the complete upload set.
+**Publication remains paused**; packaging configuration is not release authorization.
 
 ## Contributing
 

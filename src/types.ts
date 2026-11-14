@@ -905,7 +905,7 @@ export type EmberBridge = {
   activitySearch?(query: string, range?: ActivityQuery): Promise<ActivityPage>;
   activityDays?(): Promise<string[]>;
   activityClear?(): Promise<void>;
-  capabilities?: { dockIcon: boolean; appIcon?: boolean; endpointManagement?: boolean };
+  capabilities?: { dockIcon: boolean; appIcon?: boolean; endpointManagement?: boolean; desktopUpdates?: boolean };
   listInstances(refresh?: boolean): Promise<unknown>;
   getSettings(): Promise<EmberSettings>;
   setSettings(patch: EmberSettingsPatch): Promise<EmberSettings>;
@@ -922,13 +922,10 @@ export type EmberBridge = {
   openExternal(target: string): Promise<boolean>;
   /** The packaged Ember version, shown in Settings so an upgrade can be checked at a glance. */
   appVersion?(): Promise<string>;
-  /** Check GitHub for a newer release of Ember. */
-  checkForUpdate?(): Promise<{
-    updateAvailable: boolean;
-    currentVersion: string;
-    latestVersion: string | null;
-    releaseUrl: string;
-  }>;
+  /** Desktop-only updater. Remote/browser bridges must not expose these operations. */
+  getUpdateState?(): Promise<UpdateSnapshot>;
+  updateAction?(action: 'check' | 'download' | 'restart'): Promise<UpdateSnapshot>;
+  onUpdateState?(listener: (snapshot: UpdateSnapshot) => void): () => void;
   /** Replace the Dock icon with a PNG data URL (macOS only; a no-op elsewhere). */
   setAppIcon(dataUrl: string): Promise<{ ok: boolean; reason?: string }>;
   /** Carry a failure that happened before the IPC into the same log; absent on older bridges. */
@@ -968,3 +965,13 @@ declare global {
     ember: EmberBridge;
   }
 }
+
+/** Sanitized desktop updater state; no provider errors, paths or download URLs cross the bridge. */
+export type UpdateSnapshot = {
+  phase: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
+  currentVersion: string;
+  version?: string;
+  progress?: number;
+  message?: string;
+  supported: boolean;
+};

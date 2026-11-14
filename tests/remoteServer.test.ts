@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -189,4 +189,19 @@ test('proxies piRequest, eventStatus, and activity endpoints', async () => {
   } finally {
     await f.close();
   }
+});
+
+test('authenticated remote browsers have no host update or installer routes', async () => {
+  const f = await fixture();
+  try {
+    const login = await f.request('/remote/login', 'POST', { password: f.password });
+    const cookie = login.headers.get('set-cookie')!.split(';')[0];
+    for (const path of ['/remote/updates', '/remote/updates/action', '/remote/updates:action', '/remote/check-update']) {
+      expect([404, 405]).toContain((await f.request(path, 'POST', { action: 'restart' }, cookie)).status);
+    }
+    const bridge = await readFile(new URL('../src/remoteBridge.ts', import.meta.url), 'utf8');
+    expect(bridge).not.toContain('desktopUpdates: true');
+    expect(bridge).not.toContain('updateAction');
+    expect(f.writes).toEqual([]);
+  } finally { await f.close(); }
 });

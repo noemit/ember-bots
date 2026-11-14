@@ -1,9 +1,12 @@
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, powerMonitor, shell, safeStorage } from 'electron';
+import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, powerMonitor, shell, safeStorage } from 'electron';
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parse as parseYaml } from 'yaml';
+import { UpdateController, updateEligibility, hasUpdatePublisher } from './updates';
+import type { UpdateAction } from './updates';
 import { createKilnSharing } from './kilnSharing';
 import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
@@ -1229,105 +1232,17 @@ ipcMain.handle('ember:open', async (event, args: { target?: unknown }): Promise<
   return openTarget(String(args?.target || '').trim());
 });
 
-const GITHUB_REPO_SLUG = 'noemit/ember-bots';
-const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO_SLUG}/releases`;
-
-const parseMainSemver = (
-  raw: string | undefined | null
-): { major: number; minor: number; patch: number; prerelease?: string } | null => {
-  if (typeof raw !== 'string') return null;
-  const cleaned = raw.trim().replace(/^v/i, '');
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(cleaned);
-  if (!match) return null;
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const patch = Number(match[3]);
-  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
-    return null;
-  }
-  return { major, minor, patch, ...(match[4] ? { prerelease: match[4] } : {}) };
-};
-
-const isMainNewerVersion = (current: string, candidate: string): boolean => {
-  const cur = parseMainSemver(current);
-  const next = parseMainSemver(candidate);
-  if (!cur || !next || next.prerelease) return false;
-  if (next.major !== cur.major) return next.major > cur.major;
-  if (next.minor !== cur.minor) return next.minor > cur.minor;
-  if (next.patch !== cur.patch) return next.patch > cur.patch;
-  return Boolean(cur.prerelease && !next.prerelease);
-};
-
-ipcMain.handle('ember:check-update', async (event) => {
+let updateController: UpdateController | undefined;
+let updateInstaller: import('electron-updater').AppUpdater | undefined;
+let updateRestartRequested = false;
+ipcMain.handle('ember:updates:state', (event) => {
   assertTrustedSender(event);
-  const currentVersion = app.getVersion();
-  const headers = {
-    Accept: 'application/vnd.github+json',
-    'User-Agent': `Ember/${currentVersion || '0.0.0'}`,
-  };
-  try {
-    const releaseRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO_SLUG}/releases/latest`, {
-      headers,
-      signal: AbortSignal.timeout(6_000),
-    });
-    if (releaseRes.ok) {
-      const rec = (await releaseRes.json().catch(() => null)) as Record<string, unknown> | null;
-      if (rec && rec.draft !== true && rec.prerelease !== true) {
-        const tag = typeof rec.tag_name === 'string' ? rec.tag_name : typeof rec.name === 'string' ? rec.name : null;
-        const parsed = parseMainSemver(tag);
-        if (parsed) {
-          const latestVersion = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
-          const releaseUrl =
-            typeof rec.html_url === 'string' && /^https:\/\/github\.com\//i.test(rec.html_url)
-              ? rec.html_url
-              : `${GITHUB_RELEASES_URL}/tag/v${latestVersion}`;
-          return {
-            updateAvailable: isMainNewerVersion(currentVersion, latestVersion),
-            currentVersion,
-            latestVersion,
-            releaseUrl,
-          };
-        }
-      }
-    }
-    const tagsRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO_SLUG}/tags?per_page=10`, {
-      headers,
-      signal: AbortSignal.timeout(6_000),
-    });
-    if (tagsRes.ok) {
-      const tags = (await tagsRes.json().catch(() => null)) as Array<{ name?: unknown }> | null;
-      if (Array.isArray(tags)) {
-        let bestVersion: string | null = null;
-        let bestTag = '';
-        for (const item of tags) {
-          if (typeof item?.name !== 'string') continue;
-          const parsed = parseMainSemver(item.name);
-          if (!parsed || parsed.prerelease) continue;
-          const ver = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
-          if (!bestVersion || isMainNewerVersion(bestVersion, ver)) {
-            bestVersion = ver;
-            bestTag = item.name.trim();
-          }
-        }
-        if (bestVersion) {
-          return {
-            updateAvailable: isMainNewerVersion(currentVersion, bestVersion),
-            currentVersion,
-            latestVersion: bestVersion,
-            releaseUrl: `${GITHUB_RELEASES_URL}/tag/${encodeURIComponent(bestTag)}`,
-          };
-        }
-      }
-    }
-  } catch {
-    // Offline or blocked; fail silently.
-  }
-  return {
-    updateAvailable: false,
-    currentVersion,
-    latestVersion: null,
-    releaseUrl: GITHUB_RELEASES_URL,
-  };
+  return updateController?.snapshot();
+});
+ipcMain.handle('ember:updates:action', (event, action: unknown) => {
+  assertTrustedSender(event);
+  if (!['check', 'download', 'restart'].includes(String(action))) throw new Error('Unknown update action');
+  return updateController?.action(action as UpdateAction);
 });
 
 /**
@@ -1619,6 +1534,76 @@ if (primaryInstance) app.whenReady().then(async () => {
   localHarnessStop = startedHarness.stop;
   refreshRemoteServer();
   createWindow();
+  let stableDistribution = false;
+  try {
+    const metadata = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')) as { emberUpdateChannel?: unknown };
+    stableDistribution = metadata.emberUpdateChannel === 'stable';
+  } catch { /* Missing distribution metadata is a local build, not an update-enabled release. */ }
+  const eligibility = updateEligibility({ stableDistribution, packaged: app.isPackaged, canary: canaryBuild, version: app.getVersion(), platform: process.platform, appImage: process.env.APPIMAGE, windowsInstalled: process.platform === 'win32' && fs.existsSync(path.join(path.dirname(app.getPath('exe')), 'Uninstall Ember.exe')) });
+  // NSIS skips verification if its installed publisher allowlist is absent. Fail closed instead.
+  if (eligibility.enabled && process.platform === 'win32') {
+    try {
+      const config: unknown = parseYaml(fs.readFileSync(path.join(process.resourcesPath, 'app-update.yml'), 'utf8'));
+      if (!hasUpdatePublisher(config)) throw new Error('Missing publisher');
+    } catch {
+      eligibility.enabled = false;
+      eligibility.supported = false;
+      eligibility.message = 'Ember cannot verify this installation’s update publisher. Download a signed setup from GitHub Releases, or contact the release owner.';
+    }
+  }
+  // Never load the updater in unpackaged/Canary builds or unsupported Linux packages.
+  let updater: import('electron-updater').AppUpdater | undefined;
+  try {
+    updater = eligibility.enabled ? (await import('electron-updater')).autoUpdater : undefined;
+  } catch {
+    eligibility.enabled = false;
+    eligibility.message = 'Ember could not start its updater. Restart Ember to try again, or download the stable release from GitHub.';
+  }
+  updateInstaller = updater;
+  updateController = new UpdateController(updater, app.getVersion(), eligibility, (state) => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send('ember:updates:state', state);
+  }, () => { updateRestartRequested = true; app.quit(); }, async () => {
+    if (process.platform !== 'darwin') return;
+    // electron-updater has downloaded/hashed the ZIP; native Squirrel still needs to verify the
+    // installed app's signature. Prepare only after confirmed restart, without its quitAndInstall
+    // listener, so a failed signature check leaves chats running and downloads never stage on quit.
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timeout);
+        nativeUpdater.removeListener('update-downloaded', ready);
+        nativeUpdater.removeListener('error', failed);
+      };
+      const ready = () => { cleanup(); resolve(); };
+      const failed = () => { cleanup(); reject(new Error('Native update preparation failed')); };
+      const timeout = setTimeout(failed, 120_000);
+      nativeUpdater.once('update-downloaded', ready);
+      nativeUpdater.once('error', failed);
+      try { nativeUpdater.checkForUpdates(); } catch { failed(); }
+    });
+  });
+  updater?.on('error', () => {
+    if (!harnessQuitComplete) return;
+    // A failed installer can leave the window open. Restore only the Kiln we just stopped.
+    harnessQuitComplete = false;
+    harnessQuitPending = false;
+    updateRestartRequested = false;
+    if (restoreOwnedHarnessAfterUpdateFailure && localHarness) {
+      restoreOwnedHarnessAfterUpdateFailure = false;
+      void runHarnessOperation(async () => {
+        const result = await startLocalHarness(localHarness!.options);
+        localHarnessState = result.state;
+        localHarnessStop = result.stop;
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      }).catch(() => {
+        localHarnessState = { kind: 'failed', reason: 'Ember could not restart its bundled Kiln after the update failed. Use Retry in Settings → Instances.' };
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      });
+    }
+  });
+  if (eligibility.enabled) {
+    void updateController.action('check');
+    setInterval(() => { void updateController?.action('check'); }, 6 * 60 * 60 * 1000).unref();
+  }
   // Keep instance health fresh: a remote that was unreachable when probed (sleep, dropped
   // tunnel, VPN reconnect) reattaches on its own instead of waiting for a manual refresh.
   setInterval(() => { void loadInstances(true); }, INSTANCE_WATCHDOG_MS).unref();
@@ -1648,8 +1633,22 @@ app.on('will-quit', () => {
 
 let harnessQuitComplete = false;
 let harnessQuitPending = false;
+let restoreOwnedHarnessAfterUpdateFailure = false;
+const installRequestedUpdate = () => {
+  updateRestartRequested = false;
+  // The updater owns the final quit after its platform installer is ready.
+  try {
+    updateInstaller?.quitAndInstall(false, true);
+  } catch (error) {
+    // Use the same observable error/recovery path as asynchronous native installer failures.
+    updateInstaller?.emit('error', error instanceof Error ? error : new Error('Update installer failed'));
+  }
+};
 app.on('before-quit', (event) => {
-  if (harnessQuitComplete) return;
+  if (harnessQuitComplete) {
+    if (updateRestartRequested) { event.preventDefault(); installRequestedUpdate(); }
+    return;
+  }
   event.preventDefault();
   if (harnessQuitPending) return;
   harnessQuitPending = true;
@@ -1659,8 +1658,12 @@ app.on('before-quit', (event) => {
     console.error('Failed to flush activity log', error);
   }
   // Only stops a harness this process started; an adopted one is left running.
+  restoreOwnedHarnessAfterUpdateFailure = updateRestartRequested && canManageLocalToken(localHarnessState);
   void harnessOperation.catch(() => {}).then(() => canManageLocalToken(localHarnessState) ? stopLocalHarnessAndWait(localHarness) : undefined).finally(() => {
     harnessQuitComplete = true;
-    app.quit();
+    if (updateRestartRequested) {
+      // The normal quit path has now stopped only our owned bundled Kiln, never a standalone host.
+      installRequestedUpdate();
+    } else app.quit();
   });
 });

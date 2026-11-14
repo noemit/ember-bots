@@ -20,6 +20,10 @@ required by that batch, rather than counting commits or individual features.
 
 ## Release workflow
 
+Desktop publication is currently **paused**. Before resuming, follow the signing, updater metadata,
+bootstrap and upload gates in [Desktop updates and release gates](docs/updating.md). Preparing
+configuration does not authorize a version bump, tag or publication.
+
 1. Review all changes since the last public release and choose the next semantic version.
 2. Bump `version` in `package.json` once for the release.
 3. Consolidate the batch into one dated `CHANGELOG.md` entry (`Added` / `Changed` / `Fixed` /

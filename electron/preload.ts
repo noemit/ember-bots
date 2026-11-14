@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { UpdateAction, UpdateSnapshot } from './updates';
 import type { EmberSettings, LocalHarnessToken } from './transport';
 
 type ApiResponse = { ok: boolean; status: number; data: unknown };
@@ -14,7 +15,7 @@ const ember = {
   activityDays: () => ipcRenderer.invoke('ember:activity:days'),
   activityClear: () => ipcRenderer.invoke('ember:activity:clear'),
   // The Dock on macOS, the window (taskbar) icon everywhere else; both go through `setAppIcon`.
-  capabilities: { dockIcon: process.platform === 'darwin', appIcon: true, endpointManagement: true },
+  capabilities: { dockIcon: process.platform === 'darwin', appIcon: true, endpointManagement: true, desktopUpdates: true },
   listInstances: (refresh = true): Promise<unknown> => ipcRenderer.invoke('ember:instances', refresh),
   getSettings: (): Promise<EmberSettings> => ipcRenderer.invoke('ember:settings:get'),
   /**
@@ -32,12 +33,13 @@ const ember = {
     ipcRenderer.invoke('ember:settings:set', patch),
   openExternal: (target: string): Promise<boolean> => ipcRenderer.invoke('ember:open', { target }),
   appVersion: (): Promise<string> => ipcRenderer.invoke('ember:app-version'),
-  checkForUpdate: (): Promise<{
-    updateAvailable: boolean;
-    currentVersion: string;
-    latestVersion: string | null;
-    releaseUrl: string;
-  }> => ipcRenderer.invoke('ember:check-update'),
+  getUpdateState: (): Promise<UpdateSnapshot> => ipcRenderer.invoke('ember:updates:state'),
+  updateAction: (action: UpdateAction): Promise<UpdateSnapshot> => ipcRenderer.invoke('ember:updates:action', action),
+  onUpdateState: (listener: (state: UpdateSnapshot) => void): (() => void) => {
+    const handler = (_event: unknown, state: UpdateSnapshot) => listener(state);
+    ipcRenderer.on('ember:updates:state', handler);
+    return () => ipcRenderer.removeListener('ember:updates:state', handler);
+  },
   setAppIcon: (dataUrl: string): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke('ember:app-icon', { dataUrl }),
   /** Carry a pre-IPC icon failure into the same log the handler writes. */

@@ -11,7 +11,7 @@ import { longDemoPrompt, longDemoReview, longDemoFollowUp } from './longMessages
 import { randomId } from '../lib/randomId';
 import { parseAvatarOverrides, parseAvatarAssignments, mergeAvatarAssignments, parseSnoozedSessions, parseMutedSessions } from '../../electron/transport';
 import { generateToken } from '../../electron/tokenWords';
-import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
+import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance, UpdateSnapshot } from '../types';
 
 const ENDPOINT_ID = 'pi:hearth';
 const ENDPOINT: Instance = {
@@ -2153,9 +2153,27 @@ let settings: EmberSettings = {
 let mockHarnessToken = 'amber-anchor-brisk-copper';
 let mockKilnShared = false;
 
+/** Explicit browser-only updater scenarios; normal dev/remote mocks have no updater capability.
+ * ?updater=available|downloading|downloaded|error|disabled|unsupported|idle
+ */
+const updaterFixture = new URLSearchParams(window.location.search).get('updater');
+const updateListeners = new Set<(state: UpdateSnapshot) => void>();
+let updateSnapshot: UpdateSnapshot = {
+  phase: updaterFixture === 'unsupported' ? 'idle' : (['available', 'downloading', 'downloaded', 'error', 'disabled'].includes(updaterFixture ?? '') ? updaterFixture as UpdateSnapshot['phase'] : 'idle'),
+  currentVersion: '1.22.0',
+  version: '1.23.0',
+  supported: updaterFixture !== 'unsupported' && updaterFixture !== 'disabled',
+  ...(updaterFixture === 'downloading' ? { progress: 42 } : {}),
+};
+const publishUpdate = (patch: Partial<UpdateSnapshot>) => {
+  updateSnapshot = { ...updateSnapshot, ...patch };
+  updateListeners.forEach(listener => listener(updateSnapshot));
+  return updateSnapshot;
+};
+
 export const bridge: EmberBridge = {
   appName: 'Ember',
-  capabilities: { dockIcon: false },
+  capabilities: { dockIcon: false, desktopUpdates: Boolean(updaterFixture) },
   listInstances: async () => {
     if (firstRunFixture) return [];
     if (outageFixture) return [ENDPOINT, OUTAGE_ENDPOINT];
@@ -2203,22 +2221,28 @@ export const bridge: EmberBridge = {
     return settings;
   },
   appVersion: async () => '0.25.0-dev',
-  checkForUpdate: async () => {
-    const mockLatest = new URLSearchParams(window.location.search).get('updateAvailable');
-    if (mockLatest) {
-      return {
-        updateAvailable: true,
-        currentVersion: '0.94.2',
-        latestVersion: mockLatest,
-        releaseUrl: `https://github.com/noemit/ember-bots/releases/tag/v${mockLatest}`,
-      };
+  getUpdateState: async () => updateSnapshot,
+  onUpdateState: (listener) => {
+    updateListeners.add(listener);
+    return () => { updateListeners.delete(listener); };
+  },
+  updateAction: async (action) => {
+    if (!updaterFixture || !updateSnapshot.supported) return updateSnapshot;
+    if (action === 'check') {
+      publishUpdate({ phase: 'checking' });
+      await new Promise(resolve => window.setTimeout(resolve, 250));
+      return publishUpdate({ phase: 'available' });
     }
-    return {
-      updateAvailable: false,
-      currentVersion: '0.94.2',
-      latestVersion: null,
-      releaseUrl: 'https://github.com/noemit/ember-bots/releases',
-    };
+    if (action === 'download') {
+      publishUpdate({ phase: 'downloading', progress: 0 });
+      for (const progress of [25, 50, 75, 100]) {
+        await new Promise(resolve => window.setTimeout(resolve, 300));
+        publishUpdate({ progress });
+      }
+      return publishUpdate({ phase: 'downloaded' });
+    }
+    // The fixture never reloads or stops any process.
+    return publishUpdate({ phase: 'downloaded', message: 'The browser fixture does not restart Ember.' });
   },
   openExternal: async (target) => {
     if (/^https?:\/\//i.test(target)) window.open(target, '_blank', 'noopener');

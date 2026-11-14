@@ -1,3 +1,4 @@
+import DesktopUpdates from './DesktopUpdates';
 import { scheduledBadgeTitle } from '../lib/scheduledView';
 import * as React from 'react';
 import { ChevronDown, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings } from 'lucide-react';
@@ -208,6 +209,8 @@ export default function InstanceBar({
       ) : (
         <div className="flex-1" />
       )}
+
+      <DesktopUpdates />
 
       <Tooltip><TooltipTrigger asChild><button
         type="button"

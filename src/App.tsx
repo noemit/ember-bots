@@ -95,11 +95,6 @@ import {
   type ScheduledTask,
 } from './api';
 import { buildScheduledRuns, countUnseenScheduledRuns, scheduledReadSessions } from './lib/scheduledView';
-import {
-  checkGithubForUpdate,
-  formatUpdateNotice,
-  type UpdateCheckResult,
-} from './lib/updateCheck';
 import { isPiInstance } from './piApi';
 import { emptyHomeTarget, newSessionTarget } from './lib/emptyHome';
 import { useStableCallback } from '@/lib/useStableCallback';
@@ -409,9 +404,6 @@ export default function App() {
   const [usageOpen, setUsageOpen] = React.useState(false);
   /** The Scheduled view: runs newest-first and recurring plans, a fourth top-bar tab. */
   const [scheduledOpen, setScheduledOpen] = React.useState(false);
-  /** GitHub release update check: shown as an "Update available" pill in the top bar until dismissed. */
-  const [availableUpdate, setAvailableUpdate] = React.useState<UpdateCheckResult | null>(null);
-  const [dismissedUpdateVersion, setDismissedUpdateVersion] = React.useState<string | null>(null);
 
   /**
    * New-agent attempts in flight, or refused and waiting for a decision.
@@ -1590,36 +1582,6 @@ export default function App() {
   React.useEffect(() => {
     applyTheme(settings.theme);
   }, [settings.theme]);
-
-  // Check GitHub for a newer release on startup and every 6 hours.
-  React.useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      try {
-        if (window.ember.checkForUpdate) {
-          const result = await window.ember.checkForUpdate();
-          if (!cancelled && result?.updateAvailable && result.latestVersion) {
-            setAvailableUpdate(result);
-          }
-          return;
-        }
-        const current = await window.ember.appVersion?.().catch(() => null);
-        if (!current || cancelled) return;
-        const result = await checkGithubForUpdate(current);
-        if (!cancelled && result.updateAvailable && result.latestVersion) {
-          setAvailableUpdate(result);
-        }
-      } catch {
-        // Ignore update check failures.
-      }
-    };
-    void check();
-    const timer = window.setInterval(() => void check(), 6 * 60 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
 
   // The app icon mirrors the selected session's blob (and its mood) so a glance at the Dock -- or,
   // on Windows, the taskbar -- says which agent this window is on. Theme is a dependency because the
@@ -5438,44 +5400,11 @@ export default function App() {
     );
   };
 
-  const updateVisible =
-    availableUpdate?.updateAvailable &&
-    availableUpdate.latestVersion &&
-    availableUpdate.latestVersion !== dismissedUpdateVersion
-      ? availableUpdate
-      : null;
-
   // Error + notice + update toasts. They render inline at the very top of the window, next to the
   // search button, and action notices/errors self-dismiss.
   const feedbackBanner =
-    actionError || actionNotice || updateVisible ? (
+    actionError || actionNotice ? (
       <>
-        {updateVisible && updateVisible.latestVersion ? (
-          <div
-            role="status"
-            data-testid="update-available-notice"
-            className="animate-in fade-in flex h-7 min-w-0 items-center gap-2 rounded-full border border-highlight/40 bg-popover px-2.5 text-[11.5px] shadow-sm"
-          >
-            <span className="min-w-0 truncate" title={formatUpdateNotice(updateVisible.latestVersion)}>
-              {formatUpdateNotice(updateVisible.latestVersion)}
-            </span>
-            <button
-              type="button"
-              className="shrink-0 rounded font-medium text-highlight hover:underline focus-visible:outline-2"
-              onClick={() => void window.ember.openExternal(updateVisible.releaseUrl)}
-            >
-              View release
-            </button>
-            <button
-              type="button"
-              className="shrink-0 rounded text-muted-foreground hover:text-foreground focus-visible:outline-2"
-              onClick={() => setDismissedUpdateVersion(updateVisible.latestVersion)}
-              aria-label="Dismiss update notice"
-            >
-              Dismiss
-            </button>
-          </div>
-        ) : null}
         {actionError ? (
           <div
             role="alert"
