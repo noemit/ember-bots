@@ -469,6 +469,7 @@ const readEmberSettings = (): EmberSettings => {
     readMarks: Object.fromEntries(Object.entries(parseReadMarks(root.readMarks)).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark])),
     mutedSessions: parseMutedSessions(root.mutedSessions, root.readMarks),
     readSince: typeof root.readSince === 'number' && Number.isFinite(root.readSince) && root.readSince > 0 ? root.readSince : undefined,
+    automaticTitleSeeds: parseStringRecord(root.automaticTitleSeeds),
     composerDrafts: parseComposerDrafts(root.composerDrafts),
     scheduledSessionBindings: parseStringRecord(root.scheduledSessionBindings),
     autoArchiveScheduledRuns: root.autoArchiveScheduledRuns !== false,
@@ -1081,6 +1082,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (typeof value.readSince === 'number' && Number.isFinite(value.readSince) && value.readSince > 0) {
     settings.readSince = value.readSince;
   }
+  if (value.automaticTitleSeeds !== undefined) settings.automaticTitleSeeds = parseStringRecord(value.automaticTitleSeeds);
   if (value.composerDrafts !== undefined) settings.composerDrafts = parseComposerDrafts(value.composerDrafts);
   if (value.composerDraftChanges && typeof value.composerDraftChanges === 'object') {
     const changes = value.composerDraftChanges as Record<string, unknown>;

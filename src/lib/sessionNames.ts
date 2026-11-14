@@ -1,8 +1,8 @@
 import { deriveSessionName as fallbackName, matchRole, titleCase, type NameInput } from './sessionNameFallback';
 
 /** Topic extraction is deliberately local: prompts never leave Ember just to name a chat.
- * Only the human's first request supplies the topic. Names are stored at creation, so later
- * responses, polls and human renames cannot change them or their independently seeded blobs.
+ * The human's first request supplies the initial topic. `sessionRename` may add specificity once
+ * from the first completed exchange; human titles and independently seeded blobs never change.
  */
 const TOPICS: readonly { pattern: RegExp; subject: string; characters: readonly string[] }[] = [
   { pattern: /\b(token|tokens)\b/i, subject: 'Token', characters: ['Locksmith', 'Keykeeper', 'Sentinel'] },

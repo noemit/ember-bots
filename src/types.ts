@@ -668,6 +668,8 @@ export type EmberSettings = {
   readSince?: number;
   /** Sessions whose unread messages should not raise notification indicators. */
   mutedSessions?: string[];
+  /** Initial automatic titles still awaiting their first completed exchange. No history is enrolled. */
+  automaticTitleSeeds?: Record<string, string>;
   composerDrafts: Record<string, StoredComposerDraft>;
   scheduledSessionBindings: Record<string, string>;
   /** Archive finished scheduled-task runs once they're a day old. */

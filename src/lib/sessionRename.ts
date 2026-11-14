@@ -1,84 +1,108 @@
-/**
- * A conversation's provisional name, and the better one it earns once it has a reply.
- *
- * `deriveSessionName` names a session from **the human's first message alone**, at creation. That is
- * the right seed — deterministic, offline, available before the host has answered — but it is often
- * the weakest evidence available. "lets close the design gap" names the *intent* of the opening
- * line; the reply that says "I changed `sessionNames.ts` and added two tests" carries the subject.
- *
- * So a fresh conversation gets a **provisional** name, and is upgraded **once** when its first reply
- * lands. Three rules keep that from reviving the "What Gardener" bug the roster exists to prevent:
- *
- *   1. **One upgrade, ever.** It happens when a session is first seen with a substantive reply and
- *      is still marked provisional. It never runs again — not on later turns, not after a reconnect.
- *   2. **A human rename always wins.** Marking is local state, not a title prefix: a title the person
- *      edited stops being provisional the moment they edit it, because renaming clears the mark.
- *   3. **No reply, no rename.** Until the agent has said something substantial the name stays as it
- *      was created.
- *
- * The mark deliberately does **not** live in the title string. A prefix would have had to be stripped
- * at each of the twenty places a title is rendered, persisted into the host's conversation record,
- * and kept out of search and previews. Local state has none of those problems: the title is always
- * exactly what the rail should show, and "is this still provisional?" is a `Set` lookup.
- */
-
+/** Conservative, offline refinement of a provisional title from one completed exchange. */
 import { deriveSessionName, subjectOf } from './sessionNames';
+import { matchRole } from './sessionNameFallback';
 
-/**
- * The shortest reply worth renaming a session from.
- *
- * A first reply is often "Sure — looking now." or an echo of a tool call, and naming a session from
- * that is worse than leaving it as created. Forty characters is roughly a sentence; below it there
- * is rarely a subject. Deliberately conservative — a session whose first reply stays short keeps the
- * name its request earned, which is the safe direction.
- */
 export const MIN_REPLY_LENGTH = 40;
 
-/** Whether a reply says enough to name a conversation from. */
-export const replyIsSubstantive = (reply: string | undefined): boolean =>
-  Boolean(reply && reply.trim().length >= MIN_REPLY_LENGTH);
+/** Strip evidence which must never supply a title (including secrets and pasted code). */
+const prose = (text: string): string => text
+  .replace(/```[\s\S]*?(?:```|$)/g, ' ')
+  .replace(/https?:\/\/\S+|(?:[~/.][\w.-]*\/)[\w/.-]+/g, ' ')
+  .replace(/\b(?:token|password|secret|authorization|bearer|api[ _-]?key)\s*[:=]\s*\S+/gi, ' ')
+  .slice(0, 1200);
+
+/** Length alone admits long promises. Require actual explanatory/result prose, not a preamble. */
+export const replyIsSubstantive = (reply: string | undefined): boolean => {
+  const text = prose(reply ?? '').trim();
+  if (text.length < MIN_REPLY_LENGTH || (text.match(/\b[a-z]{2,}\b/gi)?.length ?? 0) < 7) return false;
+  if (/^(?:sure|okay|ok|yes|understood|on it|thanks)\b/i.test(text) &&
+      !/\b(?:fixed|changed|added|found|because|cause|implemented|resolved)\b/i.test(text)) return false;
+  if (/^(?:(?:i|we)[’']?\s*(?:will|ll|am going to|are going to|can)|let me|(?:i am|i[’']m|we are|we[’']re)\s+(?:checking|looking|investigating|working))\b/i.test(text)) return false;
+  return Boolean(subjectOf(text));
+};
 
 export type UpgradeInput = {
-  /** The human's first message — the name the session was created with. */
   request: string;
-  /** The agent's first reply, once there is one. */
   reply?: string;
   directory?: string;
   project?: string;
   taken?: readonly string[];
+  /** Exact creation title, including its originally selected character/collision suffix. */
+  initialTitle?: string;
 };
 
 /**
- * The name to upgrade to, or null to leave the session alone.
- *
- * Null covers every "do nothing" case — no reply, a short reply, or a request that already named its
- * own subject — so callers can evaluate this every time they see a session without tracking whether
- * a reply has arrived. The decision is made from the evidence, so it cannot drift from a flag.
- *
- * The request keeps its privileged position. `subjectOf` asks whether it named anything; when it
- * did, the name already describes the work and the reply is ignored. The reply is only consulted for
- * the case this feature exists for: an opening line that was pure intent.
+ * Closed vocabulary of concrete facets, not arbitrary reply nouns. A facet only earns a place if
+ * the reply also explicitly mentions the human's subject; generic reports cannot replace it.
+ * Order is deterministic, with shared (human + reply) facets preferred over reply-only detail.
+ */
+const FACETS: readonly { name: string; pattern: RegExp }[] = [
+  { name: 'Redirect', pattern: /\bredirect(?:s|ed|ing)?\b/i },
+  { name: 'Refresh', pattern: /\brefresh(?:es|ed|ing)?\b/i },
+  { name: 'Persistence', pattern: /\b(?:persist(?:ence|ed|ing)?|storage|stored|saving)\b/i },
+  { name: 'Tint', pattern: /\b(?:tint|tinted|tinting)\b/i },
+  { name: 'Contrast', pattern: /\bcontrast\b/i },
+  { name: 'Overflow', pattern: /\boverflow(?:s|ed|ing)?\b/i },
+  { name: 'Ordering', pattern: /\b(?:ordering|reorder(?:ed|ing)?|sorting)\b/i },
+  { name: 'Cancellation', pattern: /\b(?:cancellation|cancel(?:led|ing)?)\b/i },
+  { name: 'Recovery', pattern: /\b(?:recovery|reconnect(?:ed|ing)?)\b/i },
+  { name: 'Streaming', pattern: /\bstream(?:ing|ed)?\b/i },
+  { name: 'Migration', pattern: /\bmigrat(?:ion|e|ed|ing)\b/i },
+  { name: 'Search', pattern: /\bsearch(?:ing)?\b/i },
+];
+
+/** Topic aliases let a reply say sidebar when the human said rail, without changing the subject. */
+const ANCHORS: Readonly<Record<string, RegExp>> = {
+  Login: /\b(?:login|log in|sign[ -]?in|oauth|authentication|auth)\b/i,
+  Rail: /\b(?:rail|sidebar)\b/i,
+  Blob: /\b(?:blob|avatar|creature)s?\b/i,
+  Palette: /\b(?:colou?r|palette|theme|appearance)\b/i,
+  Queue: /\b(?:queue|queued|inbox)\b/i,
+  Schedule: /\b(?:schedule|scheduled|cron|reminder)\b/i,
+  Crew: /\b(?:worker|crew|delegat\w*)s?\b/i,
+  Memory: /\b(?:memory|cache|cached|caching)\b/i,
+  Network: /\b(?:tailnet|tailscale|reconnect|network|socket|dns|proxy)\b/i,
+};
+
+/**
+ * Null means the exchange adds no measurable specificity. Keep the request's subject and curated
+ * character; only add one concrete facet. Unknown requests may acquire the reply's subject, as
+ * before, but a named human subject is never replaced by an unrelated or generic reply topic.
  */
 export const upgradedName = (input: UpgradeInput): string | null => {
-  const request = input.request ?? '';
-  const reply = (input.reply ?? '').trim();
-  if (!replyIsSubstantive(reply)) return null;
-  // The request named its own subject: that name stands, and the reply is not allowed to displace it.
-  if (subjectOf(request)) return null;
-  // A reply with no subject of its own is no better than what the request produced.
-  if (!subjectOf(reply)) return null;
-  return deriveSessionName({
-    text: reply,
-    directory: input.directory,
-    project: input.project,
-    taken: input.taken,
-  });
+  if (!replyIsSubstantive(input.reply)) return null;
+  const request = prose(input.request ?? '');
+  const reply = prose(input.reply ?? '');
+  const subject = subjectOf(request);
+  if (!subject) {
+    const replySubject = subjectOf(reply);
+    if (!replySubject) return null;
+    // Even a subjectless opening can name the intent (plan, fix, investigate). Keep that role
+    // instead of letting incidental tests in the result turn a design task into an Inspector.
+    const intent = matchRole(request);
+    if (!intent) return deriveSessionName({ ...input, text: reply });
+    const name = replySubject + ' ' + intent.name;
+    const taken = new Set((input.taken ?? []).map(value => value.trim().toLowerCase()));
+    let suffix = 1;
+    while (taken.has((name + (suffix === 1 ? '' : ' ' + suffix)).toLowerCase())) suffix += 1;
+    return name + (suffix === 1 ? '' : ' ' + suffix);
+  }
+  // subjectOf only emits alphabetic words and hyphens, never regex metacharacters.
+  const anchor = ANCHORS[subject] ?? new RegExp('\\b' + subject + 's?\\b', 'i');
+  if (!anchor.test(reply)) return null;
+  const facets = FACETS.filter(({ name, pattern }) => name !== subject && pattern.test(reply));
+  const facet = facets.find(({ pattern }) => pattern.test(request)) ?? facets[0];
+  if (!facet) return null;
+  // Keep the existing roster character, not a new role inferred from a generic test report.
+  const base = input.initialTitle?.startsWith(subject + ' ') && input.initialTitle.slice(subject.length + 1).trim()
+    ? input.initialTitle
+    : deriveSessionName({ text: request, directory: input.directory, project: input.project });
+  const name = subject + ' ' + facet.name + base.slice(subject.length);
+  const taken = new Set((input.taken ?? []).map(value => value.trim().toLowerCase()));
+  if (!taken.has(name.toLowerCase())) return name;
+  let suffix = 2;
+  while (taken.has((name + ' ' + suffix).toLowerCase())) suffix += 1;
+  return name + ' ' + suffix;
 };
 
-/**
- * A name to show before the host has answered anything.
- *
- * The session exists but no reply has landed, so there is no subject yet. Still a roster name, so the
- * rail never shows a bare id.
- */
 export const waitingName = (seed: string): string => deriveSessionName({ text: '', seed });
