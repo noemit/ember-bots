@@ -24,6 +24,10 @@ export type ScrollIntent =
   | 'ignore';
 
 export type ScrollEvent = {
+  /** Whether the reader has chosen to stay pinned. Near the end alone cannot re-arm this. */
+  following: boolean;
+  /** Direction of the last wheel/touch/navigation key; null for undirected pointer input. */
+  gestureDirection: 'up' | 'down' | null;
   /** `scrollTop` before this event, as the last one left it. */
   previousTop: number;
   top: number;
@@ -39,20 +43,23 @@ export type ScrollEvent = {
   resized: boolean;
   /** How long a gesture keeps counting as the reader's. */
   gestureWindowMs: number;
-  /** Movement smaller than this is not a scroll the reader meant. */
-  smallMovePx?: number;
 };
 
 export const scrollIntent = (event: ScrollEvent): ScrollIntent => {
-  const small = event.smallMovePx ?? 4;
   // A resize moved the content under a fixed scrollTop: the delta is the browser clamping, not the
   // reader. Nothing to learn from it either way.
   if (event.resized) return 'ignore';
-  if (event.distanceFromBottom <= event.threshold) return 'follow';
-  const movedUp = event.top < event.previousTop - small;
-  if (!movedUp) return 'ignore';
-  const attributed = event.userGesturing || event.gestureAgeMs <= event.gestureWindowMs;
-  return attributed ? 'stop' : 'ignore';
+  const recent = event.gestureAgeMs <= event.gestureWindowMs;
+  const attributed = event.userGesturing || recent;
+  // Upward intent wins even inside the pin's tolerance, including a trackpad's first tiny delta.
+  // Otherwise the scroll event re-arms the pin that the wheel handler just released, and scrollend
+  // pulls the reader back even on a completely idle last message.
+  if (attributed && event.top < event.previousTop) return 'stop';
+  if (event.following) return event.distanceFromBottom <= event.threshold ? 'follow' : 'ignore';
+  // Once released, only a downward return to the actual end (allowing subpixel rounding) resumes.
+  // A virtualizer correction after an upward gesture is not that return, even if the gesture is recent.
+  const returning = event.userGesturing || (recent && event.gestureDirection === 'down');
+  return returning && event.top > event.previousTop && event.distanceFromBottom <= 1 ? 'follow' : 'ignore';
 };
 
 /**

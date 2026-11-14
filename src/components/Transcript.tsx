@@ -2343,6 +2343,7 @@ function Transcript({
   // Only the reader can stop following. The virtualizer corrects scrollTop as rows measure and
   // content growth clamps it; those programmatic scrolls must not read as "scrolled up".
   const userScrollAt = React.useRef(0);
+  const gestureDirection = React.useRef<'up' | 'down' | null>(null);
   const pointerDown = React.useRef(false);
   const lastScrollTopRef = React.useRef(0);
   /**
@@ -2365,6 +2366,7 @@ function Transcript({
    */
   const leaveOnUpwardGesture = (deltaY: number | undefined) => {
     userScrollAt.current = Date.now();
+    gestureDirection.current = deltaY === undefined || deltaY === 0 ? null : deltaY < 0 ? 'up' : 'down';
     if (deltaY === undefined) return;
     const el = scrollRef.current;
     if (!el) return;
@@ -2372,7 +2374,22 @@ function Transcript({
     followRef.current = false;
     setFollowing(false);
   };
-  const noteUserScroll = () => { userScrollAt.current = Date.now(); };
+  const noteUserScroll = () => {
+    userScrollAt.current = Date.now();
+    gestureDirection.current = null;
+  };
+  const handleScrollKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    // Editing a question or operating a tool/control is not navigation of this history. Keep this
+    // handler local to the scroller so another column's composer cannot release its pin.
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="slider"], [role="combobox"], [role="menu"], [role="listbox"]')) return;
+    if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home' || (event.key === ' ' && event.shiftKey)) {
+      leaveOnUpwardGesture(-1);
+    } else if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === 'End' || event.key === ' ') {
+      leaveOnUpwardGesture(1);
+    }
+  };
   const lastTouchY = React.useRef<number | null>(null);
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -2383,6 +2400,8 @@ function Transcript({
       (previousSize.height !== el.clientHeight || previousSize.scroll !== el.scrollHeight);
     lastSizeRef.current = { height: el.clientHeight, scroll: el.scrollHeight };
     const intent = scrollIntent({
+      following: followRef.current,
+      gestureDirection: gestureDirection.current,
       previousTop: lastScrollTopRef.current,
       top: el.scrollTop,
       distanceFromBottom: el.scrollHeight - el.scrollTop - el.clientHeight,
@@ -2688,14 +2707,14 @@ function Transcript({
         }}>Undo</button> : null}
       </div> : null}
       <div ref={scrollRef} tabIndex={0} aria-label="Conversation history" onScroll={handleScroll}
-        onWheel={(event) => leaveOnUpwardGesture(event.deltaY)}
+        onWheel={(event) => { if (!event.defaultPrevented && !event.ctrlKey) leaveOnUpwardGesture(event.deltaY); }}
         onTouchMove={(event) => {
           // A finger travelling down the screen pulls the content up: the same intent as a wheel,
           // and the same moment to disengage.
           const y = event.touches[0]?.clientY ?? null;
           const previous = lastTouchY.current;
           lastTouchY.current = y;
-          if (y !== null && previous !== null) leaveOnUpwardGesture(y - previous);
+          if (y !== null && previous !== null) leaveOnUpwardGesture(previous - y);
           else noteUserScroll();
         }}
         onTouchStart={(event) => {
@@ -2703,7 +2722,7 @@ function Transcript({
           noteUserScroll();
         }}
         onTouchEnd={() => { lastTouchY.current = null; }}
-        onKeyDown={noteUserScroll}
+        onKeyDown={handleScrollKey}
         onPointerDown={() => { pointerDown.current = true; noteUserScroll(); }}
         onPointerUp={() => { pointerDown.current = false; noteUserScroll(); }}
         onPointerCancel={() => { pointerDown.current = false; }}

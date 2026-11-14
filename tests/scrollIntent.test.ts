@@ -8,11 +8,13 @@ import { gestureLeavesBottom, scrollIntent, type ScrollEvent } from '../src/lib/
  * messages at ~230ms left the transcript at the top of an 8,428px list.
  */
 const base: ScrollEvent = {
+  following: true,
   previousTop: 508,
   top: 480,
   distanceFromBottom: 400,
   threshold: 48,
   gestureAgeMs: 10_000,
+  gestureDirection: 'down',
   userGesturing: false,
   resized: false,
   gestureWindowMs: 600,
@@ -38,14 +40,13 @@ describe('what a scroll event means', () => {
     expect(scrollIntent({ ...base, top: 900, previousTop: 508, gestureAgeMs: 40 })).toBe('ignore');
   });
 
-  test('reaching the end always resumes following', () => {
+  test('the near-bottom tolerance keeps an existing follower pinned unless they move up', () => {
     expect(scrollIntent({ ...base, distanceFromBottom: 10 })).toBe('follow');
-    // Even mid-gesture: the reader is at the bottom because they went there.
-    expect(scrollIntent({ ...base, distanceFromBottom: 10, userGesturing: true })).toBe('follow');
+    expect(scrollIntent({ ...base, previousTop: 470, top: 480, distanceFromBottom: 10, userGesturing: true })).toBe('follow');
   });
 
-  test('sub-threshold jitter is not a move', () => {
-    expect(scrollIntent({ ...base, previousTop: 500, top: 497, gestureAgeMs: 10 })).toBe('ignore');
+  test('unattributed sub-pixel motion is not the reader', () => {
+    expect(scrollIntent({ ...base, previousTop: 500, top: 499.5 })).toBe('ignore');
   });
 });
 
@@ -57,6 +58,36 @@ describe('what a scroll event means', () => {
  * `FOLLOW_THRESHOLD` by main force. That is "it is hard to scroll up when you are at the bottom":
  * the reader's first inch of travel is spent fighting the pin rather than moving.
  */
+describe('leaving the bottom stays the reader’s choice', () => {
+  test('the first tiny upward scroll wins over the near-bottom tolerance', () => {
+    expect(scrollIntent({ ...base, previousTop: 500, top: 499, distanceFromBottom: 1, gestureAgeMs: 10 })).toBe('stop');
+  });
+
+  test('an upward gesture cannot be rearmed by its own near-bottom scroll event', () => {
+    expect(scrollIntent({ ...base, following: false, previousTop: 500, top: 492, distanceFromBottom: 8, gestureAgeMs: 10 })).not.toBe('follow');
+  });
+
+  test('layout changes and programmatic motion cannot rearm a reader who left', () => {
+    expect(scrollIntent({ ...base, following: false, previousTop: 480, top: 500, distanceFromBottom: 0 })).toBe('ignore');
+    expect(scrollIntent({ ...base, following: false, distanceFromBottom: 0, resized: true, gestureAgeMs: 10 })).toBe('ignore');
+    expect(scrollIntent({ ...base, following: false, previousTop: 500, top: 500, distanceFromBottom: 0, gestureAgeMs: 10 })).toBe('ignore');
+  });
+
+  test('virtualizer corrections after an upward gesture cannot resume following', () => {
+    expect(scrollIntent({ ...base, following: false, previousTop: 480, top: 500, distanceFromBottom: 0, gestureAgeMs: 10, gestureDirection: 'up' })).toBe('ignore');
+    expect(scrollIntent({ ...base, following: false, previousTop: 480, top: 500, distanceFromBottom: 0, gestureAgeMs: 10, gestureDirection: null })).toBe('ignore');
+  });
+
+  test('a downward scrollbar drag returning to the end resumes following', () => {
+    expect(scrollIntent({ ...base, following: false, previousTop: 480, top: 500, distanceFromBottom: 0, userGesturing: true, gestureDirection: null })).toBe('follow');
+  });
+
+  test('only a deliberate downward return to the end resumes following', () => {
+    expect(scrollIntent({ ...base, following: false, previousTop: 480, top: 499.5, distanceFromBottom: 0.5, gestureAgeMs: 10 })).toBe('follow');
+    expect(scrollIntent({ ...base, following: false, previousTop: 480, top: 492, distanceFromBottom: 8, gestureAgeMs: 10 })).toBe('ignore');
+  });
+});
+
 describe('an upward gesture leaves the bottom at once', () => {
   const at = (over: Partial<Parameters<typeof gestureLeavesBottom>[0]>) => ({
     deltaY: -100,
