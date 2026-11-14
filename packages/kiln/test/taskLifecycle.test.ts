@@ -7,7 +7,7 @@ import { Harness, MemoryStorage, createRegistry, configure, InboxDoc, LiveDoc, t
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { fauxAssistantMessage, fauxText, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
-import { Sessions, SessionsDoc, SessionTool, TaskCallsDoc, explicitDone, rearmWorker } from '../src/sessions';
+import { Sessions, SessionsDoc, SessionTool, TaskCallsDoc, WORKER_INSTRUCTIONS, WORKER_DELEGATION_INSTRUCTIONS, explicitDone, rearmWorker } from '../src/sessions';
 import { MetaDoc } from '../src/meta';
 import { tick } from '../src/crew';
 import { threadTask } from '../src/threadResults';
@@ -38,6 +38,42 @@ const setup = async (storage: Storage = new MemoryStorage()) => {
 const complete = { action: 'complete' as const, summary: 'Fixed the login bug', evidence: 'auth.ts; focused tests green', remaining: 'No live provider check' };
 
 describe('explicit worker task lifecycle', () => {
+  test('advertised guidance keeps one tool, worker task ownership and explicit completion distinct from review', () => {
+    expect(Sessions.tools.map(tool => tool.name)).toEqual(['session']);
+    const prompt = Sessions.sections[0].render({} as never, context) as string;
+    for (const text of [SessionTool.description, prompt]) {
+      expect(text).toMatch(/Tasks in Ember/);
+      expect(text).toMatch(/task runs in a worker conversation/);
+      expect(text).toMatch(/reopen.*correction/i);
+      expect(text).toMatch(/spawn for unrelated work/);
+      expect(text).toMatch(/complete\(task,summary,evidence,remaining\)/);
+      expect(text).toMatch(/status without a name/);
+      expect(text).toMatch(/claim.*(?:not|never).*verification/);
+      expect(text).toMatch(/peer.*independent/);
+      expect(text).toMatch(/sibling/);
+      expect(text.length).toBeLessThan(3400);
+    }
+    expect(SessionTool.description).toMatch(/Legacy.*final reply/);
+    expect(WORKER_INSTRUCTIONS).toMatch(/own.*task/);
+    expect(WORKER_INSTRUCTIONS).toMatch(/final reply.*does not complete/);
+    expect(WORKER_INSTRUCTIONS).toMatch(/blocker is not completion/i);
+    expect(WORKER_INSTRUCTIONS).toMatch(/Do not complete while corrections or commands are pending/);
+    expect(WORKER_DELEGATION_INSTRUCTIONS).toMatch(/sibling directly under that root/);
+  });
+
+  test('documented own-status then complete example uses the actual assignment token', async () => {
+    const f = await setup();
+    try {
+      const status = await f.call({ action: 'status' });
+      const assignment = JSON.parse((status.output![0] as { text: string }).text);
+      expect(assignment.task).toBe(f.complete.task);
+      const result = await f.call({ action: 'complete', task: assignment.task,
+        summary: 'Fixed login retry handling', evidence: 'auth.ts; focused tests passed', remaining: 'No live-provider check' });
+      expect(result.control?.terminate).toBe(true);
+      expect(explicitDone(await f.entry())).toBe(true);
+    } finally { await f.harness.close(context); }
+  });
+
   test('idle and final prose do not complete, explicit result persists once and retrieval never verifies', async () => {
     const f = await setup();
     try {

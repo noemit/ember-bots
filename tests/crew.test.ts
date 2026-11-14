@@ -518,12 +518,12 @@ test('thread shelf counts direct and nested blockers once and keeps running stat
     running: 1,
     needsHuman: 2,
     summary: '1 / 3',
-    detail: '1 of 3 threads running · 2 needs you',
+    detail: '1 of 3 tasks running · 2 needs you',
   });
   // A quiet crew says "0 / n" rather than omitting the tab's numbers.
   const idle = threadShelfStatus([busy], [], () => 'idle');
   expect(idle.summary).toBe('0 / 1');
-  expect(idle.detail).toBe('0 of 1 threads running');
+  expect(idle.detail).toBe('0 of 1 tasks running');
 });
 
 test('worker keys cover the crew and leave leaders and plain chats alone', () => {

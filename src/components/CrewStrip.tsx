@@ -167,7 +167,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
       {promoted ? (
         <span
           className="flex-none rounded-sm border border-highlight/50 px-1 text-[9.5px] leading-4 font-semibold text-highlight uppercase"
-          title="This thread is a persistent bot now — others can message it by name"
+          title="This task’s worker is a persistent bot now — others can message it by name"
         >
           bot
         </span>

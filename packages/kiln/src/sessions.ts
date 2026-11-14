@@ -30,14 +30,16 @@ import { registerAgentWithSuffix } from "./agents";
  */
 
 /**
- * A worker's final-message-as-report instruction, rendered as the agent's `instructions`. A worker
+ * A worker's task handoff instruction, rendered as the agent's `instructions`. A worker
  * that is handed no crew tool is not told it may delegate — the old text told every worker it might
  * spawn, one more nudge toward a loop.
  */
 export const WORKER_INSTRUCTIONS =
-  "You are a background thread working toward the concrete outcome in your brief. Your final message records the result: " +
-  "status, what you changed, evidence with file/entry references, and blockers. For explicit tasks, call session complete " +
+  "You own the delegated task in your brief, shown in Ember as a Task. Work toward that concrete outcome. " +
+  "For default explicit tasks, call session complete " +
   "with task (the current version from session status without a name), summary, evidence and remaining limitations (say none when appropriate); a final reply or idle run does not complete the task. " +
+  "Done is your completion claim, not coordinator verification. A blocker is not completion: ask the human or report what you need. " +
+  "Legacy report=always/on-failure and side-question workers still settle on a final reply. " +
   "Use session status without a name to inspect your own task identity and version. Do not complete while corrections or commands are pending. You may ask the human when blocked; the question " +
   "reaches your leader too. Keep the final handoff concise: progress, files, commits, tests, blockers and next steps; " +
   "say none or not run where appropriate. Around 100k current-context tokens, finish the active bounded task and " +
@@ -46,7 +48,7 @@ export const WORKER_INSTRUCTIONS =
 
 /** The worker instruction naming its own delegation, for a worker that keeps the crew tool. */
 export const WORKER_DELEGATION_INSTRUCTIONS =
-  " When you spawn threads of your own, give each a concrete outcome title, a self-contained brief, and acceptance criteria. " +
+  " When you delegate tasks of your own, give each a concrete outcome title, a self-contained brief, and acceptance criteria. " +
   "All workers share one root supervisor. When you spawn a helper, it joins you as a sibling directly under that root; you retain task access, not ownership of arbitrary siblings. " +
   "Do not spawn to relay a result; finish directly in your own thread. ";
 
@@ -680,23 +682,17 @@ export const crewReportText = (
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * The `session` tool. Actions:
- * - `models` (query?, limit?, offset?): read this host's available chat catalogue and inherited default.
- * - `spawn` (name, brief, kind?, role?, report?): start a crew **worker** (default) or an explicit
- *   **peer**. `report: "on-failure"` makes a routine success settle silently — the worker still
- *   shows as reported in `list` and `results` still has the text, but nothing interrupts the leader.
- * - `list`: every crew member this conversation started, newest first (kind/state shown).
- * - `status` (name): working or idle, via the member's `pi.live` run.
- * - `message` (name, message, followUp?): send it another message (steer while busy, or queue).
- * - `stop` (name): abort its current work (it stays usable).
- * - `results`: bounded reports from this conversation's crew.
- * - `wait`: poll for quiescence, bounded to 10 minutes.
- */
+/** Shared vocabulary for the direct tool schema and the default agent system prompt. */
+export const TASK_GUIDANCE =
+  "Manage delegated tasks, shown as Tasks in Ember. Each task runs in a worker conversation. " +
+  "Spawn with a concrete outcome; use complete when that outcome is delivered. Ending a reply does not complete a default worker task. " +
+  "Reopen for corrections; create a new task with spawn for unrelated work. ";
+
+/** The single session tool manages worker tasks and explicit independent peer chats. */
 export const SessionTool = defineTool({
   name: "session",
   description:
-    "Spawn background threads with concrete outcomes. Give each a self-contained brief and an outcome title. " +
+    TASK_GUIDANCE + "Give each task a self-contained brief and an outcome title. " +
     "models(query?) lists available chat models on this host and your inherited default; copy its exact model value into spawn. " +
     "Availability means configured credentials, not guaranteed provider access or quota. No codemode required. " +
     "Default report=thread stores a durable result without copying it into your conversation. " +
@@ -704,13 +700,15 @@ export const SessionTool = defineTool({
     "results(name?) retrieves bounded final outcomes with evidence links, recording retrieval separately from verification. " +
     "wait(name?) registers a durable continuation for thread tasks and returns immediately: end your turn to stay responsive. First subscriber per task wins; other authorized readers use results. " +
     "Failures and human blockers get priority; already-retrieved results do not wake you again. " +
-    "Workers call complete(summary,evidence,remaining) to persist Done, not a final reply. Only coordinators may reopen(name,message). " +
+    "Workers inspect status without a name, then call complete(task,summary,evidence,remaining) with that current assignment token and no name. " +
+    "Done persists the worker’s claim, not coordinator verification. Blockers and pending corrections/commands are not completion. " +
+    "Authorized coordinators use reopen(name,message) for corrections. " +
     "message steers a thread, followUp=true queues; stop aborts it. kind=peer creates an independent visible conversation. " +
-    "Legacy report=always copies reports; on-failure suppresses successful report delivery. " +
+    "Legacy report=always/on-failure workers settle on a final reply: always copies reports; on-failure suppresses successful delivery. Side questions also retain final-reply settlement. " +
     `Caps: one worker layer; every worker's helper is a sibling directly under the root supervisor, ${workerCapsText()}, ${SPAWN_RATE_LIMIT} spawns/minute.`,
   parameters: obj({
     action: oneOf(["spawn", "models", "list", "status", "message", "stop", "results", "wait", "read", "complete", "reopen"], {
-      description: "models: search this host’s available chat models; spawn: start a session; the rest operate on names from `list`/`results`.",
+      description: "models: search available models; spawn: create a worker task (or explicit peer chat); status without name: own assignment; complete: own task only; reopen: named task correction; other actions use names from list/results.",
     }),
     summary: opt(str({ description: "complete: outcome summary, required, up to 4,000 characters." })),
     evidence: opt(str({ description: "complete: evidence references and checks, required, up to 3,000 characters." })),
@@ -719,7 +717,7 @@ export const SessionTool = defineTool({
     query: opt(str({ description: "models: case-insensitive search of provider, model ID or display name (up to 200 characters)." })),
     limit: opt(num({ description: "models: page size, an integer from 1 to 100 (default 50)." })),
     offset: opt(num({ description: "models: zero-based offset from nextOffset (default 0)." })),
-    name: opt(str({ description: "A short handle you will use to refer to this session later." })),
+    name: opt(str({ description: "A short handle for the task or peer chat. Omit for your own status and complete." })),
     brief: opt(
       str({
         description:
@@ -731,7 +729,7 @@ export const SessionTool = defineTool({
     kind: opt(
       oneOf(["worker", "peer"], {
         description:
-          "spawn: \"worker\" (default) is a hidden crew member that reports back; \"peer\" is an " +
+          "spawn: \"worker\" (default) owns a delegated task and reports back; \"peer\" is an " +
           "ownerless session the user sees and chats with directly.",
       })
     ),
@@ -739,7 +737,7 @@ export const SessionTool = defineTool({
       str({
         description:
           "spawn: a short label for the worker's job, such as \"Researcher\", \"Graphics\" or " +
-          "\"Reviewer\". Legacy report modes compose role-based titles. Threads use the explicit title or brief outcome. " +
+          "\"Reviewer\". Legacy report modes compose role-based titles. Tasks use the explicit title or brief outcome. " +
           "It is trimmed and capped at 40 characters.",
       })
     ),
@@ -757,7 +755,7 @@ export const SessionTool = defineTool({
     ),
     since: opt(str({ description: "read: newest entry id already seen; return only newer evidence, oldest first. Combine next cursor to finish a delta." })),
     cursor: opt(str({ description: "read: opaque next cursor returned by the previous page; omit for the newest page." })),
-    message: opt(str({ description: "message: what to send." })),
+    message: opt(str({ description: "message/reopen: direction to send. reopen requires a correction (up to 16,000 characters), not unrelated work." })),
     followUp: opt(
       bool({
         description: "message: true queues it after the session's current answer instead of steering into it.",
@@ -1354,7 +1352,7 @@ export const SessionTool = defineTool({
     return reply(
       `Started worker "${sessionTitle}" (conversation ${created.id}; status ${settled.status}). ` +
         ((report ?? "thread") === "thread"
-          ? "It appears in Threads. Use wait to register a continuation and release this turn, results for its outcome, or read for evidence. "
+          ? "It appears in Tasks. Use wait to register a continuation and release this turn, results for its outcome, or read for evidence. "
           : "Its result follows the legacy report delivery policy. Use results to read it. ") +
         `Refer to it as ${name}.`,
       created.id
@@ -1376,8 +1374,9 @@ const parseModel = (value: string): { provider: string; modelId: string } | unde
 const crewSection = section(
   "crew",
   () =>
-    "Use session spawn for substantial independent work in background threads. Give each a concrete outcome title, " +
-    "a self-contained brief, acceptance criteria and evidence requirements. Threads retain stable identities. " +
+    TASK_GUIDANCE +
+    "Use session spawn for substantial independent work. Give each task a concrete outcome title, " +
+    "a self-contained brief, acceptance criteria and evidence requirements. Worker conversations retain stable identities across corrections. " +
     "You remain the foreground thinker and coordinator: understand the human, answer, plan and steer. " +
     "Small inspections and decisions belong here; heavy execution belongs in threads when delegation helps. " +
     "Crews are flat: root plus one worker layer. Any worker's helper joins the same root as a sibling, never a nested worker. " +
@@ -1386,6 +1385,7 @@ const crewSection = section(
     "Quote relevant findings with their /threads/<conversationId> links so the human can explore the source. " +
     "Retrieved means available to you, not verified or incorporated. Do not claim checks you have not made. " +
     "Use wait to register a continuation, then end your turn instead of blocking or polling. " +
+    "Workers use status without a name for the current assignment token, then complete(task,summary,evidence,remaining) without name. " +
     "Explicit task Done is the worker’s claim, never your verification. Review evidence separately; use reopen with a correction to request more work. " +
     "A completion is information, not a demand for an acknowledgement or another crew. " +
     "Coordinate silently; speak for useful answers, meaningful changes, decisions, blockers or the final result. " +

@@ -1,4 +1,6 @@
-# Explicit worker tasks
+# Delegated tasks (`session` tool)
+
+Ember calls delegated work **Tasks**. Keep one `session` tool: `spawn` creates a worker task; there is no separate task tool. Independent `kind: "peer"` chats are not worker tasks. Worker helpers join the same root as siblings, not nested crews.
 
 The coordinator defines an outcome, the worker records its completion claim, and the human or coordinator reviews the evidence. These are separate actions. Retrieving an outcome, acknowledging a notice, marking a message read, ending an assistant reply, or idling does not verify or complete an explicit task.
 

@@ -146,8 +146,8 @@ export const threadShelfStatus = (
   }
   // Named in full for a tooltip and a screen reader, where a bare ratio would be cryptic.
   const detail = needsHuman
-    ? `${running} of ${all.size} threads running · ${needsHuman} needs you`
-    : `${running} of ${all.size} threads running`;
+    ? `${running} of ${all.size} tasks running · ${needsHuman} needs you`
+    : `${running} of ${all.size} tasks running`;
   if (workers.some((worker) => worker.task)) {
     const done = [...all.values()].filter(taskIsDone).length;
     const stopped = [...all.values()].filter((worker) => worker.task?.status === 'stopped').length;

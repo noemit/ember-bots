@@ -123,6 +123,8 @@ leader must never answer or approve on the human's behalf merely because a threa
 
 ## Explicit task completion
 
+Delegation stays in the single `session` tool and is shown as **Tasks** in Ember. Each delegated worker owns a task; independent peers remain chats. Corrections reopen that task; unrelated purposes use a new spawn.
+
 New default thread workers carry `taskLifecycle: "explicit"`. Only their own `session complete`
 with the current required assignment token and bounded summary/evidence/remaining fields records Done;
 reply endings, idle, result retrieval and verification are independent. `session status` without a

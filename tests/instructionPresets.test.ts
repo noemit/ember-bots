@@ -36,6 +36,16 @@ describe('standing instruction presets', () => {
     }
   });
 
+  test('delegation names the worker task, separates completion from review, and keeps corrections in scope', () => {
+    const text = INSTRUCTION_PRESETS.find(preset => preset.id === 'delegator')!.instructions;
+    expect(text).toMatch(/task runs in a worker conversation/);
+    expect(text).toMatch(/Tasks in Ember/);
+    expect(text).toMatch(/assignment token/);
+    expect(text).toMatch(/final reply is not Done/);
+    expect(text).toMatch(/claim, not your verification/);
+    expect(text).toMatch(/corrections.*spawn a new task for unrelated work/);
+  });
+
   test('a session reads its preset back from the text it stored', () => {
     const delegator = INSTRUCTION_PRESETS.find((preset) => preset.id === 'delegator');
     expect(presetFor(delegator?.instructions)).toBe(delegator!);
