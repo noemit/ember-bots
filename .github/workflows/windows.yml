@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 25
     env:
       PRODUCT_ROOT: ${{ github.workspace }}/product
-      MANUAL_BUILDER_CONFIG: ${{ runner.temp }}/ember-manual-builder.json
+      MANUAL_BUILDER_CONFIG: ${{ github.workspace }}/ember-manual-builder.json
     steps:
       - uses: actions/checkout@v4
         with:
