@@ -202,6 +202,8 @@ export const importOpenCodeCredentials = async (
     const credential = fromOpenCode(entry);
     if (!credential) continue;
     const providerId = normalizeProviderId(rawProviderId);
+    // A portable key has no verified custom-server destination; only the custom editor may bind it.
+    if (providerId.startsWith("custom-")) continue;
     await store.modify(providerId, async (current) => {
       if (current) return undefined; // already have one — keep it
       imported.push(providerId);

@@ -1,4 +1,4 @@
-import { discoverCustomModels, type CustomProviders } from "./custom-providers";
+import type { CustomProviders } from "./custom-providers";
 import { importApiKeys, mergePeers, portablePeer, shareApiKeys } from "./alignment";
 import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
 import { timingSafeEqual } from "node:crypto";
@@ -1330,11 +1330,7 @@ const server = Bun.serve<{
           if (path === "/custom-providers" && request.method === "GET") return json({ providers: await custom.list() });
           if (path === "/custom-providers/discover" && request.method === "POST") {
             const body = await readBody(request);
-            if (body.apiKey !== undefined && (typeof body.apiKey !== "string" || body.apiKey.length > 8192 || /[\r\n]/.test(body.apiKey))) return badRequest("Enter a valid API key, or leave it empty for a keyless server.");
-            // A stored key can only be probed against its saved destination.
-            const saved = typeof body.id === "string" ? (await custom.list()).find(p => p.id === body.id) : undefined;
-            const key = typeof body.apiKey === "string" ? body.apiKey : saved && saved.baseUrl === body.baseUrl ? await custom.key(saved.id) : undefined;
-            return json(await discoverCustomModels(body.baseUrl, key));
+            return json(await custom.discover(body.baseUrl, body.apiKey, body.id));
           }
           if (path === "/custom-providers" && request.method === "POST") return json(await custom.save(await readBody(request)));
           const id = decodeSegment(path.slice("/custom-providers/".length));
@@ -1457,7 +1453,7 @@ const server = Bun.serve<{
         const state = await harness.snapshot(AgentsDoc, context);
         const credentials = store ? await store.list() : [];
         return json({
-          apiKeys: credentials.filter(c => c.type === "api_key").map(c => c.providerId),
+          apiKeys: credentials.filter(c => c.type === "api_key" && !c.providerId.startsWith("custom-")).map(c => c.providerId),
           signIns: credentials.filter(c => c.type === "oauth").length,
           peers: (state?.peers ?? []).filter(p => portablePeer(p)).map(({ id, label, url }) => ({ id, label, url })),
         });
@@ -1512,6 +1508,7 @@ const server = Bun.serve<{
         if (!store) return badRequest("no credential store");
         const providerId = decodeSegment(path.slice("/providers/".length));
         if (!providerId) return badRequest("missing provider id");
+        if (providerId.startsWith("custom-")) return badRequest("Edit custom providers in Settings → Providers so Kiln can keep each key bound to its destination.");
         if (request.method === "DELETE") {
           await store.delete(providerId);
           // A provider that existed only for this credential must stop being offered; the catalog

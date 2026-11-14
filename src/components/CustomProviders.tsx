@@ -54,6 +54,7 @@ export default function CustomProviders({ endpointId, hostName, onChange }: {
       <div className="min-w-0 flex-1"><p className="font-medium">{provider.name}</p><p className="break-all text-muted-foreground">{provider.baseUrl} · {provider.hasApiKey ? 'API key saved' : 'No key needed'}</p></div>
       <Button size="xs" variant="ghost" aria-label={`Edit ${provider.name}`} disabled={busy} onClick={() => start(provider)}>Edit</Button>
       <Button size="xs" variant="ghost" aria-label={`Remove ${provider.name}`} disabled={busy} onClick={() => { setRemoving(provider.id); setEditing(null); setApiKey(''); setError(''); }}>Remove</Button>
+      {provider.problem ? <p role="status" className="w-full text-destructive">{provider.problem}</p> : null}
       {removing === provider.id ? <div className="w-full space-y-2" role="group" aria-label={`Remove ${provider.name}`}>
         <p>Remove this provider and its key from {hostName}? Existing model choices stay unchanged and may need a replacement.</p>
         <Button size="xs" variant="destructive" disabled={busy} onClick={() => void run(async () => {

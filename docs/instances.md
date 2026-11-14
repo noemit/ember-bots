@@ -32,7 +32,10 @@ explicitly choosing keyless access. Removing a provider removes its saved key to
 existing chats and their model choices intact.
 
 Configuration belongs to that Kiln. Keys use its private credential store and are never returned
-by provider/configuration reads or saved in Ember settings.
+by provider/configuration reads or saved in Ember settings. Each saved key is bound to its exact
+normalized API base URL. Editing or removing a provider cancels its old requests; refresh models
+before retrying a pending send. If Kiln cannot verify a saved key's destination (including an older
+unbound credential), re-enter it in this editor or explicitly choose keyless access.
 
 ## Standalone Kiln with Tinder
 

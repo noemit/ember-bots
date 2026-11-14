@@ -35,7 +35,8 @@ export const mergePeers = (existing: readonly PeerEndpoint[], incoming: readonly
 export const storedApiKeys = async (store: CredentialStore) => {
   const keys: Array<{ providerId: string; key: string }> = [];
   for (const info of await store.list()) {
-    if (info.type !== 'api_key') continue;
+    // Custom keys are destination-bound; connection alignment does not transfer that configuration.
+    if (info.type !== 'api_key' || info.providerId.startsWith('custom-')) continue;
     const credential = await store.read(info.providerId);
     if (credential?.type === 'api_key' && typeof credential.key === 'string' && credential.key.trim()) keys.push({ providerId: info.providerId, key: credential.key });
   }
@@ -51,7 +52,7 @@ export const importApiKeys = async (store: CredentialStore, input: unknown): Pro
   });
   let added = 0;
   for (const entry of keys) {
-    if (hasEnvCredential(entry.providerId)) continue;
+    if (entry.providerId.startsWith('custom-') || hasEnvCredential(entry.providerId)) continue;
     await store.modify(entry.providerId, async current => {
       if (current) return current;
       added++;

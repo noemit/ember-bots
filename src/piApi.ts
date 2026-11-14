@@ -1460,7 +1460,7 @@ export const piRemoveProvider = async (
 
 
 
-export type PiCustomProvider = { id: string; name: string; baseUrl: string; modelIds: string[]; hasApiKey: boolean };
+export type PiCustomProvider = { id: string; name: string; baseUrl: string; modelIds: string[]; hasApiKey: boolean; problem?: string };
 export type PiCustomProviderInput = { name: string; baseUrl: string; modelIds: string[]; apiKey?: string };
 /** Metadata only is read back. Optional secrets travel only in authenticated writes to this Kiln. */
 export async function piCustomProviders<T>(endpointId: string, suffix = '', method = 'GET', body?: unknown): Promise<T> {

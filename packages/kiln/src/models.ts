@@ -338,5 +338,6 @@ export const hearthModels = async (
     models.setProvider(runtime.id === "ollama" ? ollamaProvider({ baseUrl: runtime.baseUrl }) : lmStudioProvider({ baseUrl: runtime.baseUrl }));
   }
   const customProviders = new CustomProviders(dirname(authFile), store, models);
+  await customProviders.ready;
   return { models, seeded, store, localRuntimes, customProviders };
 };
