@@ -62,6 +62,7 @@ import {
 } from '../lib/toolDisplay';
 import { isMessageRead } from '../lib/readState';
 import { readReceiptDismissIn } from '../lib/readReceiptTimer';
+import { showUnreadNotifications } from '../lib/sessionUnread';
 import { entryOrdinal } from '../lib/piMapping';
 import { copyText } from '@/lib/clipboard';
 import { useStableCallback } from '@/lib/useStableCallback';
@@ -161,6 +162,8 @@ type Props = {
   showCost?: boolean;
   /** Explicit per-message read state. Navigation never changes it. */
   readMark?: SessionReadMark;
+  /** Hide unread prompts and read receipts, not messages or explicit read-state evidence. */
+  notificationsMuted?: boolean;
   /** Mark only the message whose bubble was pressed. */
   onMarkRead?: (message: ChatMessage) => void;
   onUndoMarkRead?: (message: ChatMessage) => void;
@@ -1826,7 +1829,9 @@ const MessageRow = React.memo(function MessageRow({
     setMenuRefresh((n) => n + 1);
   }, []);
   const readClickTimer = React.useRef<number | undefined>(undefined);
-  React.useEffect(() => () => window.clearTimeout(readClickTimer.current), []);
+  // Disabling the read affordance cancels an older click, even if notifications are re-enabled
+  // before its selection-grace timer would fire. Never revive an acknowledgement across mute.
+  React.useEffect(() => () => window.clearTimeout(readClickTimer.current), [onMarkRead]);
   const isInteractive = (target: EventTarget | null, row: HTMLElement) => {
     const control = target instanceof Element ? target.closest(
       'a, button, input, textarea, select, option, label, summary, audio, video, img, [data-quote-link], [draggable="true"], [role], [tabindex], [contenteditable]:not([contenteditable="false"])'
@@ -2062,6 +2067,7 @@ function Transcript({
   toolDisplay,
   showCost = true,
   readMark,
+  notificationsMuted = false,
   onMarkRead,
   onUndoMarkRead,
   onMarkUnread,
@@ -2501,6 +2507,7 @@ function Transcript({
     scrollToBottom(virtualized ? 'auto' : 'smooth');
   };
 
+  const showUnreadControls = showUnreadNotifications(notificationsMuted, Boolean(onMarkRead));
   // Presentation rows may combine tool steps. Read eligibility still belongs to the original entry.
   const unreadIndices = React.useMemo(() => items.flatMap(({ message, index: sourceIndex }, index) =>
     isUnreadEligible(messages[sourceIndex]) &&
@@ -2526,7 +2533,7 @@ function Transcript({
   React.useEffect(() => {
     setReceipt(null);
     setReadHighlight(false);
-  }, [seed]);
+  }, [seed, notificationsMuted]);
   React.useEffect(() => {
     if (!receipt) return;
     const highlightTimer = window.setTimeout(() => setReadHighlight(false), 1100);
@@ -2560,7 +2567,7 @@ function Transcript({
   };
   const markMessageRead = useStableCallback((message: ChatMessage) => {
     const original = messages.find((entry) => entry.id === message.id);
-    if (original && isUnreadEligible(original) && unreadIds.has(original.id) && onMarkRead) {
+    if (showUnreadControls && original && isUnreadEligible(original) && unreadIds.has(original.id) && onMarkRead) {
       onMarkRead(original);
       // A click waits for the selection grace period. Search may have moved to another
       // message meanwhile; clear only this reply's jump styling, not the newer destination.
@@ -2581,6 +2588,7 @@ function Transcript({
     const original = messages.find((entry) => entry.id === message.id);
     if (!original || original.role !== 'assistant' || !onMarkUnread) return;
     onMarkUnread(original);
+    if (notificationsMuted) return;
     setHighlightedMessageId(current => current === original.id ? null : current);
     setReceipt({ message: original, version: ++receiptVersion.current, appearedAt: Date.now(), kind: 'unread' });
     setToastReleased(false);
@@ -2689,7 +2697,7 @@ function Transcript({
         <Button size="xs" variant="ghost" onClick={() => { setFind(null); setHighlightedMessageId(null); }}>Close</Button>
       </div> : null}
       {navigationUnavailable ? <p role="status" className="px-3 py-2 text-xs text-muted-foreground">Ember could not find this linked message in the available history. Use Refresh in the session menu to try again, or select an available passage for a new annotation.</p> : null}
-      {onMarkRead && unreadIndices.length > 0 ? (
+      {showUnreadControls && unreadIndices.length > 0 ? (
         <div data-unread-navigation="" className="flex flex-none flex-wrap items-center justify-between gap-x-2 border-b border-highlight/20 bg-highlight/5 px-3 py-1">
           <Button
             size="sm"
@@ -2766,7 +2774,7 @@ function Transcript({
       {showLastMessageJump ? <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
         <Button size="xs" variant="secondary" className="pointer-events-auto rounded-full shadow-sm" onClick={() => jumpToIndex(latestUserIndex, 'start')}>↑ Jump to your last message</Button>
       </div> : null}
-      {receipt ? <div data-read-toast=""
+      {!notificationsMuted && receipt ? <div data-read-toast=""
         // Pointer and keyboard are the same hold (see `readReceiptTimer`): either one keeps the
         // receipt up to its cap, and leaving either starts the short grace.
         onPointerEnter={() => holdReceipt(true)} onPointerLeave={() => holdReceipt(false)}
@@ -2826,7 +2834,7 @@ function Transcript({
                 quoteLinks={quoteLinksForMessage(quoteLinks, quoteSessionKey, message.id)}
                 onNavigateQuote={onNavigateQuote}
                 quoteFocus={quoteFocus}
-                readConfirmed={receipt?.message.id === message.id && readHighlight}
+                readConfirmed={!notificationsMuted && receipt?.message.id === message.id && readHighlight}
                 highlighted={highlightedMessageId === message.id}
                 highlightRequest={highlightRequest}
                 showMetadata={isAssistantTurnEnd(messages, index, turnPending)}
@@ -2837,7 +2845,7 @@ function Transcript({
                 toolDisplay={toolDisplay}
                 showCost={showCost}
                 unread={unreadIds.has(message.id)}
-                onMarkRead={onMarkRead ? markMessageRead : undefined}
+                onMarkRead={showUnreadControls ? markMessageRead : undefined}
                 onMarkUnread={canManageUnread && onMarkUnread ? markMessageUnread : undefined}
                 onReply={onReply}
                 showMessageDetails={showMessageDetails}

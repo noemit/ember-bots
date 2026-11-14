@@ -30,7 +30,8 @@ for (const mode of ['normal', 'wide', 'mini', 'mobile'] as const) {
     await toggle(page, true);
     await expect.poll(() => savedMutes(page)).toHaveLength(41);
     await expect(page.locator('[data-composer-identity] [data-badge="unread"]')).toHaveCount(0);
-    await expect(column(page).getByRole('button', { name: /New unread messages/ })).toBeVisible();
+    await expect(column(page).locator('[data-unread-navigation]')).toHaveCount(0);
+    await expect(column(page).getByRole('button', { name: 'Mark this message as read', exact: true })).toHaveCount(0);
     // A completed reply and its list invalidation must not re-enable the indicator.
     await page.evaluate(async () => {
       const path = '/src/dev/mockPi.ts';
@@ -44,6 +45,8 @@ for (const mode of ['normal', 'wide', 'mini', 'mobile'] as const) {
       await window.ember.piRequest!('pi:hearth', '/conversations/10', { method: 'PATCH', body: { title: conversation.title } });
     });
     await expect(column(page).getByText('A fresh reply while notifications are muted.', { exact: true })).toBeVisible();
+    await expect(column(page).locator('[data-unread-navigation]')).toHaveCount(0);
+    await expect(column(page).getByRole('button', { name: 'Mark this message as read', exact: true })).toHaveCount(0);
     await expect(page.locator('[data-composer-identity] [data-badge="unread"]')).toHaveCount(0);
     expect(await marks(page)).toEqual(before);
     await page.reload();
@@ -53,7 +56,11 @@ for (const mode of ['normal', 'wide', 'mini', 'mobile'] as const) {
     await expect.poll(() => savedMutes(page)).toHaveLength(41);
     await expect(page.locator('[data-composer-identity] [data-badge="unread"]')).toHaveCount(0);
     expect(await marks(page)).toEqual(before);
+    await expect(column(page).locator('[data-unread-navigation]')).toHaveCount(0);
+    await expect(column(page).getByRole('button', { name: 'Mark this message as read', exact: true })).toHaveCount(0);
     await toggle(page, false);
+    await expect(column(page).getByRole('button', { name: /New unread messages/ })).toBeVisible();
+    await expect(column(page).getByRole('button', { name: 'Mark this message as read', exact: true })).toHaveCount(1);
     await expect(page.locator('[data-composer-identity] [data-badge="unread"]')).toHaveCount(1);
     expect(await marks(page)).toEqual(before);
     await page.screenshot({ path: `/tmp/ember-mute-${mode}.png` });
@@ -125,7 +132,8 @@ test('a muted scheduled run stays muted through Hide and Undo without clearing i
   await page.keyboard.press('Escape');
   await expect.poll(() => savedMutes(page)).toContain('pi:hearth::11');
   await expect(page.getByTestId('scheduled-count')).toHaveCount(0);
-  await expect(run.getByRole('button', { name: /New unread messages/ })).toBeVisible();
+  await expect(run.locator('[data-unread-navigation]')).toHaveCount(0);
+  await expect(run.getByRole('button', { name: 'Mark this message as read', exact: true })).toHaveCount(0);
   await run.getByRole('button', { name: 'Hide session', exact: true }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(() => savedMutes(page)).toContain('pi:hearth::11');

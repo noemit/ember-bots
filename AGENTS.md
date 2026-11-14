@@ -66,7 +66,10 @@ their existing names; archive references in the implementation notes below descr
   unchanged reasoning choice says “Keep <level>”. Historical footers use the turn's recorded level.
 - The composer has no generic “Next” reply suggestions; the human supplies the next direction.
 - The human thinks, decides and steers. Read marks record explicit acknowledgement; muting a chat
-  (`settings.mutedSessions`) suppresses notification indicators without changing those marks. Legacy
+  (`settings.mutedSessions`) suppresses notification indicators, the transcript's unread banner and
+  per-message read buttons/receipts without changing those marks. Unmuting restores the same unread
+  eligibility; ordinary navigation, Copy/Reply and explicit context-menu read commands remain available.
+  Muting never hides approvals or pending questions. Legacy
   `readMarks.quiet` is migrated at the settings boundary and never advances reading automatically.
 - Unread navigation lives above the transcript: “New unread messages” jumps to the newest unread
   finished reply without marking it. Multiple unread replies offer “Mark all as read”. Each reply's

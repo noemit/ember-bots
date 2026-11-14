@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { hasUnreadMessages, notificationUnreadKeys } from '../src/lib/sessionUnread';
+import { hasUnreadMessages, notificationUnreadKeys, showUnreadNotifications } from '../src/lib/sessionUnread';
 import { moodFrom } from '../src/blob/mood';
 import { staleScheduledRuns } from '../src/lib/bulkArchive';
 import { digestUnread } from '../src/lib/unreadDigest';
@@ -8,6 +8,19 @@ import type { ChatMessage, Session } from '../src/types';
 const session: Session = { instanceId: 'local', id: 'run', lastEntryId: 12, updated: 1000 };
 const reply: ChatMessage = { id: 'e12', role: 'assistant', completed: true, text: 'Report ready', parts: [], createdAt: 1000 };
 const digest = digestUnread([reply], { version: 12, complete: true, mark: undefined });
+
+test('muting hides unread prompts without granting acknowledgement or worker read controls', () => {
+  expect(showUnreadNotifications(false, true)).toBe(true);
+  expect(showUnreadNotifications(true, true)).toBe(false);
+  expect(showUnreadNotifications(false, false)).toBe(false);
+  expect(showUnreadNotifications(true, false)).toBe(false);
+  const mark = { through: 10 };
+  expect(hasUnreadMessages(session, mark, digest)).toBe(true);
+  expect(showUnreadNotifications(true, true)).toBe(false);
+  expect(showUnreadNotifications(false, true)).toBe(true);
+  expect(hasUnreadMessages(session, mark, digest)).toBe(true);
+  expect(mark).toEqual({ through: 10 });
+});
 
 test('muting suppresses only notification unread keys, including fresh replies and stale digests', () => {
   const sessions = [session, { ...session, instanceId: 'other' }, { ...session, id: 'thread', kind: 'worker' as const }, { ...session, id: 'hidden', archived: 1 }];

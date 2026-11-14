@@ -4,6 +4,10 @@ import { visibleUnreadItems, type UnreadDigest } from './unreadDigest';
 
 export const unreadVersion = (session: Session): number => session.lastEntryId ?? session.updated ?? 0;
 
+/** Muting hides in-chat unread prompts too, without changing the evidence of reading. */
+export const showUnreadNotifications = (muted: boolean, canMarkRead: boolean): boolean =>
+  !muted && canMarkRead;
+
 /** Notification policy never changes the evidence of reading used inside the conversation. */
 export const notificationUnreadKeys = (
   sessions: readonly Session[],

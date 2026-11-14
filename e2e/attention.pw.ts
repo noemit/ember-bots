@@ -38,12 +38,17 @@ test('muting a chat keeps its read history intact and survives reload', async ({
   await page.getByRole('menuitem', { name: "New Messages: Don't Notify" }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.mutedSessions))).toContain('pi:hearth::10');
   expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
-  await expect(page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: /New unread messages/ })).toBeVisible();
+  const chat = page.locator('main[data-session-key="pi:hearth::10"]');
+  await expect(chat.locator('[data-unread-navigation]')).toHaveCount(0);
+  await expect(chat.getByRole('button', { name: 'Mark this message as read', exact: true })).toHaveCount(0);
   await page.reload();
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'New Messages: Notify', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.mutedSessions))).not.toContain('pi:hearth::10');
   expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
+  await row.click();
+  await expect(chat.getByRole('button', { name: /New unread messages/ })).toBeVisible();
+  await expect(chat.getByRole('button', { name: 'Mark this message as read', exact: true })).toBeVisible();
 });
 
 test('running processes stay visible through all three rail widths', async ({ page }) => {

@@ -252,7 +252,7 @@ type Props = {
   onMarkMessageUnread?: (session: Session, message: ChatMessage) => void;
   /** Mark the whole session read (the unread navigation bar). */
   onMarkAllRead?: (session: Session) => void;
-  /** Set or clear "mark everything read, no notifications" for this session. */
+  /** Mute unread indicators and in-chat prompts without changing explicit read marks. */
   onQuietChange?: (session: Session, quiet: boolean) => void;
   notificationsMuted?: boolean;
   /**
@@ -1597,6 +1597,7 @@ function ChatView({
         toolDisplay={view.toolDisplay}
         showCost={costShown}
         {...(readMark ? { readMark } : {})}
+        notificationsMuted={notificationsMuted}
         {...(onMarkMessageRead && session ? { onMarkRead: (message: ChatMessage) => onMarkMessageRead(session, message) } : {})}
         {...(onUndoMarkMessageRead && session ? { onUndoMarkRead: (message: ChatMessage) => onUndoMarkMessageRead(session, message) } : {})}
         {...(onMarkMessageUnread && session ? { onMarkUnread: (message: ChatMessage) => onMarkMessageUnread(session, message) } : {})}
