@@ -564,6 +564,10 @@ export type MessageQueueSnapshot = {
 };
 
 export type MessageQueueMutation = {
+  /** Host-proven old submission id to its reordered replacement id. */
+  replacements?: Record<string, string>;
+  /** Exact host destination when enqueue races an idle conversation. */
+  destination?: { kind: 'message' | 'queue'; id: string };
   revision: number;
   session: MessageQueueSession;
   itemId?: string;
@@ -600,9 +604,18 @@ export type ModelOption = ModelRef & {
   details: ModelDetails;
 };
 
+export type QuoteSpan = { messageId: string; partId: string; start: number; end: number; quote: string; text: string };
+export type QuoteAnchor = { sessionKey: string; spans: QuoteSpan[]; quote: string };
+export type QuoteDestination =
+  | { kind: 'message'; sessionKey: string; id: string }
+  | { kind: 'queue'; sessionKey: string; id: string }
+  | { kind: 'note'; sessionKey: string; id: string };
+export type QuoteLink = { id: string; source: QuoteAnchor; destination: QuoteDestination };
+
 export type SessionNote = {
   id: string;
   text: string;
+  quoteLinkId?: string;
   /**
    * The model this note sends with, when it was chosen on the note itself. Absent means "whatever
    * the composer is using when it is sent" — the behaviour notes had before they could carry one.
@@ -691,6 +704,8 @@ export type EmberSettings = {
   splitView: boolean;
   instanceDefaults: Record<string, InstanceDefaults>;
   sessionNotes: Record<string, SessionNote[]>;
+  /** Ember-local, bidirectional references for quoted transcript text. */
+  quoteLinks: QuoteLink[];
   /** Per-message read state, by session key. Survives restarts; see `lib/readState.ts`. */
   readMarks: Record<string, SessionReadMark>;
   /**

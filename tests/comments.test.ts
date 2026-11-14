@@ -1,20 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  commentBlocks,
-  composeCommentMessage,
   isCommentShortcut,
   normaliseSelection,
   QUOTE_LIMIT,
-  sendCommentsLabel,
   shortenQuote,
-  type TranscriptComment,
 } from '../src/lib/comments';
-
-const comment = (quote: string, reply: string, id = quote): TranscriptComment => ({
-  id,
-  quote,
-  reply,
-});
 
 describe('normaliseSelection', () => {
   test('collapses indentation, tabs and CRLF from a rendered selection', () => {
@@ -66,86 +56,6 @@ describe('shortenQuote', () => {
   test('the limit is configurable', () => {
     expect(shortenQuote('alpha beta gamma', 10)).toBe('alpha beta…');
     expect(shortenQuote('abcdefghijklmno', 10)).toBe('abcdefghij…');
-  });
-});
-
-describe('commentBlocks', () => {
-  test('numbers the comments in the order they were made', () => {
-    expect(
-      commentBlocks([
-        comment('we should drop the nightly cron and run it on demand', 'Yes, do that.'),
-        comment('the export needs a queue', 'Hold off on this one.'),
-      ])
-    ).toBe(
-      [
-        '1. Re: "we should drop the nightly cron and run it on demand"',
-        'Yes, do that.',
-        '',
-        '2. Re: "the export needs a queue"',
-        'Hold off on this one.',
-      ].join('\n')
-    );
-  });
-
-  test('an empty reply leaves the quote alone on its line', () => {
-    expect(commentBlocks([comment('the export needs a queue', '')])).toBe(
-      '1. Re: "the export needs a queue"'
-    );
-  });
-
-  test('a multi-line reply keeps its own lines', () => {
-    expect(commentBlocks([comment('a plan', 'Do this.\nThen that.')])).toBe(
-      '1. Re: "a plan"\nDo this.\nThen that.'
-    );
-  });
-
-  test('long quotes are shortened in the block', () => {
-    const long = Array.from({ length: 100 }, (_, index) => `word${index}`).join(' ');
-    const block = commentBlocks([comment(long, 'ok')]);
-    expect(block.split('\n')[0]).toContain('…');
-    expect(block.split('\n')[0]!.length).toBeLessThan(QUOTE_LIMIT + 12);
-  });
-
-  test('no comments means no blocks', () => {
-    expect(commentBlocks([])).toBe('');
-  });
-});
-
-describe('composeCommentMessage', () => {
-  const comments = [
-    comment('we should drop the nightly cron and run it on demand', 'Yes, do that.'),
-    comment('the export needs a queue', 'Hold off on this one.'),
-  ];
-
-  test('the blocks alone when the composer is empty', () => {
-    expect(composeCommentMessage(comments, '')).toBe(commentBlocks(comments));
-  });
-
-  test('composer text is appended once, after a blank line', () => {
-    expect(composeCommentMessage(comments, '  Also, ship it Friday.  ')).toBe(
-      `${commentBlocks(comments)}\n\nAlso, ship it Friday.`
-    );
-  });
-
-  test('composer text alone when there are no comments', () => {
-    expect(composeCommentMessage([], 'Just this.')).toBe('Just this.');
-  });
-
-  test('nothing at all composes to an empty message', () => {
-    expect(composeCommentMessage([], '   ')).toBe('');
-  });
-
-  test('a cleared row cannot leave a hole in the numbering', () => {
-    expect(composeCommentMessage([comment('a', ''), comment('', ''), comment('b', 'x')], '')).toBe(
-      ['1. Re: "a"', '', '2. Re: "b"', 'x'].join('\n')
-    );
-  });
-});
-
-describe('sendCommentsLabel', () => {
-  test('counts in the singular and the plural', () => {
-    expect(sendCommentsLabel(1)).toBe('Send 1 comment');
-    expect(sendCommentsLabel(3)).toBe('Send 3 comments');
   });
 });
 

@@ -81,7 +81,6 @@ import { COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE, hostReportsCost, sessionCostSta
 import { crewCostLabel, crewCostTitle, type CrewCostState } from '../lib/crewCost';
 import ViewMenu from './ViewMenu';
 import CrewStrip from './CrewStrip';
-import CommentTray from './CommentTray';
 import ComposerShelf, { type ShelfSectionId } from './ComposerShelf';
 import SessionProcessesNotice, {
   processesNeedAttention,
@@ -90,7 +89,8 @@ import SessionProcessesNotice, {
 } from './SessionProcessesNotice';
 import SelectionCommentBar from './SelectionCommentBar';
 import { processKey } from '../lib/processExpiry';
-import { commentMemory, composeCommentMessage, normaliseSelection, type TranscriptComment } from '@/lib/comments';
+import { sessionKey as makeSessionKey } from '../types';
+import { createQuoteLinkId, validateQuoteAnchor, type QuoteAnchor, type QuoteLink } from '@/lib/quoteLinks';
 import { useSelectionComments } from '@/hooks/useSelectionComments';
 import { pendingCreateComposerText, pendingCreateMessages, type PendingCreate } from '../lib/pendingCreate';
 
@@ -217,8 +217,12 @@ type Props = {
    * request for the same message still count, so clicking the same link twice works.
    */
   focusTarget?: { messageId: string; token: number } | null;
-  /** Notify the workspace after sending a comment set. */
-  onCommentsSent?: (count: number) => void;
+  onAnnotate: (input: PromptInput, source: QuoteAnchor) => Promise<boolean>;
+  onSaveAnnotationNote: (text: string, source: QuoteAnchor) => Promise<boolean>;
+  quoteLinks: QuoteLink[];
+  onNavigateQuote: (link: QuoteLink, direction: 'source' | 'destination') => void;
+  quoteFocus?: QuoteAnchor | null;
+  quoteDestinationFocus?: { destination: QuoteLink['destination'] | null; token: number } | null;
   onViewChange: (patch: ViewSettingsPatch) => void;
   /** Read a session's standing instructions (Hearth only; resolves `supported: false` elsewhere). */
   onLoadInstructions?: (session: Session) => Promise<{ supported: boolean; instructions?: string }>;
@@ -277,8 +281,8 @@ type Props = {
   onSaveDraftNote?: (text: string) => void;
   /**
    * Send one user message. `retainOnFailure` defaults to true (a failed send keeps its bubble so
-   * the text has a home); the comment tray passes false, because its own rows already hold the
-   * text and must survive a failure.
+   * the text has a home); a failed annotation attempt stays in its floating editor rather than
+   * duplicating that text in the transcript.
    */
   onSend: (input: PromptInput, options?: { retainOnFailure?: boolean }) => Promise<boolean>;
   onQueue: (input: PromptInput) => Promise<boolean>;
@@ -289,7 +293,7 @@ type Props = {
   onReplaceQueued: (request: QueueReplaceRequest) => Promise<boolean>;
   onRetryQueued: (itemId: string) => Promise<boolean>;
   onDiscardQueued: (itemId: string) => boolean;
-  onReload: () => void;
+  onReload: () => void | Promise<void>;
   onAbort: () => void;
   onPermission: (request: PermissionRequest, reply: PermissionReply) => Promise<boolean>;
   onQuestion: (request: QuestionRequest, answers: QuestionAnswers | null) => Promise<boolean>;
@@ -380,9 +384,6 @@ const megabytes = (bytes: number): string => `${Math.round(bytes / (1024 * 1024)
 const STALE_AGENT_MS = 10 * 60_000;
 
 const MAX_COMPOSER_DRAFTS = 50;
-
-/** Comment ids only key React rows and edits; nothing about them is ever sent. */
-const newCommentId = () => `comment-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 const saveComposerDraft = (
   drafts: Map<string, ComposerState>,
@@ -510,8 +511,13 @@ function ChatView({
   onSaveNote,
   onUpdateNote,
   focusTarget,
-  onCommentsSent,
   onDeleteNote,
+  onAnnotate,
+  onSaveAnnotationNote,
+  quoteLinks,
+  onNavigateQuote,
+  quoteFocus,
+  quoteDestinationFocus,
   onBypassChange,
   onStopProcesses,
   readMark,
@@ -613,8 +619,10 @@ function ChatView({
     [processExtensions]
   );
 
-  const [comments, setComments] = React.useState<TranscriptComment[]>([]);
-  const [commentsSending, setCommentsSending] = React.useState(false);
+  const [annotationDraft, setAnnotationDraft] = React.useState('');
+  const annotationDraftRef = React.useRef('');
+  const [annotationBusy, setAnnotationBusy] = React.useState(false);
+  const annotationRequestId = React.useRef<string | null>(null);
   const [sideQuestionOpen, setSideQuestionOpen] = React.useState(false);
   const [sideQuestionText, setSideQuestionText] = React.useState('');
   const sideQuestionInputRef = React.useRef<HTMLInputElement>(null);
@@ -627,9 +635,6 @@ function ChatView({
   /** The column, which is `relative`: the selection bar is positioned inside it. */
   const columnRef = React.useRef<HTMLElement>(null);
   const transcriptRef = React.useRef<HTMLDivElement>(null);
-  const commentsKeyRef = React.useRef<string | null | undefined>(undefined);
-  /** The key the current `comments` state belongs to, so a saved list never lands under another. */
-  const commentsOwnerRef = React.useRef<string | null>(null);
   const createdModelRef = React.useRef<{ key: string; variant?: string } | null>(null);
   const composerDraftsRef = React.useRef(composerMemory);
   const pendingDraftChangesRef = React.useRef<DraftChanges>({});
@@ -1151,80 +1156,41 @@ function ChatView({
   // which one it is, so the labels stay neutral and the tooltip says why.
   const statusUnknown = Boolean(session) && state === 'unknown';
 
-  // Transcript comments are transient drafts: a per-session in-memory list, never the queue and
-  // never a persisted format. Loading on a key change keeps them through a column switching
-  // session or coming back from a closed column.
-  React.useLayoutEffect(() => {
-    commentsOwnerRef.current = composerKey;
-    if (commentsKeyRef.current === composerKey) return;
-    commentsKeyRef.current = composerKey;
-    setComments(composerKey ? commentMemory.get(composerKey) ?? [] : []);
-  }, [composerKey]);
-
-  React.useEffect(() => {
-    const owner = commentsOwnerRef.current;
-    if (!owner) return;
-    if (comments.length > 0) commentMemory.set(owner, comments);
-    else commentMemory.delete(owner);
-  }, [comments]);
-
-  const addComment = (quote: string, reply: string) => {
-    const quoted = normaliseSelection(quote);
-    if (!quoted) return;
-    setComments((prev) => [...prev, { id: newCommentId(), quote: quoted, reply: reply.trim() }]);
-  };
-
-  const updateCommentReply = (id: string, reply: string) =>
-    setComments((prev) => prev.map((comment) => (comment.id === id ? { ...comment, reply } : comment)));
-
-  const removeComment = (id: string) =>
-    setComments((prev) => prev.filter((comment) => comment.id !== id));
-
-  /**
-   * Send every comment as ONE user message through the ordinary send path (same model, reasoning
-   * and queue decision as the composer), with the composer's own text appended once at the end.
-   * A failure leaves the tray exactly as it was: the comments are the draft, so nothing is lost.
-   */
-  const sendComments = async () => {
-    if (!session || !composerKey || commentsSending) return;
-    if (loadedComposerKey !== composerKey || modelError) return;
-    const composed = composeCommentMessage(comments, text);
-    if (!composed.trim()) return;
-    setCommentsSending(true);
-    try {
-      const input: PromptInput = {
-        text: composed,
-        model,
-        selectedModelId: modelId,
-        mode: session.agent,
-        variant: variant || undefined,
-      };
-      // Not retained on failure: the tray still holds the text, so a transcript bubble would
-      // duplicate it. The app surfaces the reason through its error banner.
-      const sent = await (shouldQueue ? onQueue : onSend)(input, { retainOnFailure: false });
-      if (!sent) return;
-      onCommentsSent?.(comments.length);
-      setComments([]);
-      commentMemory.delete(composerKey);
-      if (!text.trim()) return;
-      // The composer's text travelled in that message, so it clears; attachments and the reply
-      // context were not sent and stay put.
-      touchedComposerChoicesRef.current.add(composerKey);
-      updateComposerDraft(composerKey, { text: '', modelId, variant, attachments, replyContext });
-      setText('');
-      // A message just left: the box goes back to its natural size, so the next thought starts
-      // somewhere calm rather than inheriting the height of a pasted document.
-      setComposerHeight(null);
-    } finally {
-      setCommentsSending(false);
-    }
-  };
-
-  const selectionComments = useSelectionComments({
-    regionRef: transcriptRef,
-    hostRef: columnRef,
-    enabled: Boolean(session),
+  const selectionComments = useSelectionComments({ regionRef: transcriptRef, hostRef: columnRef, enabled: Boolean(session), sessionKey: session ? makeSessionKey(session) : null, messages, hasDraft: Boolean(annotationDraft) });
+  const annotationSource = selectionComments.anchor;
+  const annotationInput = (value: string): PromptInput => ({
+    requestId: annotationRequestId.current ??= createQuoteLinkId(),
+    text: `Re: “${annotationSource?.quote ?? ''}”\n\n${value.trim()}`,
+    model,
+    selectedModelId: modelId,
+    mode: session?.agent,
+    variant: variant || undefined,
   });
+  const sendAnnotation = async () => {
+    if (!annotationSource || !annotationDraft.trim() || annotationBusy || !session || loadedComposerKey !== composerKey || modelError) return;
+    const validation = validateQuoteAnchor(annotationSource, messages, makeSessionKey(session));
+    if (!validation.valid) { selectionComments.dismiss(); showNoteError('The quoted passage changed or is no longer available. Select the passage again before sending this annotation.'); return; }
+    setAnnotationBusy(true);
+    try {
+      const submittedText = annotationDraft;
+      const submittedSource = annotationSource;
+      const submittedRequestId = annotationRequestId.current ?? createQuoteLinkId();
+      annotationRequestId.current = submittedRequestId;
+      const accepted = await onAnnotate({ ...annotationInput(submittedText), requestId: submittedRequestId }, submittedSource);
+      if (accepted && annotationDraftRef.current === submittedText && selectionComments.anchor === submittedSource) { annotationRequestId.current = null; annotationDraftRef.current = ''; setAnnotationDraft(''); selectionComments.clearDraft(); }
+    } finally { setAnnotationBusy(false); }
+  };
+  const saveAnnotationNote = async () => {
+    if (!annotationSource || !annotationDraft.trim() || annotationBusy || !session) return;
+    setAnnotationBusy(true);
+    try {
+      const submittedText = annotationDraft;
+      const submittedSource = annotationSource;
+      const saved = await onSaveAnnotationNote(annotationInput(submittedText).text, submittedSource);
+      if (saved && annotationDraftRef.current === submittedText && selectionComments.anchor === submittedSource) { annotationRequestId.current = null; annotationDraftRef.current = ''; setAnnotationDraft(''); selectionComments.clearDraft(); }
+    } finally { setAnnotationBusy(false); }
+  };
+
   const hideToolCalls = view.hideToolCalls;
   const reasoningDisplay = view.reasoningDisplay;
   // The session's folder (its cwd), shown beside the instance in the header; empty for a root session.
@@ -1435,6 +1401,22 @@ function ChatView({
 
   const sendNote = async (note: SessionNote): Promise<boolean> => {
     if (!composerKey || !session) return false;
+    const linked = note.quoteLinkId ? quoteLinks.find((link) => link.id === note.quoteLinkId) : undefined;
+    if (linked) {
+      const valid = validateQuoteAnchor(linked.source, messages, makeSessionKey(session));
+      if (!valid.valid) { showNoteError('This note’s quoted source changed. Keep the note, then select the passage again to make a new annotation.'); return false; }
+      const choice = noteModelChoice(note);
+      let modelChoice: { model?: ModelOption; selectedModelId: string; variant?: string };
+      if (choice.kind === 'composer') modelChoice = { model, selectedModelId: modelId, variant: variant || undefined };
+      else {
+        const resolvedChoice = resolveComposerModel(choice.modelId, choice.variant ?? '', models, defaultModelId);
+        if (resolvedChoice.error) { showNoteError(resolvedChoice.error); return false; }
+        modelChoice = { model: resolvedChoice.model, selectedModelId: choice.modelId, variant: choice.variant };
+      }
+      const sentAnnotation = await onAnnotate({ text: note.text, requestId: 'note-send-' + note.id, ...modelChoice }, linked.source);
+      if (sentAnnotation) onDeleteNote(notesKey, note.id);
+      return sentAnnotation;
+    }
     const resolved = noteInput(note);
     if (resolved.error) {
       showNoteError(resolved.error);
@@ -1446,6 +1428,21 @@ function ChatView({
   };
 
   // Move a queued message out of the server queue and into this session's notes.
+  const quoteItemFocus = React.useMemo(() => quoteDestinationFocus?.destination ? { id: quoteDestinationFocus.destination.id, token: quoteDestinationFocus.token } : null, [quoteDestinationFocus]);
+  React.useEffect(() => {
+    const kind = quoteDestinationFocus?.destination?.kind;
+    if (kind === 'queue' || kind === 'note') { setShelfOpen(true); setShelfSection(kind === 'note' ? 'notes' : 'queue'); }
+  }, [quoteDestinationFocus]);
+
+  const navigateQuote = (link: QuoteLink, direction: 'source' | 'destination') => {
+    const target = direction === 'source' ? link.source.sessionKey : link.destination.sessionKey;
+    if (target === (session ? makeSessionKey(session) : null)) {
+      if (link.destination.kind === 'note') { setShelfSection('notes'); setShelfOpen(true); }
+      if (link.destination.kind === 'queue') { setShelfSection('queue'); setShelfOpen(true); }
+    }
+    onNavigateQuote(link, direction);
+  };
+
   const parkQueuedItem = async (itemId: string): Promise<boolean> => {
     if (!composerKey) return false;
     const item = queueItems.find((entry) => entry.id === itemId);
@@ -1498,7 +1495,7 @@ function ChatView({
     messagesStatus: MessagesStatus;
     historyComplete?: boolean;
     repairHalt?: RepairHalt | null;
-    onLoadEarlier?: () => void;
+    onLoadEarlier?: () => void | Promise<void>;
     onCompact?: () => void;
     permissions: PermissionRequest[];
     questions: QuestionRequest[];
@@ -1558,6 +1555,10 @@ function ChatView({
         autoFollow={view.autoFollow}
         focusMessageId={focusMessageId}
         focusRequest={focusRequest}
+        quoteLinks={quoteLinks}
+        quoteSessionKey={session ? makeSessionKey(session) : null}
+        quoteFocus={quoteFocus}
+        onNavigateQuote={navigateQuote}
         onRetryPendingSend={pane.onRetryPendingSend}
         onDiscardPendingSend={pane.onDiscardPendingSend}
         pendingSendLabels={pane.pendingSendLabels}
@@ -2025,17 +2026,20 @@ function ChatView({
         )}
       </AnimatePresence>
 
-      {selectionComments.position ? (
+      {annotationDraft && !selectionComments.visible ? <Button variant="outline" size="xs" data-annotation-composer="" onClick={selectionComments.resume}>Resume annotation for “{annotationSource?.quote.slice(0, 50)}”</Button> : null}
+      {selectionComments.position && selectionComments.visible ? (
         <SelectionCommentBar
           position={selectionComments.position}
           quote={selectionComments.quote}
-          editing={selectionComments.editing}
-          onOpenEditor={selectionComments.openEditor}
+          reason={selectionComments.reason}
+          draft={annotationDraft}
+          focusEditor={selectionComments.focusEditor}
+          busy={annotationBusy}
+          queueing={shouldQueue}
+          onDraftChange={(value) => { if (value !== annotationDraftRef.current) annotationRequestId.current = null; annotationDraftRef.current = value; setAnnotationDraft(value); }}
+          onSend={sendAnnotation}
+          onNote={saveAnnotationNote}
           onDismiss={selectionComments.dismiss}
-          onAdd={(reply) => {
-            addComment(selectionComments.quote, reply);
-            selectionComments.dismiss();
-          }}
         />
       ) : null}
       {composerKey ? (
@@ -2119,6 +2123,9 @@ function ChatView({
                         <QueuedMessageList
                           key={composerKey ?? 'none'}
                           queue={queue}
+                          quoteLinks={quoteLinks.filter((link) => link.destination.sessionKey === makeSessionKey(session))}
+                          onNavigateQuote={navigateQuote}
+                          focusItem={quoteDestinationFocus?.destination?.kind === 'queue' ? quoteItemFocus : null}
                           models={models}
                           instanceId={session?.instanceId}
                           defaultModelId={defaultModelId}
@@ -2145,6 +2152,9 @@ function ChatView({
                         <SessionNotes
                           key={`notes-${notesKey || 'none'}`}
                           notes={sessionNotes}
+                          quoteLinks={quoteLinks.filter((link) => link.destination.sessionKey === makeSessionKey(session))}
+                          onNavigateQuote={navigateQuote}
+                          focusItem={quoteDestinationFocus?.destination?.kind === 'note' ? quoteItemFocus : null}
                           canSend={loadedComposerKey === composerKey}
                           onSend={sendNote}
                           onBringBack={bringBackNote}
@@ -2235,16 +2245,6 @@ function ChatView({
                       onOpenSource={onOpenWorker ? (request) => onOpenWorker({ id: request.sessionId, instanceId: request.instanceId, title: 'Question source', kind: request.ancestry?.length ? 'worker' : undefined } as Session) : undefined} />,
                   },
                 ]}
-              />
-            ) : null}
-            {session ? (
-              <CommentTray
-                comments={comments}
-                sending={commentsSending}
-                canSend={loadedComposerKey === composerKey && !modelError}
-                onChangeReply={updateCommentReply}
-                onRemove={removeComment}
-                onSend={() => void sendComments()}
               />
             ) : null}
             {session && onAskSideQuestion && (sideQuestionOpen || askingSideQuestion) ? (

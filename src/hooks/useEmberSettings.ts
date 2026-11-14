@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   splitView: false,
   instanceDefaults: {},
   sessionNotes: {},
+  quoteLinks: [],
   readMarks: {},
   composerDrafts: {},
   scheduledSessionBindings: {},
@@ -158,6 +159,7 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
             // The save already failed and was reported; keep the optimistic value if we can't re-read.
           }
         });
+      return save;
     },
     [onError, onBeforeSave]
   );

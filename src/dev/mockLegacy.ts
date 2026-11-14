@@ -318,6 +318,7 @@ let settings: EmberSettings = {
     studio: { markerColor: 7 },
   },
   readMarks: {},
+  quoteLinks: [],
   readSince: 0,
   sessionNotes: {
     'local::ses_a2': [

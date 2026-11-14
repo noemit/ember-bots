@@ -25,6 +25,7 @@ import {
   parseSessionGroups,
   parseReadMarks,
   parseSessionNotes,
+  parseQuoteLinks,
   parseStringArray,
   parseStringRecord,
   isBlobStyle,
@@ -468,6 +469,7 @@ const readEmberSettings = (): EmberSettings => {
     sessionGroups: parseSessionGroups(root.sessionGroups),
     instanceDefaults: parseInstanceDefaults(root.instanceDefaults),
     sessionNotes: parseSessionNotes(root.sessionNotes),
+    quoteLinks: parseQuoteLinks(root.quoteLinks),
     readMarks: Object.fromEntries(Object.entries(parseReadMarks(root.readMarks)).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark])),
     mutedSessions: parseMutedSessions(root.mutedSessions, root.readMarks),
     snoozedSessions: parseSnoozedSessions(root.snoozedSessions),
@@ -1080,6 +1082,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (value.sessionGroups !== undefined) settings.sessionGroups = parseSessionGroups(value.sessionGroups);
   if (value.instanceDefaults !== undefined) settings.instanceDefaults = parseInstanceDefaults(value.instanceDefaults);
   if (value.sessionNotes !== undefined) settings.sessionNotes = parseSessionNotes(value.sessionNotes);
+  if (value.quoteLinks !== undefined) settings.quoteLinks = parseQuoteLinks(value.quoteLinks);
   if (value.mutedSessions !== undefined) settings.mutedSessions = parseStringArray(value.mutedSessions);
   if (value.snoozedSessions !== undefined) settings.snoozedSessions = parseSnoozedSessions(value.snoozedSessions);
   if (value.readMarks !== undefined) settings.readMarks = parseReadMarks(value.readMarks);

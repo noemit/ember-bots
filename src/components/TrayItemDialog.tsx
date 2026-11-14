@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 export type TrayItemFact = { label: string; value: React.ReactNode };
 
 type Props = {
+  sourceLinks?: React.ReactNode;
   open: boolean;
   title: string;
   /** Everything the row truncates, verbatim: newlines kept, wrapped, scrollable. */
@@ -33,7 +34,7 @@ type Props = {
  * want. This shows the whole thing and changes nothing; editing is a separate button that opens the
  * editor on the same item.
  */
-const TrayItemDialog = ({ open, title, text, facts, attachments, warning, actions, onClose }: Props) => (
+const TrayItemDialog = ({ open, title, text, facts, attachments, warning, actions, sourceLinks, onClose }: Props) => (
   <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
     <DialogContent className="w-[620px] sm:max-w-[620px]">
       <DialogHeader>
@@ -41,6 +42,7 @@ const TrayItemDialog = ({ open, title, text, facts, attachments, warning, action
             empty element for a screen reader to announce. */}
         <DialogTitle>{title}</DialogTitle>
       </DialogHeader>
+      {sourceLinks}
       {warning ? (
         <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11.5px] text-destructive">{warning}</p>
       ) : null}

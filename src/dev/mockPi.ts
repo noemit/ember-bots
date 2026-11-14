@@ -193,6 +193,12 @@ let callSequence = 0;
 const nextCallId = (): string => `call_${(callSequence += 1)}`;
 const nextEntryId = (): number => (entrySequence += 1);
 const nextSubmissionId = (): number => (submissionSequence += 1);
+const mockSubmissionEntries = new Map<number, { conversationId: number; entry: number }>();
+const mockRequestReceipts = new Map<string, unknown>();
+let annotationFullHistoryWalks = 0;
+let annotationSaveFailures = 0;
+const annotationSaveReleases: Array<() => void> = [];
+if (new URLSearchParams(window.location.search).has('failQuoteSave')) Object.assign(window, { releaseAnnotationLinkSave: () => annotationSaveReleases.shift()?.() });
 
 // `?staleBusy` simulates the client's stale idle read: a follow-up parks in the inbox server-side
 // while the summary still reports idle, so the client only learns it was queued from the response.
@@ -300,6 +306,11 @@ const fixtureA = makeConversation({
     },
   ],
 });
+
+// Long annotation history: source passages remain addressable when virtual rows are unmounted.
+if (fixtureParam === 'annotations' || fixtureParam === 'annotation-unloaded') {
+  for (let index = 0; index < 120; index += 1) fixtureA.entries.push({ id: 1000 + index, kind: index % 2 ? 'pi.assistant' : 'pi.user', model: [index % 2 ? assistantMessage(text('Historical reply ' + index)) : userMessage('Historical prompt ' + index)] });
+}
 
 // A dedicated long-form study keeps the everyday short fixtures and their read-state scenarios intact.
 if (fixtureParam === 'long-messages') {
@@ -784,7 +795,7 @@ const finishRun = (conversation: MockConversation): void => {
   if (next) {
     emit(conversation.id, 'inbox_update');
     emit(conversation.id, 'submission');
-    startRun(conversation, next.content);
+    startRun(conversation, next.content, next.id);
   }
 };
 
@@ -911,8 +922,8 @@ const replyQuestionMock = (conversation: MockConversation, key: string, answer: 
 };
 
 /** One scripted faux turn chosen from the prompt's text. */
-const startRun = (conversation: MockConversation, content: MockContent): number => {
-  const submissionId = nextSubmissionId();
+const startRun = (conversation: MockConversation, content: MockContent, queuedId?: number): number => {
+  const submissionId = queuedId ?? nextSubmissionId();
   conversation.busy = true;
   // A session spawned by the crew tool gets its name at spawn, the way Hearth does it since 0.38.0.
   // The first message a spawner sends is its brief, which is where the title comes from (a spawned
@@ -925,7 +936,9 @@ const startRun = (conversation: MockConversation, content: MockContent): number 
     conversation.title = brief.length > 48 ? `${brief.slice(0, 45).trimEnd()}…` : brief || undefined;
     autoRegister(conversation);
   }
-  conversation.entries.push({ id: nextEntryId(), kind: 'pi.user', model: [userMessage(content)] });
+  const entryId = nextEntryId();
+  conversation.entries.push({ id: entryId, kind: 'pi.user', model: [userMessage(content)] });
+  mockSubmissionEntries.set(submissionId, { conversationId: conversation.id, entry: entryId });
   emit(conversation.id, 'run_start');
   emit(conversation.id, 'message_start');
   emit(conversation.id, 'submission');
@@ -1588,7 +1601,11 @@ const piRequest = async (
     // rendered one conversation's entries hundreds of times.
     const rawSince = url.searchParams.get('since');
     const since = rawSince === null ? undefined : Number(rawSince);
-    const before = cursorBeforeOf(url.searchParams.get('cursor'));
+    let before = cursorBeforeOf(url.searchParams.get('cursor'));
+    if (fixtureParam === 'annotation-unloaded' && conversation.id === 10 && since === undefined && limit === 100) {
+      if (before === undefined) annotationFullHistoryWalks += 1;
+      else if (annotationFullHistoryWalks === 1) before = undefined; // Deliberately repeating initial page: incomplete history.
+    }
     let pool = conversation.entries;
     if (since !== undefined && Number.isFinite(since)) pool = pool.filter((entry) => entry.id > since);
     if (before !== undefined) pool = pool.filter((entry) => entry.id < before);
@@ -1616,6 +1633,9 @@ const piRequest = async (
     return ok(summaryOf(conversation));
   }
   if (action === 'submit' && method === 'POST') {
+    const requestKey = conversation.id + ':' + String(body.requestId ?? '');
+    const acknowledge = (receipt: unknown) => { if (body.requestId) mockRequestReceipts.set(requestKey, receipt); return ok(receipt, 201); };
+    if (body.requestId && mockRequestReceipts.has(requestKey)) return ok(mockRequestReceipts.get(requestKey), 201);
     if (failSubmitFixture) return fail(502, 'Hearth is unreachable (mock)');
     if (slowSubmitFixture) await new Promise((resolve) => window.setTimeout(resolve, SLOW_SUBMIT_MS));
     if (body.type === 'write') {
@@ -1648,7 +1668,7 @@ const piRequest = async (
       emit(conversation.id, 'inbox_update');
       // Hearth admits a queued submission with `status: "queued"` and names the queue in `mode`,
       // so the client can tell a steer from a follow-up; mirror that exactly.
-      return ok({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'followUp' }, 201);
+      return acknowledge({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'followUp' });
     }
     if (conversation.busy && whenBusy === 'steer') {
       // pi-durable tags a steer in the inbox and places it at the next boundary — it is not a
@@ -1657,14 +1677,18 @@ const piRequest = async (
       conversation.inbox.push({ id: nextSubmissionId(), mode: 'steer', content });
       emit(conversation.id, 'submission');
       emit(conversation.id, 'inbox_update');
-      return ok({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'steer' }, 201);
+      return acknowledge({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'steer' });
     }
     if (conversation.busy) {
       conversation.inbox.push({ id: nextSubmissionId(), mode: 'followUp', content });
       emit(conversation.id, 'inbox_update');
-      return ok({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'followUp' }, 201);
+      return acknowledge({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'followUp' });
     }
-    return ok({ submissionId: startRun(conversation, content), status: 'placed', mode: whenBusy === 'steer' ? 'steer' : 'followUp' }, 201);
+    const submissionId = startRun(conversation, content);
+    const receipt = { submissionId, entry: mockSubmissionEntries.get(submissionId)?.entry, status: 'placed', mode: whenBusy === 'steer' ? 'steer' : 'followUp' };
+    if (body.requestId) mockRequestReceipts.set(requestKey, receipt);
+    if (new URLSearchParams(window.location.search).has('unrecognizedSubmit')) return ok({ status: 'unknown' }, 201);
+    return ok(receipt, 201);
   }
   if (action === 'processes/stop' && method === 'POST') {
     const pids = Array.isArray(body.pids) ? body.pids.filter((pid): pid is number => typeof pid === 'number') : [];
@@ -1752,13 +1776,14 @@ const piRequest = async (
       return fail(400, 'itemIds must list every queued message');
     }
     // Re-submitting assigns fresh ids in the new order, so mimic that (the client reloads /queue).
-    conversation.inbox = ids.map((id) => ({
-      ...(byId.get(id) as { mode: 'steer' | 'followUp'; content: string }),
-      id: nextSubmissionId(),
-    }));
+    const replacements: Record<string, string> = {};
+    conversation.inbox = ids.map((id) => {
+      const nextId = nextSubmissionId(); replacements[id] = String(nextId);
+      return { ...(byId.get(id) as { mode: 'steer' | 'followUp'; content: string }), id: nextId };
+    });
     emit(conversation.id, 'submission');
     emit(conversation.id, 'inbox_update');
-    return ok({ ok: true });
+    return ok({ ok: true, replacements });
   }
   if (action === 'fork' && method === 'POST') {
     const fork = makeConversation({
@@ -1864,6 +1889,14 @@ const piRequest = async (
     conversation.autoAccept.enabled = body.enabled === true;
     emit(conversation.id, 'submission');
     return ok({ ok: true });
+  }
+  const receiptMatch = /^submissions\/(\d+)$/.exec(action);
+  if (receiptMatch && method === 'GET') {
+    const id = Number(receiptMatch[1]);
+    const record = mockSubmissionEntries.get(id);
+    if (record?.conversationId === conversation.id) return ok({ submissionId: id, entry: record.entry, status: 'placed', mode: 'followUp' });
+    if (conversation.inbox.some((item) => item.id === id)) return ok({ submissionId: id, status: 'queued', mode: 'followUp' });
+    return ok({ submissionId: id, status: 'unanswered', mode: 'followUp' });
   }
   const submissionMatch = /^submissions\/(\d+)\/abort$/.exec(action);
   if (submissionMatch && method === 'POST') {
@@ -2070,6 +2103,7 @@ let settings: EmberSettings = {
   sessionGroups: [],
   instanceDefaults: storedRead.instanceDefaults ?? {},
   sessionNotes: storedNotes,
+  quoteLinks: (() => { try { return JSON.parse(window.localStorage.getItem('ember-pi-quote-links') ?? '[]'); } catch { return []; } })(),
   // The mock is a fresh install with no read history: every finished assistant turn is unread,
   // which is what Home's cards and the per-message bubbles need to exercise.
   readMarks: storedRead.readMarks ?? {},
@@ -2146,12 +2180,18 @@ export const bridge: EmberBridge = {
     return { ok: true, canManage: true, token: mockHarnessToken, url: ENDPOINT.url ?? 'http://127.0.0.1:3002' };
   },
   setSettings: async (patch: EmberSettingsPatch) => {
+    if (patch.quoteLinks?.length && new URLSearchParams(window.location.search).has('failQuoteSave')) {
+      await new Promise<void>((resolve) => annotationSaveReleases.push(resolve));
+      throw new Error('Ember could not save this annotation. Retry to save its source link.');
+    }
+    if (patch.quoteLinks?.length && new URLSearchParams(window.location.search).has('failQuoteSaveOnce') && annotationSaveFailures++ === 0) throw new Error('Ember could not save this annotation. Retry to save its source link.');
     const { remotePassword: _remotePassword, composerDraftChanges, ...safe } = patch;
     const drafts = { ...settings.composerDrafts };
     for (const [key, draft] of Object.entries(composerDraftChanges ?? {})) {
       if (draft === null) delete drafts[key];
       else drafts[key] = draft;
     }
+    if (patch.quoteLinks !== undefined) window.localStorage.setItem('ember-pi-quote-links', JSON.stringify(patch.quoteLinks));
     if (patch.sessionNotes !== undefined) window.localStorage.setItem(NOTES_KEY, JSON.stringify(patch.sessionNotes));
     settings = { ...settings, ...safe, snoozedSessions: patch.snoozedSessions === undefined ? settings.snoozedSessions : parseSnoozedSessions(patch.snoozedSessions), avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
     if (patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.snoozedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {

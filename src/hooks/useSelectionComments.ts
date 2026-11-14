@@ -1,164 +1,111 @@
 import * as React from 'react';
-import { isCommentShortcut, normaliseSelection } from '@/lib/comments';
-
-/**
- * Selecting text in the transcript raises a small bar near the selection (comment + quick
- * replies). The bar is anchored to a snapshot of the selection, so it is re-measured only when
- * the selection changes and hidden while the transcript scrolls under it.
- *
- * Keyboard: Mod+Alt+C comments on the current selection. It opens the bar's reply input, which is
- * the same first step a click takes, so nothing about the feature needs a mouse. The combination
- * avoids the composer's shortcuts (Mod+K, Mod+Enter, Mod+F, Mod+1-9); see `lib/comments.ts`.
- */
+import type { ChatMessage, QuoteAnchor } from '@/types';
+import { captureQuoteAnchor } from '@/lib/quoteLinks';
+import { isCommentShortcut } from '@/lib/comments';
 
 export type CommentBarPosition = { left: number; top: number };
-
 type Options = {
-  /** The element selections must fall inside (the transcript). */
   regionRef: React.RefObject<HTMLElement | null>;
-  /** The element the bar is positioned within (the column, which is `relative`). */
   hostRef: React.RefObject<HTMLElement | null>;
   enabled: boolean;
+  sessionKey: string | null;
+  messages: readonly ChatMessage[];
+  hasDraft: boolean;
 };
 
-/** Roughly the bar's width, so it can be centred over the selection without measuring twice. */
-const BAR_WIDTH = 320;
-/** Vertical gap between the selection and the bar, including the bar's own height. */
-const BAR_OFFSET = 42;
-
-export type SelectionComments = {
-  position: CommentBarPosition | null;
-  quote: string;
-  /** True while the bar's reply input is open (clicking Comment or pressing the shortcut). */
-  editing: boolean;
-  openEditor: () => void;
-  dismiss: () => void;
-};
-
-export function useSelectionComments({ regionRef, hostRef, enabled }: Options): SelectionComments {
+/** One retained source, independent of both the native selection and the main composer. */
+export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, messages, hasDraft }: Options) {
   const [position, setPosition] = React.useState<CommentBarPosition | null>(null);
+  const [anchor, setAnchor] = React.useState<QuoteAnchor | null>(null);
   const [quote, setQuote] = React.useState('');
-  const [editing, setEditing] = React.useState(false);
-  // While the reply input is focused the document selection collapses (focusing a field clears
-  // it), which would otherwise hide the bar out from under the user mid-typing.
-  const editingRef = React.useRef(false);
-  const setEditingState = React.useCallback((next: boolean) => {
-    editingRef.current = next;
-    setEditing(next);
+  const [reason, setReason] = React.useState<string | null>(null);
+  const editing = React.useRef(false);
+  const pointerHeld = React.useRef(false);
+  const focusRequested = React.useRef(false);
+  const [focusEditor, setFocusEditor] = React.useState(false);
+  const retained = React.useRef(hasDraft);
+  retained.current = hasDraft;
+  const dismiss = React.useCallback(() => {
+    editing.current = false;
+    focusRequested.current = false;
+    setFocusEditor(false);
+    setPosition(null);
+    window.getSelection()?.removeAllRanges();
   }, []);
-
-  const regionOf = React.useCallback(
-    (node: Node): Element | null =>
-      node instanceof Element ? node : node.parentElement ?? null,
-    []
-  );
-
-  /** The selection's text and range, when it lives inside this column's transcript. */
-  const readSelection = React.useCallback((): { quote: string; range: Range } | null => {
-    const region = regionRef.current;
-    const host = hostRef.current;
-    const selection = window.getSelection();
-    if (!region || !host || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      return null;
-    }
-    const range = selection.getRangeAt(0);
-    if (!region.contains(range.commonAncestorContainer)) return null;
-    // A selection inside a field belongs to that field; the bar would be in the way.
-    if (regionOf(range.commonAncestorContainer)?.closest('input, textarea, [contenteditable="true"]')) {
-      return null;
-    }
-    const text = normaliseSelection(selection.toString());
-    if (!text) return null;
-    return { quote: text, range };
-  }, [hostRef, regionRef, regionOf]);
-
-  const measure = React.useCallback(
-    (range: Range): CommentBarPosition | null => {
-      const host = hostRef.current;
-      if (!host) return null;
-      const rect = range.getBoundingClientRect();
-      const hostRect = host.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return null;
-      const maxLeft = Math.max(8, hostRect.width - BAR_WIDTH - 8);
-      const left = Math.min(Math.max(rect.left + rect.width / 2 - BAR_WIDTH / 2, 8), maxLeft);
-      const top = Math.max(rect.top - hostRect.top - BAR_OFFSET, 8);
-      return { left: Math.round(left), top: Math.round(top) };
-    },
-    [hostRef]
-  );
-
-  const show = React.useCallback(
-    (selection: { quote: string; range: Range }, editor: boolean): boolean => {
-      const next = measure(selection.range);
-      if (!next) return false;
-      setQuote(selection.quote);
-      setPosition(next);
-      setEditingState(editor);
-      return true;
-    },
-    [measure, setEditingState]
-  );
-
-  React.useEffect(() => {
-    if (!enabled) {
-      setPosition(null);
-      setQuote('');
-      setEditingState(false);
-      return;
-    }
-    let timer: number | undefined;
-    const update = () => {
-      if (editingRef.current) return;
-      const selection = readSelection();
-      if (!selection) {
-        setPosition(null);
-        setQuote('');
-        return;
-      }
-      show(selection, false);
-    };
-    const schedule = () => {
-      if (timer !== undefined) window.clearTimeout(timer);
-      // Selections settle a frame after the pointer is released; a short debounce reads it once.
-      timer = window.setTimeout(update, 120);
-    };
-    document.addEventListener('selectionchange', schedule);
-    const region = regionRef.current;
-    const onScroll = () => {
-      if (editingRef.current) return;
-      setPosition(null);
-      setQuote('');
-    };
-    region?.addEventListener('scroll', onScroll, true);
-    return () => {
-      document.removeEventListener('selectionchange', schedule);
-      region?.removeEventListener('scroll', onScroll, true);
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [enabled, readSelection, regionRef, setEditingState, show]);
+  const clearDraft = React.useCallback(() => {
+    setAnchor(null); setQuote(''); setReason(null); dismiss();
+  }, [dismiss]);
+  const resume = React.useCallback(() => {
+    editing.current = true;
+    setFocusEditor(true);
+    setPosition({ left: 8, top: Math.max(8, (hostRef.current?.clientHeight ?? 400) * 0.25) });
+  }, [hostRef]);
 
   React.useEffect(() => {
     if (!enabled) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!isCommentShortcut(event)) return;
-      const selection = readSelection();
-      if (!selection) return;
-      event.preventDefault();
-      show(selection, true);
+    let timer: number | undefined;
+    const capture = () => {
+      // A keyboard request during a drag belongs to its final selection. Keep that intent
+      // through selectionchange debounces and consume it only after the pointer is released.
+      if (pointerHeld.current) return;
+      const focus = focusRequested.current;
+      if (retained.current) {
+        // A retained draft keeps its original source. Honour the queued keyboard intent by
+        // resuming it after release, rather than silently dropping the request or rebinding it.
+        if (focus) { focusRequested.current = false; resume(); }
+        return;
+      }
+      if (editing.current && !focus) return;
+      focusRequested.current = false;
+      // A pending shortcut must still focus an already-open empty editor. If the browser has a
+      // final native range, the capture below also updates that empty editor to the final range.
+      if (focus && editing.current) setFocusEditor(true);
+      const selection = window.getSelection();
+      const region = regionRef.current;
+      const host = hostRef.current;
+      if (!selection || selection.isCollapsed || !selection.rangeCount || !region || !host || !sessionKey) return;
+      const range = selection.getRangeAt(0);
+      if (!region.contains(range.commonAncestorContainer)) return;
+      const node = range.commonAncestorContainer;
+      const element = node instanceof Element ? node : node.parentElement;
+      if (element?.closest('input, textarea, button, [contenteditable="true"]')) return;
+      const rect = range.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
+      if (!rect.width && !rect.height) return;
+      const result = captureQuoteAnchor({ range, transcript: region, sessionKey, messages });
+      setAnchor(result.ok ? result.anchor : null);
+      setQuote(result.ok ? result.anchor.quote : selection.toString().trim());
+      setReason(result.ok ? null : result.reason === 'multi-message'
+        ? 'Select text within one message and one text block to annotate it.'
+        : 'Ember cannot link this selection to an exact passage. Select a shorter passage in one plain-text block.');
+      setPosition({ left: Math.max(8, Math.min(rect.left - hostRect.left, hostRect.width - 368)), top: rect.bottom - hostRect.top + 180 < hostRect.height ? rect.bottom - hostRect.top + 8 : Math.max(8, rect.top - hostRect.top - 180) });
+      editing.current = true;
+      // Native mouse selection stays selected until the person chooses the input. Only the
+      // explicit keyboard shortcut and Resume transfer focus to the editor automatically.
+      setFocusEditor(focus);
     };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [enabled, readSelection, show]);
+    const schedule = () => { window.clearTimeout(timer); timer = window.setTimeout(() => capture(), 120); };
+    const shortcut = (event: KeyboardEvent) => {
+      if (!isCommentShortcut(event)) return;
+      event.preventDefault();
+      window.clearTimeout(timer);
+      focusRequested.current = true;
+      capture();
+    };
+    const outside = (event: PointerEvent) => {
+      pointerHeld.current = event.button === 0 && Boolean(event.target instanceof Node && regionRef.current?.contains(event.target));
+      if (!(event.target instanceof Element) || event.target.closest('[data-annotation-composer]')) return;
+      if (editing.current) dismiss();
+    };
+    const release = () => { const selected = pointerHeld.current; pointerHeld.current = false; if (selected) schedule(); };
+    const cancel = () => { pointerHeld.current = false; focusRequested.current = false; };
+    document.addEventListener('pointerup', release);
+    document.addEventListener('pointercancel', cancel);
+    document.addEventListener('selectionchange', schedule);
+    document.addEventListener('keydown', shortcut);
+    document.addEventListener('pointerdown', outside);
+    return () => { window.clearTimeout(timer); document.removeEventListener('pointerup', release); document.removeEventListener('pointercancel', cancel); document.removeEventListener('selectionchange', schedule); document.removeEventListener('keydown', shortcut); document.removeEventListener('pointerdown', outside); };
+  }, [enabled, sessionKey, messages, regionRef, hostRef, dismiss, resume]);
 
-  const dismiss = React.useCallback(() => {
-    setPosition(null);
-    setQuote('');
-    setEditingState(false);
-    // The comment now owns the quote, so the highlight that produced it can go.
-    window.getSelection()?.removeAllRanges();
-  }, [setEditingState]);
-
-  const openEditor = React.useCallback(() => setEditingState(true), [setEditingState]);
-
-  return { position, quote, editing, openEditor, dismiss };
+  return { position, visible: Boolean(position), focusEditor, anchor, quote, reason, dismiss, resume, clearDraft };
 }

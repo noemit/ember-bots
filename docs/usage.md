@@ -54,8 +54,12 @@ link does not mark a reply read. With several unread replies, Mark all as read c
 Tool steps do not need receipts. “↑ Jump to your last message” appears only when your last message
 is above the view and none of your messages is visible; jumping never marks anything read.
 
-Select part of a response or plan to comment on it. Comments remain drafts in a tray until you send
-them together. Internal thread-result retrieval does not change your read marks.
+Select a passage to open its floating annotation composer. Send follows the normal send/queue path;
+Note saves it in For later. Both leave your main draft untouched. Hide or click away to retain the
+annotation, then use Resume annotation to continue. Quote links connect the saved annotation and its
+source in both directions, without marking either read. Selections that cannot be mapped precisely
+are refused rather than attached to the wrong passage. Internal thread-result retrieval does not
+change your read marks.
 
 ## Tasks
 

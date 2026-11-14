@@ -117,7 +117,8 @@ export type QueueTarget = {
   session: Session | null;
   queue: MessageQueueSession | null;
   /** Sends a prompt on this target's session; "Send now" hands an item to it. */
-  send: (input: PromptInput) => Promise<boolean>;
+  send: (input: PromptInput, previousQueueId?: string) => Promise<boolean>;
+  onRemoved?: (ids: string[], destination?: { kind: 'message' | 'queue'; id: string }) => Promise<void>;
 };
 
 type Options = {
@@ -266,7 +267,7 @@ export const useMessageQueue = ({
         sendingId: null,
       };
       const without = list.filter((entry) => entry.sessionId !== sessionId);
-      return { ...prev, [instanceId]: [{ ...base, items: [...base.items, item] }, ...without] };
+      return { ...prev, [instanceId]: [{ ...base, items: base.items.some((existing) => existing.id === item.id) ? base.items.map((existing) => existing.id === item.id ? item : existing) : [...base.items, item] }, ...without] };
     });
   };
 
@@ -464,12 +465,13 @@ export const useMessageQueue = ({
       }
       applyQueueMutation(instanceId, taken.data);
       input = queuedMessageInput(instanceId, taken.data.item);
-      if (await target.send(input)) return true;
+      if (await target.send(input, itemId)) return true;
 
       // Taken but not sent: put it back so nothing is lost.
       const requeued = await enqueueMessage(instanceId, sessionId, directory ?? '', input);
       if (requeued.ok && requeued.data) applyQueueMutation(instanceId, requeued.data);
       const retryId = requeued.data?.itemId;
+      if (requeued.data?.destination || retryId) await target.onRemoved?.([itemId], requeued.data?.destination ?? { kind: 'queue', id: retryId! });
       const retryInput = input;
       showActionError(
         requeued.ok
@@ -595,6 +597,7 @@ export const useMessageQueue = ({
         if (removed.ok && removed.data) {
           latest = removed.data;
           applyQueueMutation(instanceId, removed.data);
+          await target.onRemoved?.([itemId], enqueued.destination ?? (enqueued.itemId ? { kind: 'queue', id: enqueued.itemId } : undefined));
         } else {
           leftovers.push(itemId);
         }
@@ -618,7 +621,10 @@ export const useMessageQueue = ({
       if (order.length > 1 && order.join('\u0000') !== serverOrder.join('\u0000')) {
         try {
           const reordered = await reorderQueuedMessages(instanceId, sessionId, order);
-          if (reordered.ok && reordered.data) applyQueueMutation(instanceId, reordered.data);
+          if (reordered.ok && reordered.data) {
+            applyQueueMutation(instanceId, reordered.data);
+            for (const [oldId, newId] of Object.entries(reordered.data.replacements ?? {})) await target.onRemoved?.([oldId], { kind: 'queue', id: newId });
+          }
         } catch (err) {
           // The merge itself already succeeded; only the position is off until the next poll.
           console.error('Place replaced queued message failed', err);
@@ -653,6 +659,7 @@ export const useMessageQueue = ({
         return false;
       }
       applyQueueMutation(target.ref.instanceId, removed.data);
+      await target.onRemoved?.([itemId]);
       return true;
     } catch (err) {
       console.error('Cancel queued message failed', err);
@@ -691,6 +698,7 @@ export const useMessageQueue = ({
         return false;
       }
       applyQueueMutation(target.ref.instanceId, reordered.data);
+      for (const [oldId, newId] of Object.entries(reordered.data.replacements ?? {})) await target.onRemoved?.([oldId], { kind: 'queue', id: newId });
       return true;
     } catch (err) {
       console.error('Reorder queued messages failed', err);

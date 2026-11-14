@@ -1730,6 +1730,8 @@ export const createClientMessageId = (timestamp = Date.now()): string => {
 
 export type PromptInput = {
   text: string;
+  /** Stable caller id for retrying one annotation without duplicating accepted work. */
+  requestId?: string;
   selectedModelId?: string;
   model?: ModelOption;
   mode?: string;
@@ -1867,7 +1869,7 @@ export const reorderQueuedMessages = async (
 export const sendPrompt = async (
   instanceId: string,
   sessionId: string,
-  { text, model, selectedModelId, mode, variant, attachments = [], replyContext, queuedContext = [], agentMention, steer, configured }: PromptInput,
+  { text, model, selectedModelId, mode, variant, attachments = [], replyContext, queuedContext = [], agentMention, steer, configured, requestId }: PromptInput,
   _directory?: string,
   messageId?: string
 ): Promise<{ ok: boolean; status: number; data: unknown }> => {
@@ -1886,6 +1888,7 @@ export const sendPrompt = async (
       agentMention,
       steer,
       configured,
+      requestId,
     });
   }
   const modelError = selectedModelError(selectedModelId, model);
@@ -1936,3 +1939,28 @@ export const sendPrompt = async (
 
   return window.ember.request(instanceId, 'POST', `${sessionPath}/prompt`, body);
 };
+
+/** Evidence returned by the host, never a match on message contents or timestamps. */
+export type SubmissionReceipt =
+  | { kind: 'message'; id: string; submissionId?: string }
+  | { kind: 'queue'; id: string };
+export const submissionReceiptOf = (data: unknown, pi: boolean, _requestedId?: string): SubmissionReceipt | null => {
+  if (!data || typeof data !== 'object') return null;
+  const value = data as Record<string, unknown>;
+  const id = (raw: unknown): string | null =>
+    (typeof raw === 'string' && raw.length > 0 && raw.length <= 500) || (typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0) ? String(raw) : null;
+  if (pi) {
+    const submissionId = id(value.submissionId);
+    const entry = id(value.entry);
+    if (entry) return { kind: 'message', id: 'e' + entry, ...(submissionId ? { submissionId } : {}) };
+    if (submissionId && (value.status === 'queued' || value.status === 'placed')) return { kind: 'queue', id: submissionId };
+    return null;
+  }
+  // OpenCode explicitly admits the caller's message id in the prompt request. Do not invent one.
+  const message = value.info && typeof value.info === 'object' ? value.info as Record<string, unknown> : value;
+  const messageId = id(message.id);
+  return messageId ? { kind: 'message', id: messageId } : null;
+};
+
+export const loadSubmissionReceipt = async (instanceId: string, sessionId: string, id: string): Promise<{ ok: boolean; status: number; data: unknown }> =>
+  window.ember.piRequest ? window.ember.piRequest(instanceId, '/conversations/' + encodeURIComponent(sessionId) + '/submissions/' + encodeURIComponent(id), { method: 'GET' }) : { ok: false, status: 0, data: null };

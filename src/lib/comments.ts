@@ -1,26 +1,4 @@
-/**
- * Transcript comments: quote a segment of the reply, say what you think about it, and send the
- * whole set as ONE ordinary user message. Nothing but the words travels, so the agent reads the
- * referent without a protocol, an id or an offset:
- *
- *   1. Re: "we should drop the nightly cron and run it on demand"
- *   Yes, do that.
- *
- *   2. Re: "the export needs a queue"
- *   Hold off on this one.
- *
- * Comments are transient drafts (a tray above the composer), never the server queue and never a
- * persisted format. Everything here is pure so the wording can be tested without a bridge.
- */
-
-export type TranscriptComment = {
-  id: string;
-  /** The selected text, whitespace-normalised. Shortened only when the message is assembled. */
-  quote: string;
-  /** What the user wants to say about that segment. May be empty (the quote alone is a referent). */
-  reply: string;
-};
-
+/** Small display/keyboard utilities shared by the floating annotation composer. */
 /** How much of a selection is quoted; a giant selection must not dominate the message. */
 export const QUOTE_LIMIT = 200;
 
@@ -53,30 +31,6 @@ export const shortenQuote = (text: string, limit: number = QUOTE_LIMIT): string 
   return `${body.trimEnd()}…`;
 };
 
-/** One numbered block: the quote, then the reply on its own line when there is one. */
-export const commentBlock = (comment: TranscriptComment, index: number): string => {
-  const quote = shortenQuote(comment.quote);
-  const head = quote ? `${index}. Re: "${quote}"` : `${index}.`;
-  return comment.reply.trim() ? `${head}\n${comment.reply.trim()}` : head;
-};
-
-/** Every comment as the numbered quote blocks, in the order the comments were made. */
-export const commentBlocks = (comments: readonly TranscriptComment[]): string =>
-  comments.map((comment, index) => commentBlock(comment, index + 1)).join('\n\n');
-
-/**
- * The single user message: the blocks, then the composer's own text once at the end, separated by
- * a blank line. Empty comments are ignored so a cleared row can't leave a hole in the numbering.
- */
-export const composeCommentMessage = (
-  comments: readonly TranscriptComment[],
-  composerText = ''
-): string => {
-  const blocks = commentBlocks(comments.filter((comment) => comment.quote.trim() || comment.reply.trim()));
-  const trailing = composerText.trim();
-  return [blocks, trailing].filter((part) => part.length > 0).join('\n\n');
-};
-
 /**
  * The shortcut that comments on the current selection. Alt is deliberate: Mod+K (palette),
  * Mod+Enter (save note), Mod+F (find) and Mod+1-9 (columns) are all taken, and Mod+Alt+C is free
@@ -92,14 +46,3 @@ export const isCommentShortcut = (event: {
   shiftKey: boolean;
 }): boolean =>
   (event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey && event.key.toLowerCase() === 'c';
-
-/** A tray label: "Send 3 comments". */
-export const sendCommentsLabel = (count: number): string =>
-  count === 1 ? 'Send 1 comment' : `Send ${count} comments`;
-
-/**
- * Comments survive switching columns within a run (a column unmounts when it is closed or
- * scrolled out of the workspace), but they are never written anywhere: the map lives in memory
- * only, like `composerMemory`.
- */
-export const commentMemory = new Map<string, TranscriptComment[]>();

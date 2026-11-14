@@ -20,7 +20,7 @@ describe('bot product terminology', () => {
     expect(composer).toContain("'Message your bot'");
     expect(composer).not.toContain('Message the agent');
     // Internal protocol access stays intact; a terminology change must not rename wire fields.
-    expect(composer).toContain('session.agent');
+    expect(composer).toMatch(/session\??\.agent/);
   });
 
   test('setup names the bot while keeping the persisted step id', () => {

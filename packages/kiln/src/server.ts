@@ -89,7 +89,7 @@ import {
   updateContextRule,
 } from "./context";
 import { blindModelReason, contentPreviewOf, inputTextOf, parseUserInputContent } from "./images";
-import { parkInputs, parkedInputs } from "./parking";
+import { parkInputs, parkedInputs, parkRequestId } from "./parking";
 import {
   createScheduledTask,
   deleteScheduledTask,
@@ -2352,18 +2352,22 @@ const server = Bun.serve<{
           // Withdraw first: `abortSubmission` settles each queued submission and takes it out of the
           // inbox, so the commit below writes the whole new order rather than appending to the old.
           for (const item of queued) await harness.abortSubmission(item.id, context, conversationId);
-          // One token for the whole reorder: a rerun of the same request re-adds the same
-          // submissions instead of a second copy of every message.
-          const token = `order:${Date.now()}:${randomUUID().slice(0, 8)}`;
+          // The old submission id is its durable lineage key. Reordering allocates new ids in
+          // this order while the receipt endpoint can still follow each original independently.
           await parkInputs(
             (change) => conversation.commit(change, context),
             conversationId,
-            ids.map((id, index) => {
+            ids.map((id) => {
               const item = byId.get(id)!;
-              return { mode: item.mode, content: item.content, id: String(item.id), token: `${token}:${index}` } as const;
+              return { mode: item.mode, content: item.content, id: String(item.id) } as const;
             })
           );
-          return json({ revision: Date.now(), session: await queueSessionOf(conversationId) });
+          const replacements: Record<string, string> = {};
+          for (const id of ids) {
+            const replacement = await storage.submissionByRequest(conversationId, parkRequestId(conversationId as unknown as number, id), context);
+            if (replacement) replacements[id] = String(replacement.id);
+          }
+          return json({ revision: Date.now(), session: await queueSessionOf(conversationId), replacements });
         }
 
         if (action === "fork" && request.method === "POST") {
@@ -2557,6 +2561,23 @@ const server = Bun.serve<{
           if (!change) return badRequest("invalid agent change");
           await conversation.configure(change, context);
           return json({ ok: true });
+        }
+
+        // Durable correlation: never infer a queued annotation's destination from its text or time.
+        const receiptMatch = /^submissions\/([^/]+)$/.exec(action);
+        if (receiptMatch && request.method === "GET") {
+          const submissionId = idOf<SubmissionId>(decodeSegment(receiptMatch[1]));
+          if (!submissionId) return badRequest("invalid submission id");
+          let record = await storage.submission(submissionId, context);
+          if (!record || record.conversationId !== conversationId) return notFound("This conversation has no such submission.");
+          // Stop preserves queued work under a new id. Follow its explicit idempotency lineage,
+          // not its content; repeated identical queued messages stay independent.
+          for (let depth = 0; depth < 20 && record.status === "unanswered" && record.entry === undefined; depth += 1) {
+            const parked = await storage.submissionByRequest(conversationId, parkRequestId(conversationId as unknown as number, String(record.id)), context);
+            if (!parked) break;
+            record = parked;
+          }
+          return json(answerOf(record, record.type === "input" ? "followUp" : "write"));
         }
 
         const submissionMatch = /^submissions\/([^/]+)\/abort$/.exec(action);

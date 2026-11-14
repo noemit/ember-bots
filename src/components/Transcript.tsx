@@ -1,3 +1,6 @@
+import { quoteLinksForMessage, type MessageQuoteLink } from '../lib/quoteLinkScope';
+import { messageNavigationAction } from '../lib/messageNavigation';
+import { quoteRangeIn } from '../lib/quoteHighlight';
 import { questionKey, type ThreadQuestion } from '../lib/threadQuestions';
 import YoloLabel from './YoloLabel';
 import { SimilarPermissionDialog } from './PermissionRules';
@@ -91,6 +94,8 @@ import { UNCONFIRMED_SEND_MS } from '../lib/sendDelivery';
 import { liveOutputTail } from '../lib/toolTail';
 import { hasMarkdownToCopy, messageMarkdown } from '../lib/messageMarkdown';
 import { gestureLeavesBottom, scrollIntent } from '../lib/scrollIntent';
+import type { QuoteAnchor, QuoteLink } from '../types';
+import { validateQuoteAnchor } from '../lib/quoteLinks';
 
 const Markdown = React.lazy(() => import('./Markdown'));
 const MarkdownFallback = ({ text }: { text: string }) => (
@@ -99,6 +104,10 @@ const MarkdownFallback = ({ text }: { text: string }) => (
 
 type Props = {
   findRequest?: number;
+  quoteLinks?: QuoteLink[];
+  quoteSessionKey?: string | null;
+  onNavigateQuote?: (link: QuoteLink, direction: 'source' | 'destination') => void;
+  quoteFocus?: QuoteAnchor | null;
   messages: ChatMessage[];
   messagesStatus: MessagesStatus;
   /**
@@ -115,7 +124,7 @@ type Props = {
    * Fetch the rest of a history the client knows it has not fully loaded. Without it the missing
    * history line is a fact with no way out; the button only appears when the caller can act.
    */
-  onLoadEarlier?: () => void;
+  onLoadEarlier?: () => void | Promise<void>;
   /**
    * Set when Ember has stopped repairing this session by itself (see `lib/repairBudget`), because a
    * full read cannot succeed for it. The missing-history line then says so and offers the one thing
@@ -775,12 +784,14 @@ const reasoningTail = (text: string, limit = 90): string => {
 const ReasoningRow = ({
   text,
   storageKey,
+  partId,
   defaultOpen,
   onToggle,
   streaming = false,
 }: {
   text: string;
   storageKey: string;
+  partId: string;
   defaultOpen: boolean;
   onToggle?: (element: HTMLElement | null) => void;
   /** This block is being written right now, not read back from history. */
@@ -820,7 +831,7 @@ const ReasoningRow = ({
         <ChevronRight className={cn('size-3 flex-none opacity-60 transition-transform', open && 'rotate-90')} />
       </button>
       {open ? (
-        <div className="ml-6 mt-1 rounded-md bg-background/50 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
+        <div data-quote-part-id={partId} className="ml-6 mt-1 rounded-md bg-background/50 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
           {/* Reasoning streams in as raw text, so it is rendered as plain prose while live: parsing
               a growing Markdown document on every delta re-flows the whole block and makes the text
               jump under the reader. It is rendered as Markdown once the turn settles. */}
@@ -1381,6 +1392,17 @@ const CrewReportCard = ({
   </div>
 );
 
+const QuoteBacklinks = ({ links, onNavigate, message }: { links: MessageQuoteLink[]; onNavigate?: (link: QuoteLink, direction: 'source' | 'destination') => void; quoteFocus?: QuoteAnchor | null; message: ChatMessage }) => {
+  if (!links.length) return null;
+  const controls = links.map(({ link, source }, index) => {
+    const stale = source && !validateQuoteAnchor(link.source, [message]).valid;
+    return <button key={link.id} type="button" data-quote-link="" className="rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-muted" onClick={(event) => { event.stopPropagation(); onNavigate?.(link, source ? 'destination' : 'source'); }} aria-label={source ? 'Open linked ' + link.destination.kind + ': ' + link.source.quote : 'Open quoted source: ' + link.source.quote}>
+      {links.length > 1 ? String(index + 1) + '. ' : ''}{source ? 'Open ' + link.destination.kind + ' annotation' : 'Open quoted source'}{stale ? ' · source changed' : ''}
+    </button>;
+  });
+  return links.length === 1 ? <div data-quote-link="" aria-label="Quote links">{controls}</div> : <details data-quote-link="" className="text-xs"><summary className="cursor-pointer text-muted-foreground">{links.length} linked annotations</summary><div className="flex flex-col" role="group" aria-label="Choose an annotation">{controls}</div></details>;
+};
+
 const renderBlock = (
   message: ChatMessage,
   block: Block,
@@ -1393,7 +1415,10 @@ const renderBlock = (
   onReasoningToggle?: (element: HTMLElement | null) => void,
   onOpenImage?: (image: ViewerImage) => void,
   /** An unread badge pinned to this bubble's top-right corner (assistant messages only). */
-  unreadBadge?: React.ReactNode
+  unreadBadge?: React.ReactNode,
+  quoteLinks: MessageQuoteLink[] = [],
+  onNavigateQuote?: (link: QuoteLink, direction: 'source' | 'destination') => void,
+  quoteFocus?: QuoteAnchor | null
 ) => {
   const mine = message.role === 'user';
   if (block.type === 'text') {
@@ -1428,15 +1453,12 @@ const renderBlock = (
             : 'w-full self-start py-2 text-foreground'
         )}
       >
-        {mine ? (
-          <Linkify text={block.text} />
-        ) : (
-          <React.Suspense fallback={<MarkdownFallback text={block.text} />}>
-            <Markdown text={block.text} />
-          </React.Suspense>
-        )}
+        <span data-quote-part-id={block.id} className={mine ? 'whitespace-pre-wrap break-words' : undefined}>
+          {mine ? <Linkify text={block.text} /> : <React.Suspense fallback={<MarkdownFallback text={block.text} />}><Markdown text={block.text} /></React.Suspense>}
+        </span>
         {unreadBadge}
         {overlay}
+        <QuoteBacklinks links={quoteLinks} onNavigate={onNavigateQuote} quoteFocus={quoteFocus} message={message} />
       </motion.div>
     );
   }
@@ -1459,13 +1481,16 @@ const renderBlock = (
       ) : block.type === 'ask' ? (
         <AskRecord call={block.call} />
       ) : block.type === 'reasoning' ? (
-        <ReasoningRow
-          storageKey={`reasoning:${message.id}:${block.id}`}
-          text={block.text}
-          defaultOpen={reasoningExpanded}
-          onToggle={onReasoningToggle}
-          streaming={streaming}
-        />
+        <div data-quote-part-id={block.id} className="whitespace-pre-wrap break-words">
+          <ReasoningRow
+            storageKey={`reasoning:${message.id}:${block.id}`}
+            partId={block.id}
+            text={block.text}
+            defaultOpen={reasoningExpanded}
+            onToggle={onReasoningToggle}
+            streaming={streaming}
+          />
+        </div>
       ) : (
         <FileBlock
           file={block.file}
@@ -1489,6 +1514,9 @@ const renderBlock = (
 
 type MessageRowProps = {
   message: ChatMessage;
+  quoteLinks?: MessageQuoteLink[];
+  onNavigateQuote?: (link: QuoteLink, direction: 'source' | 'destination') => void;
+  quoteFocus?: QuoteAnchor | null;
   highlighted: boolean;
   readConfirmed: boolean;
   highlightRequest: number;
@@ -1715,6 +1743,9 @@ const DeliveryRow = ({
 
 const MessageRow = React.memo(function MessageRow({
   message,
+  quoteLinks = [],
+  onNavigateQuote,
+  quoteFocus,
   highlighted,
   readConfirmed,
   highlightRequest,
@@ -1799,7 +1830,7 @@ const MessageRow = React.memo(function MessageRow({
   React.useEffect(() => () => window.clearTimeout(readClickTimer.current), []);
   const isInteractive = (target: EventTarget | null, row: HTMLElement) => {
     const control = target instanceof Element ? target.closest(
-      'a, button, input, textarea, select, option, label, summary, audio, video, img, [draggable="true"], [role], [tabindex], [contenteditable]:not([contenteditable="false"])'
+      'a, button, input, textarea, select, option, label, summary, audio, video, img, [data-quote-link], [draggable="true"], [role], [tabindex], [contenteditable]:not([contenteditable="false"])'
     ) : null;
     return Boolean(control && row.contains(control));
   };
@@ -1943,7 +1974,10 @@ const MessageRow = React.memo(function MessageRow({
             index === textBlockIndex ? renderGutter('-left-6') : undefined,
             onReasoningToggle,
             viewer ? openImage : undefined,
-            index === textBlockIndex ? unreadBadge : undefined
+            index === textBlockIndex ? unreadBadge : undefined,
+            quoteLinks,
+            onNavigateQuote,
+            quoteFocus
           );
         })}
         {/* Folded tool display: every foldable call in this message becomes one line, with the usual
@@ -2001,6 +2035,10 @@ const ActivityLabel = ({ label, since }: { label: ActivityLabelValue; since?: nu
 
 function Transcript({
   findRequest = 0,
+  quoteLinks = [],
+  quoteSessionKey,
+  onNavigateQuote,
+  quoteFocus,
   messages,
   messagesStatus,
   fetchNotice,
@@ -2281,20 +2319,58 @@ function Transcript({
     previousPendingCountRef.current = pendingCount;
   }, [pendingCount, scrollToBottom]);
 
-  const focusById = useStableCallback((id: string) => {
-    const index = items.findIndex(({ message, sourceIndices }) => message.id === id || sourceIndices?.some(source => messages[source]?.id === id));
-    if (index >= 0) {
-      jumpToIndex(index);
-    } else if (hasOlderHistory && onLoadEarlier) {
-      onLoadEarlier();
-    }
-  });
-  const focusTargetIndex = items.findIndex(({ message, sourceIndices }) =>
-    message.id === focusMessageId || sourceIndices?.some(source => messages[source]?.id === focusMessageId));
+  const pendingFocus = React.useRef<{ id: string; request: number; attempts: number; loading: boolean; jumped: boolean } | null>(null);
+  const [navigationRetry, setNavigationRetry] = React.useState(0);
+  const [navigationUnavailable, setNavigationUnavailable] = React.useState(false);
   React.useEffect(() => {
-    if (!focusMessageId || focusRequest === 0) return;
-    focusById(focusMessageId);
-  }, [focusMessageId, focusRequest, focusById, focusTargetIndex]);
+    if (!focusMessageId || !focusRequest) return;
+    let pending = pendingFocus.current;
+    if (!pending || pending.id !== focusMessageId || pending.request !== focusRequest) {
+      pending = { id: focusMessageId, request: focusRequest, attempts: 0, loading: false, jumped: false };
+      pendingFocus.current = pending;
+      setNavigationUnavailable(false);
+    }
+    if (pending.jumped) return;
+    const index = items.findIndex(({ message, sourceIndices }) => message.id === pending.id || sourceIndices?.some(source => messages[source]?.id === pending.id));
+    const action = messageNavigationAction({ found: index >= 0, loading: pending.loading || messagesStatus === 'loading', complete: historyComplete === true, attempts: pending.attempts, canLoad: Boolean(onLoadEarlier) });
+    if (action === 'jump') { pending.jumped = true; setNavigationUnavailable(false); jumpToIndex(index); return; }
+    if (action === 'unavailable') { setNavigationUnavailable(true); return; }
+    if (action !== 'load' || !onLoadEarlier) return;
+    pending.loading = true;
+    pending.attempts += 1;
+    const request = pending;
+    void Promise.resolve().then(onLoadEarlier).catch(() => {}).finally(() => {
+      if (pendingFocus.current !== request) return;
+      request.loading = false;
+      // A completed read is a retry boundary even when it returned the same window. New
+      // messages also re-run this effect, so the target is mounted and highlighted once found.
+      setNavigationRetry((value) => value + 1);
+    });
+  }, [focusMessageId, focusRequest, items, messages, messagesStatus, historyComplete, onLoadEarlier, jumpToIndex, navigationRetry]);
+  React.useEffect(() => {
+    const region = scrollRef.current;
+    if (!region || !quoteFocus || !validateQuoteAnchor(quoteFocus, messages, quoteSessionKey ?? undefined).valid) return;
+    const highlightApi = globalThis.CSS?.highlights;
+    const HighlightConstructor = globalThis.Highlight;
+    if (!highlightApi || typeof HighlightConstructor !== 'function') return;
+    const apply = () => {
+      const ranges: Range[] = [];
+      for (const span of quoteFocus.spans) {
+        const row = [...region.querySelectorAll('[data-message-id]')].find((element) => element.getAttribute('data-message-id') === span.messageId);
+        const element = row ? [...row.querySelectorAll('[data-quote-part-id]')].find((part) => part.getAttribute('data-quote-part-id') === span.partId) : undefined;
+        if (!element) continue;
+        const range = quoteRangeIn(element, span);
+        if (range) { ranges.push(range); element.setAttribute('data-quote-highlighted', 'true'); }
+      }
+      if (ranges.length) highlightApi.set('ember-quote', new HighlightConstructor(...ranges));
+    };
+    const observer = new MutationObserver(apply);
+    observer.observe(region, { childList: true, subtree: true });
+    const timer = window.setTimeout(apply, 100);
+    apply();
+    return () => { observer.disconnect(); window.clearTimeout(timer); highlightApi.delete('ember-quote'); region.querySelectorAll('[data-quote-highlighted]').forEach((element) => element.removeAttribute('data-quote-highlighted')); };
+  }, [quoteFocus, quoteSessionKey, messages, focusRequest]);
+
   React.useEffect(() => {
     if (!highlightedMessageId) return;
     const timer = window.setTimeout(() => setHighlightedMessageId(null), 5000);
@@ -2613,6 +2689,7 @@ function Transcript({
         <span className="whitespace-nowrap text-xs">{findMatches.length ? (findIndex % findMatches.length) + 1 : 0}/{findMatches.length}</span>
         <Button size="xs" variant="ghost" onClick={() => { setFind(null); setHighlightedMessageId(null); }}>Close</Button>
       </div> : null}
+      {navigationUnavailable ? <p role="status" className="px-3 py-2 text-xs text-muted-foreground">Ember could not find this linked message in the available history. Use Refresh in the session menu to try again, or select an available passage for a new annotation.</p> : null}
       {onMarkRead && unreadIndices.length > 0 ? (
         <div data-unread-navigation="" className="flex flex-none flex-wrap items-center justify-between gap-x-2 border-b border-highlight/20 bg-highlight/5 px-3 py-1">
           <Button
@@ -2747,6 +2824,9 @@ function Transcript({
               <MessageRow
                 key={message.id}
                 message={message}
+                quoteLinks={quoteLinksForMessage(quoteLinks, quoteSessionKey, message.id)}
+                onNavigateQuote={onNavigateQuote}
+                quoteFocus={quoteFocus}
                 readConfirmed={receipt?.message.id === message.id && readHighlight}
                 highlighted={highlightedMessageId === message.id}
                 highlightRequest={highlightRequest}

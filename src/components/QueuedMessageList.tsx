@@ -1,3 +1,5 @@
+import AnnotationSources from './AnnotationSources';
+import type { QuoteLink } from '../types';
 import * as React from 'react';
 import { motion } from 'motion/react';
 import { ArrowUp, ChevronDown, ChevronUp, Merge, MoreHorizontal, Pencil, Send, Trash2 } from 'lucide-react';
@@ -18,6 +20,9 @@ import TrayRow from './TrayRow';
 import type { MessageQueueSession, ModelOption, QueuedMessage } from '../types';
 
 type Props = {
+  quoteLinks?: QuoteLink[];
+  onNavigateQuote?: (link: QuoteLink, direction: 'source' | 'destination') => void;
+  focusItem?: { id: string; token: number } | null;
   queue: MessageQueueSession | null;
   models: ModelOption[];
   instanceId?: string;
@@ -71,6 +76,7 @@ const queuedWhen = (at: number | undefined): string | null => {
  */
 export default function QueuedMessageList({
   queue,
+  quoteLinks = [], onNavigateQuote, focusItem,
   models,
   instanceId,
   defaultModelId,
@@ -93,6 +99,7 @@ export default function QueuedMessageList({
   // than closing under the person's typing.
   const [editing, setEditing] = React.useState<{ item: QueuedMessage; pinned: boolean } | null>(null);
   const [readingId, setReadingId] = React.useState<string | null>(null);
+  React.useEffect(() => { if (focusItem) setReadingId(focusItem.id); }, [focusItem]);
   const setEditingItem = (item: QueuedMessage) => setEditing({ item, pinned: Boolean(item.pending) });
   const runQueueAction = async (itemId: string, action: () => Promise<boolean>) => {
     if (busyQueueItemId) return;
@@ -186,6 +193,7 @@ export default function QueuedMessageList({
                 data-queued-id={item.id}
                 className="min-w-0"
               >
+                <AnnotationSources links={quoteLinks.filter((link) => link.destination.kind === 'queue' && link.destination.id === item.id)} onNavigate={onNavigateQuote} />
                 <TrayRow
                   text={preview}
                   meta={meta}
@@ -388,6 +396,7 @@ export default function QueuedMessageList({
             filename: file.filename,
             detail: file.size ? `${Math.round(file.size / 1024)} KB` : undefined,
           }))}
+          sourceLinks={<AnnotationSources links={quoteLinks.filter((link) => link.destination.kind === 'queue' && link.destination.id === readingItem.id)} onNavigate={(link, direction) => { setReadingId(null); onNavigateQuote?.(link, direction); }} />}
           actions={
             readingItem.mode === 'steer' ? null : (
               <Button

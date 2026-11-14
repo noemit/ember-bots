@@ -1,3 +1,5 @@
+import AnnotationSources from './AnnotationSources';
+import type { QuoteLink } from '../types';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, Pencil, Trash2 } from 'lucide-react';
@@ -10,6 +12,9 @@ import NoteDialog from './NoteDialog';
 import type { NoteModelEdit } from './NoteDialog';
 
 type Props = {
+  quoteLinks?: QuoteLink[];
+  onNavigateQuote?: (link: QuoteLink, direction: 'source' | 'destination') => void;
+  focusItem?: { id: string; token: number } | null;
   notes: SessionNote[];
   canSend?: boolean;
   onSend: (note: SessionNote) => Promise<boolean>;
@@ -39,6 +44,7 @@ const ICON_BUTTON = 'size-5 max-sm:size-8 rounded text-muted-foreground hover:bg
  */
 export default function SessionNotes({
   notes,
+  quoteLinks = [], onNavigateQuote, focusItem,
   canSend = true,
   onSend,
   onBringBack,
@@ -54,6 +60,7 @@ export default function SessionNotes({
 }: Props) {
   const [busyNoteId, setBusyNoteId] = React.useState<string | null>(null);
   const [readingId, setReadingId] = React.useState<string | null>(null);
+  React.useEffect(() => { if (focusItem) setReadingId(focusItem.id); }, [focusItem]);
 
   const send = async (note: SessionNote) => {
     if (busyNoteId || !canSend) return;
@@ -91,6 +98,7 @@ export default function SessionNotes({
               exit={{ opacity: 0, scale: 0.96 }}
               transition={springTransition}
             >
+              <AnnotationSources links={quoteLinks.filter((link) => link.destination.kind === 'note' && link.destination.id === note.id)} onNavigate={onNavigateQuote} />
               <TrayRow
                 text={note.text}
                 busy={busyNoteId === note.id}
@@ -147,6 +155,7 @@ export default function SessionNotes({
           key={readingNote.id}
           open
           note={readingNote}
+          sourceLinks={<AnnotationSources links={quoteLinks.filter((link) => link.destination.kind === 'note' && link.destination.id === readingNote.id)} onNavigate={(link, direction) => { setReadingId(null); onNavigateQuote?.(link, direction); }} />}
           models={models}
           modelValue={modelValue}
           modelVariant={modelVariant}

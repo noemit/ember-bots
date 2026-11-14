@@ -315,3 +315,6 @@ html.motion-paused *::after {
 @media (prefers-reduced-motion: reduce) {
   [data-composer-surface]::before { transition: none; }
 }
+
+/* Exact annotation source ranges, independent of selection and read receipts. */
+::highlight(ember-quote) { background-color: color-mix(in srgb, var(--highlight) 32%, transparent); color: inherit; }

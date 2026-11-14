@@ -590,7 +590,7 @@ const submitRequest = async (
   body: Record<string, unknown>
 ): Promise<{ ok: boolean; status: number; data: unknown }> => {
   const path = `/conversations/${encodeURIComponent(conversationId)}/submit`;
-  const requestId = randomId();
+  const requestId = typeof body.requestId === 'string' ? body.requestId : randomId();
   const first = await request(endpointId, path, { method: 'POST', body: { ...body, requestId } });
   if (first.ok || first.status !== 0) return first;
   await new Promise((resolve) => setTimeout(resolve, 400));
@@ -618,6 +618,7 @@ export const piSendPrompt = async (
     type: 'input',
     content: piInputContent(input.text, input.attachments),
     whenBusy: input.steer ? 'steer' : 'followUp',
+    ...(input.requestId ? { requestId: input.requestId } : {}),
   });
 };
 
@@ -634,7 +635,7 @@ export const piEnqueueMessage = async (
   // the model with the context it was written with, not silently without it.
   const context = await piWriteContexts(endpointId, conversationId, input);
   if (context) return context;
-  const submitted = await request<{ submissionId?: number; status?: string }>(
+  const submitted = await request<{ submissionId?: number; status?: string; entry?: number }>(
     endpointId,
     `/conversations/${encodeURIComponent(conversationId)}/submit`,
     { method: 'POST', body: { type: 'input', content: piInputContent(input.text, input.attachments), whenBusy: 'followUp' } }
@@ -675,7 +676,7 @@ export const piEnqueueMessage = async (
       },
     ];
   }
-  return { ok: true, status: submitted.status, data: { revision: queue?.revision ?? Date.now(), session, itemId: submitId } };
+  return { ok: true, status: submitted.status, data: { revision: queue?.revision ?? Date.now(), session, itemId: submitId, destination: submitted.data?.entry ? { kind: 'message', id: 'e' + submitted.data.entry } : submitted.data?.submissionId ? { kind: 'queue', id: String(submitted.data.submissionId) } : undefined } };
 };
 
 // ---- Queue ---------------------------------------------------------------------------
@@ -832,7 +833,15 @@ export const piReorderQueuedMessages = async (
     body: { itemIds: orderedIds },
   });
   if (!response.ok) return { ok: false, status: response.status, data: null };
-  return { ok: true, status: response.status, data: await piQueueMutation(endpointId, conversationId) };
+  const mutation = await piQueueMutation(endpointId, conversationId);
+  const raw = response.data && typeof response.data === 'object' ? (response.data as { replacements?: unknown }).replacements : undefined;
+  const replacements: Record<string, string> = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [oldId, newId] of Object.entries(raw).slice(0, 1000)) {
+      if (/^[1-9][0-9]*$/.test(oldId) && typeof newId === 'string' && /^[1-9][0-9]*$/.test(newId)) replacements[oldId] = newId;
+    }
+  }
+  return { ok: true, status: response.status, data: mutation ? { ...mutation, replacements } : null };
 };
 
 /**

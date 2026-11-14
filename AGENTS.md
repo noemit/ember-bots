@@ -136,7 +136,7 @@ their existing names; archive references in the implementation notes below descr
 - The rail displays older entries above newer entries and pins the current chat beside the input
   on desktop. `workspaceConnection.tsx` owns the measured geometry shared by LeftRail and ChatView:
   the active column reports its real footer height and input centre through ResizeObserver, so the
-  rail’s dock aligns through textarea growth and attachments. Trays, comments, side questions and draft options sit in a separate section above the measured composer band; opening them never enlarges the agent/input row. Inputs remain in
+  rail’s dock aligns through textarea growth and attachments. Trays, side questions and draft options sit in a separate section above the measured composer band; opening them never enlarges the agent/input row. Inputs remain in
   their session’s ChatView DOM; drafts, focus, drag/drop and split columns retain their boundaries.
   Mobile keeps the identity inside the composer and the rail retains its complete session list.
 - `AvatarTransitionContext` enables identity movement only within the rail’s LayoutGroup. Blob
@@ -725,23 +725,15 @@ their existing names; archive references in the implementation notes below descr
   ≤40 (failures and the live mark are never dropped) — at 120 the marks packed into a dashed line
   that read as a scrollbar. Each mark is a 24px button with a one-line `aria-label`
   (`Jump to 18:41 · bash failed`). Toggled by `showActivityRail` (default on, View → Layout).
-- `src/lib/comments.ts` + `src/components/CommentTray.tsx` +
-  `src/components/SelectionCommentBar.tsx` are **comments on a transcript segment**. Selecting text in
-  a column raises a small bar beside the selection with one Comment action and three quick replies
-  (Yes / No / Hold off); a chip adds the
-  comment at once, Comment opens a one-line reply field (Enter adds, Escape cancels), and
-  `Mod+Alt+C` does the same from the keyboard. Selections may cross message boundaries: the words
-  are captured as-is (whitespace and newlines normalised), with nothing clipped to one message.
-  Comments collect as transient drafts in a tray above the composer (quote plus an editable reply,
-  each removable, never the server queue, never persisted; `commentMemory` keeps them across a
-  column remount for the run only). "Send N comments" assembles them into ONE ordinary user
-  message through the same send path as the composer (`composeCommentMessage`): numbered
-  `N. Re: "<quote>"` blocks in the order the comments were made, a blank line between blocks, then
-  the composer's own text once at the end, so the agent reads the referent without a protocol. A
-  successful send clears the tray; a failure keeps every row and surfaces the app's error banner,
-  which is why the tray sends with `retainOnFailure: false`. `shortenQuote` keeps a long
-  selection to its first line or roughly 200 characters plus an ellipsis. The pure half is
-  `src/lib/comments.ts`, unit-tested in `tests/comments.test.ts`; `e2e/comments.pw.ts` covers the scene.
+- `SelectionCommentBar.tsx` is the floating annotation composer, not a comment collection tray.
+  `useSelectionComments` captures a stable source through `lib/quoteLinks.ts`; Send uses the normal
+  submit path, Note saves in For later, and neither consumes the main composer draft. Dismissal
+  retains the annotation and its source. Quote links persist locally in settings, with bounded exact
+  part snapshots and offsets. Unsupported or ambiguous selections are refused; changed sources never
+  relocate. Canonical message/submission receipts, including explicit stop/reorder lineage, move
+  queue links to transcript entries without text/time matching. Link controls are interactive and
+  never acknowledge a reply. Transcript focus uses the existing virtualization-aware jump path;
+  validated source ranges use CSS highlights without changing the native selection.
 - `src/components/ComposerShelf.tsx` + `TrayRow.tsx` + `TrayItemDialog.tsx` — **the tray above
   the composer is one shelf**, not three stacked cards: quiet underline tabs (`Queue 3 · For later 2 ·
   Tasks 3`, each with its count or summary, a dot when that tray wants the human), and fine-separated

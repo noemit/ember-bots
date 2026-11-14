@@ -10,6 +10,7 @@ import ModelPicker from './ModelPicker';
 export type NoteModelEdit = { modelId: string; variant: string };
 
 type Props = {
+  sourceLinks?: React.ReactNode;
   open: boolean;
   note: SessionNote;
   models: ModelOption[];
@@ -42,6 +43,7 @@ type Props = {
 export default function NoteDialog({
   open,
   note,
+  sourceLinks,
   models,
   modelValue,
   modelVariant,
@@ -82,7 +84,8 @@ export default function NoteDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogContent className="w-[620px] sm:max-w-[620px]">
-        <DialogHeader>
+        {sourceLinks}
+      <DialogHeader>
           <DialogTitle>Note for later</DialogTitle>
         </DialogHeader>
         <form

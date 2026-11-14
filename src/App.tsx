@@ -1,6 +1,11 @@
 import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
 import { isAsyncQuestion, questionsForSupervisor } from './lib/asyncQuestions';
 import { projectUsageForHost } from './lib/projectUsage';
+import { preserveAnnotationEcho } from './lib/annotationEcho';
+import { recordAnnotationAcceptance } from './lib/annotationAcceptance';
+import { replaceAnnotationDestinations, pruneAnnotationNotes } from './lib/annotationDestinations';
+import { createQuoteLinkId } from './lib/quoteLinks';
+import type { QuoteAnchor, QuoteLink } from './types';
 import { questionKey, questionsFromThreads } from './lib/threadQuestions';
 import { sessionVisibilityFailure } from './lib/sessionVisibility';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
@@ -73,6 +78,9 @@ import {
   replyQuestion,
   runScheduledTask,
   sendPrompt,
+  submissionReceiptOf,
+  loadSubmissionReceipt,
+  type SubmissionReceipt,
   setAutoAccept,
   setSessionArchived,
   updateScheduledTaskModel,
@@ -141,7 +149,6 @@ import {
   type AbortReceipt,
 } from '@/lib/sendDelivery';
 import {
-  addComments,
   isMessageRead,
   markAllRead,
   markRead,
@@ -3512,7 +3519,7 @@ export default function App() {
     target: SessionRef,
     directory: string | undefined,
     input: PromptInput,
-    options: { retainOnFailure?: boolean; quiet?: boolean } = {}
+    options: { retainOnFailure?: boolean; quiet?: boolean; onAccepted?: (receipt: SubmissionReceipt) => Promise<void> } = {}
   ): Promise<boolean> => {
     showActionError(null);
     const { instanceId, sessionId } = target;
@@ -3584,6 +3591,7 @@ export default function App() {
     setSendingKeys((prev) => new Set(prev).add(key));
 
     let accepted = false;
+    let annotationLinked = !options.onAccepted;
     // A retained failure bubble is the message's home until the user retries or discards it, so
     // its id must stay protected from the poll's reconciliation (which would otherwise drop it).
     let retained = false;
@@ -3619,6 +3627,40 @@ export default function App() {
         failSend(outcome.error ?? 'The server refused the message.');
         return false;
       }
+      const receipt = submissionReceiptOf(sent.data, Boolean(isPi), isPi ? undefined : optimisticId);
+      let adoptedAnnotationQueue = false;
+      if (options.onAccepted && receipt?.kind === 'queue' && outcome.queued && !outcome.steer) {
+        // The server owns this row regardless of whether Ember can save its source link.
+        queue.adoptQueuedSubmission(target, directory, { id: receipt.id, text: text.trim(), model, variant, mode: input.mode });
+        adoptedAnnotationQueue = true;
+        void refreshQueues([instanceId]);
+      }
+      if (options.onAccepted && receipt && input.requestId && (receipt.kind === 'message' || adoptedAnnotationQueue)) {
+        // A retry can be a second client bubble for the same admitted submission. Retire every
+        // attempt correlated by request id, not by its words or arrival time. Only the canonical
+        // host message (or queue row) survives, even if the first acceptance reply was malformed.
+        const attempts = [...pendingInputs.current].filter(([, value]) => value.input.requestId === input.requestId && sessionKey(value.target) === key).map(([id]) => id);
+        const held = messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages ?? [];
+        const canonical = receipt.kind === 'message' ? held.find((message) => message.id === receipt.id) : undefined;
+        for (const id of attempts) forgetPendingSend(key, id);
+        updateCachedMessages(key, (previous) => preserveAnnotationEcho(previous, attempts, receipt, optimistic));
+        if (receipt.kind === 'message') {
+          // Keep the receipt-proven bubble protected until the independently fetched echo lands.
+          // A failed or slow link-store write must not make accepted work vanish from the UI.
+          if (!canonical || canonical.delivery) {
+            pendingFor(key).add(receipt.id);
+            pendingSentAt.current.set(receipt.id, createdAt);
+            pendingInputs.current.set(receipt.id, { target, directory, input });
+          }
+          recordSent(sentLedgerRef.current, key, { id: receipt.id, text: text.trim(), at: createdAt });
+        }
+      }
+      if (options.onAccepted) {
+        const annotation = await recordAnnotationAcceptance(receipt, options.onAccepted);
+        annotationLinked = annotation.kind === 'linked';
+        if (annotation.kind === 'missing-receipt') showActionError(instanceLabelOf(instanceId) + ' did not confirm where this annotation went. Your draft is still here; refresh the conversation before trying again.');
+        if (annotation.kind === 'persistence-failed') showActionError('Ember could not save this annotation’s source link. Your draft is retained; retry it to save the link without sending a second copy.');
+      }
       const didSteer = outcome.steer;
       const queued = Boolean(isPi) && outcome.queued && !didSteer;
       if (queued) {
@@ -3630,7 +3672,7 @@ export default function App() {
         // Show it where it really lives: an optimistic queue row (with a loader) keyed by the
         // submission id, so it reconciles with Hearth's inbox instead of flickering.
         const submissionId = outcome.submissionId ?? '';
-        if (submissionId) {
+        if (submissionId && !adoptedAnnotationQueue) {
           queue.adoptQueuedSubmission(target, directory, {
             id: submissionId,
             text: text.trim(),
@@ -3640,7 +3682,7 @@ export default function App() {
           });
         }
         void refreshQueues([instanceId]);
-        return true;
+        return annotationLinked;
       }
       // Placed (or steered): the host says it is in the conversation, and the bubble is already on
       // screen from the moment Enter was pressed. That claim is `unconfirmed`, not "sent": the
@@ -3664,7 +3706,7 @@ export default function App() {
       }));
       // The server may not have indexed the user turn yet; reconcile keeps the bubble until it does.
       await loadAndCommitMessages({ instanceId, sessionId }, 'full', directory, true);
-      return true;
+      return annotationLinked;
     } catch (err) {
       console.error('Send failed', err);
       // Name the underlying failure: a generic "could not be refreshed" hides the real cause
@@ -3683,7 +3725,7 @@ export default function App() {
       } else if (!options.quiet) {
         showActionError(`Message was sent, but the transcript could not be refreshed yet.${detail}`);
       }
-      return accepted;
+      return accepted && annotationLinked;
     } finally {
       // Accepted sends and retained failures keep the id until the server copy or the user's
       // retry/discard settles it (see releaseOptimistic).
@@ -3861,13 +3903,21 @@ export default function App() {
     updateCachedMessages(key, (previous) => previous.filter((message) => message.id !== messageId));
 
   /** Queue handlers are built per column; this binds one to its session. */
+  const annotationQueueMutations = React.useRef(new Set<string>());
   const queueTargetFor = (ref: SessionRef, session: Session | null): QueueTarget => ({
     ref,
     session,
     queue:
       (queuesByInstance[ref.instanceId] ?? []).find((entry) => entry.sessionId === ref.sessionId) ??
       null,
-    send: (input) => sendTo(ref, session?.directory, input),
+    send: (input, previousQueueId) => sendTo(ref, session?.directory, input, {
+      onAccepted: previousQueueId ? async (receipt) => {
+        await handleSettings({ quoteLinks: replaceAnnotationDestinations(settingsRef.current.quoteLinks, sessionKey(ref), [previousQueueId], receipt) });
+      } : undefined,
+    }),
+    onRemoved: async (ids, destination) => {
+      await handleSettings({ quoteLinks: replaceAnnotationDestinations(settingsRef.current.quoteLinks, sessionKey(ref), ids, destination) });
+    },
   });
 
   const handleReloadSession = async (session: Session) => {
@@ -4851,11 +4901,70 @@ export default function App() {
     if (target) activateSession(target);
   };
 
+  const [quoteNavigation, setQuoteNavigation] = React.useState<{ key: string; messageId: string; token: number; source: QuoteAnchor | null; destination: QuoteLink['destination'] | null } | null>(null);
+  const navigateQuote = (link: QuoteLink, direction: 'source' | 'destination') => {
+    const key = direction === 'source' ? link.source.sessionKey : link.destination.sessionKey;
+    const ref = parseSessionKey(key);
+    if (!ref) return;
+    openSession(ref);
+    const messageId = direction === 'source' ? link.source.spans[0]?.messageId : link.destination.kind === 'message' ? link.destination.id : null;
+    setQuoteNavigation((previous) => ({ key, messageId: messageId ?? '', token: (previous?.token ?? 0) + 1, source: direction === 'source' ? link.source : null, destination: direction === 'destination' ? link.destination : null }));
+  };
+
+  const saveAnnotationNote = async (key: string, text: string, source: QuoteAnchor): Promise<boolean> => {
+    const id = createNoteId();
+    const link: QuoteLink = { id: createQuoteLinkId(), source, destination: { kind: 'note', sessionKey: key, id } };
+    const sessionNotes = addNote(settingsRef.current.sessionNotes, key, { id, text, quoteLinkId: link.id });
+    if (!sessionNotes[key]?.some((note) => note.id === id)) return false;
+    try {
+      const stored = await handleSettings({ sessionNotes, quoteLinks: pruneAnnotationNotes([...settingsRef.current.quoteLinks, link].slice(-5000), sessionNotes) });
+      if (!stored.quoteLinks.some((entry) => entry.id === link.id)) {
+        showActionError('Ember could not retain this annotation’s source link. Shorten the selected passage, then try Note again.');
+        return false;
+      }
+      return true;
+    } catch { return false; }
+  };
+
+  // Only authoritative submission records move links. An absent record or temporary outage
+  // keeps its last proven identity; explicit cancellation removes links through its receipt.
+  React.useEffect(() => {
+    let disposed = false;
+    const reconcile = async () => {
+      const links = settingsRef.current.quoteLinks.filter((link) => link.destination.kind === 'queue').slice(0, 100);
+      for (const link of links) {
+        const ref = parseSessionKey(link.destination.sessionKey);
+        if (!ref || !isPiInstance(ref.instanceId) || annotationQueueMutations.current.has(link.destination.sessionKey)) continue;
+        const result = await loadSubmissionReceipt(ref.instanceId, ref.sessionId, link.destination.id).catch(() => null);
+        if (disposed || !result) return;
+        if (annotationQueueMutations.current.has(link.destination.sessionKey)) continue;
+        const receipt = result.ok ? submissionReceiptOf(result.data, true) : null;
+        if (!receipt || (receipt.kind === 'queue' && receipt.id === link.destination.id)) continue;
+        const quoteLinks = settingsRef.current.quoteLinks.flatMap((current) => {
+          if (current.id !== link.id || current.destination.kind !== 'queue' || current.destination.id !== link.destination.id) return [current];
+          return [{ ...current, destination: { kind: receipt.kind, sessionKey: current.destination.sessionKey, id: receipt.id } }];
+        });
+        await handleSettings({ quoteLinks }).catch(() => {});
+      }
+    };
+    void reconcile();
+    const timer = window.setInterval(() => void reconcile(), 5000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [settingsRef, handleSettings]);
+
+  const sendAnnotation = async (target: SessionRef, directory: string | undefined, input: PromptInput, source: QuoteAnchor): Promise<boolean> => {
+    return sendTo(target, directory, input, { retainOnFailure: false, onAccepted: async (receipt) => {
+      const link: QuoteLink = { id: input.requestId ?? createQuoteLinkId(), source, destination: { kind: receipt.kind, sessionKey: sessionKey(target), id: receipt.id } };
+      const stored = await handleSettings({ quoteLinks: [...settingsRef.current.quoteLinks.filter((existing) => existing.id !== link.id), link].slice(-5000) });
+      if (!stored.quoteLinks.some((entry) => entry.id === link.id)) throw new Error('Annotation link exceeded the saved link limit.');
+    } });
+  };
+
   const handleSaveNote = (key: string, text: string) => {
     if (!key) return;
     const next = addNote(settingsRef.current.sessionNotes, key, { id: createNoteId(), text });
     if (next === settingsRef.current.sessionNotes) return;
-    handleSettings({ sessionNotes: next });
+    handleSettings({ sessionNotes: next, quoteLinks: pruneAnnotationNotes(settingsRef.current.quoteLinks, next) });
   };
 
   /**
@@ -4987,20 +5096,11 @@ export default function App() {
     handleSettings({ readMarks: { ...settingsRef.current.readMarks, [key]: next } });
   };
 
-  /** A comment set was sent from a column: the card's summary bar counts it. */
-  const handleCommentsSent = (sessionKeyValue: string, count: number) => {
-    if (!sessionKeyValue || count <= 0) return;
-    const current = settingsRef.current.readMarks[sessionKeyValue];
-    const next = addComments(current, count);
-    if (next === current) return;
-    handleSettings({ readMarks: { ...settingsRef.current.readMarks, [sessionKeyValue]: next } });
-  };
-
   const handleDeleteNote = (key: string, noteId: string) => {
     if (!key) return;
     const next = removeNote(settingsRef.current.sessionNotes, key, noteId);
     if (next === settingsRef.current.sessionNotes) return;
-    handleSettings({ sessionNotes: next });
+    handleSettings({ sessionNotes: next, quoteLinks: settingsRef.current.quoteLinks.filter((link) => !(link.destination.kind === 'note' && link.destination.sessionKey === key && link.destination.id === noteId)) });
   };
 
   const newSessionInstanceDefaults = newSessionInstanceId ? settings.instanceDefaults[newSessionInstanceId] : undefined;
@@ -5227,7 +5327,13 @@ export default function App() {
           onSaveNote={handleSaveNote}
           onUpdateNote={handleUpdateNote}
           onDeleteNote={handleDeleteNote}
-          onCommentsSent={(count) => handleCommentsSent(key, count)}
+          quoteLinks={settings.quoteLinks.filter((link) => link.source.sessionKey === key || link.destination.sessionKey === key)}
+          onAnnotate={(input, source) => sendAnnotation(ref, session.directory, input, source)}
+          onSaveAnnotationNote={(text, source) => saveAnnotationNote(notesKey, text, source)}
+          onNavigateQuote={navigateQuote}
+          focusTarget={quoteNavigation?.key === key ? quoteNavigation : null}
+          quoteFocus={quoteNavigation?.key === key ? quoteNavigation.source : null}
+          quoteDestinationFocus={quoteNavigation?.key === key ? quoteNavigation : null}
           onViewChange={handleSettings}
           onLoadInstructions={loadInstructionsFor}
           onSaveInstructions={saveInstructionsFor}
@@ -5254,13 +5360,21 @@ export default function App() {
             sendTo(ref, session.directory, input, { retainOnFailure: options?.retainOnFailure ?? true })
           }
           onQueue={(input) => queue.queueMessage(input, target)}
-          onSendQueued={(itemId) => queue.sendQueuedMessage(itemId, target)}
+          onSendQueued={async (itemId) => {
+            annotationQueueMutations.current.add(key);
+            try { return await queue.sendQueuedMessage(itemId, target); }
+            finally { annotationQueueMutations.current.delete(key); }
+          }}
           onMoveQueued={(itemId, direction) => queue.moveQueued(itemId, direction, target)}
           onRemoveQueued={(itemId) => queue.removeQueued(itemId, target)}
-          onReplaceQueued={(request) => queue.replaceQueued(request, target)}
+          onReplaceQueued={async (request) => {
+            annotationQueueMutations.current.add(key);
+            try { return await queue.replaceQueued(request, target); }
+            finally { annotationQueueMutations.current.delete(key); }
+          }}
           onRetryQueued={(itemId) => queue.retryQueued(itemId, target)}
           onDiscardQueued={(itemId) => queue.discardQueued(itemId, target)}
-          onReload={() => void handleReloadSession(session)}
+          onReload={() => handleReloadSession(session)}
           onAbort={() => void handleAbort(session)}
           onPermission={handlePermission}
           onQuestion={handleQuestion}
@@ -5669,6 +5783,10 @@ export default function App() {
                   onCreateAndSend={handleCreateAndSend}
                   onCancelNewSession={cancelNewAgent}
                   onSend={handleSend}
+                  quoteLinks={[]}
+                  onAnnotate={async () => false}
+                  onSaveAnnotationNote={async () => false}
+                  onNavigateQuote={() => {}}
                   onQueue={async () => false}
                   onSendQueued={async () => false}
                   onMoveQueued={async () => false}

@@ -290,9 +290,16 @@ export const parseColorAssignments = (value: unknown, colorCount = AVATAR_COLOR_
   );
 };
 
+export type StoredQuoteLink = {
+  id: string;
+  source: { sessionKey: string; spans: Array<{ messageId: string; partId: string; start: number; end: number; quote: string; text: string }>; quote: string };
+  destination: { kind: 'message' | 'queue' | 'note'; sessionKey: string; id: string };
+};
+
 export type StoredSessionNote = {
   id: string;
   text: string;
+  quoteLinkId?: string;
   /**
    * The model this note sends with, when one was chosen on the note itself (a `provider/model` key,
    * or `default` for "leave the choice to the host"). Absent means "the composer's model at send
@@ -304,6 +311,41 @@ export type StoredSessionNote = {
 };
 
 const MAX_SESSION_NOTES = 100;
+const MAX_QUOTE_LINKS = 5000;
+
+const toStoredQuoteLink = (raw: unknown): StoredQuoteLink | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.id !== 'string' || !/^[a-z0-9_-]{1,120}$/i.test(value.id)) return null;
+  const source = value.source && typeof value.source === 'object' ? value.source as Record<string, unknown> : null;
+  const destination = value.destination && typeof value.destination === 'object' ? value.destination as Record<string, unknown> : null;
+  if (!source || !destination || typeof source.sessionKey !== 'string' || !source.sessionKey || source.sessionKey.length > 500 || typeof source.quote !== 'string' || !source.quote.trim() || source.quote.length > 4000) return null;
+  const kind = destination.kind;
+  if (kind !== 'message' && kind !== 'queue' && kind !== 'note') return null;
+  if (typeof destination.sessionKey !== 'string' || !destination.sessionKey || destination.sessionKey.length > 500 || typeof destination.id !== 'string' || !destination.id || destination.id.length > 500 || !Array.isArray(source.spans) || source.spans.length < 1 || source.spans.length > 20) return null;
+  const spans = source.spans.flatMap((rawSpan) => {
+    if (!rawSpan || typeof rawSpan !== 'object') return [];
+    const span = rawSpan as Record<string, unknown>;
+    if (typeof span.messageId !== 'string' || !span.messageId || span.messageId.length > 500 || typeof span.partId !== 'string' || !span.partId || span.partId.length > 500 || typeof span.quote !== 'string' || !span.quote || span.quote.length > 4000 || typeof span.text !== 'string' || span.text.length > 20000 || !Number.isInteger(span.start) || !Number.isInteger(span.end) || Number(span.start) < 0 || Number(span.end) <= Number(span.start) || Number(span.end) > span.text.length || span.text.slice(Number(span.start), Number(span.end)) !== span.quote) return [];
+    return [{ messageId: span.messageId, partId: span.partId, quote: span.quote, text: span.text, start: Number(span.start), end: Number(span.end) }];
+  });
+  if (spans.length !== source.spans.length) return null;
+  return { id: value.id, source: { sessionKey: source.sessionKey, spans, quote: source.quote }, destination: { kind, sessionKey: destination.sessionKey, id: destination.id } };
+};
+
+export const parseQuoteLinks = (value: unknown): StoredQuoteLink[] => {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  let size = 0;
+  return value.slice(-MAX_QUOTE_LINKS).reverse().flatMap((entry) => {
+    const link = toStoredQuoteLink(entry);
+    if (!link || ids.has(link.id)) return [];
+    size += JSON.stringify(link).length;
+    if (size > 2_000_000) return [];
+    ids.add(link.id);
+    return [link];
+  }).reverse();
+};
 
 const toStoredSessionNote = (value: unknown, fallbackId: string): StoredSessionNote | null => {
   if (typeof value === 'string') {
@@ -325,7 +367,8 @@ const toStoredSessionNote = (value: unknown, fallbackId: string): StoredSessionN
   const variant = modelId && typeof entry.variant === 'string' && entry.variant.trim() && entry.variant.trim().length <= 40 && entry.variant !== 'default'
     ? entry.variant.trim()
     : undefined;
-  return { id, text, ...(modelId ? { modelId } : {}), ...(variant ? { variant } : {}) };
+  const quoteLinkId = typeof entry.quoteLinkId === 'string' && /^[a-z0-9_-]{1,120}$/i.test(entry.quoteLinkId) ? entry.quoteLinkId : undefined;
+  return { id, text, ...(modelId ? { modelId } : {}), ...(variant ? { variant } : {}), ...(quoteLinkId ? { quoteLinkId } : {}) };
 };
 
 /** Notes saved per session; a lone string (or legacy single-note map) becomes one entry. */
@@ -701,6 +744,7 @@ export type EmberSettings = {
   sessionGroups: SessionGroup[];
   instanceDefaults: Record<string, InstanceDefaults>;
   sessionNotes: Record<string, StoredSessionNote[]>;
+  quoteLinks: StoredQuoteLink[];
   /** Per-message read state by session key (`instance::session`); see `src/lib/readState.ts`. */
   readMarks: Record<string, StoredReadMark>;
   /** Epoch ms of the first launch that understood read marks; absent means it hasn't happened. */

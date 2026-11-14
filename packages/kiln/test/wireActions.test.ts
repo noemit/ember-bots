@@ -153,6 +153,56 @@ afterAll(async () => {
 });
 
 describe("submission actions", () => {
+  test("submission receipts expose canonical identities only within their conversation", async () => {
+    const owner = await createConversation("receipt owner");
+    const other = await createConversation("receipt other");
+    await holdBusy(owner);
+    const queued = await body(await submit(owner, { type: "input", content: "linked annotation", requestId: "annotation-receipt" }));
+    const path = "/conversations/" + owner + "/submissions/" + queued.submissionId;
+    const receipt = await api(path);
+    expect(receipt.status).toBe(200);
+    expect(await body(receipt)).toMatchObject({ submissionId: queued.submissionId, status: "queued" });
+    expect((await api("/conversations/" + other + "/submissions/" + queued.submissionId)).status).toBe(404);
+    const unauthenticated = await fetch(server.url + path);
+    expect(unauthenticated.status).toBe(401);
+    await settle(owner);
+    const placed = await body(await api(path));
+    expect(["placed", "done", "unanswered"]).toContain(placed.status);
+    expect(typeof placed.entry).toBe("number");
+  });
+
+  test("receipt correlation survives stop re-parking without matching duplicate text", async () => {
+    const owner = await createConversation("receipt stop");
+    await holdBusy(owner);
+    const first = await body(await submit(owner, { type: "input", content: "same annotation" }));
+    const second = await body(await submit(owner, { type: "input", content: "same annotation" }));
+    await api("/conversations/" + owner + "/abort", { method: "POST" });
+    await settle(owner);
+    const receipts = await Promise.all([first, second].map(async (original) => body(await api("/conversations/" + owner + "/submissions/" + original.submissionId))));
+    expect(receipts[0].submissionId).not.toBe(receipts[1].submissionId);
+    for (const [index, receipt] of receipts.entries()) {
+      expect(receipt.status).toBe("queued");
+      expect(receipt.submissionId).not.toBe([first, second][index].submissionId);
+    }
+  });
+
+  test("reordering preserves explicit submission lineage for repeated annotations", async () => {
+    const owner = await createConversation("receipt reorder");
+    await holdBusy(owner);
+    const first = await body(await submit(owner, { type: "input", content: "same annotation" }));
+    const second = await body(await submit(owner, { type: "input", content: "same annotation" }));
+    const reordered = await api("/conversations/" + owner + "/queue/order", { method: "PUT", body: JSON.stringify({ itemIds: [String(second.submissionId), String(first.submissionId)] }) });
+    expect(reordered.status).toBe(200);
+    const mutation = await body(reordered);
+    const firstReceipt = await body(await api("/conversations/" + owner + "/submissions/" + first.submissionId));
+    const secondReceipt = await body(await api("/conversations/" + owner + "/submissions/" + second.submissionId));
+    expect(String(firstReceipt.submissionId)).toBe(mutation.session.items[1].id);
+    expect(String(secondReceipt.submissionId)).toBe(mutation.session.items[0].id);
+    expect(mutation.replacements).toEqual({ [String(first.submissionId)]: String(firstReceipt.submissionId), [String(second.submissionId)]: String(secondReceipt.submissionId) });
+    await api("/conversations/" + owner + "/abort", { method: "POST" });
+    await settle(owner);
+  });
+
   test("an abort is scoped to the conversation in the path", async () => {
     const owner = await createConversation("abort owner");
     const other = await createConversation("abort other");
