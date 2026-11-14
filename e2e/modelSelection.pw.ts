@@ -72,7 +72,14 @@ for (const busy of [false, true]) {
     await page.locator('main').first().getByRole('button', { name: /Send note: Keep this draft/ }).click();
     await page.waitForTimeout(300);
     expect(await capturedSends(page)).toEqual([]);
-    await expect(page.locator('main').first().getByRole('button', { name: /Send note: Keep this draft/ })).toBeVisible();
+    if (busy) {
+      await expect(page.locator('main').first().getByRole('button', { name: /Send note: Keep this draft/ })).toBeVisible();
+    } else {
+      // An idle send retains a failed bubble rather than the note; neither path may lose the text.
+      const retained = page.locator('main').first().getByRole('article').filter({ hasText: 'Keep this draft until I choose a model' });
+      await expect(retained).toContainText('Not sent');
+      await expect(retained.getByRole('button', { name: 'Send again', exact: true })).toBeVisible();
+    }
     await page.getByRole('button', { name: 'Choose model' }).first().click();
     const picker = page.getByRole('dialog', { name: 'Choose a model' });
     await expect(picker.getByRole('button', { name: 'Done', exact: true })).toBeDisabled();
@@ -229,7 +236,7 @@ test('saving a note does not discard the explicit model selection', async ({ pag
   await expect(page.getByRole('button', { name: 'Choose model' }).first()).toContainText('GPT-5');
 });
 
-const defaultAction = 'Set this model as the instance default';
+const defaultAction = 'Set as default for this instance';
 const savedInstanceDefault = (page: Page) => page.evaluate(async () => {
   const model = (await window.ember.getSettings()).instanceDefaults.local?.model;
   return model && `${model.providerID}/${model.modelID}`;
@@ -239,6 +246,19 @@ const expectNoRowDefaultControls = async (page: Page) => {
   const rows = page.getByRole('dialog', { name: 'Choose a model' }).locator('[data-model-key]');
   await expect(rows.getByRole('button', { name: defaultAction, exact: true })).toHaveCount(0);
   await expect(rows.getByText('Instance Default', { exact: true })).toHaveCount(0);
+};
+
+const expectCompactUtility = async (action: ReturnType<Page['getByRole']>, heading: ReturnType<Page['getByTestId']>) => {
+  const button = await action.boundingBox();
+  const row = await heading.boundingBox();
+  expect(button).not.toBeNull();
+  expect(row).not.toBeNull();
+  // Utility, not a banner: compact and pulled to the heading's upper right.
+  expect(button!.width).toBeLessThan(160);
+  expect(button!.width).toBeLessThan(row!.width / 2);
+  expect(button!.x + button!.width).toBeLessThanOrEqual(row!.x + row!.width + 1);
+  expect(button!.x).toBeGreaterThan(row!.x + row!.width / 2);
+  expect(button!.y - row!.y).toBeLessThanOrEqual(12);
 };
 
 test('setting an instance default in Details targets the hovered model, not the selected model', async ({ page }, testInfo) => {
@@ -256,9 +276,20 @@ test('setting an instance default in Details targets the hovered model, not the 
   // Crossing out of the list must not reset inspection to the selected GPT-5.
   await details.getByRole('button', { name: defaultAction, exact: true }).hover();
   await expect(details).toContainText('Claude Opus');
+  await expectCompactUtility(details.getByRole('button', { name: defaultAction, exact: true }), details.getByTestId('model-details-heading'));
+  await expect(details.getByRole('button', { name: defaultAction, exact: true })).toHaveText('Set as default');
   await page.screenshot({ path: testInfo.outputPath('instance-default-action-desktop.png') });
-  await details.getByRole('button', { name: defaultAction, exact: true }).click();
+  const utility = details.getByRole('button', { name: defaultAction, exact: true });
+  await picker.getByRole('searchbox', { name: 'Search models' }).focus();
+  // Reach the utility through the dialog's normal keyboard order, then activate it.
+  for (let step = 0; step < 12 && !(await utility.evaluate((element) => element === document.activeElement)); step++) {
+    await page.keyboard.press('Tab');
+  }
+  await expect(utility).toBeFocused();
+  await expect(utility).toHaveAccessibleName(defaultAction);
+  await page.keyboard.press('Enter');
   await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
+  await expectCompactUtility(details.getByText('Instance Default', { exact: true }), details.getByTestId('model-details-heading'));
   await expect(details.getByRole('button', { name: defaultAction, exact: true })).toHaveCount(0);
   await expect(picker).toBeVisible();
   await expectNoRowDefaultControls(page);
@@ -277,6 +308,27 @@ test('setting an instance default in Details targets the hovered model, not the 
   await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
   await expectNoRowDefaultControls(page);
   expect(await capturedSends(page)).toEqual([]);
+});
+
+test('the compact utility stays at the heading’s upper right for a long name at a narrow window', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 700, height: 900 });
+  await page.getByRole('button', { name: 'Choose model' }).first().click();
+  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  await picker.getByRole('searchbox', { name: 'Search models' }).fill('Claude Opus');
+  await picker.locator('[data-model-key="anthropic/claude-opus"]').hover();
+  const details = picker.getByRole('region', { name: 'Model details', exact: true });
+  const heading = details.getByTestId('model-details-heading');
+  const action = details.getByRole('button', { name: defaultAction, exact: true });
+  await expectCompactUtility(action, heading);
+  // A long display name wraps in the identity column; it must not push the utility off the edge.
+  await details.locator('h3').evaluate((element) => {
+    element.textContent = 'Claude Opus Lab Preview with an unusually long model display name';
+  });
+  await expectCompactUtility(action, heading);
+  expect((await action.boundingBox())!.x + (await action.boundingBox())!.width)
+    .toBeLessThanOrEqual((await details.boundingBox())!.x + (await details.boundingBox())!.width);
+  await page.screenshot({ path: testInfo.outputPath('instance-default-utility-long-name-narrow.png') });
+  await expectNoRowDefaultControls(page);
 });
 
 test('the default sentinel exposes server default Details before any provider is expanded', async ({ page }) => {
@@ -330,9 +382,14 @@ test('mobile keeps the instance default action and status outside model rows whi
   await expect(footer).toContainText('Claude Opus');
   await expectNoRowDefaultControls(page);
   await expect(footer.getByRole('button', { name: defaultAction, exact: true })).toBeVisible();
+  const action = await footer.getByRole('button', { name: defaultAction, exact: true }).boundingBox();
+  const footerBox = await footer.boundingBox();
+  expect(action!.width).toBeLessThan(160);
+  expect(action!.x).toBeGreaterThan(footerBox!.x + footerBox!.width / 2);
   await page.screenshot({ path: testInfo.outputPath('instance-default-action-mobile.png') });
   await footer.getByRole('button', { name: defaultAction, exact: true }).click();
   await expect(footer.getByText('Instance Default', { exact: true })).toBeVisible();
+  expect((await footer.getByText('Instance Default', { exact: true }).boundingBox())!.x).toBeGreaterThan(footerBox!.x + footerBox!.width / 2);
   await expect(footer.getByRole('button', { name: defaultAction, exact: true })).toHaveCount(0);
   await expect(picker).toBeVisible();
   await expect.poll(() => savedInstanceDefault(page)).toBe('anthropic/claude-opus');

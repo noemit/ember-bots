@@ -107,14 +107,23 @@ const InstanceDefaultAction = ({ model, isDefault, onSetDefault }: {
   isDefault: boolean;
   onSetDefault?: (model: ModelOption) => void;
 }) => isDefault ? (
-  <span className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Used for new bots on this instance; existing conversations keep their model.">
-    <Check aria-hidden="true" className="size-3.5" />Instance Default
+  <span
+    className="flex flex-none items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground"
+    title="Used for new bots on this instance; existing conversations keep their model."
+  >
+    <Check aria-hidden="true" className="size-3" />Instance Default
   </span>
 ) : onSetDefault ? (
-  <Button type="button" size="sm" variant="outline" className="h-auto whitespace-normal text-left"
+  <Button
+    type="button"
+    size="xs"
+    variant="ghost"
+    className="h-6 flex-none gap-1 whitespace-nowrap px-2 text-[11px] text-muted-foreground hover:text-foreground"
+    aria-label="Set as default for this instance"
     title="Used for new bots on this instance; existing conversations keep their model."
-    onClick={() => onSetDefault(model)}>
-    Set this model as the instance default
+    onClick={() => onSetDefault(model)}
+  >
+    Set as default
   </Button>
 ) : null;
 
@@ -136,15 +145,16 @@ const Details = ({ model, instanceId, directory, isDefault, onSetDefault }: {
   return (
     <Card className="h-full border-l-0 rounded-none shadow-none">
       <CardContent className="flex h-full flex-col gap-4 p-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{details.providerName}</span>
-          <h3 className="text-[15px] font-semibold leading-tight">{details.name}</h3>
-          <code className="truncate text-[11px] text-muted-foreground" title={modelRefKey(model)}>
-            {model.modelID}
-          </code>
+        <div data-testid="model-details-heading" className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{details.providerName}</span>
+            <h3 className="break-words text-[15px] font-semibold leading-tight">{details.name}</h3>
+            <code className="truncate text-[11px] text-muted-foreground" title={modelRefKey(model)}>
+              {model.modelID}
+            </code>
+          </div>
+          <InstanceDefaultAction model={model} isDefault={isDefault} onSetDefault={onSetDefault} />
         </div>
-
-        <InstanceDefaultAction model={model} isDefault={isDefault} onSetDefault={onSetDefault} />
 
         {chips.length ? (
           <div className="flex flex-wrap gap-1">
@@ -433,8 +443,8 @@ export default function ModelPicker({
           </div>
         </div>
         {activeModel && (onSetInstanceDefault || activeKey === instanceDefaultModelId) ? (
-          <div role="region" aria-label="Model default" className="flex flex-none flex-col items-start gap-1.5 border-t px-3 py-2 sm:hidden">
-            <span className="max-w-full truncate text-xs font-medium">{activeModel.details.name}</span>
+          <div role="region" aria-label="Model default" className="flex flex-none items-center justify-between gap-3 border-t px-3 py-2 sm:hidden">
+            <span className="min-w-0 flex-1 truncate text-xs font-medium">{activeModel.details.name}</span>
             <InstanceDefaultAction model={activeModel} isDefault={activeKey === instanceDefaultModelId} onSetDefault={onSetInstanceDefault} />
           </div>
         ) : null}
