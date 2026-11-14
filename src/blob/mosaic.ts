@@ -1,9 +1,9 @@
-import { IDENTITY_COLORS, contrastRatio, ensureContrast, hexToOklch, oklchToHexColor, perceptualDistance } from './contrast';
+import { IDENTITY_COLORS, contrastRatio, hexToOklch, oklchToHexColor, perceptualDistance } from './contrast';
 import { hashString, mulberry32 } from './seed';
 import type { AvatarIdentity } from '../types';
 
-// One unit is one body pixel, including every eye and gaze frame. Every row is a solid run;
-// the notches, antennae and feet belong to the silhouette, not random pixel noise.
+// One unit is one body pixel, including every eye and gaze frame. Original run-based rows
+// retain their IDs and coordinates; appended masks allow notches and split tips.
 export const MOSAIC_SHAPES = [
   { name: 'tuft', rows: [[5,7],[4,8],[3,9],[2,9],[2,10],[1,10],[2,10],[2,10],[2,9],[3,9],[3,8],[3,7]] },
   { name: 'sprig', rows: [[3,4],[3,8],[2,9],[1,9],[2,9],[2,10],[1,10],[2,10],[2,9],[3,9],[3,8],[3,7]] },
@@ -11,17 +11,35 @@ export const MOSAIC_SHAPES = [
   { name: 'crown', rows: [[4,5],[3,9],[2,9],[2,9],[2,10],[1,10],[1,11],[2,10],[2,10],[2,9],[3,8],[3,7]] },
   { name: 'ribbon', rows: [[4,9],[3,9],[3,9],[1,9],[3,10],[3,11],[2,10],[2,9],[3,9],[3,8],[3,8],[3,7]] },
   { name: 'sail', rows: [[6,8],[4,9],[3,9],[2,10],[2,10],[2,10],[2,11],[2,10],[1,10],[2,9],[3,8],[3,6]] },
+  { name: 'arch', rows: ['..##....##..', '..###..###..', '.##########.', '.##########.', '.##########.', '.##########.', '.##########.', '.##########.', '..########..', '..########..', '...######...', '....####....'] },
+  { name: 'bell', rows: ['....####....', '...######...', '...######...', '..########..', '..########..', '..########..', '..########..', '..########..', '.##########.', '.##########.', '############', '..###..###..'] },
+  { name: 'star', rows: ['.....##.....', '.....##.....', '....####....', '##..####..##', '############', '.##########.', '..########..', '..########..', '..########..', '.####..####.', '.###....###.', '.##......##.'] },
+  { name: 'kite', rows: ['.....##.....', '....####....', '...######...', '..########..', '.##########.', '############', '############', '.##########.', '..########..', '...######...', '....####....', '.....##.....'] },
+  { name: 'lantern', rows: ['....####....', '....####....', '..########..', '.##########.', '.##########.', '.##########.', '.##########.', '.##########.', '.##########.', '..########..', '...######...', '....####....'] },
+  { name: 'puddle', rows: ['............', '............', '...#####....', '..########..', '.##########.', '############', '############', '############', '.##########.', '..########..', '..###..###..', '...##..##...'] },
 ] as const;
+
+/** Legacy seeds keep their original six-way draw, including persisted allocator seeds.
+ * Only newly created Mosaic assignments opt into the expanded pool. Explicit names always win. */
+export function mosaicSeedShapes(shapeSeed: string) {
+  return shapeSeed.startsWith('allocated:mosaic-v2:') ? MOSAIC_SHAPES : MOSAIC_SHAPES.slice(0, 6);
+}
 
 export function mosaicGeometry(identity: AvatarIdentity) {
   const rng = mulberry32(hashString(`mosaic:${identity.shapeSeed}`));
-  const shape = MOSAIC_SHAPES.find(s => s.name === identity.shapeName) ?? MOSAIC_SHAPES[Math.floor(rng() * MOSAIC_SHAPES.length)];
+  const choices = mosaicSeedShapes(identity.shapeSeed);
+  const shape = MOSAIC_SHAPES.find(s => s.name === identity.shapeName) ?? choices[Math.floor(rng() * choices.length)];
   const mirrored = rng() > 0.5;
   const diagonal = rng() > 0.5;
-  const cells = shape.rows.flatMap(([start, end], y) => Array.from({ length: end - start }, (_, i) => {
-    const x = mirrored ? 11 - (start + i) : start + i;
-    return { x, y: y + 1, band: diagonal ? (x + Math.floor(y / 2)) % 12 : x };
-  }));
+  const cells = shape.rows.flatMap((row, y) => {
+    const xs = typeof row === 'string'
+      ? Array.from(row).flatMap((value, x) => value === '#' ? [x] : [])
+      : Array.from({ length: row[1] - row[0] }, (_, i) => row[0] + i);
+    return xs.map(column => {
+      const x = mirrored ? 11 - column : column;
+      return { x, y: y + 1, band: diagonal ? (x + Math.floor(y / 2)) % 12 : x };
+    });
+  });
   const eyeY = 6;
   // Two three-cell X eyes need seven columns including their gap. Centre that span inside
   // the intersection of all three face rows, so narrow/mirrored bodies keep full-size pixels.
@@ -57,33 +75,15 @@ export function mosaicActivityPixels(cells: readonly { x: number; y: number }[])
   });
 }
 
-/** Largest OKLab step allowed between two orthogonally touching body tiles. */
-export const MOSAIC_MAX_NEIGHBOR_DELTA = .065;
-/** Stone's panel/elev/bg: the default only for server rendering, where no theme is applied. */
+/** Stone's panel/elev/bg: server-rendering fallback before a theme is applied. */
 const FALLBACK_SURFACES = ['#d9d9d5', '#d0d0cb', '#e5e5e3'];
 const HEX = /^#[0-9a-f]{6}$/i;
-const FIELD_CONTRAST = 1.6;
-
-/** Preserve a field colour's hue and chroma while lifting/darkening it only as far as the theme
- * requires. The generic ensureContrast can jump to an extreme (black is technically safe on a dark
- * surface), which would turn a generated tile into a flat dark patch. */
-function ensureFieldContrast(hex: string, surfaces: string[]): string {
-  if (surfaces.every(surface => contrastRatio(hex, surface) >= FIELD_CONTRAST)) return hex;
-  const [lightness, chroma, hue] = hexToOklch(hex);
-  const day = contrastRatio('#000000', surfaces[0]) > contrastRatio('#ffffff', surfaces[0]);
-  const direction = day ? -1 : 1;
-  for (let step = 1; step <= 48; step++) {
-    const candidate = oklchToHexColor(Math.max(.02, Math.min(.98, lightness + direction * step * .012)), chroma, hue);
-    if (surfaces.every(surface => contrastRatio(candidate, surface) >= FIELD_CONTRAST)) return candidate;
-  }
-  return ensureContrast(hex, surfaces);
-}
 type Position = { x: number; y: number };
 type ContrastResult = ReturnType<typeof neighborMetrics> & { colors: string[]; spatialScale: number; hueSpanDegrees: number };
 
 /**
- * Concrete colour behind `blobColor`'s `var(--blob-N)`. The smooth field has to work in OKLab and
- * clear contrast against the theme's real surfaces, neither of which can be done on a CSS variable.
+ * Concrete colour behind `blobColor`'s `var(--blob-N)`. Candidate A needs OKLCH coordinates and
+ * contrast against the theme's real surfaces, neither of which can be computed from a CSS variable.
  * A browser reads the applied theme; static rendering falls back to the unthemed palette entry.
  */
 export function mosaicBaseHex(identity: AvatarIdentity): string {
@@ -143,56 +143,31 @@ export function mosaicFieldMetrics(cells: readonly Position[], colors: readonly 
   return { ...neighborMetrics(colors, neighborPairs(cells)), gamutRange };
 }
 
-/**
- * A continuous diagonal colour field through the body's actual pixel coordinates. Neighbouring
- * tiles differ in both axes without checkerboard noise; hues travel broadly through intermediate
- * shades instead of changing at a band boundary. Chroma is preserved (with a floor for pale
- * identities) rather than averaged, and the FINAL hex lattice — after gamut mapping and contrast
- * correction — is measured against the neighbour cap. Zooming out the spatial field is the cost
- * of meeting a tighter cap; it never flattens pixels by copying or blending neighbours.
- */
+/** Approved Candidate A, copied from the prototype's aColors branch, not its midpoint.
+ * The resolved assigned colour anchors a coordinate-based ±45° hue field. There is no seeded
+ * colour replacement or neighbour-cap rescaling: the small per-tile shading is intentional. */
 export function mosaicField(
   base: string,
   cells: readonly Position[],
   seed: string,
   surfaces: string[],
-  maxDelta = MOSAIC_MAX_NEIGHBOR_DELTA,
 ): ContrastResult {
-  if (!Number.isFinite(maxDelta) || maxDelta < 0) throw new RangeError('Neighbor bound must be finite and nonnegative');
-  const [baseLightness, baseChroma, hue] = hexToOklch(base);
-  const chroma = Math.max(.14, baseChroma);
-  const rng = mulberry32(hashString(`mosaic-smooth:${seed}`));
-  const angle = .6 + rng() * .35;
-  const dx = Math.cos(angle) * (rng() > .5 ? 1 : -1);
-  const dy = Math.sin(angle);
-  const projections = cells.map(({ x, y }) => x * dx + y * dy);
-  const min = cells.length ? Math.min(...projections) : 0;
-  const max = cells.length ? Math.max(...projections) : 0;
-  const width = Math.max(1, max - min);
-  const center = (min + max) / 2;
-  const centerX = cells.length ? cells.reduce((sum, cell) => sum + cell.x, 0) / cells.length : 0;
-  const centerY = cells.length ? cells.reduce((sum, cell) => sum + cell.y, 0) / cells.length : 0;
-  const pairs = neighborPairs(cells);
-  const paint = (scale: number) => cells.map(({ x, y }, i) => {
-    const t = (projections[i] - center) / width;
-    const lightness = Math.max(.15, Math.min(.9, baseLightness + scale * .007 * ((x - centerX) * dy - (y - centerY) * dx)));
-    return ensureFieldContrast(oklchToHexColor(lightness, chroma, hue + t * 260 * scale), surfaces);
+  // Retain the call contract; Candidate A's pigment depends on body coordinates, not chat seed.
+  void seed;
+  const [L, C, H] = hexToOklch(base);
+  const colors = cells.map(({ x, y }) => {
+    const t = (x * .73 + y * .52 - 7.3) / 7.3;
+    const hue = H + 45 * Math.sign(t) * Math.min(1, Math.abs(t));
+    const shade = (6.5 - y) * .017 + (x - 5.5) * .004 + (((x * 13 + y * 7) % 5) - 2) * .003;
+    let light = Math.max(.2, Math.min(.9, L + shade));
+    const chroma = Math.max(.09, C) * (1 + (6 - y) * .01);
+    let hex = oklchToHexColor(light, chroma, hue);
+    const day = contrastRatio('#000000', surfaces[0]) > contrastRatio('#ffffff', surfaces[0]);
+    for (let i = 0; i < 60 && surfaces.some(surface => contrastRatio(hex, surface) < 1.6); i++) {
+      light = Math.max(.04, Math.min(.96, light + (day ? -.008 : .008)));
+      hex = oklchToHexColor(light, chroma, hue);
+    }
+    return hex;
   });
-  let spatialScale = 1;
-  let colors = paint(spatialScale);
-  let metrics = neighborMetrics(colors, pairs);
-  // Most fields need one correction. The proportional guess avoids the old .9 walk's 15+ repaints;
-  // final acceptance is always the measured hex field, not an assumed linear scale.
-  for (let attempt = 1; metrics.maxNeighbor > maxDelta && spatialScale > .001; attempt++) {
-    const ratio = Math.max(.05, (maxDelta * .97) / Math.max(metrics.maxNeighbor, 1e-6));
-    spatialScale = attempt > 8 ? spatialScale * .5 : Math.min(spatialScale, spatialScale * ratio);
-    colors = paint(spatialScale);
-    metrics = neighborMetrics(colors, pairs);
-  }
-  if (metrics.maxNeighbor > maxDelta) {
-    spatialScale = 0;
-    colors = paint(0);
-  }
-  // The renderer only needs the neighbour cap; whole-body gamut is a study/verification metric.
-  return { colors, ...neighborMetrics(colors, pairs), spatialScale, hueSpanDegrees: 260 * spatialScale };
+  return { colors, ...neighborMetrics(colors, neighborPairs(cells)), spatialScale: 1, hueSpanDegrees: 90 };
 }

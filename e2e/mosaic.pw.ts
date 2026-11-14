@@ -72,7 +72,7 @@ test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood'
   test.setTimeout(120_000);
   await page.goto('/blob-gallery.html');
   await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
-  for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'unread']) {
+  for (const mood of ['idle', 'busy', 'input', 'question', 'unread']) {
     const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).first();
     await blob.scrollIntoViewIfNeeded();
     const box = (await blob.boundingBox())!;
@@ -95,7 +95,7 @@ test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood'
     await page.mouse.move(1590, 0);
     await expect(blob).not.toHaveAttribute('data-pupil-tracking');
   }
-  for (const mood of ['unknown', 'error']) {
+  for (const mood of ['thinking', 'unknown', 'error']) {
     const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).first();
     // Move directly: hover's stability wait can chase a continuously wiggling error blob.
     await blob.evaluate(node => node.scrollIntoView({ block: 'center' }));

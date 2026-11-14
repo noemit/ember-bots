@@ -4,7 +4,7 @@ import { hashString, mulberry32 } from './seed';
 import { BUDDY_SHAPES } from './buddy';
 import { CRYSTAL_SHAPES } from './crystal';
 import { LAVA_SHAPES } from './lava';
-import { MOSAIC_SHAPES } from './mosaic';
+import { MOSAIC_SHAPES, mosaicSeedShapes } from './mosaic';
 import { effectiveBlobStyle, type ActiveBlobStyle } from './styles';
 
 /** Active means unarchived top-level bots, including idle bots, not hidden worker threads. */
@@ -18,8 +18,9 @@ const shapesFor = (style: ActiveBlobStyle): readonly { name: string }[] => ({
 /** Same archetype draws as the renderers, without generating their paths or textures. */
 export const identityShape = (requestedStyle: BlobStyle, identity: Pick<AvatarIdentity, 'shapeSeed' | 'shapeName' | 'style'>): string => {
   const style = effectiveBlobStyle(requestedStyle, identity);
-  const shapes = shapesFor(style);
-  if (shapes.some(shape => shape.name === identity.shapeName)) return identity.shapeName!;
+  const allShapes = shapesFor(style);
+  const shapes = style === 'mosaic' ? mosaicSeedShapes(identity.shapeSeed) : allShapes;
+  if (allShapes.some(shape => shape.name === identity.shapeName)) return identity.shapeName!;
   const seed = hashString(`${style}:${identity.shapeSeed}`);
   const rng = mulberry32(seed);
   if (style === 'buddy') rng();
@@ -72,8 +73,8 @@ export const allocateAvatar = (
   // Persist a seed, not a user override: changing styles still yields that style's own geometry.
   // Every renderer consumes its seed differently, so search for the selected archetype once.
   for (let attempt = 0; attempt < 4096; attempt++) {
-    const shapeSeed = `allocated:${key}:${attempt}`;
+    const shapeSeed = style === 'mosaic' ? `allocated:mosaic-v2:${key}:${attempt}` : `allocated:${key}:${attempt}`;
     if (identityShape(style, { shapeSeed }) === rankedShapes[0].name) return { colorIndex, shapeSeed };
   }
-  return { colorIndex, shapeSeed: `allocated:${key}` };
+  return { colorIndex, shapeSeed: style === 'mosaic' ? `allocated:mosaic-v2:${key}` : `allocated:${key}` };
 };
