@@ -1,8 +1,10 @@
 import type {} from '../src/types';
+import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
 import { _electron as electron, expect, test } from '@playwright/test';
-import { mkdtemp, mkdir, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
+import { createServer } from 'node:http';
 
 // Runs the app produced by electron-builder, including its own bundled Kiln.
 // Never substitutes a checkout binary: a wrong resource filename must fail this check.
@@ -19,18 +21,37 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
   const workspaceRoot = join(profile, 'workspace');
   await mkdir(join(workspaceRoot, 'Existing project'), { recursive: true });
   const workspace = await realpath(workspaceRoot);
-  const env = { ...process.env, EMBER_DATA_DIR: profile, OPENCHAMBER_DATA_DIR: join(profile, 'openchamber') };
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.EMBER_BUNDLED_HARNESS;
-  const app = await electron.launch({ executablePath: resolve(executable!), env });
+  const runtimeRequests: string[] = [];
+  const runtimes = createServer((request, response) => {
+    runtimeRequests.push(`${request.method} ${request.url}`);
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ models: [], data: [] }));
+  });
+  await new Promise<void>((done) => runtimes.listen(0, '127.0.0.1', done));
+  const address = runtimes.address();
+  if (!address || typeof address === 'string') throw new Error('No local-runtime fixture port');
+  const runtimeUrl = `http://127.0.0.1:${address.port}`;
+  const env: Record<string, string> = {
+    ...isolatedNativeEnvironment(profile), EMBER_DATA_DIR: profile,
+    EMBER_HOME: profile, HEARTH_HOME: profile, HEARTH_WORKSPACE: workspace,
+    APPDATA: join(profile, 'appdata'), LOCALAPPDATA: join(profile, 'localappdata'),
+    OLLAMA_HOST: runtimeUrl, LMSTUDIO_BASE_URL: runtimeUrl,
+  };
+  await mkdir(env.OPENCHAMBER_DATA_DIR, { recursive: true });
+  await mkdir(env.APPDATA, { recursive: true });
+  await mkdir(env.LOCALAPPDATA, { recursive: true });
+  // No user hosts or desktopLocalPort: the only endpoint is the bundled Kiln on a fresh port.
+  await writeFile(join(env.OPENCHAMBER_DATA_DIR, 'settings.json'), JSON.stringify({ desktopHosts: [] }));
+  let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
   let pid: number | undefined;
   try {
+    app = await electron.launch({ executablePath: resolve(executable!), env });
     const window = await app.firstWindow();
     await window.screenshot({ path: test.info().outputPath('packaged-first-window.png') });
     await expect(window.getByTestId('onboarding')).toBeVisible();
     await expect(window.getByRole('heading', { name: 'Setting up Ember Bots' })).toBeVisible();
+    await expect.poll(() => window.evaluate(async () => (await window.ember.getUpdateState!())?.phase)).toBe('disabled');
     const updateState = await window.evaluate(() => window.ember.getUpdateState!());
-    expect(updateState.phase).toBe('disabled');
     expect(updateState.supported).toBe(false);
     expect(updateState.currentVersion).toBe('1.23.0');
     const headingRow = window.getByRole('heading', { name: 'Setting up Ember Bots' }).locator('..');
@@ -43,18 +64,7 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     expect(response.ok).toBe(true);
     await window.getByRole('button', { name: /Where to run Kiln/ }).click();
     await expect(window.getByText('Kiln is running on this computer and Ember has its token.', { exact: true })).toBeVisible();
-    if (process.env.EMBER_VERIFY_OPENAI_LOGIN === '1') {
-      await window.getByRole('button', { name: /Choose an AI/ }).click();
-      await window.getByRole('button', { name: 'OpenAI (ChatGPT Plus/Pro)', exact: true }).click();
-      await expect(window.getByRole('button', { name: /Copy code/ })).toBeVisible({ timeout: 30000 });
-      await expect(window.getByRole('heading', { name: 'Sign in to OpenAI (ChatGPT Plus/Pro)', exact: true })).toBeVisible();
-      const link = window.getByRole('link', { name: 'Open auth.openai.com' });
-      await expect(link).toHaveAttribute('href', 'https://auth.openai.com/codex/device');
-      await window.screenshot({ path: test.info().outputPath('packaged-openai-signin.png') });
-      await window.getByRole('button', { name: 'Cancel', exact: true }).click();
-      const cancelled = await window.evaluate(() => window.ember.piRequest!<{ status: string }>('pi:local', '/providers/openai-codex/login'));
-      expect(cancelled.data.status).toBe('failed');
-    }
+    // Live sign-in is intentionally absent; the compiled OAuth fixture is tested separately.
 
     // ---- First bot: the workspace picker, and the Continue it unblocks ------------------------
     await window.getByRole('button', { name: /First bot/ }).click();
@@ -120,8 +130,18 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await expect(window.getByTestId('onboarding').getByRole('button', { name: /^Continue$/ })).toBeDisabled();
     await window.screenshot({ path: test.info().outputPath('packaged-setup-dark.png') });
   } finally {
-    await app.close();
-    if (pid) await expect.poll(() => { try { process.kill(pid!, 0); return true; } catch { return false; } }).toBe(false);
-    await rm(profile, { recursive: true, force: true });
+    try {
+      await app?.close();
+      if (pid) await expect.poll(() => { try { process.kill(pid!, 0); return true; } catch { return false; } }).toBe(false);
+    } finally {
+      runtimes.closeAllConnections();
+      await new Promise<void>((done) => runtimes.close(() => done()));
+      if (process.env.EMBER_PACKAGED_PROFILE_RECEIPT) {
+        await writeFile(process.env.EMBER_PACKAGED_PROFILE_RECEIPT, JSON.stringify({ profile, pid }));
+      }
+    }
+    expect(runtimeRequests.length).toBeGreaterThan(0);
+    expect(runtimeRequests.every((entry) => entry === 'GET /api/tags' || entry === 'GET /v1/models')).toBe(true);
+    if (!process.env.EMBER_PACKAGED_PROFILE_RECEIPT) await rm(profile, { recursive: true, force: true });
   }
 });

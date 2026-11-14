@@ -43,6 +43,9 @@ jobs:
         working-directory: product
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Build standalone Tinder and execute its codemode gate
+        run: bun run dist:cli
+        working-directory: product
       - run: bun test ./tests/packagedOAuth.test.ts ./tests/packagedCodemode.test.ts ./tests/cli.test.ts
         working-directory: product
       - name: Apply test-only overlay after product build
@@ -53,6 +56,9 @@ jobs:
         working-directory: product
         env:
           EMBER_PACKAGED_EXECUTABLE: release/win-unpacked/Ember.exe
+      - name: Verify disposable NSIS install, installed launch and uninstall
+        shell: pwsh
+        run: ./validation/scripts/windows-manual/install-test.ps1
       - name: Audit packaged metadata, architectures, CLI, checksums
         run: node validation/scripts/windows-manual/audit.cjs
       - name: Assert product checkout is unchanged
@@ -72,6 +78,7 @@ jobs:
             product/release/SHA256SUMS-windows.txt
             product/release/MANUAL-WINDOWS.txt
             product/release/manual-builder-config.json
+            product/release/installed-validation.txt
             product/test-results/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4

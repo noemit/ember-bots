@@ -6,4 +6,6 @@ const config = {...JSON.parse(fs.readFileSync(path.join(product, 'package.json')
 delete config.publish;
 config.publish = null;
 config.extraMetadata = {};
+// Silent installation must not auto-launch before the isolated test environment is applied.
+config.nsis = {...config.nsis, runAfterFinish: false, deleteAppDataOnUninstall: false};
 fs.writeFileSync(process.env.MANUAL_BUILDER_CONFIG, JSON.stringify(config, null, 2));
