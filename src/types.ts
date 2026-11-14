@@ -288,6 +288,8 @@ export type AvatarIdentity = {
   /** An explicit custom colour, stored as six-digit hex. */
   color?: string;
   shapeName?: string;
+  /** Optional pinned production Mosaic face; otherwise derived from the chat identity. */
+  faceId?: string;
 };
 
 export type ToolStatus = 'pending' | 'running' | 'completed' | 'error' | 'interrupted';

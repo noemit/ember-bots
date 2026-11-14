@@ -69,6 +69,7 @@ test('smooth Mosaic colours follow the theme and hold up at rail, 69 and 83px', 
 });
 
 test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood', async ({ page }) => {
+  test.setTimeout(120_000);
   await page.goto('/blob-gallery.html');
   await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
   for (const mood of ['idle', 'busy', 'thinking', 'input', 'question', 'unread']) {
@@ -96,7 +97,10 @@ test('Mosaic pointer gaze stays on whole body cells in every pupil-bearing mood'
   }
   for (const mood of ['unknown', 'error']) {
     const blob = page.locator(`[data-style="mosaic"][data-state="${mood}"] .blob`).first();
-    await blob.hover();
+    // Move directly: hover's stability wait can chase a continuously wiggling error blob.
+    await blob.evaluate(node => node.scrollIntoView({ block: 'center' }));
+    const box = (await blob.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(blob).not.toHaveAttribute('data-pupil-tracking');
   }
   await page.getByRole('region', { name: 'Mosaic states', exact: true }).screenshot({ path: '/tmp/ember-mosaic-pixel-large.png' });
