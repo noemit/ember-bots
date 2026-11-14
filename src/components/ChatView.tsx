@@ -1,3 +1,4 @@
+import { annotationDraftMemory, rememberAnnotationDraft, completeAnnotationDraft, type AnnotationDraft } from '../lib/annotationDraftMemory';
 import { isRemoteBrowser, isRemoteExpired, remoteAuxiliaryDrafts, setRemoteDraftBlocker } from '../lib/remoteLifecycle';
 import QuestionsShelf from './QuestionsShelf';
 import type { ProjectUsage } from '../lib/projectUsage';
@@ -1162,7 +1163,39 @@ function ChatView({
   const statusUnknown = Boolean(session) && state === 'unknown';
 
   const selectionComments = useSelectionComments({ regionRef: transcriptRef, hostRef: columnRef, enabled: Boolean(session), sessionKey: session ? makeSessionKey(session) : null, messages, hasDraft: Boolean(annotationDraft) });
+  const { clearDraft: clearAnnotationSource, restoreDraft: restoreAnnotationSource } = selectionComments;
   const annotationSource = selectionComments.anchor;
+  const annotationHasSource = Boolean(annotationSource?.quote.trim() && annotationSource.spans.length && session && annotationSource.sessionKey === makeSessionKey(session));
+  const annotationSourceValid = annotationHasSource && validateQuoteAnchor(annotationSource!, messages, session ? makeSessionKey(session) : undefined).valid;
+  const annotationReason = selectionComments.reason ?? (annotationHasSource && !annotationSourceValid
+    ? 'Ember cannot find the unchanged quoted passage. Copy your annotation text, then discard this draft and select the passage again.' : null);
+  const annotationMemoryRef = React.useRef<{ key: string | null; draft: AnnotationDraft | null }>({ key: null, draft: null });
+  const discardAnnotation = React.useCallback(() => {
+    rememberAnnotationDraft(composerKey, null);
+    annotationMemoryRef.current.draft = null;
+    annotationRequestId.current = null;
+    annotationDraftRef.current = '';
+    setAnnotationDraft('');
+    clearAnnotationSource();
+  }, [clearAnnotationSource, composerKey]);
+  const [annotationKey, setAnnotationKey] = React.useState<string | null>(null);
+  if (annotationKey === composerKey) annotationMemoryRef.current = {
+    key: composerKey,
+    draft: annotationHasSource && annotationDraft.trim() ? { text: annotationDraft, source: annotationSource!, requestId: annotationRequestId.current } : null,
+  };
+  React.useLayoutEffect(() => {
+    rememberAnnotationDraft(annotationMemoryRef.current.key, annotationMemoryRef.current.draft);
+    const saved = composerKey ? annotationDraftMemory.get(composerKey) : undefined;
+    annotationDraftRef.current = saved?.text ?? '';
+    annotationRequestId.current = saved?.requestId ?? null;
+    setAnnotationDraft(saved?.text ?? '');
+    setAnnotationBusy(false);
+    restoreAnnotationSource(saved?.source ?? null);
+    setAnnotationKey(composerKey);
+  }, [composerKey, restoreAnnotationSource]);
+  React.useLayoutEffect(() => () => {
+    rememberAnnotationDraft(annotationMemoryRef.current.key, annotationMemoryRef.current.draft);
+  }, []);
   React.useLayoutEffect(() => {
     setRemoteDraftBlocker(reloadBlockerKey, Boolean(text.length || attachments.length || replyContext || sideQuestionText.length || annotationDraft.length || annotationBusy));
     if (isRemoteBrowser()) {
@@ -1184,30 +1217,35 @@ function ChatView({
     mode: session?.agent,
     variant: variant || undefined,
   });
-  const sendAnnotation = async () => {
-    if (!annotationSource || !annotationDraft.trim() || annotationBusy || !session || loadedComposerKey !== composerKey || modelError) return;
-    const validation = validateQuoteAnchor(annotationSource, messages, makeSessionKey(session));
-    if (!validation.valid) { selectionComments.dismiss(); showNoteError('The quoted passage changed or is no longer available. Select the passage again before sending this annotation.'); return; }
+  const finishAnnotation = (key: string, submitted: AnnotationDraft) => {
+    if (!completeAnnotationDraft(key, submitted, annotationMemoryRef.current)) return;
+    annotationMemoryRef.current.draft = null;
+    annotationRequestId.current = null;
+    annotationDraftRef.current = '';
+    setAnnotationDraft('');
+    setAnnotationBusy(false);
+    clearAnnotationSource();
+  };
+  const submitAnnotation = async (asNote: boolean) => {
+    if (!annotationSource || !annotationDraft.trim() || annotationBusy || !session || !composerKey || loadedComposerKey !== composerKey || (!asNote && modelError)) return;
+    if (!validateQuoteAnchor(annotationSource, messages, makeSessionKey(session)).valid) return;
+    const key = composerKey;
+    const input = annotationInput(annotationDraft);
+    const submitted: AnnotationDraft = { text: annotationDraft, source: annotationSource, requestId: annotationRequestId.current };
+    // Publish the request identity synchronously, before switching can save this draft.
+    annotationMemoryRef.current = { key, draft: submitted };
     setAnnotationBusy(true);
     try {
-      const submittedText = annotationDraft;
-      const submittedSource = annotationSource;
-      const submittedRequestId = annotationRequestId.current ?? createQuoteLinkId();
-      annotationRequestId.current = submittedRequestId;
-      const accepted = await onAnnotate({ ...annotationInput(submittedText), requestId: submittedRequestId }, submittedSource);
-      if (accepted && annotationDraftRef.current === submittedText && selectionComments.anchor === submittedSource) { annotationRequestId.current = null; annotationDraftRef.current = ''; setAnnotationDraft(''); selectionComments.clearDraft(); }
-    } finally { setAnnotationBusy(false); }
+      const accepted = asNote
+        ? await onSaveAnnotationNote(input.text, submitted.source)
+        : await onAnnotate(input, submitted.source);
+      if (accepted) finishAnnotation(key, submitted);
+    } finally {
+      if (annotationMemoryRef.current.key === key && annotationRequestId.current === submitted.requestId) setAnnotationBusy(false);
+    }
   };
-  const saveAnnotationNote = async () => {
-    if (!annotationSource || !annotationDraft.trim() || annotationBusy || !session) return;
-    setAnnotationBusy(true);
-    try {
-      const submittedText = annotationDraft;
-      const submittedSource = annotationSource;
-      const saved = await onSaveAnnotationNote(annotationInput(submittedText).text, submittedSource);
-      if (saved && annotationDraftRef.current === submittedText && selectionComments.anchor === submittedSource) { annotationRequestId.current = null; annotationDraftRef.current = ''; setAnnotationDraft(''); selectionComments.clearDraft(); }
-    } finally { setAnnotationBusy(false); }
-  };
+  const sendAnnotation = () => submitAnnotation(false);
+  const saveAnnotationNote = () => submitAnnotation(true);
 
   const hideToolCalls = view.hideToolCalls;
   const reasoningDisplay = view.reasoningDisplay;
@@ -2044,12 +2082,12 @@ function ChatView({
         )}
       </AnimatePresence>
 
-      {annotationDraft && !selectionComments.visible ? <Button variant="outline" size="xs" data-annotation-composer="" onClick={selectionComments.resume}>Resume annotation for “{annotationSource?.quote.slice(0, 50)}”</Button> : null}
-      {selectionComments.position && selectionComments.visible ? (
+      {annotationKey === composerKey && annotationDraft.trim() && annotationHasSource && !selectionComments.visible ? <Button variant="outline" size="xs" data-annotation-composer="" onClick={selectionComments.resume}>{annotationSourceValid ? 'Resume annotation for' : 'Review annotation draft for'} “{annotationSource?.quote.slice(0, 50)}”</Button> : null}
+      {annotationKey === composerKey && selectionComments.position && selectionComments.visible ? (
         <SelectionCommentBar
           position={selectionComments.position}
           quote={selectionComments.quote}
-          reason={selectionComments.reason}
+          reason={annotationReason}
           draft={annotationDraft}
           focusEditor={selectionComments.focusEditor}
           busy={annotationBusy}
@@ -2058,6 +2096,7 @@ function ChatView({
           onSend={sendAnnotation}
           onNote={saveAnnotationNote}
           onDismiss={selectionComments.dismiss}
+          onDiscard={discardAnnotation}
         />
       ) : null}
       {composerKey ? (

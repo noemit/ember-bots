@@ -32,6 +32,9 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
     setPosition(null);
     window.getSelection()?.removeAllRanges();
   }, []);
+  const restoreDraft = React.useCallback((source: QuoteAnchor | null) => {
+    setAnchor(source); setQuote(source?.quote ?? ''); setReason(null); dismiss();
+  }, [dismiss]);
   const clearDraft = React.useCallback(() => {
     setAnchor(null); setQuote(''); setReason(null); dismiss();
   }, [dismiss]);
@@ -72,7 +75,7 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
       const rect = range.getBoundingClientRect();
       const hostRect = host.getBoundingClientRect();
       if (!rect.width && !rect.height) return;
-      const result = captureQuoteAnchor({ range, transcript: region, sessionKey, messages });
+      const result = captureQuoteAnchor({ range, selectedText: selection.toString(), transcript: region, sessionKey, messages });
       setAnchor(result.ok ? result.anchor : null);
       setQuote(result.ok ? result.anchor.quote : selection.toString().trim());
       setReason(result.ok ? null : result.reason === 'multi-message'
@@ -107,5 +110,5 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
     return () => { window.clearTimeout(timer); document.removeEventListener('pointerup', release); document.removeEventListener('pointercancel', cancel); document.removeEventListener('selectionchange', schedule); document.removeEventListener('keydown', shortcut); document.removeEventListener('pointerdown', outside); };
   }, [enabled, sessionKey, messages, regionRef, hostRef, dismiss, resume]);
 
-  return { position, visible: Boolean(position), focusEditor, anchor, quote, reason, dismiss, resume, clearDraft };
+  return { position, visible: Boolean(position), focusEditor, anchor, quote, reason, dismiss, resume, clearDraft, restoreDraft };
 }

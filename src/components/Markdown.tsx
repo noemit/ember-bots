@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import { tokenizeLinks } from './Linkify';
 import { useImageViewer, type ImageViewerApi } from './imageViewerContext';
 import CopyButton from './CopyButton';
+import { rehypeQuotePositions } from '../lib/quoteMarkdown';
+import { registerQuoteMarkdown } from '../lib/quoteDom';
 
 const SKIP_TAGS = new Set(['a', 'code', 'pre']);
 
@@ -15,7 +17,7 @@ const SKIP_TAGS = new Set(['a', 'code', 'pre']);
  * autolinks URLs, so this only needs to catch what Linkify would — paths — and leave
  * code and existing anchors alone.
  */
-const rehypeLinkPaths = () => (tree: Root) => {
+const rehypeLinkPaths = () => (tree: Root, file: { value: unknown }) => {
   const visit = (node: Root | Element) => {
     node.children = node.children.flatMap((child): RootContent[] => {
       if (child.type === 'element') {
@@ -25,16 +27,23 @@ const rehypeLinkPaths = () => (tree: Root) => {
       if (child.type !== 'text') return [child];
       const tokens = tokenizeLinks(child.value);
       if (tokens.every((token) => token.type === 'text')) return [child];
-      return tokens.map((token) =>
-        token.type === 'text'
-          ? { type: 'text', value: token.value }
+      if (child.position && String(file.value).slice(child.position.start.offset, child.position.end.offset) !== child.value) return [child];
+      let consumed = 0;
+      return tokens.map((token) => {
+        const originalStart = child.position?.start.offset;
+        const originalEnd = child.position?.end.offset;
+        const start = originalStart !== undefined && originalEnd !== undefined && String(file.value).slice(originalStart, originalEnd) === child.value ? originalStart : undefined;
+        const position = start === undefined ? undefined : { start: { line: 1, column: 1, offset: start + consumed }, end: { line: 1, column: 1, offset: start + consumed + token.value.length } };
+        consumed += token.value.length;
+        return token.type === 'text'
+          ? { type: 'text', value: token.value, position }
           : {
               type: 'element',
               tagName: 'a',
               properties: { href: token.value },
-              children: [{ type: 'text', value: token.value }],
-            }
-      );
+              children: [{ type: 'text', value: token.value, position }],
+            };
+      });
     });
   };
   visit(tree);
@@ -131,7 +140,7 @@ const buildComponents = (viewer: ImageViewerApi | null, openThread: ThreadLinks 
 });
 
 const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeLinkPaths];
+const rehypePlugins = [rehypeLinkPaths, rehypeQuotePositions];
 
 type Props = {
   text: string;
@@ -145,6 +154,8 @@ function Markdown({ text, className }: Props) {
   const components = React.useMemo(() => buildComponents(viewer, openThread), [viewer, openThread]);
   return (
     <div
+      data-quote-markdown=""
+      ref={React.useCallback((element: HTMLDivElement | null) => { if (element) registerQuoteMarkdown(element, text); }, [text])}
       className={cn(
         'break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
         '[&_p]:my-1.5 [&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5',

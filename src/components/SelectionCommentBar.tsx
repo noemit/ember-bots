@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ArrowUp, Loader2, NotebookPen, X } from 'lucide-react';
 import type { CommentBarPosition } from '@/hooks/useSelectionComments';
 import { shortenQuote } from '@/lib/comments';
 import { Button } from '@/components/ui/button';
@@ -16,10 +17,11 @@ type Props = {
   onSend: () => void;
   onNote: () => void;
   onDismiss: () => void;
+  onDiscard: () => void;
 };
 
 /** Floating annotation composer. Its draft belongs to ChatView, so hiding it never discards text. */
-export default function SelectionCommentBar({ position, quote, reason, draft, focusEditor, busy, queueing, onDraftChange, onSend, onNote, onDismiss }: Props) {
+export default function SelectionCommentBar({ position, quote, reason, draft, focusEditor, busy, queueing, onDraftChange, onSend, onNote, onDismiss, onDiscard }: Props) {
   const input = React.useRef<HTMLTextAreaElement>(null);
   const group = React.useRef<HTMLDivElement>(null);
   const preview = shortenQuote(quote, 100);
@@ -32,21 +34,24 @@ export default function SelectionCommentBar({ position, quote, reason, draft, fo
       data-annotation-composer=""
       aria-label="Annotate selected text"
       style={{ left: position.left, top: position.top }}
-      className="absolute z-30 flex w-[min(360px,calc(100%-16px))] items-end gap-2 rounded-lg border bg-popover/95 p-2 shadow-lg backdrop-blur-sm"
+      className="absolute z-30 flex w-[min(360px,calc(100%-16px))] flex-col gap-2 rounded-lg border bg-popover/40 p-2 shadow-lg backdrop-blur-sm"
       onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); onDismiss(); } }}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="max-w-full truncate text-[11px] text-muted-foreground" title={quote}>“{preview}”</span>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={quote}>“{preview}”</span>
+          <Button type="button" size="icon-sm" variant="ghost" className="size-11 flex-none rounded-full text-muted-foreground" disabled={busy} onClick={onDismiss} aria-label="Close annotation editor" title={draft.trim() ? 'Close annotation editor — keep this draft' : 'Close annotation editor'}><X /></Button>
+        </div>
         {reason ? <span className="text-[11px] text-destructive" role="status">{reason}</span> : null}
         <AutoResizeTextarea
           ref={input}
-          disabled={busy}
+          disabled={busy || (Boolean(reason) && !draft)}
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
-              if (draft.trim()) onSend();
+              if (draft.trim() && !reason) onSend();
             }
           }}
           placeholder="Add an annotation"
@@ -58,12 +63,14 @@ export default function SelectionCommentBar({ position, quote, reason, draft, fo
         />
         <span className="sr-only" aria-live="polite">{busy ? 'Saving annotation' : ''}</span>
       </div>
-      <div className="flex flex-none flex-col gap-1">
-        <Button type="button" size="xs" variant="secondary" disabled={!draft.trim() || busy || Boolean(reason)} onMouseDown={keepSelection} onClick={onSend} aria-label={queueing ? 'Queue annotation with quote' : 'Send annotation with quote'}>
-          {queueing ? 'Queue' : 'Send'}
+      <div className="flex flex-none items-center justify-end gap-1">
+        {draft ? <Button type="button" size="xs" variant="ghost" className="mr-auto min-h-11 min-w-11" disabled={busy} onClick={onDiscard} aria-label="Discard annotation draft" title="Discard only this annotation draft">Discard</Button> : null}
+        <Button type="button" size="icon-sm" variant="ghost" className="size-11 flex-none rounded-full text-muted-foreground" disabled={!draft.trim() || busy || Boolean(reason)} onMouseDown={keepSelection} onClick={onNote} aria-label="Save annotation with quote as a note" title="Save annotation with quote as a note">
+          <NotebookPen className="size-3.5" />
         </Button>
-        <Button type="button" size="xs" variant="ghost" disabled={busy} onClick={onDismiss} aria-label="Hide annotation draft">Hide</Button>
-        <Button type="button" size="xs" variant="ghost" disabled={!draft.trim() || busy || Boolean(reason)} onMouseDown={keepSelection} onClick={onNote} aria-label="Save annotation with quote as a note">Note</Button>
+        <Button type="button" size="icon-sm" className="size-11 flex-none rounded-full disabled:bg-muted disabled:text-muted-foreground" disabled={!draft.trim() || busy || Boolean(reason)} onMouseDown={keepSelection} onClick={onSend} aria-label={queueing ? 'Queue annotation with quote' : 'Send annotation with quote'} title={queueing ? 'Queue annotation with quote' : 'Send annotation with quote'}>
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp />}
+        </Button>
       </div>
     </div>
   );

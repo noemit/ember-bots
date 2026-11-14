@@ -1,3 +1,4 @@
+import { quoteBoundary, quoteRangeSupported, quoteTextRuns, trimQuoteRange } from './quoteDom';
 import { randomId } from './randomId';
 import { type ChatMessage, type MessagePart, type QuoteAnchor, type QuoteSpan, sessionKey as makeSessionKey } from '../types';
 
@@ -51,12 +52,16 @@ const closestElement = (node: Node): Element | null => node instanceof Element ?
  */
 export const captureQuoteAnchor = (input: {
   range: Range;
+  /** Native Selection text preserves rendered line breaks/collapsed whitespace; never used for offsets. */
+  selectedText?: string;
   transcript: Element;
   sessionKey: string;
   messages: readonly ChatMessage[];
 }): QuoteAnchorResult => {
-  const { range, transcript, sessionKey, messages } = input;
-  if (!transcript.contains(range.commonAncestorContainer)) return { ok: false, reason: 'outside-transcript' };
+  const { transcript, sessionKey, messages } = input;
+  if (!transcript.contains(input.range.commonAncestorContainer)) return { ok: false, reason: 'outside-transcript' };
+  const range = trimQuoteRange(input.range);
+  if (!range) return { ok: false, reason: 'empty-selection' };
   const startPart = closestElement(range.startContainer)?.closest('[data-quote-part-id]');
   const endPart = closestElement(range.endContainer)?.closest('[data-quote-part-id]');
   const startMessage = closestElement(range.startContainer)?.closest('[data-message-id]');
@@ -78,31 +83,18 @@ export const captureQuoteAnchor = (input: {
   const message = messages.find((entry) => entry.id === messageId);
   const part = message && textPart(message, partId);
   if (!message || !part || (part.type !== 'text' && part.type !== 'reasoning')) return { ok: false, reason: 'unsupported-content' };
-  const walker = transcript.ownerDocument.createTreeWalker(startPart, NodeFilter.SHOW_TEXT);
-  let node: Node | null;
-  let sourceText = '';
-  let start = -1;
-  let end = -1;
-  while ((node = walker.nextNode())) {
-    const textNode = node as Text;
-    const offset = sourceText.length;
-    if (textNode === range.startContainer) start = offset + range.startOffset;
-    if (textNode === range.endContainer) end = offset + range.endOffset;
-    sourceText += textNode.data;
-  }
-  if (start < 0 || end <= start || end > sourceText.length) return { ok: false, reason: 'invalid-range' };
-  const quote = sourceText.slice(start, end);
-  if (!normaliseSelection(quote)) return { ok: false, reason: 'empty-selection' };
+  if (!quoteRangeSupported(startPart, input.range)) return { ok: false, reason: 'unsupported-content' };
+  const runs = quoteTextRuns(startPart, part.text);
+  if (!runs) return { ok: false, reason: 'invalid-range' };
+  const start = quoteBoundary(runs, range.startContainer, range.startOffset);
+  const end = quoteBoundary(runs, range.endContainer, range.endOffset);
+  if (start === null || end === null || end <= start || end > part.text.length) return { ok: false, reason: 'invalid-range' };
+  const quote = part.text.slice(start, end);
+  const selected = normaliseSelection(input.selectedText ?? range.toString());
+  if (!selected) return { ok: false, reason: 'empty-selection' };
   if (part.text.length > MAX_QUOTE_SOURCE_LENGTH || quote.length > MAX_QUOTE_SELECTION_LENGTH) return { ok: false, reason: 'source-too-long' };
-  // Rendered Markdown omits delimiters. A unique exact canonical substring is proof; repeated
-  // text without a lossless offset projection is ambiguous and is deliberately refused.
-  if (sourceText !== part.text) {
-    const matches = occurrencesOf(part.text, quote);
-    if (matches.length !== 1) return { ok: false, reason: 'invalid-range' };
-    start = matches[0]; end = start + quote.length;
-  }
   const span: QuoteSpan = { messageId, partId, start, end, quote, text: part.text };
-  return { ok: true, anchor: { sessionKey, spans: [span], quote: normaliseSelection(quote) } };
+  return { ok: true, anchor: { sessionKey, spans: [span], quote: selected } };
 };
 
 /** Validate stable offsets against the exact current source. Changed or missing text never relocates. */

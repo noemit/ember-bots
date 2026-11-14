@@ -1481,7 +1481,7 @@ const renderBlock = (
       ) : block.type === 'ask' ? (
         <AskRecord call={block.call} />
       ) : block.type === 'reasoning' ? (
-        <div data-quote-part-id={block.id} className="whitespace-pre-wrap break-words">
+        <div className="whitespace-pre-wrap break-words">
           <ReasoningRow
             storageKey={`reasoning:${message.id}:${block.id}`}
             partId={block.id}

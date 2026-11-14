@@ -34,7 +34,7 @@ test('annotation draft hides and resumes without consuming the main draft; Note 
   await expect(bar).toBeVisible();
   await bar.getByRole('textbox').fill('Keep this annotation');
   await page.screenshot({ path: test.info().outputPath('annotation-composer.png') });
-  await bar.getByRole('button', { name: 'Hide annotation draft' }).click();
+  await bar.getByRole('button', { name: 'Close annotation editor' }).click();
   await expect(bar).toHaveCount(0);
   await expect(main).toHaveValue('Keep my main draft');
   await column.getByRole('button', { name: /Resume annotation/ }).click();
@@ -108,7 +108,7 @@ test('cross-message selection is refused accessibly instead of linked approximat
   });
   const bar = column.getByRole('group', { name: 'Annotate selected text' });
   await expect(bar.getByRole('status').first()).toContainText(/one message|exact passage/);
-  await bar.getByRole('textbox').fill('Do not guess');
+  await expect(bar.getByRole('textbox')).toBeDisabled();
   await expect(bar.getByRole('button', { name: /Send annotation with quote/ })).toBeDisabled();
   expect((await settings(page)).quoteLinks).toEqual([]);
 });
@@ -363,7 +363,9 @@ test('annotation shortcut before the selection debounce opens and focuses immedi
   const before = (await settings(page)).readMarks;
   await page.evaluate(() => {
     const part = document.querySelector('main[data-session-key="pi:hearth::10"] [data-message-id="e2"] [data-quote-part-id="e2-1"]')!;
-    const node = part.querySelector('p')!.firstChild!;
+    const walker = document.createTreeWalker(part.querySelector('p')!, NodeFilter.SHOW_TEXT);
+    walker.nextNode();
+    const node = walker.currentNode;
     const start = node.textContent!.indexOf('step counter shows');
     const range = document.createRange(); range.setStart(node, start); range.setEnd(node, start + 'step counter shows'.length);
     window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range);
@@ -383,7 +385,7 @@ test('a held-pointer shortcut defers resuming an existing annotation until relea
   await select(page);
   const bar = column.getByRole('group', { name: 'Annotate selected text' });
   await bar.getByRole('textbox').fill('Retain this annotation and its source');
-  await bar.getByRole('button', { name: 'Hide annotation draft' }).click();
+  await bar.getByRole('button', { name: 'Close annotation editor' }).click();
   const box = await column.locator('[data-message-id="e2"] p').boundingBox();
   if (!box) throw new Error('Source prose is not laid out');
   await page.mouse.move(box.x + 2, box.y + box.height / 2);
@@ -398,4 +400,89 @@ test('a held-pointer shortcut defers resuming an existing annotation until relea
   await expect(bar.getByRole('textbox')).toHaveValue('Retain this annotation and its source');
   await expect(bar.getByRole('textbox')).toHaveAttribute('aria-label', /step counter shows/);
   expect((await settings(page)).readMarks).toEqual(before);
+});
+
+test('doubleclick repeated Markdown word saves and reveals the exact occurrence after reload', async ({ page }) => {
+  const column = await open(page);
+  await column.getByRole('textbox', { name: 'Message your bot', exact: true }).fill('Untouched composer');
+  const point = await column.locator('[data-message-id="e2"] [data-quote-part-id="e2-1"]').evaluate((part) => {
+    const walker = document.createTreeWalker(part, NodeFilter.SHOW_TEXT);
+    let target: Text | null = null;
+    while (walker.nextNode()) if (walker.currentNode.textContent?.includes('last step')) target = walker.currentNode as Text;
+    if (!target) throw new Error('last step missing');
+    const start = target.data.lastIndexOf('step');
+    const range = document.createRange(); range.setStart(target, start); range.setEnd(target, start + 4);
+    const rect = range.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  });
+  await page.mouse.dblclick(point.x, point.y);
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('step');
+  const bar = column.getByRole('group', { name: 'Annotate selected text' });
+  await expect(bar).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('doubleclick-repeated-word.png') });
+  await expect(bar).not.toContainText('cannot link');
+  await bar.getByRole('textbox').fill('The final step');
+  await bar.getByRole('button', { name: 'Save annotation with quote as a note' }).click();
+  const link = (await settings(page)).quoteLinks[0];
+  expect(link.source.spans[0].start).toBe(link.source.spans[0].text.lastIndexOf('step'));
+  await expect(column.getByRole('textbox', { name: 'Message your bot', exact: true })).toHaveValue('Untouched composer');
+  await page.reload();
+  await page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ }).click();
+  await column.getByRole('button', { name: /Open linked note:/ }).click();
+  await page.getByRole('dialog', { name: 'Note for later' }).getByRole('button', { name: /Open quoted source:/ }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const ranges = [...(CSS.highlights.get('ember-quote') ?? [])] as Range[];
+    return ranges.map(range => ({ text: range.toString(), node: range.startContainer.textContent, start: range.startOffset }));
+  })).toEqual([{ text: 'step', node: ' on the last step.', start: 13 }]);
+  const main = column.getByRole('textbox', { name: 'Message your bot', exact: true });
+  await main.fill('Keep composer while editing note');
+  await column.getByRole('button', { name: /Open linked note:/ }).click();
+  const note = page.getByRole('dialog', { name: 'Note for later' });
+  await note.getByRole('textbox').fill('Edited thought about the final step');
+  await note.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await settings(page)).quoteLinks[0].source).toEqual(link.source);
+  await column.getByRole('button', { name: /Open linked note:/ }).click();
+  await note.getByRole('button', { name: 'Send it now', exact: true }).click();
+  await expect.poll(async () => (await settings(page)).quoteLinks[0]?.destination.kind).toBe('message');
+  const sent = (await settings(page)).quoteLinks[0];
+  expect(sent.source).toEqual(link.source);
+  await column.locator('[data-message-id="' + sent.destination.id + '"]').getByRole('button', { name: /Open quoted source:/ }).click();
+  await expect.poll(() => page.evaluate(() => [...(CSS.highlights.get('ember-quote') ?? [])].map(range => (range as Range).startOffset))).toEqual([13]);
+  await expect(main).toHaveValue('Keep composer while editing note');
+});
+
+test('native tripleclick Markdown paragraph sends an exact source link without consuming the composer', async ({ page }) => {
+  const column = await open(page);
+  const main = column.getByRole('textbox', { name: 'Message your bot', exact: true });
+  await main.fill('Keep main draft');
+  await column.locator('[data-message-id="e2"] p').click({ position: { x: 80, y: 8 }, clickCount: 3 });
+  const bar = column.getByRole('group', { name: 'Annotate selected text' });
+  await expect(bar).toBeVisible();
+  await expect(bar).not.toContainText('cannot link');
+  await bar.getByRole('textbox').fill('Review this whole paragraph');
+  await bar.getByRole('button', { name: 'Send annotation with quote' }).click();
+  await expect(bar).toHaveCount(0);
+  const link = (await settings(page)).quoteLinks[0];
+  expect(link.source.quote).toBe('Found a regression: the step counter shows 3/2 on the last step.');
+  expect(link.source.spans[0].quote).toBe('Found a regression: the step counter shows **3/2** on the last step.');
+  await column.locator('[data-message-id="' + link.destination.id + '"]').getByRole('button', { name: /Open quoted source:/ }).click();
+  await expect.poll(() => page.evaluate(() => [...(CSS.highlights.get('ember-quote') ?? [])].map(range => (range as Range).toString()))).toEqual([link.source.quote]);
+  await expect(main).toHaveValue('Keep main draft');
+});
+
+test('settled reasoning is selectable and returns to its exact source without including the toggle', async ({ page }) => {
+  const column = await open(page);
+  await column.locator('[data-message-id="e2"]').getByRole('button', { name: /Thinking/ }).click();
+  const part = column.locator('[data-message-id="e2"] [data-quote-part-id="e2-0"]');
+  await expect(part).toHaveCount(1);
+  await part.locator('p').click({ position: { x: 70, y: 8 }, clickCount: 3 });
+  const bar = column.getByRole('group', { name: 'Annotate selected text' });
+  await expect(bar).not.toContainText('cannot link');
+  await bar.getByRole('textbox').fill('Keep this reasoning');
+  await bar.getByRole('button', { name: 'Save annotation with quote as a note' }).click();
+  const link = (await settings(page)).quoteLinks[0];
+  expect(link.source.quote).toBe('A checklist regression, most likely in the progress math.');
+  await column.getByRole('button', { name: /Open linked note:/ }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /Open quoted source:/ }).click();
+  await expect.poll(() => page.evaluate(() => [...(CSS.highlights.get('ember-quote') ?? [])].map(range => (range as Range).toString()))).toEqual([link.source.quote]);
 });
