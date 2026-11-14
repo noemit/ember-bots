@@ -2591,3 +2591,39 @@ test('alignment previews contain no secrets and imports are fill-only and merge 
     await api('/directory/peers', { method: 'PUT', body: JSON.stringify({ peers: [] }) });
   }
 });
+
+test('alignment routes require authentication and explicit OAuth review without provider requests', async () => {
+  const refresh = stack.models.refresh;
+  let providerRequests = 0;
+  stack.models.refresh = async () => { providerRequests++; throw new Error('Provider requests must not run during alignment'); };
+  try {
+  for (const [path, method] of [['/alignment', 'GET'], ['/alignment/connections', 'POST'], ['/alignment/import', 'POST'], ['/alignment/share', 'POST']]) {
+    const denied = await fetch(stack.server.url + path, { method, body: method === 'POST' ? '{}' : undefined });
+    expect(denied.status).toBe(401);
+  }
+  const peer = { id: 'reviewed-destination', label: 'Reviewed destination', url: 'https://destination.example', token: 'fake-destination-token' };
+  const noReview = await api('/alignment/share', { method: 'POST', body: JSON.stringify({ targets: [peer] }) });
+  expect(noReview.status).toBe(400);
+  const customBypass = await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [], keys: [{ providerId: 'custom-fake', key: 'fake-private-key' }] }) });
+  expect(customBypass.status).toBe(400);
+  for (const keys of [null, {}, 'fake-private-key', 5]) {
+    expect((await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [], keys }) })).status).toBe(400);
+  }
+  const credential = { type: 'oauth', access: 'fake-private-access', refresh: 'fake-private-refresh', expires: 1, accountId: 'fake-account', extra: { keep: true } };
+  const item = { providerId: 'openai-codex', credential };
+  const unreviewed = await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [], credentials: [item] }) });
+  expect(unreviewed.status).toBe(400);
+  const imported = await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [], credentials: [{ ...item, experimental: true }] }) });
+  expect(imported.status).toBe(200);
+  expect(await body(imported)).toMatchObject({ keys: 1 });
+  const metadata = await (await api('/alignment')).text();
+  expect(metadata).toContain('openai-codex');
+  for (const secret of ['fake-private-access', 'fake-private-refresh', 'fake-destination-token', 'fake-private-key']) expect(metadata).not.toContain(secret);
+  const invalidShare = await api('/alignment/share', { method: 'POST', body: JSON.stringify({ targets: [{ ...peer, providers: [{ providerId: 'openai-codex', type: 'oauth' }] }] }) });
+  expect(invalidShare.status).toBe(400);
+  const failure = await invalidShare.text();
+  expect(failure).not.toContain('fake-private');
+  expect(providerRequests).toBe(0);
+  } finally { stack.models.refresh = refresh; }
+  await api('/providers/openai-codex', { method: 'DELETE' });
+});

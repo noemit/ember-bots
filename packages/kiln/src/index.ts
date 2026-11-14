@@ -222,6 +222,7 @@ export const runKiln = async (): Promise<void> => {
     // "LM Studio is not answering", and neither is a missing credential.
     localRuntimes,
     customProviders,
+    alignmentConfig: customProviders,
   });
   server = started;
 

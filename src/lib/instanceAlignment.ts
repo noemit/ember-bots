@@ -9,8 +9,13 @@ export const portableConnection = (endpoint: PiEndpoint): boolean => {
     const u = new URL(endpoint.url);
     const host = u.hostname.toLowerCase();
     if (host === 'localhost' || host.endsWith('.localhost') || host.startsWith('127.') || ['0.0.0.0', '[::]', '[::1]'].includes(host)) return false;
+    const octets = host.split('.');
+    const ipv4 = octets.length === 4 && octets.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+    const [a, b] = octets.map(Number);
+    const privateIp = ipv4 && (a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127));
+    const tailscaleHost = host.endsWith('.ts.net') && host.length > '.ts.net'.length;
     return Boolean(endpoint.token) && !u.username && !u.password && !u.search && !u.hash &&
-      (u.protocol === 'https:' || (u.protocol === 'http:' && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(host)) || (u.protocol === 'http:' && host.endsWith('.ts.net')));
+      (u.protocol === 'https:' || (u.protocol === 'http:' && (privateIp || tailscaleHost)));
   } catch { return false; }
 };
 

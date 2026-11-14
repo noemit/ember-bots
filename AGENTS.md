@@ -986,13 +986,18 @@ live in `docs/usage.md`, `docs/instances.md` and `docs/development.md`.
 
 ## Instance alignment
 
-`InstanceAlignment.tsx` owns the explicit Settings → Instances review/apply flow. Alignment is
-one-time and fill-only: imported connections preserve existing URLs/tokens; optional provider
-sharing chooses one source and never copies OAuth or environment-only credentials. New Kiln
-`/alignment` routes require the normal bearer authentication. GET previews contain metadata only;
+`InstanceAlignment.tsx` owns the explicit Settings → Instances connection review/apply flow.
+`ProviderSharing.tsx` shares the reviewed provider flow with Settings → Providers. Alignment is
+one-time and fill-only: imported connections preserve existing URLs/tokens; provider sharing chooses
+one source and explicit provider/destination pairs. Stored API keys are supported; Codex and
+Antigravity OAuth copying requires an experimental acknowledgement because independent hosts cannot
+coordinate refresh-token rotation. Other OAuth and environment-only credentials are not exported.
+Kiln `/alignment` routes require normal bearer authentication. GET previews contain metadata only;
 POST `/alignment/connections` exports portable peer credentials to the desktop, while `/share`
-sends stored API keys directly to reviewed destinations. The remote browser proxy blocks all
-alignment routes. `alignment.ts` owns validation, peer merging and atomic missing-key imports.
+sends only selected credentials directly to reviewed destinations. The remote browser proxy blocks
+all alignment routes. `alignment.ts` owns validation, peer merging and atomic missing-credential
+imports; custom keys require reviewed exact configuration bindings and the custom-provider owner's
+serialized read/import hooks, never raw unbound writes. Provider imports do not change model defaults.
 Do not restore destructive peer-list replacement in Ember's automatic push: it sends `merge: true`
 so one Ember setup cannot erase peers learned from another. Plain public HTTP and loopback URLs
 are excluded from explicit sharing; HTTPS/private-network reachability remains the user's choice.

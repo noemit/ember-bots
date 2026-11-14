@@ -159,9 +159,12 @@ test('proxies piRequest, eventStatus, and activity endpoints', async () => {
     expect(piData.ok).toBe(true);
     expect(f.writes).toContain('pi:pi:test:/conversations');
 
-    const alignment = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/alignment/connections', init: { method: 'POST' } }, cookie);
-    expect(alignment.status).toBe(403);
-    expect(f.writes).not.toContain('pi:pi:test:/alignment/connections');
+    // Metadata and every credential route remain desktop-only, including encoded paths.
+    for (const path of ['/alignment', '/alignment/connections', '/alignment/share', '/alignment/import', '/alignment%2Fshare']) {
+      const alignment = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path, init: { method: path === '/alignment' ? 'GET' : 'POST' } }, cookie);
+      expect(alignment.status).toBe(403);
+      expect(f.writes).not.toContain(`pi:pi:test:${path}`);
+    }
 
     // Invalid pi request validation
     expect((await f.request('/remote/pi', 'POST', { endpointId: '', path: '/foo' }, cookie)).status).toBe(400);

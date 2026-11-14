@@ -265,7 +265,7 @@ describe("custom OpenAI-compatible providers", () => {
     const renamedIdentity = custom.identities().find(entry => entry.id === config.id)!;
     expect(await custom.withIdentity(config.id, renamedIdentity, async () => (await store.read(config.id))?.type)).toBe("api_key");
     expect((await storedApiKeys(store)).some(entry => entry.providerId.startsWith("custom-"))).toBe(false);
-    expect(await importApiKeys(store, [{ providerId: foreignId, key: "UNBOUND-IMPORT" }])).toBe(0);
+    await expect(importApiKeys(store, [{ providerId: foreignId, key: "UNBOUND-IMPORT" }])).rejects.toThrow();
     expect(await store.read(foreignId)).toBeUndefined();
     await custom.remove(config.id);
   });

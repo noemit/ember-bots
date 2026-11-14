@@ -19,6 +19,7 @@ import { piLoadModels } from '../piApi';
 import type { ModelList } from '../api';
 import type { InstanceDefaults, ModelRef, Instance, PiEndpoint } from '../types';
 import ProviderSignInDialog from '@/components/ProviderSignInDialog';
+import ProviderSharing from './ProviderSharing';
 import CustomProviders from './CustomProviders';
 
 type Props = {
@@ -243,6 +244,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
         notifyChanged(endpointId);
         if (name) await confirmDefault(endpointId, name);
       }} />
+      <ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={(id) => { notifyChanged(id); if (id === endpointId) void load(id); }} />
 
       {providers?.filter(provider => !provider.custom).map((provider) => {
         const draft = drafts[provider.id] ?? '';

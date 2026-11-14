@@ -6,7 +6,7 @@ import { importApiKeys, mergePeers, portablePeer, shareApiKeys, storedApiKeys } 
 import { FileCredentialStore } from '../src/credentials';
 const peer = (url: string, token = 'private-token') => ({ id: 'one', label: 'One', url, token });
 test('portable peer validation rejects ambiguous addresses and public plaintext', () => {
-  for (const url of ['http://localhost:3002', 'http://127.1:3002', 'http://[::1]:3002', 'http://example.com', 'https://user:pass@example.com', 'file:///tmp/foo']) expect(portablePeer(peer(url))).toBeNull();
+  for (const url of ['http://localhost:3002', 'http://127.1:3002', 'http://[::1]:3002', 'http://example.com', 'http://10.attacker.example', 'http://192.168.attacker.example', 'http://100.64.attacker.example', 'https://user:pass@example.com', 'file:///tmp/foo']) expect(portablePeer(peer(url))).toBeNull();
   expect(portablePeer(peer('http://100.64.0.2:3002'))).not.toBeNull();
 });
 test('peer merge is idempotent and preserves existing URLs and tokens', () => {
@@ -29,13 +29,13 @@ test('provider alignment never exports OAuth and never overwrites an existing cr
       sent.push(init);
       return sent.length === 1 ? Response.json({ keys: 1 }) : Response.redirect('https://elsewhere.example');
     }) as typeof fetch;
-    const shared = await shareApiKeys(store, [peer('https://one.example'), { ...peer('https://two.example'), id: 'two' }], send);
+    const shared = await shareApiKeys(store, [{ ...peer('https://one.example'), providers: [{ providerId: 'openai', type: 'api_key' }] }, { ...peer('https://two.example'), id: 'two', providers: [{ providerId: 'openai', type: 'api_key' }] }], send);
     expect(shared).toEqual([{ id: 'one', ok: true, keys: 1 }, { id: 'two', ok: false }]);
     expect(sent[0].redirect).toBe('error');
     expect(String(sent[0].body)).not.toContain('refresh-private');
-    expect(JSON.parse(String(sent[0].body)).keys).toEqual([{ providerId: 'openai', key: 'existing-key' }]);
+    expect(JSON.parse(String(sent[0].body)).credentials).toEqual([{ providerId: 'openai', type: 'api_key', credential: { type: 'api_key', key: 'existing-key' } }]);
     expect(JSON.stringify(shared)).not.toContain('private-token');
-    const entries = [{ providerId: 'alignment-test', key: 'new-key' }, { providerId: 'openai', key: 'wrong-key' }, { providerId: 'openai-codex', key: 'wrong-key' }];
+    const entries = [{ providerId: 'alignment-test', key: 'new-key' }, { providerId: 'openai', key: 'wrong-key' }];
     const results = await Promise.all([importApiKeys(store, entries), importApiKeys(store, entries)]);
     expect(results.reduce((a, b) => a + b, 0)).toBe(1);
     expect(await store.read('openai')).toEqual({ type: 'api_key', key: 'existing-key' });

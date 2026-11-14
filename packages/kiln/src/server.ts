@@ -1,5 +1,5 @@
 import type { CustomProviders } from "./custom-providers";
-import { importApiKeys, mergePeers, portablePeer, shareApiKeys } from "./alignment";
+import { alignmentProviders, importCredentials, importApiKeys, mergePeers, portablePeer, shareApiKeys, type ShareTarget, type AlignmentConfig } from "./alignment";
 import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
 import { timingSafeEqual } from "node:crypto";
 import { createHash, randomUUID } from "node:crypto";
@@ -116,6 +116,8 @@ type Deps = {
   defaultAgent: HearthDefault;
   /** Provider credential store; backs `GET /providers`. */
   store?: CredentialStore;
+  /** Config owner serializes this guard with custom provider edits and republishes imported keys. */
+  alignmentConfig?: AlignmentConfig;
   /** Semver release from package.json, surfaced on `/health`. */
   version?: string;
   /** Short build id (git SHA), surfaced on `/health` so a client can name the running version. */
@@ -1448,15 +1450,21 @@ const server = Bun.serve<{
         // difference between them is what tells someone whether to install a model or start an app.
         return json({ providers, default: defaultAgent.model, ...(localRuntimes ? { localRuntimes } : {}) });
       }
-      // Alignment is explicit and fill-only. OAuth credentials never leave their owner.
+      // Alignment is explicit and fill-only. Only reviewed, allowlisted sign-ins are portable.
       if (path === "/alignment" && request.method === "GET") {
-        const state = await harness.snapshot(AgentsDoc, context);
-        const credentials = store ? await store.list() : [];
-        return json({
-          apiKeys: credentials.filter(c => c.type === "api_key" && !c.providerId.startsWith("custom-")).map(c => c.providerId),
-          signIns: credentials.filter(c => c.type === "oauth").length,
-          peers: (state?.peers ?? []).filter(p => portablePeer(p)).map(({ id, label, url }) => ({ id, label, url })),
-        });
+        try {
+          const state = await harness.snapshot(AgentsDoc, context);
+          const credentials = store ? await store.list() : [];
+          return json({
+            providers: store ? await alignmentProviders(store, deps.alignmentConfig) : [],
+            apiKeys: credentials.filter(c => c.type === "api_key").map(c => c.providerId),
+            signIns: credentials.filter(c => c.type === "oauth").length,
+            peers: (state?.peers ?? []).filter(p => portablePeer(p)).map(({ id, label, url }) => ({ id, label, url })),
+          });
+        } catch {
+          // A malformed credential file may put its contents in a parser error. Never log that error.
+          return json({ error: "Kiln could not read its provider metadata. Check its credential storage, then refresh this review." }, 503);
+        }
       }
       if (path === "/alignment/connections" && request.method === "POST") {
         const state = await harness.snapshot(AgentsDoc, context);
@@ -1469,9 +1477,12 @@ const server = Bun.serve<{
         if (peers.some(p => !p)) return badRequest("Use private-network or HTTPS addresses reachable from another computer.");
         let keys = 0;
         try {
-          if (Array.isArray(body.keys) && body.keys.length > 0) {
-            if (!store) return badRequest("This Kiln cannot store provider keys. Update it, then try again.");
-            keys = await importApiKeys(store, body.keys);
+          if (body.keys !== undefined && !Array.isArray(body.keys)) throw new Error();
+          if (body.credentials !== undefined && !Array.isArray(body.credentials)) throw new Error();
+          if (body.keys !== undefined && body.credentials !== undefined) throw new Error();
+          if ((Array.isArray(body.keys) && body.keys.length > 0) || (Array.isArray(body.credentials) && body.credentials.length > 0)) {
+            if (!store) return badRequest("This Kiln cannot store provider credentials. Update it, then try again.");
+            keys = body.credentials !== undefined ? await importCredentials(store, body.credentials, deps.alignmentConfig) : await importApiKeys(store, body.keys);
           }
         } catch { return badRequest("The provider list is not valid. Review the source instance and try again."); }
         let added = 0;
@@ -1483,17 +1494,17 @@ const server = Bun.serve<{
           doc.peers = merged;
         }, context);
         writePeersMirror(config.home, merged);
-        if (keys) refreshModelCatalog("aligning provider keys");
+        // Import only stores credentials. It must not trigger provider catalog requests or OAuth refresh.
         return json({ connections: added, keys });
       }
       if (path === "/alignment/share" && request.method === "POST") {
-        if (!store) return badRequest("This Kiln cannot read stored provider keys. Update it, then try again.");
+        if (!store) return badRequest("This Kiln cannot read stored provider credentials. Update it, then try again.");
         const body = await readBody(request);
         if (!Array.isArray(body.targets) || body.targets.length > 100) return badRequest("Choose up to 100 destination instances.");
-        const targets = body.targets.map(portablePeer);
-        if (targets.some(p => !p)) return badRequest("Use private-network or HTTPS addresses for sharing keys.");
-        const results = await shareApiKeys(store, targets as PeerEndpoint[]);
-        return json({ results });
+        try {
+          const results = await shareApiKeys(store, body.targets as ShareTarget[], fetch, deps.alignmentConfig);
+          return json({ results });
+        } catch { return badRequest("Kiln could not validate the provider review. Refresh providers and review the selection again."); }
       }
       // Copy credentials out of OpenCode's store (once), so Hearth no longer depends on it.
       if (request.method === "POST" && path === "/providers/import") {

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('alignment is reviewed first, provider keys are opt-in, discovered connections persist', async ({ page }) => {
+test('connection alignment stays separate from provider sharing and discovered connections persist', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => Boolean(window.ember?.piRequest));
   await page.evaluate(async () => {
@@ -24,7 +24,8 @@ test('alignment is reviewed first, provider keys are opt-in, discovered connecti
   await area.getByRole('button', { name: 'Review', exact: true }).click();
   await area.getByRole('button', { name: 'Review instances', exact: true }).click();
   await expect(area).toContainText('1 stored API keys');
-  await expect(area.getByRole('checkbox')).not.toBeChecked();
+  await expect(area.getByRole('checkbox')).toHaveCount(0);
+  await expect(area.getByRole('button', { name: 'Review and share' })).toBeVisible();
   const calls = () => page.evaluate(() => (window as unknown as { alignmentTest: { paths: string[] } }).alignmentTest.paths);
   expect((await calls()).every(path => path === '/alignment')).toBe(true);
   await area.getByRole('button', { name: 'Align now' }).click();
@@ -33,10 +34,8 @@ test('alignment is reviewed first, provider keys are opt-in, discovered connecti
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.piEndpoints.some(e => e.label === 'Test remote')))).toBe(true);
   await expect(area).not.toContainText('synthetic-test-token');
   await area.getByRole('button', { name: 'Review instances', exact: true }).click();
-  await area.getByRole('checkbox').check();
-  await expect(area.getByLabel('Provider key source')).toBeVisible();
-  await area.getByRole('button', { name: 'Align now' }).click();
-  await expect(area.getByRole('status')).toBeVisible();
-  expect(await calls()).toContain('/alignment/share');
+  await area.getByRole('button', { name: 'Review and share' }).click();
+  await expect(area).toContainText('The comparison reads metadata only');
+  expect(await calls()).not.toContain('/alignment/share');
   await page.screenshot({ path: '/tmp/ember-instance-alignment.png' });
 });
