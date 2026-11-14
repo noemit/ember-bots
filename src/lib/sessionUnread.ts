@@ -1,7 +1,22 @@
 import type { Session, SessionReadMark } from '../types';
+import { sessionKey } from '../types';
 import { visibleUnreadItems, type UnreadDigest } from './unreadDigest';
 
 export const unreadVersion = (session: Session): number => session.lastEntryId ?? session.updated ?? 0;
+
+/** Notification policy never changes the evidence of reading used inside the conversation. */
+export const notificationUnreadKeys = (
+  sessions: readonly Session[],
+  marks: Readonly<Record<string, SessionReadMark>>,
+  digests: Readonly<Record<string, UnreadDigest>>,
+  mutedSessions: readonly string[] = []
+): Set<string> => {
+  const muted = new Set(mutedSessions);
+  return new Set(sessions.filter((session) => {
+    const key = sessionKey(session);
+    return !muted.has(key) && hasUnreadMessages(session, marks[key], digests[key]);
+  }).map(sessionKey));
+};
 
 /** A conservative answer while the bounded message read is pending. */
 export const mayHaveUnread = (session: Session, mark: SessionReadMark | undefined): boolean => {

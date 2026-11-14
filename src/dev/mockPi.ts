@@ -9,7 +9,7 @@ import type { PiQuestion } from '../lib/piMapping';
  */
 import { longDemoPrompt, longDemoReview, longDemoFollowUp } from './longMessages';
 import { randomId } from '../lib/randomId';
-import { parseAvatarOverrides, parseAvatarAssignments, mergeAvatarAssignments, parseSnoozedSessions } from '../../electron/transport';
+import { parseAvatarOverrides, parseAvatarAssignments, mergeAvatarAssignments, parseSnoozedSessions, parseMutedSessions } from '../../electron/transport';
 import { generateToken } from '../../electron/tokenWords';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch, Instance } from '../types';
 
@@ -2108,7 +2108,7 @@ let settings: EmberSettings = {
   // which is what Home's cards and the per-message bubbles need to exercise.
   readMarks: storedRead.readMarks ?? {},
   readSince: storedRead.readSince ?? 0,
-  mutedSessions: storedRead.mutedSessions ?? [],
+  mutedSessions: parseMutedSessions(storedRead.mutedSessions, storedRead.readMarks),
   snoozedSessions: parseSnoozedSessions(storedRead.snoozedSessions),
   composerDrafts: {},
   scheduledSessionBindings: {},
@@ -2193,7 +2193,7 @@ export const bridge: EmberBridge = {
     }
     if (patch.quoteLinks !== undefined) window.localStorage.setItem('ember-pi-quote-links', JSON.stringify(patch.quoteLinks));
     if (patch.sessionNotes !== undefined) window.localStorage.setItem(NOTES_KEY, JSON.stringify(patch.sessionNotes));
-    settings = { ...settings, ...safe, snoozedSessions: patch.snoozedSessions === undefined ? settings.snoozedSessions : parseSnoozedSessions(patch.snoozedSessions), avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
+    settings = { ...settings, ...safe, mutedSessions: patch.mutedSessions === undefined ? settings.mutedSessions : parseMutedSessions(patch.mutedSessions, undefined), snoozedSessions: patch.snoozedSessions === undefined ? settings.snoozedSessions : parseSnoozedSessions(patch.snoozedSessions), avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
     if (patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.snoozedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,

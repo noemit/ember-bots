@@ -11,7 +11,7 @@ import { questionKey, questionsFromThreads } from './lib/threadQuestions';
 import { sessionVisibilityFailure } from './lib/sessionVisibility';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
 import { threadDescendants } from './lib/crew';
-import { hasUnreadMessages } from './lib/sessionUnread';
+import { hasUnreadMessages, notificationUnreadKeys } from './lib/sessionUnread';
 import { AvatarSizeContext } from './blob/size';
 import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from './lib/instanceDefaultModel';
 import { applyTextSizes } from './lib/textSize';
@@ -1334,15 +1334,10 @@ export default function App() {
     readSince,
     enabled: settingsLoaded,
   });
-  const unreadKeys = React.useMemo(() => {
-    const keys = new Set<string>();
-    unreadSessions.forEach((session) => {
-      const key = sessionKey(session);
-      if (!settings.mutedSessions?.includes(key) &&
-          hasUnreadMessages(session, readMarks[key], unreadDigests.digests[key])) keys.add(key);
-    });
-    return keys;
-  }, [unreadSessions, unreadDigests.digests, readMarks, settings.mutedSessions]);
+  const unreadKeys = React.useMemo(
+    () => notificationUnreadKeys(unreadSessions, readMarks, unreadDigests.digests, settings.mutedSessions),
+    [unreadSessions, unreadDigests.digests, readMarks, settings.mutedSessions]
+  );
 
   /**
    * Sessions with no unread management at all: every worker, at every depth.

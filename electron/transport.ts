@@ -521,10 +521,14 @@ export const parseComposerDrafts = (value: unknown): Record<string, StoredCompos
   return drafts;
 };
 
-/** An explicit new policy, including an empty one, wins over legacy automatic-read flags. */
+/**
+ * An explicit policy, including an empty one, wins over legacy automatic-read flags.
+ * Unlike the open-workspace list, this retains hidden/offline chats too: a count cap silently
+ * turns notifications back on for later entries. Individual keys remain length-validated.
+ */
 export const parseMutedSessions = (value: unknown, legacyMarks: unknown): string[] =>
   Array.isArray(value)
-    ? parseStringArray(value)
+    ? parseStringArray(value, Number.POSITIVE_INFINITY)
     : Object.entries(parseReadMarks(legacyMarks)).filter(([, mark]) => mark.quiet).map(([key]) => key);
 
 /** No count cap: dropping an archived chat's identity would recolour it on restore. */

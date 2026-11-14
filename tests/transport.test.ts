@@ -230,6 +230,21 @@ test('notification migration keeps policy separate from the evidence of reading'
   expect(legacy['pi:h::1'].through).toBe(12);
 });
 
+test('notification preferences are not truncated at the workspace limit on save or reload', () => {
+  // Hidden, offline and older chats still own their preference, so a new mute can be the 41st.
+  const muted = Array.from({ length: 80 }, (_, index) => `pi:h::${index}`);
+  const marks = { 'pi:h::79': { through: 12, ids: [14] } };
+  const saved = parseMutedSessions([...muted, muted[0], '', null, 1, 'x'.repeat(501)], undefined);
+  expect(saved).toEqual(muted);
+  const longLivedPolicy = Array.from({ length: 10_001 }, (_, index) => `pi:h::${index}`);
+  expect(parseMutedSessions(longLivedPolicy, undefined)).toEqual(longLivedPolicy);
+  expect(parseMutedSessions(JSON.parse(JSON.stringify(saved)), marks)).toEqual(muted);
+  expect(marks).toEqual({ 'pi:h::79': { through: 12, ids: [14] } });
+  // Unmuting is explicit; the same id on another host is independent.
+  expect(parseMutedSessions(['pi:other::79'], marks)).toEqual(['pi:other::79']);
+  expect(parseMutedSessions([], marks)).toEqual([]);
+});
+
 test('custom avatar colors accept only CSS-safe six-digit hex', () => {
   expect(parseAvatarOverrides({ chat: { color: '#D25B87' } }).chat.color).toBe('#d25b87');
   expect(parseAvatarOverrides({ chat: { color: 'url(https://example.com)' } })).toEqual({});

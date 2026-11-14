@@ -31,9 +31,9 @@ type Props = {
   /** Opens the editor for them; absent when the host has no per-session prompt. */
   onEditInstructions?: () => void;
   /**
-   * Whether new messages in this session are marked read as they arrive ("Don't notify") or appear
-   * on Home as unread ("Notify"). Absent where the session cannot hold a read mark (a draft, a
-   * worker Home never lists).
+   * Whether unread-message notification indicators are muted. This never marks messages read;
+   * in-chat unread navigation and required human decisions remain available. Absent for drafts
+   * and worker threads, which have no independent unread notifications.
    */
   quiet?: boolean;
   /** Toggle it. */
@@ -137,9 +137,8 @@ export default function ViewMenu({
               </div>
             ) : null}
             {onQuietChange ? (
-              // A row rather than a checkbox: both states are sentences a person can read ("so this
-              // session never shows as unread") instead of a switch whose off position has to be
-              // guessed. It replaced a bell button whose label never fitted the header row.
+              // This row names the action, not the current state. Muting affects notification
+              // indicators only, never the explicit read state inside the conversation.
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();

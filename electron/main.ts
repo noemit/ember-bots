@@ -1087,7 +1087,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (value.instanceDefaults !== undefined) settings.instanceDefaults = parseInstanceDefaults(value.instanceDefaults);
   if (value.sessionNotes !== undefined) settings.sessionNotes = parseSessionNotes(value.sessionNotes);
   if (value.quoteLinks !== undefined) settings.quoteLinks = parseQuoteLinks(value.quoteLinks);
-  if (value.mutedSessions !== undefined) settings.mutedSessions = parseStringArray(value.mutedSessions);
+  if (value.mutedSessions !== undefined) settings.mutedSessions = parseMutedSessions(value.mutedSessions, undefined);
   if (value.snoozedSessions !== undefined) settings.snoozedSessions = parseSnoozedSessions(value.snoozedSessions);
   if (value.readMarks !== undefined) settings.readMarks = parseReadMarks(value.readMarks);
   if (typeof value.readSince === 'number' && Number.isFinite(value.readSince) && value.readSince > 0) {
