@@ -1,3 +1,4 @@
+import './crewStrip.css';
 import YoloLabel from './YoloLabel';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -61,7 +62,7 @@ const BRICK_DOT: Record<CrewBrickTone, string> = {
 
 /** Flat thread rows share the queue's readable preview and fine separators. */
 export const BRICK_CLASS =
-  'group/brick flex min-w-0 items-start gap-2 px-1.5 py-2 text-[12.5px] text-foreground';
+  'group/brick flex flex-wrap min-w-0 items-start gap-1 px-1.5 py-2 text-[12.5px] text-foreground';
 
 /**
  * One worker, as a brick. Bricks stay memoized so a poll that leaves the strip untouched doesn't
@@ -113,6 +114,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
   // look a worker up by — and the status rides along as its *description*, so a screen reader still
   // announces "Parse config, working" without the name growing a word per row.
   const statusId = React.useId();
+  const contextId = React.useId();
   const hint = worker.task ? ('Open source chat for ' + title) : promoted ? ('Open the persistent bot for ' + title) : ('Open ' + title);
   return (
     <motion.li
@@ -126,16 +128,15 @@ const WorkerBrick = React.memo(function WorkerBrick({
       data-task-id={worker.task?.id}
       data-thread-depth={depth}
       data-thread-group={groupTitle}
-      aria-level={depth}
-      className={cn(BRICK_CLASS, depth > 1 && 'pl-6 border-l-2 border-border/60')}
+      className={BRICK_CLASS}
     >
       <button
         type="button"
         onClick={() => onOpen(linkTarget)}
         title={`${hint} — ${signal.word}`}
         aria-label={title}
-        aria-describedby={statusId}
-        className="flex min-w-0 flex-1 items-start gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-describedby={depth > 1 ? statusId + ' ' + contextId : statusId}
+        className="flex min-h-11 min-w-11 flex-1 items-start gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {promoted ? <Blob
           style={blobStyle}
@@ -147,21 +148,14 @@ const WorkerBrick = React.memo(function WorkerBrick({
         /> : null}
         <span className="min-w-0 flex-1">
           <span data-tray-preview="" className="line-clamp-2 leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{title}</span>
-          {depth > 1 ? <span className="sr-only">Under {groupTitle}, level {depth}. </span> : null}
+          {depth > 1 ? <span id={contextId} className="sr-only">Under {groupTitle}, level {depth}. </span> : null}
           <span data-tray-meta="" className="mt-1 flex items-center gap-1.5 text-[10.5px] leading-4 text-muted-foreground">
             <span aria-hidden="true" className={cn('size-1.5 flex-none rounded-full', BRICK_DOT[signal.tone])} />
-            <span id={statusId} className={cn(signal.tone === 'attention' && 'font-medium text-highlight', signal.tone === 'failed' && 'text-destructive')}>
+            <span id={statusId} className={cn('flex-none', signal.tone === 'attention' && 'font-medium text-highlight', signal.tone === 'failed' && 'text-destructive')}>
               {signal.word}
             </span>
+            {depth > 1 ? <span className="truncate" title={'Under ' + groupTitle + ', level ' + depth}>· via {groupTitle}</span> : null}
           </span>
-          {taskIsDone(worker) && worker.task?.completion ? (
-            <span className="mt-1 block space-y-0.5 text-[11px] text-muted-foreground">
-              <span className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{worker.task.completion.summary}</span>
-              <span className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">Evidence: {worker.task.completion.evidence}</span>
-              <span className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">Remaining: {worker.task.completion.remaining}</span>
-            </span>
-          ) : null}
-          {worker.task ? <span className="mt-0.5 block text-[10.5px] text-muted-foreground">Open source chat</span> : null}
         </span>
       </button>
       {promoted ? (
@@ -187,7 +181,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
                 aria-label={`Turn off YOLO mode for ${title}`}
                 title="YOLO mode is on for this worker: permission prompts are accepted automatically — click to turn it off"
                 onClick={() => onToggleYolo(worker, false)}
-                className="mt-1 h-5 max-sm:h-8 flex-none items-center gap-0.5 rounded-sm bg-warning/15 px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-warning uppercase hover:bg-warning/25"
+                className="min-h-11 min-w-11 flex-none items-center gap-0.5 rounded-sm bg-warning/15 px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-warning uppercase hover:bg-warning/25"
               >
                 <YoloLabel small labelClassName="hidden @[420px]:inline" />
               </Button>
@@ -210,13 +204,25 @@ const WorkerBrick = React.memo(function WorkerBrick({
               aria-label={`Turn on YOLO mode for ${title}`}
               title="Turn on YOLO mode for this worker"
               onClick={() => onToggleYolo(worker, true)}
-              className="mt-1 h-5 max-sm:h-8 flex-none items-center gap-0.5 rounded-sm px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-muted-foreground uppercase opacity-100 [@media(min-width:640px)_and_(hover:hover)_and_(pointer:fine)]:opacity-0 max-sm:opacity-100 hover:text-foreground focus-visible:opacity-100 group-focus-within/brick:opacity-100 group-hover/brick:opacity-100"
+              className="min-h-11 min-w-11 flex-none items-center gap-0.5 rounded-sm px-1 text-[9.5px] leading-4 font-semibold tracking-wide text-muted-foreground uppercase opacity-100 [@media(min-width:640px)_and_(hover:hover)_and_(pointer:fine)]:opacity-0 max-sm:opacity-100 hover:text-foreground focus-visible:opacity-100 group-focus-within/brick:opacity-100 group-hover/brick:opacity-100"
             >
               <YoloLabel small labelClassName="hidden @[420px]:inline" />
             </Button>
           ) : null}
         </>
       )}
+      {taskIsDone(worker) && worker.task?.completion ? (
+        <details className="min-w-0 basis-full text-[11px] text-muted-foreground">
+          <summary className="min-h-11 min-w-11 cursor-pointer content-center rounded-sm px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Outcome details
+          </summary>
+          <dl className="space-y-2 px-1 pb-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <div><dt className="font-medium text-foreground">Summary</dt><dd>{worker.task.completion.summary}</dd></div>
+            <div><dt className="font-medium text-foreground">Evidence</dt><dd>{worker.task.completion.evidence}</dd></div>
+            <div><dt className="font-medium text-foreground">Remaining</dt><dd>{worker.task.completion.remaining}</dd></div>
+          </dl>
+        </details>
+      ) : null}
     </motion.li>
   );
 });
@@ -239,6 +245,7 @@ const CrewStrip = React.memo(function CrewStrip({
   const [previousOpen, setPreviousOpen] = React.useState(false);
   const [doneOpen, setDoneOpen] = React.useState(false);
   const doneId = React.useId();
+  const previousId = React.useId();
   if (rows.length === 0) return null;
 
   const groupLive = new Set<string>();
@@ -272,30 +279,32 @@ const CrewStrip = React.memo(function CrewStrip({
   return (
     <div role="group" aria-label={leaderTitle ? `Tasks for ${leaderTitle}` : 'Tasks'} className="group/strip @container min-w-0">
       <ul tabIndex={0} aria-label="Task source chats, grouped by lead"
-        className="flex max-h-48 min-w-0 list-none flex-col divide-y divide-border/50 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        className="crew-task-grid max-h-48 min-w-0 list-none overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
         <AnimatePresence initial={false} mode="popLayout">{visible.map(brick)}</AnimatePresence>
         {done.length > 0 ? (
-          <li className="min-w-0">
+          <li className="crew-task-history min-w-0">
             <button type="button" onClick={() => setDoneOpen((open) => !open)} aria-expanded={doneOpen} aria-controls={doneId}
-              className="inline-flex items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              Done {done.length}
+              className="inline-flex min-h-11 min-w-11 items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Completed {done.length}
             </button>
-            <div id={doneId} hidden={!doneOpen} role="group" aria-label="Done tasks">
+            <div id={doneId} hidden={!doneOpen} role="group" aria-label="Completed tasks">
               <p className="px-1.5 pb-1 text-[10.5px] text-muted-foreground">Workers reported these tasks complete. Completion is not coordinator verification.</p>
-              <ul className="list-none divide-y divide-border/50">{doneOpen ? done.map(brick) : null}</ul>
+              <ul className="crew-task-grid list-none">{doneOpen ? done.map(brick) : null}</ul>
             </div>
           </li>
         ) : null}
         {previous.length > 0 ? (
-          <li className="min-w-0">
-            <button type="button" onClick={() => setPreviousOpen((open) => !open)} aria-expanded={previousOpen}
-              title={previousOpen ? 'Hide previous worker chats' : `${previous.length} finished worker ${previous.length === 1 ? 'chat' : 'chats'}`}
-              className="inline-flex items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <li className="crew-task-history min-w-0">
+            <button type="button" onClick={() => setPreviousOpen((open) => !open)} aria-expanded={previousOpen} aria-controls={previousId}
+              title={previousOpen ? 'Hide previous worker chats' : `${previous.length} previous worker ${previous.length === 1 ? 'chat' : 'chats'}`}
+              className="inline-flex min-h-11 min-w-11 items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {previousOpen ? 'hide previous' : `+${previous.length} previous`}
             </button>
+            <ul id={previousId} hidden={!previousOpen} aria-label="Previous worker chats" className="crew-task-grid list-none">
+              <AnimatePresence initial={false} mode="popLayout">{previousOpen ? previous.map(brick) : []}</AnimatePresence>
+            </ul>
           </li>
         ) : null}
-        <AnimatePresence initial={false} mode="popLayout">{previousOpen ? previous.map(brick) : []}</AnimatePresence>
       </ul>
     </div>
   );

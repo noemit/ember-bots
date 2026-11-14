@@ -1,0 +1,22 @@
+/* The pane, not the window, owns task density. Keep at least 240px per cell
+   (including its separate 44px permission control), and cap the grid at four. */
+.crew-task-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+.crew-task-grid > [data-crew-brick] {
+  border-top: 1px solid var(--border);
+}
+.crew-task-history { grid-column: 1 / -1; }
+@container (min-width: 480px) {
+  .crew-task-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (min-width: 720px) {
+  .crew-task-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container (min-width: 960px) {
+  .crew-task-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* Author display rules must not override the browser's hidden attribute. */
+.crew-task-grid[hidden] { display: none; }

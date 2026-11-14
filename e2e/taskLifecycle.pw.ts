@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 for (const narrow of [false, true]) {
-  test(`Tasks keeps explicit outcomes and accessible Done source chats (${narrow ? 'narrow' : 'desktop'})`, async ({ page }, testInfo) => {
+  test(`Tasks keeps explicit outcomes and accessible Completed source chats (${narrow ? 'narrow' : 'desktop'})`, async ({ page }, testInfo) => {
     await page.goto('/?fixture=task-lifecycle&noDock');
     await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
     if (narrow) await page.setViewportSize({ width: 700, height: 900 });
@@ -20,18 +20,22 @@ for (const narrow of [false, true]) {
     await expect(leader.locator('[data-task-id="93:1"]')).toContainText('Blocked');
     await expect(leader.locator('[data-task-id="95:1"]')).toContainText('Failed');
     await expect(leader.locator('[data-task-id="95:1"]')).not.toContainText('Stopped');
-    const done = leader.getByRole('button', { name: 'Done 1', exact: true });
+    const done = leader.getByRole('button', { name: 'Completed 1', exact: true });
     await expect(done).toHaveAttribute('aria-expanded', 'false');
     await expect(leader.getByRole('button', { name: 'Publish migration guide', exact: true })).toHaveCount(0);
     await done.focus();
     await page.keyboard.press('Enter');
     await expect(done).toHaveAttribute('aria-expanded', 'true');
-    const doneGroup = leader.getByRole('group', { name: 'Done tasks', exact: true });
+    const doneGroup = leader.getByRole('group', { name: 'Completed tasks', exact: true });
     await expect(doneGroup).toContainText('not coordinator verification');
     const source = doneGroup.getByRole('button', { name: 'Publish migration guide', exact: true });
-    await expect(source).toHaveAttribute('title', /Open source chat.*Done/);
-    await expect(doneGroup).toContainText('Evidence: docs/migration.md');
-    await expect(doneGroup).toContainText('Remaining: Manual review remains.');
+    await expect(source).toHaveAttribute('title', /Open source chat.*Completed/);
+    const outcome = doneGroup.locator('details');
+    await expect(outcome).not.toHaveAttribute('open');
+    await outcome.locator('summary').click();
+    await expect(outcome).toHaveAttribute('open');
+    await expect(outcome.locator('dd').nth(1)).toHaveText('docs/migration.md');
+    await expect(outcome.locator('dd').nth(2)).toHaveText('Manual review remains.');
     await source.scrollIntoViewIfNeeded();
     await expect(source).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath('tasks-done-expanded.png') });
@@ -70,7 +74,7 @@ for (const narrow of [false, true]) {
     await expect(leader.locator('[data-task-id="91:1"]')).toHaveCount(0);
     await expect(completingDialog.getByRole('log', { name: 'Conversation' })).toContainText('Final reply exists');
     await page.keyboard.press('Escape');
-    await expect(leader.getByRole('button', { name: 'Done 2', exact: true })).toBeVisible();
+    await expect(leader.getByRole('button', { name: 'Completed 2', exact: true })).toBeVisible();
     await expect(idle).toHaveCount(0);
     // Reopening creates another assignment identity and returns it to active, without human-needed copy.
     await page.evaluate(async () => {
@@ -80,6 +84,6 @@ for (const narrow of [false, true]) {
     });
     await expect(leader.locator('[data-task-id="91:2"]')).toContainText('Waiting');
     await expect(leader.locator('[data-task-id="91:2"]')).not.toContainText('Waiting for you');
-    await expect(leader.getByRole('button', { name: 'Done 1', exact: true })).toBeVisible();
+    await expect(leader.getByRole('button', { name: 'Completed 1', exact: true })).toBeVisible();
   });
 }

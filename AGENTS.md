@@ -125,7 +125,7 @@ their existing names; archive references in the implementation notes below descr
 - `session results(name?)` returns bounded outcomes plus source links and records retrieved versions.
   `session read(name,cursor?,since?)` pages bounded raw evidence and does not consume final results.
   Retrieval, verification, incorporation and human read marks are separate concepts.
-- The composer shelf says Tasks, shows active / needs-you counts and folds explicit completions under Done. Worker completion is a claim, not coordinator verification. Ending a reply, idling and result retrieval never complete an explicit task. The worker uses `session complete` with summary, evidence and remaining limitations; explicit reopening starts a fresh assignment version, and held question answers cannot silently reopen Done. Legacy workers keep their reply-based contract. `/threads/<id>` Markdown
+- The composer shelf says Tasks, shows active / needs-you counts and folds explicit completions under Completed. Worker completion is a claim, not coordinator verification. Ending a reply, idling and result retrieval never complete an explicit task. The worker uses `session complete` with summary, evidence and remaining limitations; explicit reopening starts a fresh assignment version, and held question answers cannot silently reopen Done. Legacy workers keep their reply-based contract. `/threads/<id>` Markdown
   links resolve through a column-scoped `ThreadLinkContext` to known descendants on the same host;
   unknown targets render as text. Internal notices and completion events never become visible
   transcript messages or unread targets. Ultra delegator uses durable continuations and permits
@@ -442,13 +442,19 @@ their existing names; archive references in the implementation notes below descr
 - `src/components/CrewStrip.tsx` — **coagent crews**. Hearth leaders (the default; a session
   with `delegates`) spawn `kind: "worker"` conversations with `lead`; those workers are hidden
   from the rail, search, archive screen and palette, and surface only in the shelf's **Tasks** tab
-  above the leader's composer. Tasks use **flat rows with fine separators**, two-line outcome titles and
-  status underneath, matching Queue and For later. Task rows have no avatars; promoted peer links
+  above the leader's composer. Tasks use a **container-responsive grid** with fine separators, two-line
+  outcome titles and status underneath: one column below 480px, two at 480px, three at 720px and four
+  at 960px. A narrow split pane stays one column even in a wide window. The list stays capped at 192px;
+  open/source, permission and history controls have 44px targets. Completed outcomes retain summary,
+  evidence and remaining limitations behind an Outcome details disclosure. Only a completion receipt
+  matching the current assignment earns Completed; idle legacy chats remain under Previous.
+  Task rows have no avatars; promoted peer links
   retain their own identity. The `role="group"` supplies the accessible boundary without a card.
   The shelf owns opening and folding; Previous still reveals finished threads, and pending nested
   workers remain directly reachable. Clicking a row opens the worker in a **session dialog** — a live ChatView with its own composer and prompt controls, while the main workspace and selected session stay unchanged. The dialog key is never persisted; its transcript joins visible-column event refresh, polling and cache protection. Closing or Escape returns to the same workspace. Promoted workers link to their peer in the normal workspace, and promotion from an open dialog hands over to that peer. Because the strip is
   the only place a worker is visible, it includes every known descendant grouped under its
-  first-level supervisor and indented by depth (`threadRows` in `lib/crew.ts`). Running, finished
+  first-level supervisor, with legacy depth described as “via” metadata rather than indentation
+  (`threadRows` in `lib/crew.ts`). Running, finished
   and blocked nested workers are all directly reachable; each blocked worker keeps its own
   needs-you status. `App.tsx` derives
   `crewByLeader`, rolls a worker's `needsInput` up its `lead` chain to the leader's mood, and

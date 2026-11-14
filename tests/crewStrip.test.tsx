@@ -65,13 +65,13 @@ const render = (props: React.ComponentProps<typeof CrewStrip>) =>
 /** How many bricks the markup draws. One per worker, plus one per extra blocked worker. */
 const bricks = (html: string) => html.split('data-crew-brick=""').length - 1;
 
-describe('the crew strip is a flat readable list', () => {
+describe('the crew strip is a compact readable grid', () => {
   const crew = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => worker(id));
 
   test('one row per worker, separated by fine rules', () => {
     const html = render({ workers: crew, stateFor: () => 'active' });
     expect(bricks(html)).toBe(7);
-    expect(html).toContain('flex-col divide-y');
+    expect(html).toContain('crew-task-grid');
     expect(html).toContain('<ul');
     // One list item per worker and nothing else: the minimiser lives on the shelf's Crew tab now,
     // so the strip cannot grow a chip of its own chrome.
@@ -249,17 +249,17 @@ describe('previous worker chats are a chip in the same wrap', () => {
   ];
   const stateFor = (session: Session): BallState => (session.id === 'busy' ? 'active' : 'idle');
 
-  test('finished workers collapse behind +N previous, not into the brick list', () => {
+  test('previous workers collapse behind +N previous, not into the brick list', () => {
     const html = render({ workers: crew, stateFor });
     expect(html).toContain('+2 previous');
     expect(bricks(html)).toBe(1);
     expect(html).toContain('aria-expanded="false"');
     // A chip, not a full-width text link: the visible count *is* its name.
-    expect(html).toContain('title="2 finished worker chats"');
+    expect(html).toContain('title="2 previous worker chats"');
     expect(html).not.toContain('border-dashed px-1.5');
   });
 
-  test('the chip is exactly the count of finished workers, and absent when there are none', () => {
+  test('the chip is exactly the count of previous workers, and absent when there are none', () => {
     expect(render({ workers: crew.slice(0, 2), stateFor })).toContain('+1 previous');
     expect(render({ workers: crew.slice(0, 1), stateFor })).not.toContain('previous');
     // A promoted worker is a standing relationship: it stays a brick however quiet it is.
@@ -346,11 +346,33 @@ describe('the parts that must survive the layout change', () => {
     expect(html).toContain('data-thread-depth="2"');
     expect(html).toContain('data-thread-group="Worker a"');
     expect(html).toContain('Under Worker a, level 2.');
-    expect(html).toContain('pl-6 border-l-2');
+    expect(html).not.toContain('pl-6 border-l-2');
+    expect(html).toContain('· via Worker a');
     expect(html).not.toContain('previous');
   });
 
   test('a crew with nobody in it renders nothing at all', () => {
     expect(render({ rows: [] })).toBe('');
+  });
+});
+
+
+describe('explicit completion remains host-owned', () => {
+  test('only a matching completion receipt enters Completed history', () => {
+    const task = { id: 'task-a', title: 'Assigned purpose', status: 'done' as const };
+    const completion = { task: task.id, summary: 'Reported outcome', evidence: 'Source evidence', remaining: 'Nothing reported', requestId: 'r', at: 1 };
+    const matching = render({ workers: [worker('a', { task: { ...task, completion } })] });
+    expect(matching).toContain('Completed 1');
+    expect(matching).toContain('aria-controls=');
+    expect(matching).toContain('aria-label="Completed tasks"');
+    expect(bricks(matching)).toBe(0); // history starts folded
+    for (const extra of [
+      { task },
+      { task: { ...task, completion: { ...completion, task: 'old-task' } } },
+      {},
+    ]) {
+      const html = render({ workers: [worker('a', extra)], stateFor: () => 'idle' });
+      expect(html).not.toContain('Completed');
+    }
   });
 });

@@ -72,7 +72,7 @@ test('full tab bar and keyboard toggles preserve inactive selection semantics', 
   await expect(shelf.getByRole('tab')).toHaveCount(3);
   const queue = shelf.getByRole('tab', { name: /^Queue/ });
   const notes = shelf.getByRole('tab', { name: /^For later/ });
-  const threads = shelf.getByRole('tab', { name: /^Threads/ });
+  const threads = shelf.getByRole('tab', { name: /^Tasks/ });
   await queue.click();
   await expect(queue).toHaveAttribute('aria-expanded', 'true');
   await queue.press('ArrowRight');
@@ -86,7 +86,7 @@ test('full tab bar and keyboard toggles preserve inactive selection semantics', 
   await expect(threads).toBeFocused();
   await threads.press('Enter');
   await expect(threads).toHaveAttribute('aria-selected', 'true');
-  await expect(shelf.getByRole('tabpanel', { name: 'Threads' })).toBeVisible();
+  await expect(shelf.getByRole('tabpanel', { name: 'Tasks' })).toBeVisible();
   await threads.press('Space');
   await expect(threads).toHaveAttribute('aria-expanded', 'false');
   await expect(shelf.getByRole('tabpanel')).toHaveCount(0);
@@ -275,11 +275,11 @@ test('held steers remain withdrawable but cannot be edited, sent again, parked o
   await expect(worker.getByRole('tab', { name: /^Queue/ })).toHaveCount(0);
 });
 
-test('the Threads tab reads running over total, with the long form spoken', async ({ page }) => {
+test('the Tasks tab reads legacy running over total, with the long form spoken', async ({ page }) => {
   const column = await openChat(page, true);
-  const threads = column.getByRole('group', { name: 'Composer trays', exact: true }).getByRole('tab', { name: /^Threads/ });
+  const threads = column.getByRole('group', { name: 'Composer trays', exact: true }).getByRole('tab', { name: /^Tasks/ });
   // Two numbers, not a phrase: the count of running threads over every thread in the crew.
   await expect(threads.locator('span.tabular-nums').first()).toHaveText(/^\d+ \/ \d+$/);
   // The full sentence stays available to a tooltip and a screen reader.
-  await expect(threads.getByText(/\d+ of \d+ threads running/)).toHaveCount(1);
+  await expect(threads.getByText(/\d+ of \d+ tasks running/)).toHaveCount(1);
 });

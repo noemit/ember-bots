@@ -22,6 +22,8 @@ describe('explicit task lifecycle presentation', () => {
     expect(taskIsDone(worker('done'))).toBe(false);
     expect(taskIsDone(worker('done', { task: { ...worker('done').task!, completion: { ...completion, task: '17:old' } } }))).toBe(false);
     expect(taskIsDone(worker('done', { task: { ...worker('done').task!, completion } }))).toBe(true);
+    expect(taskStatusSignal(worker('done', { task: { ...worker('done').task!, completion } }), 'idle').word).toBe('Completed');
+    expect(taskStatusSignal(worker('done'), 'idle').word).not.toBe('Completed');
     expect(taskIsDone({ id: 'old', instanceId: 'host' })).toBe(false);
   });
   test('only a real human blocker says waiting for you', () => {
@@ -38,7 +40,7 @@ describe('explicit task lifecycle presentation', () => {
     tasks[1].task = { ...tasks[1].task!, completion };
     const counts = threadShelfStatus(tasks, [], () => 'idle');
     expect(counts).toMatchObject({ total: 6, running: 1, needsHuman: 1, summary: '3 active' });
-    expect(counts.detail).toContain('1 done');
+    expect(counts.detail).toContain('1 completed');
     expect(counts.detail).toContain('1 stopped');
     expect(counts.detail).toContain('1 failed');
   });

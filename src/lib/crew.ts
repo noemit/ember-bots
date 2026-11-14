@@ -160,7 +160,7 @@ export const threadShelfStatus = (
     return {
       total: all.size, running, needsHuman,
       summary: `${active} active`,
-      detail: `${active} active tasks · ${running} working · ${needsHuman} waiting for you · ${done} done · ${stopped} stopped · ${failed} failed`,
+      detail: `${active} active tasks · ${running} working · ${needsHuman} waiting for you · ${done} completed · ${stopped} stopped · ${failed} failed`,
     };
   }
   return { total: all.size, running, needsHuman, summary: `${running} / ${all.size}`, detail };
@@ -174,7 +174,7 @@ export const taskIsDone = (worker: Session): boolean =>
 export const taskStatusSignal = (worker: Session, state?: BallState): CrewBrickSignal => {
   const task = worker.task;
   if (!task) return brickStatusSignal(workerStateLabel(worker, { state }));
-  if (taskIsDone(worker)) return { word: 'Done', tone: 'done', showWord: true };
+  if (taskIsDone(worker)) return { word: 'Completed', tone: 'done', showWord: true };
   if (task.status === 'stopped') return { word: 'Stopped', tone: 'quiet', showWord: true };
   if (task.status === 'failed') return { word: 'Failed', tone: 'failed', showWord: true };
   if (worker.needsInput || state === 'needs-input') return { word: 'Waiting for you', tone: 'attention', showWord: true };
