@@ -18,6 +18,9 @@ test('privacy promise names the recipient and distinguishes provider and network
   expect(html).toContain('unless you tell us');
   expect(html).toContain('Your chosen AI provider receives the messages');
   expect(html).toContain('updates and model catalogues');
+  expect(html).toMatch(/settings.*activity summaries.*model-usage statistics/s);
+  expect(html).toMatch(/local records.*sent to us/s);
+  expect(html).toContain('Other than that, we track nothing');
   expect(html).not.toMatch(/never sends data|no network|never collects/i);
   expect(html).toContain('href="https://x.com/noemititarenco"');
   expect(html).toContain('href="mailto:em-bot@mail.grokbot.com"');

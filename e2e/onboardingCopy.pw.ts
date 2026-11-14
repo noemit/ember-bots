@@ -1,0 +1,32 @@
+import { expect, test } from '@playwright/test';
+
+test('approved task-first copy preserves connection and model-choice controls', async ({ page }, testInfo) => {
+  await page.goto('/?fixture=onboarding&noDock');
+  const wizard = page.getByTestId('onboarding');
+  await wizard.getByRole('button', { name: /1\. Ember and Kiln/ }).click();
+  await expect(wizard).toContainText('easy bot workspace');
+  await expect(wizard).toContainText(/requests.*review results.*scheduled/s);
+  await expect(wizard).toContainText('Pi-durable');
+  await expect(wizard).not.toContainText(/experts.*all models/s);
+  await expect(wizard).toContainText('Old PC running Omarchy');
+  await page.screenshot({ path: testInfo.outputPath('restored-welcome.png') });
+  await wizard.getByRole('button', { name: /2\. Where to run Kiln/ }).click();
+  await expect(wizard).toContainText(/recommend.*separate place/s);
+  await expect(wizard).toContainText(/stops when you quit Ember/);
+  await expect(wizard).toContainText(/Settings.*Instances.*Share this Kiln/s);
+  await expect(wizard).toContainText(/Tinder.*independently of Ember/s);
+  await page.screenshot({ path: testInfo.outputPath('preserved-sharing.png') });
+  await wizard.getByRole('button', { name: /5\. First bot/ }).click();
+  await expect(wizard).toContainText(/access folders elsewhere/);
+  await expect(wizard).not.toContainText('Open Choose an AI and select a default model before starting your first bot.');
+  await expect(wizard).not.toContainText('Nothing is sent until you write your first message.');
+  await expect(wizard.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
+  await expect(page.getByTestId('onboarding-next')).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('restored-first-bot.png') });
+  await wizard.getByRole('button', { name: /6\. Yours to use/ }).click();
+  await expect(wizard).toContainText(/local records.*sent to us/s);
+  await expect(wizard).toContainText('Other than that, we track nothing.');
+  await expect(wizard).toContainText(/Choose a default model.*before finishing setup/s);
+  await expect(wizard.getByRole('button', { name: 'Finish', exact: true })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('privacy-with-local-records.png') });
+});

@@ -100,8 +100,11 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await window.screenshot({ path: test.info().outputPath('packaged-setup.png') });
 
     // Continue also needs a default model — the old `New bot` button did too, through "Choose an AI"
-    // — and this profile has none: the step says which step to visit rather than looking broken.
-    await expect(window.getByTestId('onboarding').getByText('Open Choose an AI and select a default model before starting your first bot.', { exact: true })).toBeVisible();
+    // — and this profile has none. The step no longer carries its own hint (it was deliberately left
+    // blank); the footer carries the sentence instead, on the last step where it gates Finish.
+    await window.getByRole('button', { name: /Yours to use/ }).click();
+    await expect(window.getByTestId('onboarding').getByText('Choose a default model in Choose an AI before finishing setup.', { exact: true })).toBeVisible();
+    await window.getByRole('button', { name: /First bot/ }).click();
 
     // ---- The choice survives a relaunch ------------------------------------------------------
     await window.evaluate(() => window.ember.setSettings({ theme: 'graphite' }));

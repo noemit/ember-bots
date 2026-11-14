@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 for (const theme of ['stone', 'graphite']) {
-  test(theme + ' privacy finale is readable, linked and cannot bypass model setup', async ({ page }) => {
+  test(theme + ' privacy finale is readable, linked and cannot bypass model setup', async ({ page }, testInfo) => {
     await page.addInitScript((theme) => localStorage.setItem('ember-pi-read-state', JSON.stringify({ theme })), theme);
     await page.goto('/?fixture=onboarding&noDock');
     const wizard = page.getByTestId('onboarding');
@@ -26,7 +26,7 @@ for (const theme of ['stone', 'graphite']) {
     await model.selectOption((await model.locator('option').nth(1).getAttribute('value'))!);
     await wizard.getByRole('button', { name: /6\. Yours to use/ }).click();
     await expect(wizard.getByRole('button', { name: 'Finish', exact: true })).toBeEnabled();
-    await page.screenshot({ path: '/tmp/ember-onboarding-privacy/' + theme + '-final.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath(theme + '-final.png'), fullPage: true });
     await wizard.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(wizard.getByRole('heading', { name: 'Where does your work live?' })).toBeVisible();
   });
