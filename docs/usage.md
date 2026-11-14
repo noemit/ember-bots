@@ -57,11 +57,13 @@ is above the view and none of your messages is visible; jumping never marks anyt
 Select part of a response or plan to comment on it. Comments remain drafts in a tray until you send
 them together. Internal thread-result retrieval does not change your read marks.
 
-## Background threads
+## Tasks
 
-The **Threads** shelf shows all of the root chat’s workers in one flat list. Open any row to read its live conversation, answer a question or
-follow its result links without leaving the main chat. Older, deeper crews remain readable too.
-Thread retrieval and navigation never acknowledge messages on your behalf.
+The **Tasks** shelf shows the root chat’s assigned work in one flat list. Open a row to read its source conversation, answer a question or follow its evidence without leaving the main chat. Completed tasks fold under **Done**; older crews remain readable too.
+
+Done means the worker explicitly reported its assigned purpose complete, with an outcome, evidence and remaining limitations. It does not mean the coordinator verified that claim. Ending a reply, going idle or retrieving a result never completes a new task. A correction can reopen the same assignment; a different purpose belongs in a new task. An answer to an older question does not silently reopen a completed assignment.
+
+Task retrieval and navigation never acknowledge messages on your behalf.
 
 New crews have one worker layer: the main chat is the root coordinator, and every worker sits
 directly under it. If any worker needs a helper, that helper joins the same root as a sibling,

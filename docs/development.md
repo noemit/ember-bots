@@ -117,8 +117,7 @@ memory limit.
 
 See [AGENTS.md](../AGENTS.md) for invariants and [Kiln’s README](../packages/kiln/README.md) for its
 wire contract. New background threads use durable task versions, result references and selective
-continuations rather than repeated report text. Retrieval, verification and human read marks are
-separate concepts.
+continuations rather than repeated report text. New thread workers use [explicit task completion](../packages/kiln/docs/task-lifecycle.md): `session complete` records the outcome, evidence and remaining limitations; ending a reply is not completion. Legacy workers retain their original reply-based reporting contract. Completed assignments require explicit reopening before held question answers can resume them. Retrieval, worker completion, coordinator verification and human read marks are separate concepts.
 
 ## Packaging
 

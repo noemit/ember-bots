@@ -112,7 +112,7 @@ their existing names; archive references in the implementation notes below descr
   supervisory `lead` ownership: a requester keeps access to its spawned sibling, never arbitrary
   siblings. Existing deeper crews remain readable. Spawn-rate, budget and cancellation safeguards
   still apply; this policy never starts replacement workers automatically.
-- The root's Threads shelf shows all new workers in a flat list; legacy nested workers remain
+- The root's Tasks shelf shows all new workers in a flat list; legacy nested workers remain
   reachable at their recorded depth. Status, human blockers and result links stay reachable without
   marking any human messages read.
 - New Kiln workers default to `delivery: thread` in `hearth.sessions`. A final result stays in the
@@ -125,7 +125,7 @@ their existing names; archive references in the implementation notes below descr
 - `session results(name?)` returns bounded outcomes plus source links and records retrieved versions.
   `session read(name,cursor?,since?)` pages bounded raw evidence and does not consume final results.
   Retrieval, verification, incorporation and human read marks are separate concepts.
-- The composer shelf says Threads and shows running / needs-you counts. `/threads/<id>` Markdown
+- The composer shelf says Tasks, shows active / needs-you counts and folds explicit completions under Done. Worker completion is a claim, not coordinator verification. Ending a reply, idling and result retrieval never complete an explicit task. The worker uses `session complete` with summary, evidence and remaining limitations; explicit reopening starts a fresh assignment version, and held question answers cannot silently reopen Done. Legacy workers keep their reply-based contract. `/threads/<id>` Markdown
   links resolve through a column-scoped `ThreadLinkContext` to known descendants on the same host;
   unknown targets render as text. Internal notices and completion events never become visible
   transcript messages or unread targets. Ultra delegator uses durable continuations and permits
@@ -441,9 +441,9 @@ their existing names; archive references in the implementation notes below descr
   local copy bumps `updated` so a stale in-flight poll can't revert it).
 - `src/components/CrewStrip.tsx` — **coagent crews**. Hearth leaders (the default; a session
   with `delegates`) spawn `kind: "worker"` conversations with `lead`; those workers are hidden
-  from the rail, search, archive screen and palette, and surface only in the shelf's **Threads** tab
-  above the leader's composer. Threads use **flat rows with fine separators**, two-line titles and
-  status underneath, matching Queue and For later. Threads have no avatars; promoted peer links
+  from the rail, search, archive screen and palette, and surface only in the shelf's **Tasks** tab
+  above the leader's composer. Tasks use **flat rows with fine separators**, two-line outcome titles and
+  status underneath, matching Queue and For later. Task rows have no avatars; promoted peer links
   retain their own identity. The `role="group"` supplies the accessible boundary without a card.
   The shelf owns opening and folding; Previous still reveals finished threads, and pending nested
   workers remain directly reachable. Clicking a row opens the worker in a **session dialog** — a live ChatView with its own composer and prompt controls, while the main workspace and selected session stay unchanged. The dialog key is never persisted; its transcript joins visible-column event refresh, polling and cache protection. Closing or Escape returns to the same workspace. Promoted workers link to their peer in the normal workspace, and promotion from an open dialog hands over to that peer. Because the strip is
@@ -744,7 +744,7 @@ their existing names; archive references in the implementation notes below descr
   `src/lib/comments.ts`, unit-tested in `tests/comments.test.ts`; `e2e/comments.pw.ts` covers the scene.
 - `src/components/ComposerShelf.tsx` + `TrayRow.tsx` + `TrayItemDialog.tsx` — **the tray above
   the composer is one shelf**, not three stacked cards: quiet underline tabs (`Queue 3 · For later 2 ·
-  Threads 3`, each with its count or summary, a dot when that tray wants the human), and fine-separated
+  Tasks 3`, each with its count or summary, a dot when that tray wants the human), and fine-separated
   rows below. The selected tab, the empty tab-bar space and the chevron each fold/reopen the shelf;
   another tab switches and opens without collapsing. Arrow keys/Home/End move tab focus, Enter/Space
   activate, and tabs name their panels. A tray with nothing in it has no
