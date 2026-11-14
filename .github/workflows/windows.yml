@@ -1,52 +1,81 @@
 name: Windows executable
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
 permissions:
   contents: read
 jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 25
+    env:
+      PRODUCT_ROOT: }/product
+      MANUAL_BUILDER_CONFIG: }/ember-manual-builder.json
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: validation
+      - uses: actions/checkout@v4
+        with:
+          ref: 2c46cb55018f5113300f4376caffc7a921e3cf30
+          path: product
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: bun install --frozen-lockfile
-      - run: bun install --frozen-lockfile
-        working-directory: packages/kiln
-      - run: bun run build
-      - run: bunx electron-builder --win --x64 --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - run: bun test ./tests/packagedOAuth.test.ts
-      - run: bun run dist:cli
-      - name: Verify the packaged application with a fresh profile
-        run: bunx playwright test --config playwright.packaged.config.ts
-        env:
-          EMBER_PACKAGED_EXECUTABLE: release/win-unpacked/Ember.exe
-      - name: Create checksums
+      - name: Assert exact clean product provenance
+        working-directory: product
         shell: pwsh
         run: |
-          Get-ChildItem release/*-windows-*-setup.exe, release/tinder-cli.exe | ForEach-Object {
-            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$hash  $($_.Name)"
-          } | Set-Content release/SHA256SUMS-windows.txt
+          if ((git rev-parse HEAD) -ne '2c46cb55018f5113300f4376caffc7a921e3cf30') { throw 'Wrong product commit' }
+          if (git status --porcelain) { throw 'Dirty product checkout' }
+          git show --no-patch --format=fuller HEAD
+      - run: bun install --frozen-lockfile
+        working-directory: product
+      - run: bun install --frozen-lockfile
+        working-directory: product/packages/kiln
+      - run: bun run build
+        working-directory: product
+      - name: Prepare external manual packaging configuration
+        run: node validation/scripts/windows-manual/prepare.cjs
+      - run: bunx electron-builder --win --x64 --publish never --config "$env:MANUAL_BUILDER_CONFIG"
+        working-directory: product
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: bun test ./tests/packagedOAuth.test.ts ./tests/packagedCodemode.test.ts ./tests/cli.test.ts
+        working-directory: product
+      - name: Apply test-only overlay after product build
+        shell: pwsh
+        run: Copy-Item validation/e2e/launch.packaged.ts product/e2e/launch.packaged.ts
+      - name: Verify packaged native launch with an isolated profile
+        run: bunx playwright test --config playwright.packaged.config.ts
+        working-directory: product
+        env:
+          EMBER_PACKAGED_EXECUTABLE: release/win-unpacked/Ember.exe
+      - name: Audit packaged metadata, architectures, CLI, checksums
+        run: node validation/scripts/windows-manual/audit.cjs
+      - name: Assert product checkout is unchanged
+        shell: pwsh
+        working-directory: product
+        run: |
+          git restore e2e/launch.packaged.ts
+          if (git status --porcelain) { throw 'Product source changed' }
+          Copy-Item "$env:MANUAL_BUILDER_CONFIG" release/manual-builder-config.json
       - uses: actions/upload-artifact@v4
         with:
-          name: ember-windows-x64
+          name: ember-1.23.0-windows-x64-manual-unsigned
           path: |
-            release/*-windows-*-setup.exe
-            release/tinder-cli.exe
-            release/SHA256SUMS-windows.txt
+            product/release/*-windows-x64-setup.exe
+            product/release/*-windows-x64-setup.zip
+            product/release/tinder-windows-x64.exe
+            product/release/SHA256SUMS-windows.txt
+            product/release/MANUAL-WINDOWS.txt
+            product/release/manual-builder-config.json
+            product/test-results/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: windows-test-diagnostics
-          path: test-results/
+          name: windows-manual-diagnostics
+          path: product/test-results/
