@@ -1,3 +1,5 @@
+import { installRemoteLifecycle, isRemoteExpired, reportRemoteConnection, trackRemoteRequest } from './lib/remoteLifecycle';
+import { mergeDraftChanges } from './lib/composerDrafts';
 import type { EmberBridge, EmberSettings, EmberSettingsPatch } from './types';
 
 type ApiResponse = { ok: boolean; status: number; data: unknown };
@@ -22,11 +24,17 @@ export class RemoteRequestError extends Error {
   }
 }
 
-const SESSION_EXPIRED_MESSAGE = 'Your remote session has ended. Reload this page and sign in again.';
-const UNREACHABLE_MESSAGE = 'Could not reach the desktop over the tailnet. Check that Tailscale is connected and Ember is running.';
+const SESSION_EXPIRED_MESSAGE = 'Ember ended this session. Copy any unsent text, then sign in again.';
+const UNREACHABLE_MESSAGE = 'The Ember computer did not answer. Keep this app open to preserve drafts. Check your private connection and that Ember is running.';
 
-const request = async (path: string, init?: RequestInit): Promise<Response> =>
-  fetch(path, { ...init, credentials: 'same-origin' });
+const request = async (path: string, init?: RequestInit): Promise<Response> => {
+  if (isRemoteExpired()) throw new RemoteRequestError(SESSION_EXPIRED_MESSAGE, 'session-expired');
+  return fetch(path, { ...init, credentials: 'same-origin', cache: 'no-store' });
+};
+const expire = () => {
+  reportRemoteConnection('expired');
+  window.dispatchEvent(new CustomEvent(REMOTE_SESSION_EXPIRED_EVENT));
+};
 
 const errorBody = async (response: Response): Promise<{ message: string; code?: string }> => {
   try {
@@ -41,38 +49,84 @@ const errorBody = async (response: Response): Promise<{ message: string; code?: 
 };
 
 const failureOf = async (response: Response): Promise<RemoteRequestError> => {
+  // A relay/server error is not proof that a mutation was refused: the upstream may have
+  // accepted it before the response was lost. Keep it on App's protected unconfirmed path.
+  if (response.status >= 500) {
+    return new RemoteRequestError(UNREACHABLE_MESSAGE, 'unreachable', response.status);
+  }
   const { message, code } = await errorBody(response);
   if (code === 'session-expired' || response.status === 401) {
     return new RemoteRequestError(SESSION_EXPIRED_MESSAGE, 'session-expired', response.status);
   }
   const fallback = response.status === 403
-    ? 'Ember refused that request because it came from another site.'
-    : `Ember refused that request (HTTP ${response.status}).`;
+    ? 'Ember refused a request from another site. Open Ember at its private address and try again.'
+    : 'Ember could not complete that request. Try again once the computer is answering.';
   return new RemoteRequestError(message || fallback, 'rejected', response.status);
 };
 
 /** One checked path for every remote call: redirects and non-2xx never reach a caller as data. */
-const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+const readJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   let response: Response;
   try {
     response = await request(path, init);
-  } catch {
+  } catch (error) {
+    if (error instanceof RemoteRequestError) throw error;
+    reportRemoteConnection(navigator.onLine === false ? 'offline' : 'unavailable');
     throw new RemoteRequestError(UNREACHABLE_MESSAGE, 'unreachable');
   }
-  // A followed redirect is the login page: `fetch` cannot tell us apart from data otherwise.
+  // Only Ember's login redirect proves expiry; a captive portal or proxy redirect does not.
   if (response.redirected) {
-    window.dispatchEvent(new CustomEvent(REMOTE_SESSION_EXPIRED_EVENT));
-    throw new RemoteRequestError(SESSION_EXPIRED_MESSAGE, 'session-expired', response.status);
+    if (new URL(response.url, window.location.href).pathname === '/remote/login') {
+      expire();
+      throw new RemoteRequestError(SESSION_EXPIRED_MESSAGE, 'session-expired', response.status);
+    }
+    reportRemoteConnection('unavailable');
+    throw new RemoteRequestError(UNREACHABLE_MESSAGE, 'unreachable', response.status);
   }
   if (!response.ok) {
     const error = await failureOf(response);
     if (error.kind === 'session-expired') {
-      window.dispatchEvent(new CustomEvent(REMOTE_SESSION_EXPIRED_EVENT));
+      expire();
     }
+    if (error.kind !== 'session-expired' && response.status >= 500) reportRemoteConnection('unavailable');
     throw error;
   }
-  return response.json() as Promise<T>;
+  let data: T;
+  try { data = await response.json() as T; }
+  catch {
+    reportRemoteConnection('unavailable');
+    throw new RemoteRequestError(UNREACHABLE_MESSAGE, 'unreachable', response.status);
+  }
+  if (isRemoteExpired()) throw new RemoteRequestError(SESSION_EXPIRED_MESSAGE, 'session-expired');
+  reportRemoteConnection('online');
+  return data;
 };
+
+// Requests are never replayed: a lost POST response may already have placed the message.
+const requestJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+  const mutation = init?.method && init.method !== 'GET';
+  if (mutation) trackRemoteRequest(1);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20_000);
+  try { return await readJson<T>(path, { ...init, signal: controller.signal }); }
+  finally {
+    window.clearTimeout(timeout);
+    if (mutation) trackRemoteRequest(-1);
+  }
+};
+const checkedApi = async <T extends { ok: boolean; status: number },>(pending: Promise<T>): Promise<T> => {
+  const result = await pending;
+  if (!result.ok && (result.status === 0 || result.status >= 500)) {
+    // Neither no response nor an upstream server error proves a submission was refused.
+    // Throw instead of returning a failed envelope, which App would otherwise label retryable.
+    // This also bypasses piApi's desktop status:0 retry: remote work is never auto-replayed.
+    reportRemoteConnection('unavailable');
+    throw new RemoteRequestError(UNREACHABLE_MESSAGE, 'unreachable', result.status);
+  }
+  return result;
+};
+let drafts: EmberSettings['composerDrafts'] = {};
+const withMemoryDrafts = (settings: EmberSettings) => ({ ...settings, composerDrafts: drafts });
 
 const jsonInit = (method: string, body?: unknown): RequestInit => ({
   method,
@@ -88,10 +142,14 @@ const bridge: EmberBridge = {
   clearModelStats: async () => { await requestJson('/remote/model-stats', jsonInit('DELETE')); },
   capabilities: { dockIcon: false, endpointManagement: false },
   listInstances: (refresh = true) => requestJson(`/remote/instances?refresh=${refresh}`),
-  getSettings: () => requestJson<EmberSettings>('/remote/settings'),
+  getSettings: async () => withMemoryDrafts(await requestJson<EmberSettings>('/remote/settings')),
   // A rejected save is an error, exactly as it is on the desktop bridge. The caller keeps the
   // settings it already had and shows the reason instead of adopting a body that is not settings.
-  setSettings: (patch: EmberSettingsPatch) => requestJson<EmberSettings>('/remote/settings', jsonInit('POST', patch)),
+  setSettings: async (patch: EmberSettingsPatch) => {
+    const { composerDraftChanges, composerDrafts: _storedDrafts, ...preferences } = patch;
+    drafts = mergeDraftChanges(drafts, composerDraftChanges ?? {});
+    return withMemoryDrafts(await requestJson<EmberSettings>('/remote/settings', Object.keys(preferences).length ? jsonInit('POST', preferences) : undefined));
+  },
   // The renderer is already a browser tab: open links in a new one. Bare host:port / www.
   // addresses get an http:// prefix; local paths can't be revealed on the remote machine,
   // so they report failure like the Electron bridge does.
@@ -104,37 +162,67 @@ const bridge: EmberBridge = {
   },
   setAppIcon: async () => ({ ok: false, reason: 'a remote window has no icon to set' }),
   request: (instanceId: string, method: string, path: string, body?: unknown): Promise<ApiResponse> =>
-    requestJson<ApiResponse>('/remote/api', jsonInit('POST', { instanceId, method, path, body })),
+    checkedApi(requestJson<ApiResponse>('/remote/api', jsonInit('POST', { instanceId, method, path, body }))),
   piRequest: <T = unknown>(endpointId: string, path: string, init?: { method?: string; body?: unknown }) =>
-    requestJson<{ ok: boolean; status: number; data: T }>('/remote/pi', jsonInit('POST', { endpointId, path, init })),
+    checkedApi(requestJson<{ ok: boolean; status: number; data: T }>('/remote/pi', jsonInit('POST', { endpointId, path, init }))),
   eventStatus: () => requestJson<Record<string, boolean>>('/remote/events/status'),
   activityList: (query) => requestJson('/remote/activity/list', jsonInit('POST', query)),
   activitySearch: (query, range) => requestJson('/remote/activity/search', jsonInit('POST', { query, range })),
   activityDays: () => requestJson<string[]>('/remote/activity/days'),
-  // EventSource sends the session cookie and reconnects on its own while the session is valid.
-  // Once the desktop says the session is gone there is nothing to reconnect to: the login page
-  // cannot be consumed by a stream, so tell the app and stop instead of retrying silently.
+  // EventSource sends the session cookie. A stream failure is only a connectivity hint;
+  // authenticated REST is the authority for expiry. Resume replaces stalled browser sockets.
   onEvent: (listener) => {
-    const source = new EventSource('/remote/events');
+    let source: EventSource | undefined;
     let stopped = false;
-    source.onmessage = (message) => {
-      try {
-        listener(JSON.parse(message.data));
-      } catch {
-        // A malformed frame is the relay's bug, not a reason to drop the subscription.
-      }
+    let generation = 0;
+    const connect = () => {
+      if (stopped || isRemoteExpired() || document.hidden) return;
+      source?.close();
+      const current = new EventSource('/remote/events');
+      source = current;
+      const version = ++generation;
+      current.onopen = () => {
+        if (source !== current) return;
+        reportRemoteConnection('online');
+        // This is the relay reconnect, not an upstream stream-status transition.
+        window.dispatchEvent(new CustomEvent('ember:remote-resume'));
+      };
+      current.onmessage = (message) => {
+        if (isRemoteExpired() || source !== current) return;
+        try { listener(JSON.parse(message.data)); } catch { /* Ignore malformed relay frames. */ }
+      };
+      current.onerror = () => {
+        if (stopped || source !== current) return;
+        reportRemoteConnection(navigator.onLine === false ? 'offline' : 'unavailable');
+        // CLOSED can also mean a network/proxy failure. Only an authenticated REST answer
+        // proves expiry. Native EventSource handles CONNECTING retries without duplicating it.
+        void requestJson('/remote/events/status').catch(() => {});
+        if (current.readyState === EventSource.CLOSED) {
+          window.setTimeout(() => { if (!stopped && generation === version) connect(); }, 3000);
+        }
+      };
     };
-    source.onerror = () => {
-      if (stopped || source.readyState !== EventSource.CLOSED) return;
-      stopped = true;
-      source.close();
-      window.dispatchEvent(new CustomEvent(REMOTE_SESSION_EXPIRED_EVENT));
-    };
+    const resume = () => { if (!document.hidden) connect(); };
+    const offline = () => reportRemoteConnection('offline');
+    const stopExpired = () => { generation++; source?.close(); };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('pageshow', resume);
+    window.addEventListener('online', resume);
+    window.addEventListener('offline', offline);
+    window.addEventListener(REMOTE_SESSION_EXPIRED_EVENT, stopExpired);
+    connect();
     return () => {
       stopped = true;
-      source.close();
+      generation++;
+      source?.close();
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('pageshow', resume);
+      window.removeEventListener('online', resume);
+      window.removeEventListener('offline', offline);
+      window.removeEventListener(REMOTE_SESSION_EXPIRED_EVENT, stopExpired);
     };
   },
 };
 
+installRemoteLifecycle();
 window.ember = bridge;

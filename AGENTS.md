@@ -785,6 +785,22 @@ their existing names; archive references in the implementation notes below descr
   `--attention-foreground` symbols; error badges use `--destructive-foreground`. Clay uses mint
   attention badges with black symbols and rose-red errors, distinct from its orange main accent.
 
+## Remote phone app
+
+- Browser UI sharing is separate from **Share this Kiln**. Direct Tailscale HTTP remains supported.
+  Optional `remoteAccessProxyOrigin` switches the UI listener to numeric loopback; HTTPS trust
+  requires that configured origin's exact Host, a loopback socket peer and overwritten HTTPS proto.
+  Never infer proxy trust from forwarding headers alone or change real network configuration in tests.
+- `scripts/pwa-build.mjs` emits the production service worker with an explicit build-asset allowlist.
+  Never cache API/auth/SSE responses, private images or authenticated navigation HTML. Root navigation
+  is network-only with a secret-free static offline fallback. Logout/expiry clears shell versions.
+- Remote unsent drafts/attachments/annotations stay in memory, not browser storage or shared desktop
+  drafts. Do not replay uncertain sends. Updates never reload automatically; check live draft/work
+  blockers again on every refresh action. Expiry unmounts App, including its portalled dialogs,
+  while the independent recovery surface can copy lossless unsent text.
+- `bunx playwright test --config playwright.pwa.config.ts` runs production-shell fixtures after
+  `bun run build`. Real phone installation, keyboards and private HTTPS reachability need device checks.
+
 ## Data freshness
 
 Events drive invalidation; REST stays the source of truth. Nothing in the UI is ever built

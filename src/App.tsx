@@ -1,3 +1,4 @@
+import { isRemoteBrowser, setRemoteActiveWork } from './lib/remoteLifecycle';
 import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
 import { isAsyncQuestion, questionsForSupervisor } from './lib/asyncQuestions';
 import { projectUsageForHost } from './lib/projectUsage';
@@ -147,6 +148,7 @@ import {
   stopHeldMessage,
   submitOutcomeOf,
   type AbortReceipt,
+  unconfirmedSendMessage,
 } from '@/lib/sendDelivery';
 import {
   isMessageRead,
@@ -534,17 +536,6 @@ export default function App() {
     return () => window.removeEventListener('resize', apply);
   }, [settings.conversationFontSize, settings.composerSize, settings.interfaceSize]);
 
-  // The remote web client's session can end under it (the desktop restarted, the password changed,
-  // or the 12-hour idle window passed). The bridge reports that as one event so the user gets a
-  // "sign in again" prompt instead of a JSON parse error over an empty window.
-  React.useEffect(() => {
-    const onExpired = () => showActionError(
-      'Your remote session has ended. Reload this page and sign in again.',
-      () => window.location.reload()
-    );
-    window.addEventListener('ember:session-expired', onExpired);
-    return () => window.removeEventListener('ember:session-expired', onExpired);
-  }, [showActionError]);
   const handleSettings = updateSettings;
   const setInstanceDefaultModel = (instanceId: string, model: import('./types').ModelRef) => {
     const current = settingsRef.current.instanceDefaults;
@@ -913,7 +904,7 @@ export default function App() {
         const preview = record.text.trim().replace(/\s+/g, ' ').slice(0, 60);
         const replay = pendingInputs.current.get(record.id);
         setActionNotice({
-          message: `The host took “${preview}” but never showed it in this conversation — it may not have arrived.`,
+          message: unconfirmedSendMessage(preview),
           ...(replay
             ? {
                 actionLabel: 'Send again',
@@ -2653,7 +2644,7 @@ export default function App() {
 
     const catchUp = (instanceId: string) => {
       // The stream just (re)connected; anything that changed while it was down was missed.
-      (['sessions', 'states', 'permissions', 'questions', 'queues', 'autoAccept'] as const).forEach((resource) =>
+      (['sessions', 'states', 'permissions', 'questions', 'queues', 'autoAccept', 'scheduled'] as const).forEach((resource) =>
         invalidationQueue.push({ instanceId, resource })
       );
       watchedSessionKeysRef.current.forEach((key) => {
@@ -2710,22 +2701,27 @@ export default function App() {
     void bridge.eventStatus?.().then((status) => {
       liveInstancesRef.current = { ...liveInstancesRef.current, ...status };
       setLiveInstances(liveInstancesRef.current);
-    });
+    }).catch(() => {});
 
     const resume = () => {
-      if (!document.hidden) readyIds.forEach(catchUp);
+      if (!document.hidden) {
+        void readInstances().catch(() => {});
+        readyIds.forEach(catchUp);
+      }
     };
     const online = () => {
-      // A restored network can also mean a changed tunnel or port; reprobe so an instance
-      // marked unreachable reattaches instead of waiting for the watchdog.
-      void readInstances().catch(() => {});
+      // Resume also reprobes, so unreachable hosts reattach without waiting for the watchdog.
       resume();
     };
     document.addEventListener('visibilitychange', resume);
     window.addEventListener('online', online);
+    window.addEventListener('pageshow', resume);
+    window.addEventListener('ember:remote-resume', resume);
     return () => {
       document.removeEventListener('visibilitychange', resume);
       window.removeEventListener('online', online);
+      window.removeEventListener('pageshow', resume);
+      window.removeEventListener('ember:remote-resume', resume);
       unsubscribe();
       invalidationQueue.clear();
     };
@@ -3712,6 +3708,16 @@ export default function App() {
       // Name the underlying failure: a generic "could not be refreshed" hides the real cause
       // (auth, a missing route, a malformed response) exactly when it matters.
       const detail = err instanceof Error && err.message ? ` (${err.message.slice(0, 200)})` : '';
+      if (!accepted && isRemoteBrowser() && !(err && typeof err === 'object' && 'kind' in err && (err.kind === 'rejected' || err.kind === 'session-expired'))) {
+        // A lost relay response is not a refusal. The host may already be running this exact
+        // message. Keep its protected id for REST reconciliation; never offer an automatic retry.
+        retained = true;
+        setDelivery('unconfirmed');
+        if (!options.quiet) showActionError('Ember did not confirm this message. It may already be running. Keep this app open and check the conversation before sending it again.');
+        // An annotation needs a durable receipt/source link before its editor may clear.
+        // Normal composer sends already have their protected unconfirmed bubble as their home.
+        return !options.onAccepted;
+      }
       if (!accepted) {
         const reason = err instanceof Error ? err.message : 'Message could not be sent.';
         if (options.retainOnFailure === true) {
@@ -5559,6 +5565,13 @@ export default function App() {
         ) : null}
       </>
     ) : null;
+
+  // Reload safety includes closed/background sessions and unresolved optimistic messages, not
+  // just the visible composer's busy flag. This never starts or retries work.
+  const remoteReloadBlocked = sendingKeys.size > 0 || pendingInputs.current.size > 0 || pendingCreates.length > 0 ||
+    Object.values(queuesByInstance).some((queues) => queues.some((queue) => queue.items.length > 0)) ||
+    Object.values(statesByInstance).some((states) => Object.values(states).some((state) => state === 'active' || state === 'needs-input'));
+  React.useLayoutEffect(() => { setRemoteActiveWork(remoteReloadBlocked); }, [remoteReloadBlocked]);
 
   return (
     <AvatarSizeContext.Provider value={settings.blobSize}>

@@ -3,9 +3,9 @@
  *
  * Nothing here reads a clock. An optimistic send is `sending` while the request is in flight,
  * `queued` once the server answers that it holds the message and will dispatch it later,
- * `unconfirmed` once the server says it placed the message but its echo has not appeared in the
- * transcript yet, and `failed` only on a definite failure (a transport error, a non-2xx response,
- * or a response that names a refused submission).
+ * `unconfirmed` once the server claims placement without a transcript echo, or a remote relay
+ * loses the answer and placement is unknown. `failed` requires a definite refusal; remote network
+ * failures and gateway errors cannot establish that a mutation was not accepted.
  *
  * Only `unconfirmed` is ever doubted, and only by the bubble's own note after a bounded wait
  * (`UNCONFIRMED_SEND_MS`, below): a placed message whose copy never lands is the one case where a
@@ -13,6 +13,10 @@
  * server holds it and a boundary may be an entire turn away.
  */
 import type { ChatMessage } from '../types';
+
+/** Lost relay answers are uncertain too; never claim that the host definitely accepted them. */
+export const unconfirmedSendMessage = (preview?: string): string =>
+  `Ember has not confirmed ${preview ? `“${preview}”` : 'this message'} in this conversation. It may already be running; check here before sending again.`;
 
 export type SubmitOutcome =
   /** The server took the message. `queued` means it is parked in the inbox; `steer` means it

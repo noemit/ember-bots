@@ -6,6 +6,7 @@ import {
   stopHeldMessage,
   submitOutcomeOf,
   UNCONFIRMED_SEND_MS,
+  unconfirmedSendMessage,
 } from '../src/lib/sendDelivery';
 
 /**
@@ -14,6 +15,15 @@ import {
  * is the only reason to offer a retry, and nothing about elapsed time can turn a sent message
  * doubtful.
  */
+
+test('uncertain delivery copy names Ember, offers a check and never claims acceptance', () => {
+  for (const message of [unconfirmedSendMessage(), unconfirmedSendMessage('my draft')]) {
+    expect(message).toContain('Ember');
+    expect(message).toMatch(/may|might/i);
+    expect(message).toMatch(/check.*before.*sending/i);
+    expect(message).not.toMatch(/host took|definitely|HTTP|undefined|null|stack|!/i);
+  }
+});
 
 test('a busy follow-up is accepted as queued, naming its submission id', () => {
   const outcome = submitOutcomeOf({ submissionId: 42, status: 'queued', mode: 'followUp' });

@@ -43,6 +43,7 @@ import {
   type RemoteAccessState,
 } from './transport';
 import { startRemoteServer } from './remoteServer';
+import { parseRemoteProxyOrigin } from './remoteProxy';
 import { appendCompactLog } from './compactLog';
 import { initializeFirstRunSettings, quarantineCorruptSettings } from './settingsFile';
 import { RemoteListener, type StartOutcome } from './remoteListener';
@@ -522,6 +523,8 @@ const readEmberSettings = (): EmberSettings => {
       );
     })(),
     remoteAccessEnabled: root.remoteAccessEnabled === true,
+    // Keep invalid stored values for startRemoteServer to reject rather than exposing direct HTTP.
+    remoteAccessProxyOrigin: root.remoteAccessProxyOrigin === undefined ? undefined : String(root.remoteAccessProxyOrigin),
     remotePasswordConfigured: typeof root.remotePasswordHash === 'string' && root.remotePasswordHash.length > 0,
     remoteAccessState: remoteListenerState,
     localHarnessEnabled: root.localHarnessEnabled !== false,
@@ -1055,6 +1058,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   const root = readJson(emberSettingsPath());
   const settings = readEmberSettings();
   const previousRemoteAccessEnabled = settings.remoteAccessEnabled;
+  const previousRemoteProxyOrigin = settings.remoteAccessProxyOrigin;
   const previousRemotePasswordHash = typeof root.remotePasswordHash === 'string' ? root.remotePasswordHash : undefined;
   let remotePasswordHash = previousRemotePasswordHash;
   if (typeof value.theme === 'string' && value.theme) settings.theme = value.theme;
@@ -1128,6 +1132,9 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
     if (typeof value.localHarnessEnabled !== 'boolean') throw new Error('Invalid local harness setting');
     settings.localHarnessEnabled = value.localHarnessEnabled;
   }
+  if (value.remoteAccessProxyOrigin !== undefined) {
+    settings.remoteAccessProxyOrigin = parseRemoteProxyOrigin(value.remoteAccessProxyOrigin);
+  }
   if (value.remotePassword !== undefined) {
     if (value.remotePassword === null || value.remotePassword === '') {
       remotePasswordHash = undefined;
@@ -1157,8 +1164,13 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   });
   if (
     settings.remoteAccessEnabled !== previousRemoteAccessEnabled ||
-    remotePasswordHash !== previousRemotePasswordHash
-  ) refreshRemoteServer();
+    remotePasswordHash !== previousRemotePasswordHash ||
+    settings.remoteAccessProxyOrigin !== previousRemoteProxyOrigin
+  ) {
+    // A changed password or trust boundary invalidates every cookie and open event stream.
+    remoteListener.dispose();
+    refreshRemoteServer();
+  }
   return maskEndpointSecrets(settings);
 };
 
@@ -1543,7 +1555,7 @@ const remoteListener = new RemoteListener(
       verifyPassword: (password) => verifyRemotePassword(password, readJson(emberSettingsPath()).remotePasswordHash),
       subscribeEvents,
       eventStatus: () => ({ ...eventStreams.snapshot(), ...piClient.status() }),
-    });
+    }, { proxyOrigin: settings.remoteAccessProxyOrigin });
     if (!started.server) return { server: null, reason: 'no-tailscale' };
     return { server: started.server, address: started.address };
   },

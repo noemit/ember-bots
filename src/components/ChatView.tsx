@@ -1,3 +1,4 @@
+import { isRemoteBrowser, isRemoteExpired, remoteAuxiliaryDrafts, setRemoteDraftBlocker } from '../lib/remoteLifecycle';
 import QuestionsShelf from './QuestionsShelf';
 import type { ProjectUsage } from '../lib/projectUsage';
 import type { ThreadQuestion } from '../lib/threadQuestions';
@@ -392,6 +393,8 @@ const saveComposerDraft = (
 ) => {
   drafts.delete(key);
   drafts.set(key, state);
+  // Remote drafts have no durable fallback. Never evict unsent private content to meet a cap.
+  if (isRemoteBrowser()) return;
   while (drafts.size > MAX_COMPOSER_DRAFTS) {
     const oldest = drafts.keys().next().value;
     if (!oldest) break;
@@ -626,6 +629,8 @@ function ChatView({
   const [sideQuestionOpen, setSideQuestionOpen] = React.useState(false);
   const [sideQuestionText, setSideQuestionText] = React.useState('');
   const sideQuestionInputRef = React.useRef<HTMLInputElement>(null);
+  const reloadBlockerKey = React.useId();
+
   const [focusMessageId, setFocusMessageId] = React.useState<string | null>(null);
   const [focusRequest, setFocusRequest] = React.useState(0);
   const [findRequest, setFindRequest] = React.useState(0);
@@ -1158,6 +1163,19 @@ function ChatView({
 
   const selectionComments = useSelectionComments({ regionRef: transcriptRef, hostRef: columnRef, enabled: Boolean(session), sessionKey: session ? makeSessionKey(session) : null, messages, hasDraft: Boolean(annotationDraft) });
   const annotationSource = selectionComments.anchor;
+  React.useLayoutEffect(() => {
+    setRemoteDraftBlocker(reloadBlockerKey, Boolean(text.length || attachments.length || replyContext || sideQuestionText.length || annotationDraft.length || annotationBusy));
+    if (isRemoteBrowser()) {
+      if (sideQuestionText || annotationDraft) remoteAuxiliaryDrafts.set(reloadBlockerKey, {
+        question: sideQuestionText, annotationDraft, annotationQuote: annotationSource?.quote ?? '',
+      });
+      else remoteAuxiliaryDrafts.delete(reloadBlockerKey);
+    }
+    return () => {
+      setRemoteDraftBlocker(reloadBlockerKey, false);
+      if (!isRemoteExpired()) remoteAuxiliaryDrafts.delete(reloadBlockerKey);
+    };
+  }, [reloadBlockerKey, text, attachments, replyContext, sideQuestionText, annotationDraft, annotationSource, annotationBusy]);
   const annotationInput = (value: string): PromptInput => ({
     requestId: annotationRequestId.current ??= createQuoteLinkId(),
     text: `Re: “${annotationSource?.quote ?? ''}”\n\n${value.trim()}`,

@@ -735,6 +735,8 @@ export type EmberSettings = {
   /** Hearth endpoints: the pi transition target. */
   piEndpoints: PiEndpoint[];
   remoteAccessEnabled: boolean;
+  /** Explicit HTTPS browser origin behind a loopback-only TLS reverse proxy. */
+  remoteAccessProxyOrigin?: string;
   remotePasswordConfigured: boolean;
   /**
    * Whether the remote listener is actually bound, and where. `remoteAccessEnabled` is a wish;

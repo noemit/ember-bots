@@ -56,6 +56,7 @@ import {
   type TextSize,
 } from '../lib/textSize';
 import type { EmberSettings, EmberSettingsPatch, Instance, InstanceDefaults, Project, RemoteAccessState } from '../types';
+import { RemoteHttpsSetup } from './RemoteHttpsSetup';
 
 type Props = {
   open: boolean;
@@ -448,16 +449,20 @@ const InstanceDefaultsSettings = ({
 const RemoteListenerStatus = ({
   state,
   enabled,
+  proxyOrigin,
 }: {
   state?: RemoteAccessState;
   enabled: boolean;
+  proxyOrigin?: string;
 }) => {
   if (!enabled) return null;
   const status = state?.status ?? 'starting';
   const detail = (() => {
     if (status === 'listening') {
       const address = state?.address ? `http://${state.address}${state.port ? `:${state.port}` : ''}` : 'this machine';
-      return { tone: 'ok' as const, text: `Listening on ${address}` };
+      return { tone: 'ok' as const, text: proxyOrigin
+        ? `Local listener ready on ${address}. HTTPS proxy configured; verify ${proxyOrigin} from your phone.`
+        : `Listening on ${address}` };
     }
     if (status === 'no-tailscale') {
       return {
@@ -632,7 +637,7 @@ export default function SettingsPanel({
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <span className="font-medium">Allow Ember browser access over Tailscale</span>
                         <span className="text-[11px] text-muted-foreground">
-                          Opens the Ember browser UI on port 57821, with a password, only to your tailnet. This does not share the Kiln API.
+                          Serves the password-protected Ember browser UI on port 57821: directly on your tailnet, or loopback-only when a reviewed HTTPS proxy is configured. This does not share the Kiln API.
                         </span>
                       </div>
                     </div>
@@ -647,7 +652,8 @@ export default function SettingsPanel({
                       {settings.remoteAccessEnabled ? 'On' : 'Off'}
                     </Toggle>
                   </div>
-                  <RemoteListenerStatus state={settings.remoteAccessState} enabled={settings.remoteAccessEnabled} />
+                  <RemoteListenerStatus state={settings.remoteAccessState} enabled={settings.remoteAccessEnabled} proxyOrigin={settings.remoteAccessProxyOrigin} />
+                  <RemoteHttpsSetup origin={settings.remoteAccessProxyOrigin} onChange={onChange} />
                   {settings.settingsRecovered ? (
                     <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-[11px] text-warning">
                       Ember could not read its settings file, so it started from defaults and kept the old

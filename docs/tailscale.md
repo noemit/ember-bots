@@ -17,8 +17,11 @@ Your bots and files stay on their existing hosts. Keep the desktop computer awak
 5. On your other device, connect Tailscale and open `http://<tailscale-ip>:57821` in its browser.
    Replace `<tailscale-ip>` with the address from step 4. Sign in with the password you set in Ember.
 
-You should see your existing workspace. Bookmark the address for next time. Browser home-screen
-shortcuts depend on your device; this HTTP connection does not promise an installable, offline PWA.
+You should see your existing workspace. Bookmark the address for next time. This HTTP address still
+works, but an installable iPhone/Android app needs private HTTPS. Follow the
+[explicit private HTTPS setup and install guide](instances.md#private-https-with-an-explicit-reverse-proxy)
+for a reviewed reverse proxy, readiness checks and targeted rollback. Ember never enables a public
+tunnel or changes your network automatically. Offline conversations and sending are not supported.
 
 Tailscale connects the devices privately; Ember still requires its own password. Ember serves HTTP
 inside the encrypted tailnet, not a public HTTPS website. No router port forwarding is needed.

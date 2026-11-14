@@ -775,6 +775,8 @@ export type EmberSettings = {
    */
   localHarnessEnabled: boolean;
   remoteAccessEnabled: boolean;
+  /** Explicit HTTPS reverse proxy origin; absent means direct Tailscale HTTP. Desktop-only. */
+  remoteAccessProxyOrigin?: string;
   remotePasswordConfigured: boolean;
   /** Whether the listener is actually bound, and where. Never assume "enabled" means "listening". */
   remoteAccessState: RemoteAccessState;
@@ -849,10 +851,12 @@ export const redactRemoteSettings = <T extends { piEndpoints?: Array<{ id: strin
 /**
  * Endpoint tokens are desktop-only. A remote client that posts `piEndpoints` would send the
  * redacted `''` back, and `parsePiEndpoints` requires a non-empty token — so accepting the
- * field from remote would silently delete every Hearth endpoint. Strip it instead.
+ * field from remote would silently delete every Hearth endpoint. Strip it instead. Browser
+ * exposure, proxy trust and its password are desktop-only too: a browser session must not be
+ * able to move the host's listener or choose a different trusted proxy origin.
  */
 export const withoutDesktopOnlySettings = (patch: unknown): unknown => {
   if (!patch || typeof patch !== 'object') return patch;
-  const { piEndpoints: _ignored, ...rest } = patch as Record<string, unknown>;
+  const { piEndpoints: _ignored, remoteAccessProxyOrigin: _proxy, remoteAccessEnabled: _remote, remotePassword: _password, ...rest } = patch as Record<string, unknown>;
   return rest;
 };

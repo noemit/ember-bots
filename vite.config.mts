@@ -2,6 +2,8 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+// @ts-expect-error -- small build-only JavaScript plugin, tested through its generated worker
+import { pwaBuild } from './scripts/pwa-build.mjs';
 
 /**
  * The strict CSP in index.html protects the packaged app, but in `dev:web` it blocks Vite's inline
@@ -17,7 +19,7 @@ const stripCspInDev = (): Plugin => ({
 
 export default defineConfig({
   base: './',
-  plugins: [react(), tailwindcss(), stripCspInDev()],
+  plugins: [react(), tailwindcss(), stripCspInDev(), pwaBuild()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

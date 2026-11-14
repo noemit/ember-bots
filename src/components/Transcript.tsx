@@ -90,7 +90,7 @@ import type {
 } from '../types';
 import type { TranscriptNotice } from '../lib/transcriptStatus';
 import type { RepairHalt } from '../lib/repairBudget';
-import { UNCONFIRMED_SEND_MS } from '../lib/sendDelivery';
+import { UNCONFIRMED_SEND_MS, unconfirmedSendMessage } from '../lib/sendDelivery';
 import { liveOutputTail } from '../lib/toolTail';
 import { hasMarkdownToCopy, messageMarkdown } from '../lib/messageMarkdown';
 import { gestureLeavesBottom, scrollIntent } from '../lib/scrollIntent';
@@ -1640,8 +1640,7 @@ const UnconfirmedNote = ({
     >
       <CircleAlert className="size-3 flex-none text-muted-foreground" />
       <span className="min-w-0">
-        Not confirmed. The host took this message but has not shown it in the conversation — it may
-        not have arrived.
+        {unconfirmedSendMessage()}
       </span>
       <div className="flex items-center gap-1">
         <Button
@@ -2803,7 +2802,7 @@ function Transcript({
         onPointerDown={() => { pointerDown.current = true; noteUserScroll(); }}
         onPointerUp={() => { pointerDown.current = false; noteUserScroll(); }}
         onPointerCancel={() => { pointerDown.current = false; }}
-        className="min-h-0 flex-1 overflow-y-auto px-3 pt-7 pb-3 sm:px-5 sm:pb-4">
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 pt-7 pb-3 sm:px-5 sm:pb-4" data-transcript-scroll>
         <div
           ref={contentRef}
           data-conversation=""

@@ -133,7 +133,10 @@ test('an unexpected Host is refused before anything is served', async () => {
   try {
     const response = await f.call('/remote/login', 'GET', undefined, { Host: 'evil.example' });
     expect(response.status).toBe(400);
-    expect(await response.text()).toContain('Unexpected host');
+    const message = await response.text();
+    expect(message).toContain('Ember');
+    expect(message).toMatch(/address|host/i);
+    expect(message).toMatch(/check|open|try/i);
   } finally {
     await f.close();
   }

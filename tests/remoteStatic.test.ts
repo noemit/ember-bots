@@ -10,6 +10,7 @@ test('static responses negotiate compression, preserve content, and handle HEAD'
   const content = 'export const example = "test";\n'.repeat(1000);
   await writeFile(join(directory, 'app-abcdefgh.js'), content);
   await writeFile(join(directory, 'index.html'), '<html>Ember</html>');
+  await writeFile(join(directory, 'manifest.webmanifest'), '{"name":"Ember"}');
   const server = createServer((request, response) => {
     void serveStatic(request, response, request.url ?? '/', directory);
   });
@@ -29,6 +30,10 @@ test('static responses negotiate compression, preserve content, and handle HEAD'
     expect(await head.text()).toBe('');
     const index = await fetch(url);
     expect(index.headers.get('cache-control')).toBe('no-store');
+    const manifest = await fetch(`${url}/manifest.webmanifest`);
+    expect(manifest.headers.get('content-type')).toBe('application/manifest+json');
+    expect(manifest.headers.get('cache-control')).toBe('no-store');
+    expect((await fetch(`${url}/app-abcdefgh.js`)).headers.get('cache-control')).toBe('no-store');
     const plain = await fetch(`${url}/app-abcdefgh.js`, { headers: { 'Accept-Encoding': 'gzip;q=0, br;q=0' } });
     expect(plain.headers.has('content-encoding')).toBe(false);
     expect(await plain.text()).toBe(content);

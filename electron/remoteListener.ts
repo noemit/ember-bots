@@ -25,7 +25,8 @@ export type RemoteState = {
   changedAt: number;
 };
 
-export type StartOutcome = { server: Server; address?: string } | { server: null; reason: 'no-tailscale' | 'disabled' };
+type RemoteHttpServer = Server & { revokeRemoteSessions?: () => void };
+export type StartOutcome = { server: RemoteHttpServer; address?: string } | { server: null; reason: 'no-tailscale' | 'disabled' };
 export type StartFn = () => StartOutcome;
 
 /** Bounded: after the last delay the listener waits for a settings change, a resume, or a retry. */
@@ -52,7 +53,7 @@ const defaultTimers: Timers = {
 
 export class RemoteListener {
   private state: RemoteState;
-  private server: Server | null = null;
+  private server: RemoteHttpServer | null = null;
   private timer: unknown = null;
   private enabled = false;
 
@@ -99,6 +100,7 @@ export class RemoteListener {
     const server = this.server;
     this.server = null;
     if (server) {
+      server.revokeRemoteSessions?.();
       server.close();
       server.closeAllConnections?.();
     }
@@ -141,7 +143,8 @@ export class RemoteListener {
     server.once('error', (error: NodeJS.ErrnoException) => {
       if (this.server !== server) return;
       this.server = null;
-      try { server.close(); } catch { /* already closing */ }
+      server.revokeRemoteSessions?.();
+      try { server.close(); server.closeAllConnections?.(); } catch { /* already closing */ }
       const code = error.code ?? error.message;
       this.fail(code === 'EADDRINUSE'
         ? `Port ${outcome.address ?? ''} is already in use — another Ember is probably serving remote access`

@@ -112,13 +112,25 @@ html.motion-paused *::after {
     margin: 0;
   }
 
+  html {
+    /* Keep the installed PWA inside the display cutout and prevent document-level rubber-banding. */
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   #root {
     /* One window in the zoomed box's own units. A `100dvh` child of the zoomed body swaps units
        mid-way (1000px CSS measured 1080px) and pushed the composer below the fold; a percentage
        resolves against the body's compensated height instead. `applyTextSizes` writes the window
        size for the drawer and dialogs, which need the real viewport. */
+    display: flex;
+    flex-direction: column;
     height: 100%;
   }
+
+  .ember-app-root { flex: 1 1 0; min-height: 0; }
+  body[data-remote-expired='true'] .ember-app-root { display: none; }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
@@ -137,6 +149,7 @@ html.motion-paused *::after {
     width: calc(var(--viewport-width, 100vw) / var(--interface-zoom, 1));
     height: calc(var(--viewport-height, 100vh) / var(--interface-zoom, 1));
     overflow: hidden;
+    overscroll-behavior: none;
     transition:
       background-color 0.35s var(--ease-spring),
       color 0.35s var(--ease-spring);
@@ -176,12 +189,42 @@ html.motion-paused *::after {
 .mobile-rail {
   top: calc(2.75rem + env(safe-area-inset-top));
   bottom: 0;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .safe-composer {
   background-color: var(--background);
   padding-bottom: max(0.625rem, env(safe-area-inset-bottom));
+  scroll-margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* Touch surfaces scroll independently; a transcript gesture must not pull the whole installed app. */
+[data-transcript-scroll],
+[data-composer-extras],
+[role='tabpanel'] {
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 767px) {
+  /* Phone controls need comfortable hit targets without changing desktop density. */
+  button,
+  [role='button'],
+  [role='tab'] {
+    touch-action: manipulation;
+  }
+
+  :where(button, [role='button'], a, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  [data-composer-surface] textarea {
+    scroll-margin-block: 1rem;
+    caret-color: var(--highlight);
+  }
 }
 
 
@@ -217,6 +260,104 @@ html.motion-paused *::after {
 .conversation-prose pre, .conversation-prose :not(pre) > code { background-color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .connection-band { transition: none; }
+}
+
+/* Remote status occupies its own compact row above the app instead of covering controls. */
+.remote-app-status {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  align-self: flex-end;
+  width: fit-content;
+  max-width: calc(100% - 1rem);
+  max-height: min(38vh, 20rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: max(0.25rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-right)) 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+  padding: 0.125rem;
+  font-size: 0.75rem;
+}
+
+.remote-app-status:has(> p, > div, .remote-app-help) {
+  width: min(100% - 1rem, 20rem);
+  max-height: min(38dvh, 20rem);
+  padding: 0.375rem;
+}
+
+.remote-app-status > button {
+  display: block;
+  min-height: 2.5rem;
+  margin-left: auto;
+  border-radius: 0.5rem;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+}
+
+.remote-app-status p,
+.remote-app-help {
+  overflow-wrap: anywhere;
+  padding: 0.625rem;
+  line-height: 1.45;
+}
+
+.remote-app-status p[role='status'] {
+  margin: 0.25rem 0;
+  border-left: 3px solid var(--highlight);
+  background: var(--background);
+}
+
+.remote-app-help {
+  border-top: 1px solid var(--border);
+}
+
+.remote-app-help button,
+.remote-app-status div button {
+  min-height: 2.75rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.remote-auth-cover {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.75rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--background);
+  color: var(--foreground);
+  padding: max(1.5rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+}
+
+.remote-auth-cover h1 { font-size: 1.5rem; font-weight: 650; }
+.remote-auth-cover p { max-width: 34rem; line-height: 1.6; }
+.remote-auth-cover button {
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--secondary);
+  padding: 0.625rem 0.875rem;
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .remote-app-status:has(> p, > div, .remote-app-help) {
+    max-height: min(38dvh, 18rem);
+  }
 }
 
 

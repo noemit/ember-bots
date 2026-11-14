@@ -133,28 +133,143 @@ This changes where Ember reads OpenChamber’s settings, not where Ember stores 
 If a host is unreachable, establish its HTTP connection or tunnel first, then use
 **Instances → Reprobe instances**. Private Relay instances are not supported.
 
-## Remote access
+## Remote access: Ember in your browser
 
-For a short walkthrough, see [Use Ember over Tailscale](tailscale.md).
+This is the **Ember browser UI**, not a Kiln API endpoint. **Share this Kiln** in Settings →
+Instances exposes the agent API with a bearer token; it does not serve a website or install a PWA.
+Browser access instead serves the desktop workspace on port **57821**, uses its own password,
+and ends when Ember quits. Keep that computer awake. On macOS, closing its window is not quitting.
 
-This is browser access to the Ember app running on your desktop, separate from connecting Ember to
-a remote Kiln. It is disabled by default.
+### Direct Tailscale HTTP (no proxy required)
 
-1. Connect Tailscale on the desktop host and the device you want to use.
-2. In **Settings → General**, set a remote-access password.
-3. Enable **Allow access over Tailscale**.
-4. Open `http://<tailscale-ip>:57821`, using the host’s Tailscale IPv4 address.
-5. Sign in with the password you set and keep Ember running on the host.
+1. Connect Tailscale on the desktop and the device you want to use, with a tailnet policy that
+   permits access between them.
+2. In the desktop's **Settings → General**, set a **Remote access password** (8–256 characters).
+3. Enable browser access, leaving the HTTPS proxy origin empty.
+4. Wait for the listener to report **Listening**, then open `http://<tailscale-ip>:57821` on the
+   second device. Get the host's IPv4 address from Tailscale or `tailscale ip -4`.
+5. Sign in with the Ember password. Bookmark the address and keep Ember running.
 
-The listener binds to the detected Tailscale IPv4 address, not all network interfaces. It serves
-plain HTTP inside the Tailnet, hashes the password, and uses an HttpOnly, SameSite=Strict session
-cookie. Do not expose it through public port forwarding.
+This binds only the detected Tailscale IPv4 address, never all interfaces. Tailscale encrypts the
+network connection, but the browser still sees an HTTP website: installation and service-worker
+features require HTTPS. Direct HTTP remains supported for ordinary browser use. Do not forward this
+port from a public router. Two Ember profiles cannot use port 57821 simultaneously.
 
-Browser clients use the desktop host’s settings and model-experience store. Logout closes event
-streams; disabling or restarting remote access disconnects clients. If remote access does not
-start, check that the host has a Tailscale IPv4 address and a configured password, then inspect the
-terminal running Ember for its listening address or error. Two Ember profiles should not enable
-remote access simultaneously: both would use port 57821.
+### Private HTTPS with an explicit reverse proxy
+
+For an installable phone/tablet app, first provide a valid HTTPS origin that the device can reach.
+Ember does **not** create certificates, change DNS, run Serve commands or alter network settings for
+you. Configure a proxy **on the Ember computer**, then save its exact external HTTPS origin in the
+desktop's browser-access settings. For example: `https://ember-host.your-tailnet.ts.net:8443`.
+No URL path, credentials, query or fragment is allowed.
+
+Saving the origin switches Ember's listener to **127.0.0.1:57821 only**. The old direct tailnet HTTP
+address stops working. Your proxy must terminate TLS, connect to that numeric loopback address,
+preserve the original external **Host** (including a non-default port), and **overwrite**
+`X-Forwarded-Proto` with `https`. Do not append a comma-separated chain. Ember checks the loopback
+socket peer, the configured host and protocol; forwarded host/IP headers cannot authorize a request.
+A proxy on another computer/container network is not supported. Local software on the Ember host
+is within this trust boundary, so do not run an untrusted local forwarder.
+
+#### Option A: Tailscale Serve, private to your tailnet
+
+Install/connect Tailscale on both devices and enable MagicDNS/HTTPS certificates in your tailnet
+as required by [Tailscale Serve](https://tailscale.com/kb/1312/serve). Review these **read-only** commands
+on the hosting computer first:
+
+```sh
+tailscale version
+tailscale status --json
+tailscale serve status --json
+```
+
+Use a dedicated, unused HTTPS port, for example **8443**. If Serve already has anything on that
+port, **do not replace it**: choose a different unused port or ask its administrator. Do not use
+`serve reset`, `funnel`, or copy a whole configuration over an existing one. The Kiln API sharing
+feature may already own a different Serve forward; leave it untouched.
+
+After reviewing the current configuration, the following is an **explicit administrator action**,
+not something Ember runs:
+
+```sh
+tailscale serve --bg --https=8443 http://127.0.0.1:57821
+```
+
+Follow Tailscale's HTTPS permission prompt if needed. Copy the exact HTTPS origin printed by Serve
+(including `:8443`) into Ember's HTTPS proxy origin setting, enable browser access, and open that
+HTTPS address on the second Tailscale-connected device. Current Serve preserves Host and sets the
+HTTPS forwarding header for this HTTP upstream. If your platform/version does not, use a supported
+local proxy below rather than weakening Ember's checks. Tailnet ACLs/firewalls must permit the chosen
+HTTPS port. Use **Serve**, not **Funnel**: Funnel makes a service public.
+
+Review `tailscale serve status --json` afterwards and confirm that unrelated entries remain unchanged.
+To stop this setup, disable browser access in Ember first. Only if this is still your dedicated
+unchanged Serve port, remove **that port alone** with `tailscale serve --https=8443 off`. If someone
+changed it meanwhile, ask its administrator instead. Never reset all Serve configuration.
+
+#### Option B: an existing local HTTPS reverse proxy
+
+Use a hostname/certificate your device trusts and resolves to this host. For example, in an existing
+Caddy setup, add a **new, dedicated site** (do not overwrite other sites):
+
+```caddyfile
+ember.example.net {
+    reverse_proxy 127.0.0.1:57821 {
+        header_up Host ember.example.net
+        header_up X-Forwarded-Proto https
+        flush_interval -1
+    }
+}
+```
+
+Set Ember's proxy origin to `https://ember.example.net`. Review/reload the proxy through its normal
+administrator workflow. Configure private reachability/firewall restrictions yourself; this example
+does not make a public hostname private or provision a tailnet. If using a non-default HTTPS port,
+include the same port in the site, upstream Host and Ember origin. For other proxies, disable response
+caching and SSE buffering, allow long-lived `/remote/events` requests, and do not strip `/remote/`
+paths. Do not bypass Ember login or inject permissive CORS headers.
+
+### Verify, install and recover
+
+From the second device, open the **configured HTTPS origin**. Confirm that the browser reports a
+trusted secure connection, sign in, open an existing chat, and verify that new replies arrive live.
+Then use your browser's **Install app** action, or on iPhone/iPad **Share → Add to Home Screen**.
+Availability depends on browser/device support. The installed app still needs the host, network and
+Ember running; installation does not run bots on the phone or make chats available offline.
+
+Only a secret-free offline page and enumerated app-shell files are cached, not conversation HTML,
+API responses, private images or credentials. An open app preserves unsent text, attachments and reply
+context in memory while disconnected; keep it open. Remote drafts are deliberately not written to
+browser storage or the desktop's shared drafts. Closing, refreshing or OS eviction can lose them,
+particularly while offline; copy important text first. Messages whose send response was lost remain
+unconfirmed, not automatically retried. Messages already accepted or queued on the host may still run.
+Updates offer **Prepare update**, then a separate **Refresh to use update** action; neither refreshes
+without your choice. Finish active work and resolve drafts, attachments and pending sends first.
+No push notifications, offline sending, deferred upload or background sync are provided.
+
+Before relying on the address, use a private browser window with no Ember cookie: `/remote/settings`
+and `/remote/model-stats` must redirect to sign-in, never return data. An anonymous POST to
+`/remote/pi` must be refused. Do not put your password or session cookie in shell history. After
+signing in normally, verify chats and live replies, then sign out from **Phone app → Sign out**
+and confirm that the workspace requires sign-in again. Sessions expire
+after 12 idle hours and at most 7 days. Logout closes that session's event streams. Changing the
+password, changing proxy origin or disabling browser access drops all listener sessions/streams;
+clients must sign in again. HTTPS uses a Secure, HttpOnly, SameSite=Strict, host-only cookie; direct
+HTTP uses a separate non-Secure cookie. Responses are marked no-store; proxies must respect it.
+
+- **No listening address:** check the status in desktop settings. Direct HTTP needs a Tailscale
+  IPv4 address; HTTPS proxy mode needs the local port free, not a Tailscale adapter.
+- **Address not recognized:** the proxy's preserved Host/port or HTTPS header does not match the
+  saved origin. Correct the proxy and the desktop setting; do not add broad trusted-host rules.
+- **Another website was refused:** reopen the saved origin directly. Do not embed Ember cross-site.
+- **HTTPS does not load:** check DNS, trusted certificate, private network policy, proxy availability
+  and the exact port from the other device. A loopback listener being ready is not proof the proxy
+  is reachable. Ember does not claim or probe certificate ownership.
+- **Need direct HTTP again:** clear the HTTPS proxy origin on the desktop and save. Ember rebinds to
+  the detected Tailscale IPv4 address. Review/remove only your own proxy entry separately.
+
+No real host exposure or Tailscale changes are performed by the fixture-based automated tests.
+Verify live reachability and installation on your own authorized devices before relying on them.
 
 ## Align multiple Ember setups
 

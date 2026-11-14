@@ -1,3 +1,4 @@
+import { isRemoteBrowser } from '../lib/remoteLifecycle';
 import * as React from 'react';
 import { DEFAULT_THEME_ID } from '../themes';
 import type { TextSize } from '../lib/textSize';
@@ -119,13 +120,18 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
       };
       settingsRef.current = next;
       setSettings(next);
+      // Browser drafts are intentionally memory-only. Do not turn typing offline into settings
+      // requests (or replay those requests when a connection returns). Preference writes remain
+      // explicit operations, and responses must not replace these local drafts.
+      const memoryOnly = isRemoteBrowser();
+      if (memoryOnly && Object.keys(values).length === 0 && !avatarAssignments) return Promise.resolve(next);
       const save = writesRef.current.catch(() => {}).then(() => {
         // Include unacknowledged additions in every write, not just the original allocation.
         // A failed save followed by an unrelated preference change must not lose an identity.
         const additions = assignments.additions();
         return window.ember.setSettings({
           ...values,
-          ...(composerDraftChanges ? { composerDraftChanges } : {}),
+          ...(!memoryOnly && composerDraftChanges ? { composerDraftChanges } : {}),
           ...(Object.keys(additions).length ? { avatarAssignments: additions } : {}),
         });
       });
@@ -134,7 +140,7 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
         .then((stored) => {
           assignments.acknowledge(stored.avatarAssignments);
           for (const key of Object.keys(composerDraftChanges ?? {})) {
-            if (pendingDraftsRef.current.get(key)?.revision === revision) pendingDraftsRef.current.delete(key);
+            if (!memoryOnly && pendingDraftsRef.current.get(key)?.revision === revision) pendingDraftsRef.current.delete(key);
           }
           if (revisionRef.current === revision) adoptStored(stored);
         })

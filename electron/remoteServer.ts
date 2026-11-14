@@ -7,6 +7,7 @@ import { brotliCompress, gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import type { ApiMethod } from './transport';
 import type { ModelStatsStore } from './modelStats';
+import { isTrustedHttpsProxy, parseRemoteProxyOrigin, remoteBindAddress } from './remoteProxy';
 
 const REMOTE_PORT = 57821;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
@@ -46,14 +47,12 @@ type Handlers = {
 };
 
 export type RemoteServerOptions = {
-  /** Extra hostnames the listener will answer to, beyond the bound address and `*.ts.net`. */
-  allowHosts?: string[];
-  /** Trust `X-Forwarded-Proto: https` (a TLS-terminating proxy such as `tailscale serve`). */
-  trustForwardedProto?: boolean;
+  /** External HTTPS origin. Enables a loopback-only listener and exact proxy request validation. */
+  proxyOrigin?: string;
 };
 
 const SSE_HEARTBEAT_MS = 25_000;
-type Session = { expiresAt: number; startedAt: number; streams: Set<() => void> };
+type Session = { secure: boolean; expiresAt: number; startedAt: number; streams: Set<() => void> };
 type Attempt = { count: number; resetAt: number };
 
 /** A request failure that carries the status the client should see. */
@@ -149,16 +148,17 @@ const cookies = (request: http.IncomingMessage): Record<string, string> =>
   );
 
 const loginPage = (): string => `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ember login</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#151413;color:#efece7;font:14px system-ui,sans-serif}main{width:min(360px,calc(100% - 40px));padding:24px;border:1px solid #2c2a26;border-radius:12px;background:#1b1a18}h1{font-size:18px;margin:0 0 8px}p{color:#9b958c;font-size:12px}label{display:grid;gap:6px;margin:20px 0 12px}input{box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid #2c2a26;border-radius:6px;background:#242220;color:inherit}button{width:100%;padding:9px;border:0;border-radius:6px;background:#efece7;color:#151413;font-weight:600}#error{color:#f07a6a;min-height:18px}</style></head>
-<body><main><h1>Ember</h1><p>Enter the remote access password.</p><form><label>Password<input name="password" type="password" autocomplete="current-password" autofocus></label><div id="error"></div><button>Sign in</button></form></main>
-<script>const form=document.querySelector('form'),error=document.querySelector('#error');form.addEventListener('submit',async e=>{e.preventDefault();error.textContent='';const body=JSON.stringify({password:form.password.value});const r=await fetch('/remote/login',{method:'POST',headers:{'Content-Type':'application/json'},body});if(r.ok)location.href='/';else error.textContent='Incorrect password or too many attempts.'});</script></body></html>`;
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#151413"><title>Ember login</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#151413;color:#efece7;font:14px system-ui,sans-serif}main{width:min(360px,calc(100% - 40px));padding:24px;border:1px solid #2c2a26;border-radius:12px;background:#1b1a18}h1{font-size:18px;margin:0 0 8px}p{color:#9b958c;font-size:12px}label{display:grid;gap:6px;margin:20px 0 12px}input{box-sizing:border-box;width:100%;min-height:44px;font-size:16px;padding:9px 10px;border:1px solid #2c2a26;border-radius:6px;background:#242220;color:inherit}button{width:100%;min-height:44px;padding:9px;border:0;border-radius:6px;background:#efece7;color:#151413;font-weight:600}#error{color:#f07a6a;min-height:18px}</style></head>
+<body><main><h1>Ember</h1><p>Enter the remote access password.</p><form><label>Password<input name="password" type="password" autocomplete="current-password" autofocus></label><div id="error" role="status" aria-live="polite"></div><button>Sign in</button></form></main>
+<script>const form=document.querySelector('form'),error=document.querySelector('#error'),button=form.querySelector('button');form.addEventListener('submit',async e=>{e.preventDefault();error.textContent='Signing in to Ember…';button.disabled=true;try{const body=JSON.stringify({password:form.password.value});const r=await fetch('/remote/login',{method:'POST',headers:{'Content-Type':'application/json'},body,cache:'no-store'});if(r.ok)location.href='/';else error.textContent=r.status===429?'Ember is pausing sign-in attempts. Wait a few minutes, then try Sign in again.':r.status===401?'Ember did not accept that password. Check the password set on the Ember computer, then try Sign in again.':'Ember could not sign you in. Check that the desktop app is running, then try Sign in again.';}catch{error.textContent='The Ember computer did not answer. Check your private connection and that Ember is running, then try Sign in again.';}finally{button.disabled=false;}});</script></body></html>`;
 
 const contentType = (file: string): string => {
   if (file.endsWith('.js')) return 'text/javascript; charset=utf-8';
   if (file.endsWith('.css')) return 'text/css; charset=utf-8';
   if (file.endsWith('.svg')) return 'image/svg+xml';
   if (file.endsWith('.png')) return 'image/png';
+  if (file.endsWith('.webmanifest')) return 'application/manifest+json';
   if (file.endsWith('.json')) return 'application/json';
   return 'text/html; charset=utf-8';
 };
@@ -201,7 +201,7 @@ export const serveStatic = async (request: http.IncomingMessage, response: http.
     }
     response.writeHead(200, {
       'Content-Type': contentType(file),
-      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-store',
+      'Cache-Control': 'no-store',
       'Content-Length': body.length,
       'X-Content-Type-Options': 'nosniff',
       Vary: 'Accept-Encoding',
@@ -214,14 +214,6 @@ export const serveStatic = async (request: http.IncomingMessage, response: http.
 };
 
 const clientAddress = (request: http.IncomingMessage): string => request.socket.remoteAddress ?? 'unknown';
-
-/** HTTPS either directly or via a TLS-terminating proxy in front of the listener. */
-const isSecureRequest = (request: http.IncomingMessage, trustForwardedProto: boolean): boolean => {
-  if ((request.socket as { encrypted?: boolean }).encrypted === true) return true;
-  const forwarded = request.headers['x-forwarded-proto'];
-  const value = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  return trustForwardedProto && typeof value === 'string' && value.split(',')[0].trim().toLowerCase() === 'https';
-};
 
 const hostnameOf = (host: string): string => {
   const trimmed = host.trim().toLowerCase();
@@ -244,13 +236,12 @@ const portOf = (host: string): string | undefined => {
  * MagicDNS name. Anything else is refused, so a page served from an attacker-controlled hostname
  * that happens to resolve to this machine cannot present itself as the Ember login.
  */
-export const isAllowedHost = (host: string | undefined, boundAddress: string | undefined, boundPort: number | undefined, extra: readonly string[] = []): boolean => {
+export const isAllowedHost = (host: string | undefined, boundAddress: string | undefined, boundPort: number | undefined): boolean => {
   if (!host) return false;
   const name = hostnameOf(host);
   if (!name) return false;
   const port = portOf(host);
   if (port !== undefined && boundPort !== undefined && port !== String(boundPort)) return false;
-  if (extra.some((entry) => entry.toLowerCase() === host.trim().toLowerCase())) return true;
   if (boundAddress && name === boundAddress.toLowerCase()) return true;
   if (name === 'localhost' || name === '127.0.0.1' || name === '[::1]') return true;
   return name.endsWith('.ts.net');
@@ -266,7 +257,10 @@ export const isAllowedOrigin = (origin: string | undefined, host: string | undef
   return origin === `${scheme}://${host}`;
 };
 
-export const createRemoteServer = (root: string, handlers: Handlers, options: RemoteServerOptions = {}): http.Server => {
+export type RemoteHttpServer = http.Server & { revokeRemoteSessions: () => void };
+
+export const createRemoteServer = (root: string, handlers: Handlers, options: RemoteServerOptions = {}): RemoteHttpServer => {
+  const proxyOrigin = parseRemoteProxyOrigin(options.proxyOrigin);
   const sessions = new Map<string, Session>();
   const attempts = new Map<string, Attempt>();
   const pruneExpired = (now: number) => {
@@ -290,15 +284,24 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
       const bound = server.address();
       const boundAddress = bound && typeof bound === 'object' ? bound.address : undefined;
       const boundPort = bound && typeof bound === 'object' ? bound.port : undefined;
-      if (!isAllowedHost(request.headers.host, boundAddress, boundPort, options.allowHosts)) {
-        return json(response, 400, { error: 'Unexpected host' });
+      // Proxy mode is an explicit, separate exposure: neither Host nor forwarding headers alone
+      // can opt a direct client into HTTPS trust. The production socket is loopback-only too.
+      const trustedProxy = Boolean(proxyOrigin && isTrustedHttpsProxy(proxyOrigin,
+        request.socket.remoteAddress, request.headers.host, request.headers['x-forwarded-proto']));
+      if (proxyOrigin ? !trustedProxy : !isAllowedHost(request.headers.host, boundAddress, boundPort)) {
+        return json(response, 400, { error: 'Ember did not recognize this browser address. Check the desktop remote-access address and your proxy configuration.' });
       }
-      const secure = isSecureRequest(request, options.trustForwardedProto === true);
+      const secure = trustedProxy || (request.socket as { encrypted?: boolean }).encrypted === true;
       const url = new URL(request.url ?? '/', 'http://localhost');
-      if (request.method !== 'GET' && request.method !== 'HEAD' &&
-          !isAllowedOrigin(request.headers.origin, request.headers.host, secure)) {
-        return json(response, 403, { error: 'Cross-origin request refused' });
+      const allowedOrigin = proxyOrigin
+        ? !request.headers.origin || request.headers.origin === proxyOrigin
+        : isAllowedOrigin(request.headers.origin, request.headers.host, secure);
+      // Fetch Metadata covers cross-site GETs too. Origin is validated against configuration in
+      // proxy mode, never an attacker-supplied X-Forwarded-Host or Forwarded header.
+      if (request.headers['sec-fetch-site'] === 'cross-site' || !allowedOrigin) {
+        return json(response, 403, { error: 'Ember refused a request from another website. Open your saved Ember address and try again.' });
       }
+      response.setHeader('Cache-Control', 'no-store');
       const now = Date.now();
       pruneExpired(now);
       if (url.pathname === '/remote/login' && request.method === 'POST') {
@@ -318,7 +321,7 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
         }
         attempts.delete(source);
         const token = randomBytes(32).toString('base64url');
-        sessions.set(token, { expiresAt: now + SESSION_IDLE_MS, startedAt: now, streams: new Set() });
+        sessions.set(token, { secure, expiresAt: now + SESSION_IDLE_MS, startedAt: now, streams: new Set() });
         const name = secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE;
         const flags = [`${name}=${encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict',
           `Max-Age=${SESSION_ABSOLUTE_MS / 1000}`, ...(secure ? ['Secure'] : [])];
@@ -327,9 +330,9 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
       }
 
       const jar = cookies(request);
-      const token = jar[SECURE_SESSION_COOKIE] ?? jar[SESSION_COOKIE];
+      const token = jar[secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE];
       const session = token ? sessions.get(token) : undefined;
-      const authenticated = Boolean(session && session.expiresAt > now && session.startedAt + SESSION_ABSOLUTE_MS > now);
+      const authenticated = Boolean(session && session.secure === secure && session.expiresAt > now && session.startedAt + SESSION_ABSOLUTE_MS > now);
       if (session && authenticated) {
         // Sliding idle window, capped by the absolute lifetime set at sign-in.
         session.expiresAt = Math.min(now + SESSION_IDLE_MS, session.startedAt + SESSION_ABSOLUTE_MS);
@@ -374,7 +377,7 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
       if (url.pathname === '/remote/events' && request.method === 'GET') {
         response.writeHead(200, {
           'Content-Type': 'text/event-stream; charset=utf-8',
-          'Cache-Control': 'no-cache, no-transform',
+          'Cache-Control': 'no-store, no-transform',
           Connection: 'keep-alive',
           'X-Accel-Buffering': 'no',
           'X-Content-Type-Options': 'nosniff',
@@ -390,7 +393,7 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
           session?.streams.delete(cleanup);
           response.end();
         };
-        const active = () => Boolean(token && session && sessions.get(token) === session && session.expiresAt > Date.now());
+        const active = () => Boolean(token && session && sessions.get(token) === session && session.expiresAt > Date.now() && session.startedAt + SESSION_ABSOLUTE_MS > Date.now());
         const write = (event: unknown) => {
           if (closed) return;
           if (!active()) { revoke(token); cleanup(); return; }
@@ -461,7 +464,11 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
   });
 
   server.on('error', (error) => console.error('Remote Ember server error', error));
-  return server;
+  // End SSE responses explicitly before closing sockets. Node-compatible runtimes do not all
+  // close streaming responses with closeAllConnections alone, and expiry is not a shutdown hook.
+  return Object.assign(server, {
+    revokeRemoteSessions: () => { for (const token of sessions.keys()) revoke(token); },
+  });
 };
 
 export type StartRemoteServerResult =
@@ -469,13 +476,13 @@ export type StartRemoteServerResult =
   | { server: null; reason: 'no-tailscale' };
 
 export const startRemoteServer = (root: string, handlers: Handlers, options: RemoteServerOptions = {}): StartRemoteServerResult => {
-  const address = tailscaleAddress();
+  const address = remoteBindAddress(options.proxyOrigin, tailscaleAddress);
   if (!address) {
     console.warn('Remote Ember access disabled: no Tailscale IPv4 address found');
     return { server: null, reason: 'no-tailscale' };
   }
   const server = createRemoteServer(root, handlers, options);
-  server.listen(REMOTE_PORT, address, () => console.log(`Remote Ember access: http://${address}:${REMOTE_PORT}`));
+  server.listen(REMOTE_PORT, address, () => console.log('Remote Ember access:', options.proxyOrigin ?? `http://${address}:${REMOTE_PORT}`));
   return { server, address };
 };
 
