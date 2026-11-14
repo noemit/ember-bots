@@ -33,5 +33,5 @@ test('legacy questions and approvals remain blocking in the mixed fixture', asyn
   await expect(dataset.getByRole('button', { name: 'Answer', exact: true })).toBeVisible();
   await expect(dataset.getByRole('tab', { name: /Questions/ })).toHaveCount(0);
   await page.getByRole('button', { name: /Wire the pi mock/ }).first().click();
-  await expect(page.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Allow(?: once)?$/ })).toBeVisible();
 });

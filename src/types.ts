@@ -151,7 +151,7 @@ export type Session = {
    * session). Absent on plain sessions, including OpenChamber ones.
    */
   kind?: 'worker' | 'peer';
-  /** The immediate supervisory leader; a level-2 spawn reports to its level-1 lead. */
+  /** The supervisory leader: root for new workers; recorded parent for legacy nested workers. */
   lead?: { instanceId: string; sessionId: string };
   /** The actual spawn requester, separate from supervisory lead (for authorized result links). */
   creator?: { instanceId: string; sessionId: string };

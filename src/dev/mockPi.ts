@@ -623,9 +623,9 @@ if (fixtureParam === 'thread-questions') {
   }));
 }
 
-// A level-2 worker can request a sibling under its level-1 lead. The requester has
-// access to the sibling's result, but not to arbitrary other siblings of that lead.
-if (fixtureParam === 'two-level-crew') {
+// Flat workers can request siblings under root. Keep the older nested fixture readable too.
+// Creator access to results never grants arbitrary sibling access.
+if (fixtureParam === 'two-level-crew' || fixtureParam === 'flat-crew') {
   fixtureI.delegates = true;
   fixtureH.entries.push({ id: 220, kind: 'pi.assistant', model: [assistantMessage(
     text('The migration check is in [Audit migration](/threads/22); [Migrate schema](/threads/18) belongs to another requester.'),
@@ -641,7 +641,7 @@ if (fixtureParam === 'two-level-crew') {
   });
   const levelTwo = makeConversation({
     id: 23, cwd: '/workspace/hearth', title: 'Inspect migration', kind: 'worker',
-    lead: { conversationId: 17, host: 'local' }, creatorId: 17, busy: true,
+    lead: { conversationId: fixtureParam === 'flat-crew' ? 16 : 17, host: 'local' }, creatorId: 17, busy: true,
     entries: [{ id: 230, kind: 'pi.user', model: [userMessage('Inspect the migration before the audit.', minutes(2))] }],
   });
   conversations.push(levelTwo);

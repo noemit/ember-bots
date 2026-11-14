@@ -197,7 +197,7 @@ describe("spawn loop guards", () => {
     }
   }, 30_000);
 
-  test("a level-2 worker spawns a sibling under the level-1 supervisor", async () => {
+  test("a legacy nested worker spawns a sibling directly under root", async () => {
     const isolated = await open();
     try {
       isolated.faux.setResponses([WORKER_SPAWN, fauxAssistantMessage([fauxText("understood")])]);
@@ -222,7 +222,7 @@ describe("spawn loop guards", () => {
       expect(await conversationsOf(isolated.storage)).toHaveLength(4);
       const task = (await isolated.harness.snapshot(SessionsDoc, parent.id, context))!.items.helper;
       const meta = await isolated.harness.snapshot(MetaDoc, task.conversationId, context);
-      expect(meta?.lead?.conversationId).toBe(middle.id);
+      expect(meta?.lead?.conversationId).toBe(root.id);
       expect(meta?.creatorId).toBe(parent.id);
       expect(meta?.delegates).toBe(true);
     } finally {

@@ -1,0 +1,32 @@
+import { expect, test } from '@playwright/test';
+
+test('root lists helper siblings flat; requester links open only authorized work', async ({ page }, testInfo) => {
+  await page.goto('/?fixture=flat-crew&threads');
+  await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
+  const root = page.locator('main[data-session-key="pi:hearth::16"]');
+  await root.getByRole('button', { name: /\+\d+ previous/ }).click();
+  const rows = root.locator('[data-crew-brick]');
+  await expect(rows).toHaveCount(4);
+  for (const row of await rows.all()) await expect(row).toHaveAttribute('data-thread-depth', '1');
+  const offsets = await rows.evaluateAll((nodes) => nodes.map((node) => node.querySelector('button')!.getBoundingClientRect().left));
+  expect(new Set(offsets).size).toBe(1);
+  await expect(root.getByRole('button', { name: 'Migrate schema', exact: true })).toBeVisible();
+  await expect(root.getByRole('button', { name: 'Inspect migration', exact: true })).toBeVisible();
+  const requesterButton = root.getByRole('button', { name: 'Parse config', exact: true });
+  await requesterButton.focus();
+  await page.keyboard.press('Enter');
+  const requester = page.getByTestId('thread-session-modal').locator('main[data-session-key="pi:hearth::17"]');
+  const log = requester.getByRole('log', { name: 'Conversation' });
+  await expect(log.getByRole('link', { name: 'Audit migration' })).toBeVisible();
+  await expect(log.getByRole('link', { name: 'Migrate schema' })).toHaveCount(0);
+  await log.getByRole('link', { name: 'Audit migration' }).click();
+  const helper = page.getByTestId('thread-session-modal').locator('main[data-session-key="pi:hearth::22"]');
+  await expect(helper).toBeVisible();
+  await expect(helper.getByRole('log', { name: 'Conversation' })).toContainText('Audit complete');
+  await page.keyboard.press('Escape');
+  await expect(root).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('flat-threads-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(root.getByRole('button', { name: 'Inspect migration', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('flat-threads-mobile.png') });
+});

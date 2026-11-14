@@ -62,21 +62,27 @@ const setup = async (storage: Storage = new MemoryStorage()) => {
   return { harness, storage, root: root.id, l1, requester, sibling, call, apiFor, text, state, spawn, notices, settle };
 };
 
-describe('two worker levels with explicit requester rights', () => {
+describe('one flat worker layer with explicit requester rights', () => {
   test('spawn persists supervisory membership and actual requester; unrelated siblings have no access', async () => {
     const f = await setup();
     try {
-      expect(await f.harness.snapshot(MetaDoc, f.sibling, context)).toMatchObject({ creatorId: f.requester, lead: { conversationId: f.l1 }, delegates: true });
-      const alias = Object.values((await f.state(f.l1))!.items).find((e) => e.conversationId === f.sibling)!;
+      for (const worker of [f.l1, f.requester, f.sibling]) {
+        expect((await f.harness.snapshot(MetaDoc, worker, context))?.lead?.conversationId).toBe(f.root);
+      }
+      expect((await f.state(f.root))!.spawnedAt).toHaveLength(3);
+      expect(await f.harness.snapshot(MetaDoc, f.sibling, context)).toMatchObject({ creatorId: f.requester, lead: { conversationId: f.root }, delegates: true });
+      const alias = Object.values((await f.state(f.root))!.items).find((e) => e.conversationId === f.sibling)!;
       expect(alias.taskOwner).toEqual({ conversationId: f.requester, key: 'sibling' });
       const stranger = await f.spawn(f.l1, 'stranger');
-      for (const action of ['read', 'status', 'results', 'stop', 'message', 'wait'] as const) {
-        expect(f.text(await f.call(stranger, { action, name: 'sibling', message: 'unauthorized' }))).toMatch(/No (thread|session)/);
+      for (const unauthorized of [stranger, f.l1]) {
+        for (const action of ['read', 'status', 'results', 'stop', 'message', 'wait'] as const) {
+          expect(f.text(await f.call(unauthorized, { action, name: 'sibling', message: 'unauthorized' }))).toMatch(/No (thread|session)/);
+        }
       }
       expect(f.text(await f.call(f.requester, { action: 'read', name: 'sibling' }))).toContain('citation');
-      expect(f.text(await f.call(f.l1, { action: 'status', name: alias.title }))).toContain('starting');
+      expect(f.text(await f.call(f.root, { action: 'status', name: alias.title }))).toContain('starting');
       expect(await collectWorkerIds(f.harness, f.requester, context)).not.toContain(f.sibling);
-      expect(await collectWorkerIds(f.harness, f.l1, context)).toContain(f.sibling);
+      expect(await collectWorkerIds(f.harness, f.root, context)).toContain(f.sibling);
     } finally { await f.harness.close(context); }
   });
   test('first waiter wins, one outcome notice, and retrieval remains separate from notice receipts', async () => {
@@ -84,15 +90,15 @@ describe('two worker levels with explicit requester rights', () => {
     try {
       expect((await f.call(f.requester, { action: 'wait', name: 'sibling' })).control?.terminate).toBe(true);
       const title = (await f.state(f.requester))!.items.sibling.title;
-      expect((await f.call(f.l1, { action: 'wait', name: title })).control).toBeUndefined();
-      expect((await f.state(f.l1))!.suspended).not.toBe(true);
+      expect((await f.call(f.root, { action: 'wait', name: title })).control).toBeUndefined();
+      expect((await f.state(f.root))!.suspended).not.toBe(true);
       await f.settle();
       expect(await f.notices(f.requester)).toHaveLength(1);
-      expect(await f.notices(f.l1)).toHaveLength(0);
+      expect(await f.notices(f.root)).toHaveLength(0);
       const item = (await f.state(f.requester))!.items.sibling;
       expect(resultRetrieved(item)).toBe(false);
       expect(item.notifiedResult).toBe(item.report!.requestId);
-      expect(f.text(await f.call(f.l1, { action: 'results', name: title }))).toContain('verified outcome');
+      expect(f.text(await f.call(f.root, { action: 'results', name: title }))).toContain('verified outcome');
       expect(resultRetrieved((await f.state(f.requester))!.items.sibling)).toBe(true);
       await tick(f.harness, f.storage, context);
       expect(await f.notices(f.requester)).toHaveLength(1);
@@ -102,7 +108,7 @@ describe('two worker levels with explicit requester rights', () => {
     const f = await setup();
     try {
       const title = (await f.state(f.requester))!.items.sibling.title;
-      expect(f.text(await f.call(f.l1, { action: 'stop', name: title }))).toContain('Stopped');
+      expect(f.text(await f.call(f.root, { action: 'stop', name: title }))).toContain('Stopped');
       const task = (await f.state(f.requester))!.items.sibling;
       expect(task.state).toBe('stopped'); expect(task.report?.status).toBe('aborted');
       expect(task.report?.requestId).toContain(threadTask(task));
@@ -114,7 +120,7 @@ describe('two worker levels with explicit requester rights', () => {
     try {
       await archiveCrew(f.harness, f.requester, Date.now(), undefined, context);
       expect((await f.harness.snapshot(MetaDoc, f.sibling, context))?.archived).toBeUndefined();
-      await archiveCrew(f.harness, f.l1, Date.now(), undefined, context);
+      await archiveCrew(f.harness, f.root, Date.now(), undefined, context);
       expect((await f.harness.snapshot(MetaDoc, f.sibling, context))?.archived).toBeDefined();
       expect((await f.state(f.requester))!.items.sibling.state).toBe('stopped');
     } finally { await f.harness.close(context); }
@@ -123,7 +129,7 @@ describe('two worker levels with explicit requester rights', () => {
     const f = await setup();
     try {
       await f.harness.commit(async (tx) => {
-        const doc = await tx.doc(SessionsDoc, f.l1);
+        const doc = await tx.doc(SessionsDoc, f.root);
         if (guard === 'burst') doc.spawnedAt = Array(SPAWN_RATE_LIMIT).fill(Date.now());
         if (guard === 'budget') doc.spawnedAt = Array(SPAWN_BUDGET).fill(Date.now() - 120_000);
         if (guard === 'wake') { doc.woke = true; doc.wokeAt = Date.now(); }
@@ -135,12 +141,12 @@ describe('two worker levels with explicit requester rights', () => {
   test('stale cross-supervisor references fail closed', async () => {
     const f = await setup();
     try {
-      await f.harness.commit(async (tx) => { (await tx.doc(MetaDoc, f.sibling)).lead!.conversationId = f.root; }, context);
-      const resolved = await crewState((id) => f.state(id), f.l1, (id) => f.harness.snapshot(MetaDoc, id, context));
+      await f.harness.commit(async (tx) => { (await tx.doc(MetaDoc, f.sibling)).lead!.conversationId = f.l1; }, context);
+      const resolved = await crewState((id) => f.state(id), f.root, (id) => f.harness.snapshot(MetaDoc, id, context));
       expect(Object.values(resolved!.items).some((e) => e.conversationId === f.sibling)).toBe(false);
     } finally { await f.harness.close(context); }
   });
-  test.each(['idle', 'stopped', 'archived', 'failed'] as const)('routes %s requester outcomes exactly once, never to root', async (terminal) => {
+  test.each(['idle', 'stopped', 'archived', 'failed'] as const)('routes %s requester outcomes once to requester or root, never both', async (terminal) => {
     const f = await setup();
     try {
       await f.call(f.requester, { action: 'wait', name: 'sibling' });
@@ -150,12 +156,35 @@ describe('two worker levels with explicit requester rights', () => {
         if (terminal === 'failed') (await tx.doc(SessionsDoc, f.l1)).items.requester.state = 'failed';
       }, context);
       await f.settle();
-      const recipient = terminal === 'idle' ? f.requester : f.l1;
+      const recipient = terminal === 'idle' ? f.requester : f.root;
       expect(await f.notices(recipient)).toHaveLength(1);
-      expect(await f.notices(terminal === 'idle' ? f.l1 : f.requester)).toHaveLength(0);
-      expect(await f.notices(f.root)).toHaveLength(0);
+      expect(await f.notices(terminal === 'idle' ? f.root : f.requester)).toHaveLength(0);
+      expect(await f.notices(f.l1)).toHaveLength(0);
       await tick(f.harness, f.storage, context);
       expect(await f.notices(recipient)).toHaveLength(1);
+    } finally { await f.harness.close(context); }
+  });
+  test('legacy requester terminal evidence routes to root without rewriting old leads', async () => {
+    const f = await setup();
+    try {
+      // Retain an older nested conversation and its original creator membership.
+      await f.harness.commit(async (tx) => {
+        (await tx.doc(MetaDoc, f.requester)).lead = { conversationId: f.l1, host: 'local' };
+      }, context);
+      const helper = await f.spawn(f.requester, 'legacy-helper');
+      expect((await f.harness.snapshot(MetaDoc, helper, context))?.lead?.conversationId).toBe(f.root);
+      expect((await f.harness.snapshot(MetaDoc, f.requester, context))?.lead?.conversationId).toBe(f.l1);
+      expect(f.text(await f.call(f.requester, { action: 'read', name: 'legacy-helper' }))).toContain('citation');
+      await f.call(f.requester, { action: 'wait', name: 'sibling' });
+      await f.harness.commit(async (tx) => {
+        (await tx.doc(SessionsDoc, f.l1)).items.requester.state = 'stopped';
+      }, context);
+      await f.settle();
+      expect(await f.notices(f.root)).toHaveLength(1);
+      expect(await f.notices(f.requester)).toHaveLength(0);
+      expect(await f.notices(f.l1)).toHaveLength(0);
+      await tick(f.harness, f.storage, context);
+      expect(await f.notices(f.root)).toHaveLength(1);
     } finally { await f.harness.close(context); }
   });
   test('sibling blockers and failures notify once without a wait and never answer human prompts', async () => {
@@ -171,7 +200,7 @@ describe('two worker levels with explicit requester rights', () => {
       // A second scan cannot duplicate the delivered blocker.
       await resumeThreads(f.harness, f.requester, (await f.state(f.requester))!, Date.now(), context);
       expect(await f.notices(f.requester)).toHaveLength(1);
-      expect(await f.notices(f.l1)).toHaveLength(0);
+      expect(await f.notices(f.root)).toHaveLength(0);
     } finally { await f.harness.close(context); }
     const g = await setup();
     try {
@@ -182,11 +211,11 @@ describe('two worker levels with explicit requester rights', () => {
       await tick(g.harness, g.storage, context);
       expect(await g.notices(g.requester)).toHaveLength(1);
       expect(JSON.stringify(await g.notices(g.requester))).not.toContain('failure details');
-      expect(await g.notices(g.l1)).toHaveLength(0);
+      expect(await g.notices(g.root)).toHaveLength(0);
     } finally { await g.harness.close(context); }
   });
   test('shared references, subscription and receipt survive SQLite restart without duplicate settlement', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'kiln-two-level-'));
+    const dir = await mkdtemp(join(tmpdir(), 'kiln-flat-workers-'));
     const path = join(dir, 'state.sqlite');
     const f = await setup(await openNodeSqliteStorage(path));
     await f.call(f.requester, { action: 'wait', name: 'sibling' });
@@ -200,7 +229,7 @@ describe('two worker levels with explicit requester rights', () => {
       await tick(h, storage, context);
       const item = (await h.snapshot(SessionsDoc, f.requester, context))!.items.sibling;
       expect(item.creatorId).toBe(f.requester); expect(item.notifiedResult).toBe(item.report!.requestId);
-      const resolved = await crewState((id) => h.snapshot(SessionsDoc, id, context), f.l1, (id) => h.snapshot(MetaDoc, id, context));
+      const resolved = await crewState((id) => h.snapshot(SessionsDoc, id, context), f.root, (id) => h.snapshot(MetaDoc, id, context));
       expect(Object.values(resolved!.items).find((e) => e.conversationId === f.sibling)?.report?.text).toBe('restart outcome');
       await tick(h, storage, context);
       const entries = (await (await h.conversation(f.requester, context))!.entries({}, 100, undefined, context)).items;
@@ -215,21 +244,21 @@ describe('two worker levels with explicit requester rights', () => {
       await f.settle();
       const entries = (await (await f.harness.conversation(f.requester, context))!.entries({}, 100, undefined, context)).items;
       expect(entries.some((e) => e.kind === 'hearth.crew-report')).toBe(true);
-      expect(await f.notices(f.l1)).toHaveLength(0);
+      expect(await f.notices(f.root)).toHaveLength(0);
       const supervisorEntries = (await (await f.harness.conversation(f.l1, context))!.entries({}, 100, undefined, context)).items;
       expect(supervisorEntries.some((e) => e.kind === 'hearth.crew-report')).toBe(false);
     } finally { await f.harness.close(context); }
   });
   test('directory aliases retain creator and supervisor authorization but reject arbitrary siblings', async () => {
     const f = await setup();
-    const home = await mkdtemp(join(tmpdir(), 'kiln-two-level-agents-'));
+    const home = await mkdtemp(join(tmpdir(), 'kiln-flat-workers-agents-'));
     try {
       const stranger = await f.spawn(f.l1, 'stranger');
       await f.harness.commit((tx) => registerAgent(tx, 'Directory alias', {
         conversationId: f.sibling as number, host: 'local', pinned: false, createdAt: 1, updatedAt: 1,
       }), context);
       const tool = createAgentsTool(home);
-      for (const sender of [f.requester, f.l1]) {
+      for (const sender of [f.requester, f.root]) {
         const result = await tool.execute({ action: 'send', name: 'Directory alias', message: 'authorized follow-up', followUp: true }, f.apiFor(sender), context);
         expect(JSON.stringify(result.output)).toContain('Sent to');
       }
@@ -257,7 +286,7 @@ describe('two worker levels with explicit requester rights', () => {
     try {
       await Promise.all([1, 2].map(() => f.call(f.requester, { action: 'spawn', name: 'concurrent', brief: 'one task' })));
       const item = (await f.state(f.requester))!.items.concurrent;
-      const membership = Object.values((await f.state(f.l1))!.items).filter((entry) => entry.conversationId === item.conversationId);
+      const membership = Object.values((await f.state(f.root))!.items).filter((entry) => entry.conversationId === item.conversationId);
       expect(membership).toHaveLength(1);
       expect((await f.storage.scanConversations({}, 100, undefined, context)).items).toHaveLength(5);
     } finally { await f.harness.close(context); }
@@ -266,7 +295,9 @@ describe('two worker levels with explicit requester rights', () => {
     const id = (n: number) => n as ConversationId;
     const metas = new Map([[1, {}], [2, { kind: 'worker' as const, lead: { conversationId: 1, host: 'local' } }], [3, { kind: 'worker' as const, lead: { conversationId: 2, host: 'local' } }], [4, { kind: 'worker' as const, lead: { conversationId: 3, host: 'local' } }]]);
     const read = async (key: ConversationId) => metas.get(key);
-    expect(await spawnSupervisor(read, id(4))).toEqual({ supervisor: id(2), depth: 2 });
+    expect(await spawnSupervisor(read, id(4))).toEqual({ supervisor: id(1), depth: 1 });
+    expect(await spawnSupervisor(read, id(2))).toEqual({ supervisor: id(1), depth: 1 });
+    expect(await spawnSupervisor(read, id(1))).toEqual({ supervisor: id(1), depth: 1 });
     metas.set(2, { kind: 'worker', lead: { conversationId: 3, host: 'local' } });
     expect(await spawnSupervisor(read, id(4))).toBeUndefined();
     metas.delete(2); expect(await spawnSupervisor(read, id(4))).toBeUndefined();

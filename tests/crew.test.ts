@@ -43,6 +43,19 @@ const worker = (id: string, leadId: string, extra: Partial<Session> = {}): Sessi
   });
 
 describe('threadRows', () => {
+  test('new workers and requested helpers share a flat root list without duplicates', () => {
+    const root = session('1');
+    const requester = worker('2', '1');
+    const helper = worker('3', '1', { creator: { instanceId: 'hearth', sessionId: '2' } });
+    const unrelated = worker('4', '1');
+    const sessions = [root, requester, helper, unrelated];
+    const crews = crewByLeader(sessions);
+    expect(threadRows(root, crews).map(({ worker, depth, group }) => [worker.id, depth, group.id]))
+      .toEqual([['2', 1, '2'], ['3', 1, '3'], ['4', 1, '4']]);
+    expect(threadRows(requester, crews)).toEqual([]);
+    expect(threadSourcesFor(requester, crews, sessions).map(({ id }) => id)).toEqual(['3']);
+    expect(threadSourcesFor(root, crews, sessions).map(({ id }) => id)).toEqual(['2', '3', '4']);
+  });
   test('groups siblings by their reporting lead, keeps legacy depth and rejects cycles and other hosts', () => {
     const root = session('1');
     const a = worker('2', '1', { title: 'First lead' });

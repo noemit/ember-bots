@@ -107,13 +107,13 @@ their existing names; archive references in the implementation notes below descr
 
 ## Background threads (1.18.0 / Kiln 1.9.0)
 
-- New crews have at most two worker levels below the root. A level-2 spawn creates a sibling
-  under its level-1 supervisor, not a level-3 child. Stable creator/task access is distinct from
+- New crews have one flat worker layer below the root. Any worker requesting a helper creates
+  a sibling directly under the root, never a nested worker. Stable creator/task access is distinct from
   supervisory `lead` ownership: a requester keeps access to its spawned sibling, never arbitrary
   siblings. Existing deeper crews remain readable. Spawn-rate, budget and cancellation safeguards
   still apply; this policy never starts replacement workers automatically.
-- The root's Threads shelf shows every known descendant grouped by its first-level supervisor,
-  with nested workers indented. Status, human blockers and result links stay reachable without
+- The root's Threads shelf shows all new workers in a flat list; legacy nested workers remain
+  reachable at their recorded depth. Status, human blockers and result links stay reachable without
   marking any human messages read.
 - New Kiln workers default to `delivery: thread` in `hearth.sessions`. A final result stays in the
   result document and worker transcript; `hearth.thread-result` records only identifiers/status and

@@ -163,9 +163,9 @@ incorporation, and human read marks. `read(name, cursor?, since?)` returns statu
 entries with bounded evidence; `cursor` pages history and `since` reads new evidence oldest first.
 Raw evidence reads do not mark an outcome retrieved.
 
-Crews have **two worker levels**: root → level 1 → level 2. A level-2 spawn creates a
-level-2 sibling under the same level-1 supervisor, not a deeper child. Old deeper trees remain
-readable; new work from them attaches under their level-1 ancestor. Promoted peers start a new
+Crews have **one worker layer**: root → all workers. When any worker requests a helper,
+the helper joins it as a sibling directly under the root, never as a nested worker. Old nested
+trees remain readable without migration; new work from any legacy depth attaches to the root. Promoted peers start a new
 root, and explicit `delegates: false` still disables spawn. Missing or cyclic ancestry refuses
 new work rather than guessing a supervisor.
 
@@ -182,7 +182,7 @@ Cancellation cascades follow `lead` ownership, not creator access. Hiding a requ
 cancel a sibling it requested; hiding the supervisor includes its owned workers. Promotion keeps
 the old worker's creator/history without cascading to the promoted peer.
 
-A thread can itself coordinate nested threads: its durable suspended state prevents an intentionally
+A thread can request and coordinate sibling helpers: its durable suspended state prevents an intentionally
 released run from being reported as a failure to its parent. A task has one continuation recipient:
 **first subscriber wins** until reassignment; another authorized waiter is told to use results,
 not silently substituted. Outcome retrieval is shared across these authorized views; it is not a

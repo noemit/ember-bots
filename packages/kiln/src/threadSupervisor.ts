@@ -27,8 +27,12 @@ export const continuationRecipient = async (
   if (!meta && !entries.some((entry) => entry.supervisorId !== undefined)) return destination;
   const explicitSupervisor = entries.find((entry) => entry.supervisorId !== undefined && entry.supervisorId !== destination)?.supervisorId;
   const fallback = explicitSupervisor ?? (meta?.lead?.host === 'local' ? meta.lead.conversationId as ConversationId : undefined);
-  const parentCrew = fallback === undefined ? undefined : await readCrew(fallback);
-  const stopped = Object.values(parentCrew?.items ?? {}).some((entry) => entry.conversationId === destination && (entry.state === 'stopped' || entry.state === 'failed'));
+  // Terminal evidence lives with the actual creator, not in the root's membership copy.
+  // A legacy nested requester can also keep its old parent while new helpers belong to root.
+  const taskOwner = meta?.creatorId !== undefined ? meta.creatorId as ConversationId
+    : meta?.lead?.host === 'local' ? meta.lead.conversationId as ConversationId : undefined;
+  const ownerCrew = taskOwner === undefined ? undefined : await readCrew(taskOwner);
+  const stopped = Object.values(ownerCrew?.items ?? {}).some((entry) => !entry.taskOwner && entry.conversationId === destination && (entry.state === 'stopped' || entry.state === 'failed'));
   const retired = !meta || Boolean(meta.archived) || (!live?.run && Boolean(stopped || live?.runFailure));
   const recipient = retired ? fallback : destination;
   if (recipient === undefined || (retired && recipient === destination)) return undefined;

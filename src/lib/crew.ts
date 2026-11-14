@@ -57,7 +57,7 @@ export const threadDescendants = (leader: Session, crews: ReadonlyMap<string, re
 
 /**
  * Sources visible from this conversation: reporting descendants and workers it actually spawned.
- * A level-2 requester starts a sibling under its level-1 supervisor, so `lead` alone does not
+ * A worker requests a sibling directly under the root, so `lead` alone does not
  * authorize its own result link. The stable creator does; unrelated siblings and peer forks do not.
  */
 export const threadSourcesFor = (
@@ -93,7 +93,8 @@ export const workerKeySet = (
 };
 
 /**
- * Rows in a root leader's Threads shelf. The graph's `lead` is the reporting parent, not the
+ * Rows in a root leader's Threads shelf. New crews are flat; legacy trees retain their depth.
+ * The graph's `lead` is the reporting parent, not the
  * requester that initiated a spawn; displaying by lead keeps siblings in their actual crew.
  * Legacy depth-3+ workers remain reachable at their true depth, without duplicating cycles.
  */

@@ -12,7 +12,7 @@ import { defineDoc } from "@earendil-works/pi-durable";
  * - `kind: "worker"` is a hidden crew member; `kind: "peer"` is an ownerless, addressable one.
  * - `lead` is the immediate leader, retained as history on a promoted peer.
  * - `delegates` is stored (not derived) so the summary is cheap and the choice survives restarts;
- *   new level-2 workers may request siblings.
+ *   workers may request siblings directly under their root supervisor.
  * - `archiveBatch` ties a cascade archive (leader + workers + grandchildren) together so undo
  *   restores exactly that batch.
  * - `promotedTo` is set on a worker after a human promotes it; the fork is the peer that now

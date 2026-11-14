@@ -45,7 +45,7 @@ export const WORKER_INSTRUCTIONS =
 /** The worker instruction naming its own delegation, for a worker that keeps the crew tool. */
 export const WORKER_DELEGATION_INSTRUCTIONS =
   " When you spawn threads of your own, give each a concrete outcome title, a self-contained brief, and acceptance criteria. " +
-  "At level 2, spawn creates a sibling under your level-1 supervisor; you retain task access, not ownership of arbitrary siblings. " +
+  "All workers share one root supervisor. When you spawn a helper, it joins you as a sibling directly under that root; you retain task access, not ownership of arbitrary siblings. " +
   "Do not spawn to relay a result; finish directly in your own thread. ";
 
 /** True when a conversation may lead a crew at all. Pure. */
@@ -100,8 +100,8 @@ export const briefTitle = (brief: string, name: string): string =>
 export const CREW_DEADLINE_MS = 15 * 60 * 1000;
 /** How long `session wait` blocks before returning what it knows. */
 export const CREW_WAIT_MS = 10 * 60 * 1000;
-/** Root is level 0; level-2 workers spawn siblings under their level-1 supervisor. */
-export const MAX_DEPTH = 2;
+/** One worker layer below the root. Every worker's helper joins that same root's crew. */
+export const MAX_DEPTH = 1;
 /**
  * A leader may start a new generation's crew only this long after the previous crew's wake. One
  * generation's spawns are instantaneous (a leader fans out, then waits); a *second* crew right after
@@ -353,20 +353,16 @@ export const depthOf = async (
 export const spawnSupervisor = async (
   read: (id: ConversationId) => Promise<HearthMeta | undefined>, start: ConversationId
 ): Promise<{ supervisor: ConversationId; depth: number } | undefined> => {
-  const path: ConversationId[] = [];
   const seen = new Set<ConversationId>();
   let current = start;
   for (let hops = 0; hops < 64; hops += 1) {
     if (seen.has(current)) return undefined;
     seen.add(current);
-    path.push(current);
     const meta = await read(current);
     if (!meta) return undefined;
     if (meta.kind === "peer" || !meta.lead) {
       if (meta.kind === "worker") return undefined;
-      const depth = path.length - 1;
-      return { supervisor: depth >= MAX_DEPTH ? path[path.length - 2] : start,
-        depth: Math.min(depth + 1, MAX_DEPTH) };
+      return { supervisor: current, depth: MAX_DEPTH };
     }
     if (meta.lead.host !== "local") return undefined;
     current = meta.lead.conversationId as ConversationId;
@@ -673,7 +669,7 @@ export const SessionTool = defineTool({
     "Failures and human blockers get priority; already-retrieved results do not wake you again. " +
     "message steers a thread, followUp=true queues; stop aborts it. kind=peer creates an independent visible conversation. " +
     "Legacy report=always copies reports; on-failure suppresses successful report delivery. " +
-    `Caps: maximum level 2; level-2 spawn creates a sibling under the same level-1 supervisor, ${workerCapsText()}, ${SPAWN_RATE_LIMIT} spawns/minute.`,
+    `Caps: one worker layer; every worker's helper is a sibling directly under the root supervisor, ${workerCapsText()}, ${SPAWN_RATE_LIMIT} spawns/minute.`,
   parameters: obj({
     action: oneOf(["spawn", "models", "list", "status", "message", "stop", "results", "wait", "read"], {
       description: "models: search this host’s available chat models; spawn: start a session; the rest operate on names from `list`/`results`.",
@@ -1286,6 +1282,7 @@ const crewSection = section(
     "a self-contained brief, acceptance criteria and evidence requirements. Threads retain stable identities. " +
     "You remain the foreground thinker and coordinator: understand the human, answer, plan and steer. " +
     "Small inspections and decisions belong here; heavy execution belongs in threads when delegation helps. " +
+    "Crews are flat: root plus one worker layer. Any worker's helper joins the same root as a sibling, never a nested worker. " +
     "Use session models with a query to find this host’s available chat models before an explicit model spawn; omit model to inherit yours. " +
     "Use list/status for progress, read for bounded evidence and results for final outcomes. " +
     "Quote relevant findings with their /threads/<conversationId> links so the human can explore the source. " +

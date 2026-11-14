@@ -59,14 +59,13 @@ them together. Internal thread-result retrieval does not change your read marks.
 
 ## Background threads
 
-The **Threads** shelf shows the chat’s workers grouped under their first-level supervisor, with
-second-level workers indented. Open any row to read its live conversation, answer a question or
+The **Threads** shelf shows all of the root chat’s workers in one flat list. Open any row to read its live conversation, answer a question or
 follow its result links without leaving the main chat. Older, deeper crews remain readable too.
 Thread retrieval and navigation never acknowledge messages on your behalf.
 
-New crews have two worker levels: the main chat starts a first-level worker, which can start
-second-level workers. If a second-level worker needs help, its new worker joins it as a sibling
-under the same supervisor, rather than adding a third level. The requester keeps access to the
+New crews have one worker layer: the main chat is the root coordinator, and every worker sits
+directly under it. If any worker needs a helper, that helper joins the same root as a sibling,
+not a nested worker. New helpers requested from older nested crews also attach to the root. The requester keeps access to the
 work it asked for; unrelated siblings do not gain access to each other. Spawn rate and budget
 safeguards still apply, and no replacement or extra worker is started automatically.
 
