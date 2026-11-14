@@ -26,6 +26,7 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
   let pid: number | undefined;
   try {
     const window = await app.firstWindow();
+    await window.screenshot({ path: test.info().outputPath('packaged-first-window.png') });
     await expect(window.getByTestId('onboarding')).toBeVisible();
     await expect(window.getByRole('heading', { name: 'Setting up Ember Bots' })).toBeVisible();
     const headingRow = window.getByRole('heading', { name: 'Setting up Ember Bots' }).locator('..');
@@ -62,12 +63,12 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await window.getByRole('button', { name: 'Choose workspace', exact: true }).click();
     const picker = window.getByRole('dialog', { name: 'Choose your workspace', exact: true });
     await expect(picker).toBeVisible();
-    await picker.getByRole('button', { name: 'Enter a folder path…', exact: true }).click();
-    await picker.getByRole('textbox', { name: 'Folder path' }).fill(workspace);
-    await picker.getByRole('button', { name: 'Open', exact: true }).click();
+    await picker.getByRole('button', { name: 'Enter a path…', exact: true }).click();
+    await picker.getByRole('textbox', { name: 'Existing folder path' }).fill(workspace);
+    await picker.getByRole('button', { name: 'Open path', exact: true }).click();
 
     // The subfolder that already exists is offered as a destination.
-    const existing = picker.getByRole('option', { name: /Existing project/ });
+    const existing = picker.getByRole('button', { name: /Open folder .*Existing project/ });
     await expect(existing).toBeVisible();
 
     // Cancelling a new folder leaves the disk untouched.
@@ -76,20 +77,20 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(await stat(join(workspace, 'Cancelled')).catch(() => null)).toBeNull();
 
-    // Creating one that already exists is refused, with a message that says what to do instead.
+    // An existing name is refused before submission; the folder is never overwritten.
     await picker.getByRole('button', { name: /^New folder…$/ }).click();
     await picker.getByRole('textbox', { name: 'New folder name' }).fill('Existing project');
-    await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
+    await expect(picker.getByRole('button', { name: 'Create folder', exact: true })).toBeDisabled();
     const refusal = picker.getByRole('alert');
     await expect(refusal).toBeVisible();
-    await expect(refusal).toContainText('could not create this folder');
-    await expect(refusal).toContainText('Try another name');
+    await expect(refusal).toContainText('already exists');
+    await expect(refusal).toContainText('use another name');
 
     // A new name works, navigates into it, and is persisted as the workspace.
     await picker.getByRole('textbox', { name: 'New folder name' }).fill('New workspace');
     await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
-    await expect(picker.getByText('No subfolders here. You can use this folder.', { exact: true })).toBeVisible();
-    await picker.getByRole('button', { name: 'Use this workspace', exact: true }).click();
+    await expect(picker.getByText('No subfolders here. Choose this folder, or go up to explore another.', { exact: true })).toBeVisible();
+    await picker.getByRole('button', { name: 'Choose this workspace', exact: true }).click();
     await expect(picker).toHaveCount(0);
     const created = join(workspace, 'New workspace');
     expect((await stat(created)).isDirectory()).toBe(true);
