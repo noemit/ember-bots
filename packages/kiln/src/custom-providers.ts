@@ -213,10 +213,34 @@ export class CustomProviders {
         credential.env !== undefined && (!credential.env || typeof credential.env !== "object" || Array.isArray(credential.env) ||
           Object.entries(credential.env).some(([name, value]) => name.length > 256 || typeof value !== "string" || value.length > 16384)) ||
         credential.env?.[DESTINATION] !== undefined && credential.env[DESTINATION] !== current.config.baseUrl)) throw new Error(keyMessage);
-      // Existing, blocked, or externally changed credentials are preserved, never overwritten.
-      if (current.key || current.blocked || await this.store.read(id)) return false;
-      await this.saveLocked({ ...current.config, apiKey: key }, id, credential);
-      return true;
+      if (current.key || current.blocked) return false;
+      const config = { ...current.config, requiresApiKey: true };
+      const incoming: ApiKeyCredential = { type: "api_key", key, env: { ...credential?.env, [DESTINATION]: config.baseUrl } };
+      let installed = false;
+      this.revoke(id);
+      try {
+        // The store lock, not an earlier read or the configuration lock, decides fill-only.
+        // Never route this through saveLocked: its replacement/rollback semantics can erase
+        // a different writer that wins between preflight and this modify callback.
+        const stored = await this.store.modify(id, async existing => {
+          if (existing !== undefined) return undefined;
+          // Persist the keyed requirement before installing the credential. A crash or failed
+          // store write then blocks on boot instead of falling back to keyless inference.
+          this.persist(this.entries.map(entry => entry.id === id ? config : entry));
+          installed = true;
+          return incoming;
+        });
+        if (!installed) this.persist(this.entries.map(entry => entry.id === id ? config : entry));
+        const bound = stored?.type === "api_key" && typeof stored.key === "string" && Boolean(stored.key) && stored.env?.[DESTINATION] === config.baseUrl;
+        // Reconcile a racing winner without modifying it. Unbound/OAuth/foreign-destination
+        // winners remain untouched in storage and cannot become a keyless runtime fallback.
+        this.publish(config, bound && stored.type === "api_key" ? stored.key : undefined, !bound);
+        return installed;
+      } catch (error) {
+        // Do not roll back or delete here: another writer may own the store by now.
+        this.publish(config, undefined, true);
+        throw error;
+      }
     });
   }
   /** One serialized snapshot replaces the unsafe list-then-key read in the HTTP route. */
