@@ -28,7 +28,7 @@ A coordinator with existing requester/supervisor access can explicitly reopen wi
 {"action":"reopen","name":"login","task":"42:1730000000000","message":"Also cover an expired token"}
 ```
 
-`message` is required for reopen and capped at 16,000 characters. Its optional `task` is a compare-and-set guard. Existing authorized `message` / `agents send` corrections also rearm the task. An authenticated human's ordinary input submission to a Done worker reopens it in the same transaction as admission. Exact submission retries do not reassign again. Unrelated siblings cannot reopen another requester's task. A worker cannot reopen itself with this action.
+`message` is required for reopen and capped at 16,000 characters. Its optional `task` is a compare-and-set guard. Existing authorized `message` / `agents send` corrections also rearm the task. An authenticated human's ordinary input submission to a Done, failed or stopped explicit worker reopens it in the same transaction as admission. Exact submission retries do not reassign again. Unrelated siblings cannot reopen another requester's task. A worker cannot reopen itself with this action.
 
 The stable task identity is its worker conversation and owning crew key. `task` and the conversation summary's `task.id` are **assignment-version tokens**, not stable cross-reopen IDs: they use `conversationId:(taskAt ?? spawnedAt)`. A correction preserves the conversation/key/title, clears the current completion, advances that token, and retains prior outcomes in worker history. A genuinely different purpose belongs in a new spawn. Initial and coordinator direction prompts carry the current version; workers can always inspect their own status.
 

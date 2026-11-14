@@ -296,6 +296,39 @@ describe("submission actions", () => {
 
   });
 
+  test.each(['failed', 'stopped'] as const)('authenticated human correction reopens %s task and can complete once without retry reassignment', async terminal => {
+    const owner = await createConversation('Terminal task coordinator') as ConversationId;
+    const worker = await createConversation('Terminal task worker') as ConversationId;
+    await harness.commit(async tx => {
+      Object.assign(await tx.doc(MetaDoc, worker), { kind: 'worker', creatorId: owner, lead: { conversationId: owner, host: 'local' },
+        ...(terminal === 'stopped' ? { stoppedAt: Date.now() } : {}) });
+      (await tx.doc(SessionsDoc, owner)).items.work = { kind: 'worker', creatorId: owner, conversationId: worker, title: 'Recover terminal task',
+        state: terminal, spawnedAt: 100, generation: 1, briefRequestId: 'terminal-brief', delivery: 'thread', taskLifecycle: 'explicit',
+        report: { status: terminal === 'failed' ? 'failed' : 'aborted', text: 'Earlier terminal outcome', at: 101, requestId: 'earlier-terminal-result' } };
+    }, context);
+    const summary = async () => (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+    expect((await summary()).task.status).toBe(terminal);
+    faux.setResponses([async () => {
+      const current = (await harness.snapshot(SessionsDoc, owner, context))!.items.work;
+      return fauxAssistantMessage([fauxToolCall('session', { action: 'complete', task: String(worker) + ':' + current.taskAt,
+        summary: 'Recovered task completed', evidence: 'Authenticated correction and complete tool', remaining: 'none' })], { stopReason: 'toolUse' });
+    }]);
+    const draft = { type: 'input', content: 'Please recover this task with this correction', requestId: 'recover-' + terminal };
+    const admitted = await body(await submit(worker, draft));
+    expect(['placed', 'done']).toContain(admitted.status);
+    await settle(worker);
+    const done = await summary();
+    expect(done.task.status).toBe('done'); expect(done.task.id).not.toBe(String(worker) + ':100');
+    expect(done.task.completion.summary).toBe('Recovered task completed');
+    expect((await harness.snapshot(MetaDoc, worker, context))?.stoppedAt).toBeUndefined();
+    const retried = await body(await submit(worker, draft));
+    expect(retried.submissionId).toBe(admitted.submissionId);
+    expect((await summary()).task.id).toBe(done.task.id); expect((await summary()).task.status).toBe('done');
+    expect(await userEntries(worker, draft.content)).toBe(1);
+    const entries = await body(await api('/conversations/' + worker + '/entries?limit=100'));
+    expect(entries.entries.filter((e: any) => e.kind === 'hearth.task-completion')).toHaveLength(1);
+  });
+
   test("HTTP correction after complete commit but before tool return survives termination and reopens once", async () => {
     const owner = await createConversation('Race coordinator') as ConversationId;
     const worker = await createConversation('Race worker') as ConversationId;

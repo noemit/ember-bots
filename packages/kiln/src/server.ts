@@ -2211,7 +2211,10 @@ const server = Bun.serve<{
               const prior = toPlace.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, toPlace.requestId);
               if (draft.type === "input" && !prior) {
                 const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, await tx.doc(MetaDoc, conversationId));
-                if (assignment && explicitDone(assignment.entry)) await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
+                if (assignment && (explicitDone(assignment.entry) || (assignment.entry.taskLifecycle === "explicit" &&
+                    (assignment.entry.state === "failed" || assignment.entry.state === "stopped")))) {
+                  await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
+                }
               }
               return conversation.submit(tx, toPlace);
             }, context);
