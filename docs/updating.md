@@ -1,9 +1,9 @@
 # Desktop updates and release gates
 
-**Release status: PAUSED.** This configuration is preparation, not permission to bump a version,
-tag, build signed production artifacts, publish a release or change native workflows. Resume only
-with the owner's explicit approval and the gates below satisfied. See [Versioning](../VERSIONING.md)
-for the separate release authorization and version rules.
+**Release control:** updater configuration is not publication authorization. Each release requires
+explicit owner approval and the gates below for every platform it offers. A platform without verified
+release artifacts must be omitted and disclosed, not replaced with an unsigned build.
+See [Versioning](../VERSIONING.md) for the separate release authorization and version rules.
 
 ## Supported packages
 
@@ -157,14 +157,14 @@ and the verified **full-download fallback** succeeded. This does not establish d
 FUSE mounting, the full Ember GUI/bundled-Kiln shutdown path or a production GitHub A→B release.
 No production feed override or public release was used.
 
-Before resuming release:
+Before publishing a release:
 
 - Run `bun run check` and all relevant native/packaged regressions on their actual platforms.
 - Verify final signed/notarized macOS DMG **and ZIP**, metadata, blockmaps, hashes and architecture.
   Keep the accepted deferred Mac A→B test recorded until the next update actually exercises it.
-- Establish the real Windows signing identity, verify embedded publisher allowlist and signatures,
-  and pass signed NSIS A→B, relaunch and mismatched-publisher rejection checks.
+- If offering Windows artifacts, establish the real Windows signing identity, verify embedded publisher
+  allowlist and signatures, and pass signed NSIS A→B, relaunch and mismatched-publisher rejection checks.
 - Exercise AppImage A→B from a writable location on Linux, and confirm tar installs stay manual.
 - Audit the complete staged upload set/index and each YAML reference/hash, including all architectures.
-- Obtain explicit owner approval to unpause publication. No bump, tag, workflow edit or public upload
-  is part of implementing this configuration.
+- Obtain explicit owner approval for publication. No bump, tag, workflow edit or public upload
+  is authorized merely by implementing this configuration.

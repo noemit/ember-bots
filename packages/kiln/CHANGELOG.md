@@ -1,16 +1,30 @@
-## Unreleased
+## 1.11.0 — 2026-11-14
 
 ### Added
-- Google **Antigravity** is a provider: sign in with a Google account and reach the Cloud Code Assist catalogue through Hearth's own transport (`src/antigravity.ts`), since pi-ai ships none. Per-model thinking levels select the backend's routable id, so the picker's level is the level the request runs at. The model list is the **account's own**: `fetchAvailableModels` is read across the daily, sandbox and production endpoints on every refresh, unioned, and grouped into public models (`src/antigravity-catalog.ts`, `src/antigravity-discovery.ts`), so a model the account is entitled to appears without a Hearth release. The static table is what a fresh install can address before any network call.
-- A sign-in can ask the human a question and keep going. `POST /providers/:id/login` accepts `{ prompt: { capable: true } }`; when it does, a browser-callback flow asks through `interaction.ask`, the question rides the event stream as `{ type: "question", message, placeholder }`, and `POST /providers/:id/login/answer { answer }` delivers the reply to the flow that is parked on it. A client that omits the field keeps the old behaviour — the flow is refused, and the refusal quotes the question it could not ask. A flow blocked on a question nothing can answer is reported as `failed`, never as `pending`.
-- Codex subscription sign-in works end to end from Ember: `openai-codex` asks which login method to use, and `chooseHeadlessMethod` answers with the device branch.
+- Google Antigravity sign-in, account model discovery and interactive sign-in questions, including
+  the device-code choice for Codex subscriptions.
+- Custom OpenAI-compatible providers, keyless Ollama setup, reviewed credential sharing and
+  authenticated private-network connection sharing.
+- A durable nonblocking Questions inbox and exact-command approval rules.
+- Explicit delegated-task completion, reopening on human corrections and durable context handoffs.
+
+### Changed
+- New helper tasks remain directly under their root while preserving requester access.
+
+### Fixed
+- Credential imports preserve concurrent store-lock winners; sharing is atomic and destination-scoped.
+- Antigravity requests use the correct envelope/routing and retain event frames split across reads.
+- Interactive sign-ins fail clearly when their follow-up question cannot reach a human.
+
+## 1.10.0
+
+### Added
 - A `schedule` tool lets a conversation list, create, update, remove and run wall-clock tasks (daily, weekly or once) in the host's scheduler; schedules are validated by the same rules as the HTTP wire, times are wall-clock in the task's zone, and each run submits the stored prompt to that task's own session. A conversation holds at most eight tasks and cannot reuse a name.
 - DeepInfra is a first-class provider (OpenAI-compatible, `https://api.deepinfra.com/v1/openai`, `DEEPINFRA_API_KEY`), with its chat catalogue, context windows and per-million-token pricing read from `GET /models` and cached so boot never needs the network.
 - `session models` searches this host's available chat models without codemode, returns exact spawn model IDs and the inherited default, and pages bounded results without exposing credentials or connection metadata.
 
 ### Fixed
 - Explicit session spawn models must match the host's available catalogue before a child is created; omitted models still inherit the configured parent model unchanged.
-- A flow that asks a question mid-sign-in is no longer reported as pending when nothing can answer it. It fails with the question quoted, and `GET /providers/:id/login` answers such a flow as `failed` rather than leaving the client polling a sign-in that will never move.
 
 ## 1.9.0
 

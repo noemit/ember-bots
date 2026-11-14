@@ -1,11 +1,38 @@
-## Unreleased
+## 1.23.0 — 2026-11-14
+
+### Added
+- Google Antigravity sign-in and account-discovered models, custom OpenAI-compatible providers,
+  and keyless Ollama setup. Add a provider directly from the model picker.
+- Review and share stored provider credentials between Kilns, and explicitly share a local Kiln
+  through authenticated private-network access without changing independently managed processes.
+- A durable, nonblocking Questions inbox and explicit delegated Tasks, with accessible Done history.
+- Linked annotations on conversation passages, replacing the temporary comment collection.
+- Private HTTPS phone-app support, with browser-local drafts and safer reconnect/recovery handling.
+- Find projects across a Kiln, with frequent/recent rankings, and manually Snooze sessions from the rail.
+- Allow similar commands through host-enforced, exact-command permission rules.
+- Consent-driven desktop updates: check, download, then restart explicitly. This first updater-enabled
+  version must be installed manually; older builds cannot discover it automatically.
 
 ### Changed
-- A parked note opens in its own editor: reword it, give it the model it should be sent with, and
-  save without losing other notes saved in the meantime. A note with no model of its own still goes
-  out on the composer's model, and bringing it back to the composer carries the model with it.
-- The tray's read-only dialogs no longer carry a subtitle promising nothing will change; the queue
-  dialog keeps its title and actions, and the note dialog is now a place you can change things.
+- Mosaic uses the approved smooth gradients, pixel-grid eyes and six new silhouettes: arch, bell,
+  star, kite, lantern and puddle. Production avatars and appearance choices have no accessories.
+- Conversation names improve after the first substantive exchange; manually chosen names stay final.
+- Full folder names sit above distinct session titles in the rail. The model-default action is more compact.
+- Edit parked notes with their own model choices; bringing one back to the composer carries its model.
+- Helper tasks stay directly under their root, with explicit completion, correction-driven reopening,
+  durable requester access and context-handoff guidance.
+- Includes Kiln 1.11.0. Release artifacts are planned for macOS arm64 and Linux x64; no Windows
+  artifact is offered for this version pending signed Windows packaging and validation.
+
+### Fixed
+- Don't notify preferences survive saving and restarting beyond forty sessions.
+- Sending an edited note uses the visible editor snapshot, not stale saved text.
+- Image sends reconcile reliably with their transcript echo instead of remaining unconfirmed.
+- Interactive provider sign-ins can answer follow-up questions; Antigravity discovery and streaming
+  handle the real request envelope and split event frames.
+- Scrolling upward leaves the transcript bottom promptly; promotion explains its running-turn gate.
+- Native test fixtures isolate discovery paths and credentials; the development blob gallery fits
+  narrow viewports after the phone-app layout change.
 
 ## 1.22.0
 

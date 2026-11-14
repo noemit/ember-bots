@@ -20,16 +20,17 @@ required by that batch, rather than counting commits or individual features.
 
 ## Release workflow
 
-Desktop publication is currently **paused**. Before resuming, follow the signing, updater metadata,
-bootstrap and upload gates in [Desktop updates and release gates](docs/updating.md). Preparing
-configuration does not authorize a version bump, tag or publication.
+Each desktop release requires explicit owner authorization. Follow the signing, updater metadata,
+bootstrap and upload gates for every offered platform in
+[Desktop updates and release gates](docs/updating.md). Preparing configuration alone does not
+authorize a version bump, tag or publication.
 
 1. Review all changes since the last public release and choose the next semantic version.
 2. Bump `version` in `package.json` once for the release.
 3. Consolidate the batch into one dated `CHANGELOG.md` entry (`Added` / `Changed` / `Fixed` /
    `BREAKING`). Move any `Unreleased` notes into that entry.
 4. Run `bun run check` and relevant end-to-end or native checks.
-5. Commit the release preparation, then build every platform from that same commit.
+5. Commit the release preparation, then build every offered platform from that same commit.
 6. Publish the matching tag and release only when publication is authorized.
 
 Do not reuse or lower a version already published. Release tags and packaged application versions
