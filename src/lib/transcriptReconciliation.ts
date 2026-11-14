@@ -1,7 +1,7 @@
 import type { ChatMessage, ToolCall } from '../types';
 import { messageSignature } from './messageSignature';
-import { detectImageMimeType } from '../../packages/kiln/src/view';
-import { imageContentDigest, sameRenderedContent } from './piMapping';
+import { decodeBase64Bytes, detectImageMimeType, imageContentDigest } from './imageIdentity';
+import { sameRenderedContent } from './piMapping';
 
 export type TranscriptReconciliation = {
   messages: ChatMessage[];
@@ -56,7 +56,7 @@ export const equalMessage = (a: ChatMessage, b: ChatMessage): boolean =>
 const fileIdentityMime = (mime: string, url: string): string => {
   const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url);
   if (!match || match[1] !== mime || !match[2]) return mime;
-  return detectImageMimeType(Buffer.from(match[2], 'base64')) ?? mime;
+  return detectImageMimeType(decodeBase64Bytes(match[2])) ?? mime;
 };
 
 /** Digest a data URL on demand for older optimistic records without a cached digest. */

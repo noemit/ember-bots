@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { piEntriesToMessages, type PiEntry } from '../src/lib/piMapping';
+import { decodeBase64Bytes, detectImageMimeType, imageContentDigest } from '../src/lib/imageIdentity';
 import { outgoingMessageSignature, reconcileFullTranscript, reconcileTranscriptAppend, reconcileTranscriptTail } from '../src/lib/transcriptReconciliation';
 import type { ChatMessage, FileAttachment } from '../src/types';
 
@@ -35,7 +36,9 @@ describe('image send reconciliation', () => {
     // Node/Kiln accept non-zero unused padding bits: both decode to byte 0x01.
     const a = optimistic('a', 'same', [localFile('a.png', 'AQ==')]);
     const b = optimistic('b', 'same', [localFile('b.png', 'AR==')]);
-    expect(Buffer.from('AQ==', 'base64')).toEqual(Buffer.from('AR==', 'base64'));
+    expect(decodeBase64Bytes('AQ==')).toEqual(decodeBase64Bytes('AR=='));
+    expect(decodeBase64Bytes('A!Q== \n')).toEqual(decodeBase64Bytes('AQ=='));
+    expect(imageContentDigest('image/png', 'AQ==')).toBe(imageContentDigest('image/png', 'AR=='));
     expect(outgoingMessageSignature(a)).toBe(outgoingMessageSignature(b));
     const [echo] = piEntriesToMessages([piUser(8, 'same', [{ data: 'AR==', mimeType: 'image/png' }])]);
     const result = reconcileFullTranscript([a], [echo], new Set([a.id]));
@@ -61,6 +64,7 @@ describe('image send reconciliation', () => {
     const pngBytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
     const mislabeled = optimistic('valid-mime', 'inspect', [localFile('upload.jpg', pngBytes, 'image/jpeg')]);
     const [sniffed] = piEntriesToMessages([piUser(10, 'inspect', [{ data: pngBytes, mimeType: 'image/png' }])]);
+    expect(detectImageMimeType(decodeBase64Bytes(pngBytes))).toBe('image/png');
     expect(outgoingMessageSignature(mislabeled)).toBe(outgoingMessageSignature(sniffed));
   });
 
