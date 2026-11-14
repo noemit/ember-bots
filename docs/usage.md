@@ -26,6 +26,23 @@ Draft text and model choices persist across launches. Attachments and reply cont
 An unavailable model or reasoning level keeps your draft and choice visible: refresh the catalogue
 or choose a replacement explicitly. **Server default** is an intentional selection.
 
+### Finding a project
+
+The project picker searches known projects across the selected Kiln, including locations outside
+its workspace. **Frequent** ranks distinct chats started in the last 30 days; **Recent** ranks the
+latest chat start, not the latest bot reply. Each list initially shows five projects and has its own
+**Show more**. A project can appear in both. Opening folders, polling and worker activity do not
+increase usage. The catalogue comes from loaded, visible human chats and configured projects—not a
+scan of the computer. Scheduled runs do not count. Older hosts without start timestamps still supply
+searchable locations, but not invented usage counts.
+
+**Browse folders** opens a folder browser. Folder rows only open folders; **Choose this folder**
+confirms the location. Use **Up one folder**, the breadcrumbs or **Computer** to reach sibling or
+higher folders, and **Back to search** to return to your results. Path entry and **New folder** appear
+only when requested. Creating a folder never overwrites one or creates missing parent folders.
+Choosing a chat’s project does not change its host’s workspace or default project; those remain
+separate, explicit settings.
+
 Messages sent while a chat is busy can wait in the host’s follow-up queue. Alt/Option+Enter steers
 the running turn instead. Notes stay parked until you send them or bring them back into the composer.
 A chat’s running programs appear in its Processes tray and rail indicator.

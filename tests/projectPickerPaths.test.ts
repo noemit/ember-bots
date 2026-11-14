@@ -43,6 +43,13 @@ describe('parentPath', () => {
 });
 
 describe('breadcrumbPath', () => {
+  test('drive breadcrumbs open the absolute drive root, not a drive-relative path', () => {
+    expect(breadcrumbPath('C:/Users/alex', 0)).toBe('C:/');
+    expect(breadcrumbPath('C:/Users/alex', 1)).toBe('C:/Users');
+    expect(breadcrumbPath('C:/Users/alex', 2)).toBe('C:/Users/alex');
+    expect(breadcrumbPath('D:\\Work\\project', 0)).toBe('D:/');
+  });
+
   test('each crumb points at the folder it names, never doubling the leading slash', () => {
     expect(breadcrumbPath('/home/em/workspace/ember', 0)).toBe('/home');
     expect(breadcrumbPath('/home/em/workspace/ember', 1)).toBe('/home/em');

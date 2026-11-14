@@ -133,6 +133,8 @@ export type Session = {
   title?: string;
   directory?: string;
   updated?: number;
+  /** Host-reported chat creation time; never inferred from background output. */
+  createdAt?: number;
   /** Model the session last ran with, as reported by the instance. */
   model?: ModelRef;
   /** Agent the session last ran with, as reported by the instance. */

@@ -28,6 +28,11 @@ const assistant = (content: Array<Record<string, unknown>>, extra: Record<string
   ...extra,
 });
 
+test('session start timestamp stays distinct from activity and unknown on older hosts', () => {
+  expect(piConversationToSession('host', { id: 1, createdAt: 100, updatedAt: 200 }).createdAt).toBe(100);
+  expect(piConversationToSession('host', { id: 1, updatedAt: 200 }).createdAt).toBeUndefined();
+});
+
 describe('a running call, with its output patched from the live slot', () => {
   const call = (extra: Record<string, unknown> = {}) => [
     {

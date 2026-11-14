@@ -202,6 +202,7 @@ const toSession = (instanceId: string, entry: unknown, index: number): Session =
     title: typeof item.title === 'string' ? item.title : undefined,
     directory,
     updated,
+    createdAt: typeof time.created === 'number' ? time.created : undefined,
     archived: typeof time.archived === 'number' && time.archived > 0 ? time.archived : undefined,
     model: modelID && providerID ? { providerID, modelID, variant } : undefined,
     agent,

@@ -1,3 +1,4 @@
+import type { ProjectUsage } from '../lib/projectUsage';
 import * as React from 'react';
 import { ArrowLeftRight, Boxes, Cpu, Laptop, Monitor, ArrowRight, Check, CircleAlert, FolderOpen, KeyRound, Loader2, PlugZap, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ type Props = {
   open: boolean;
   startAtWelcome?: boolean;
   state: OnboardingState;
+  projectUsageByInstance?: Record<string, ProjectUsage[]>;
   instanceDefaults: Record<string, InstanceDefaults>;
   models: ModelOption[];
   onRefreshModels: (instanceId: string) => void;
@@ -77,6 +79,7 @@ export default function OnboardingWizard({
   startAtWelcome = false,
   state,
   instanceDefaults = {},
+  projectUsageByInstance,
   models,
   onRefreshModels,
   localProblem,
@@ -277,6 +280,7 @@ export default function OnboardingWizard({
                 <FirstAgent
                   key={state.targetInstanceId}
                   instanceDefaults={instanceDefaults}
+                  projectUsageByInstance={projectUsageByInstance}
                   state={state}
                   instances={instances}
                   onChange={onChange}
@@ -589,9 +593,10 @@ function Providers({
   );
 }
 
-function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, modelReady, project, setProject }: {
+function FirstAgent({ state, instances, projectUsageByInstance, instanceDefaults, onChange, onStart, modelReady, project, setProject }: {
   state: OnboardingState;
   instances: Instance[];
+  projectUsageByInstance?: Record<string, ProjectUsage[]>;
   instanceDefaults: Record<string, InstanceDefaults>;
   onChange: (patch: EmberSettingsPatch) => void;
   onStart: () => void;
@@ -611,7 +616,7 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, mod
       {!modelReady ? <p className="text-muted-foreground">Open Choose an AI and select a default model before starting your first bot.</p> : null}
       {target ? <div className="rounded-lg border bg-background/60 p-4">
         <p className="mb-2 text-sm text-muted-foreground">Workspace on {target.label}</p>
-        <ProjectPicker key={target.id} instance={target} projects={[]} workspaceOnly value={workspace ?? ''} workspace={workspace}
+        <ProjectPicker key={target.id} instance={target} projects={[]} projectUsage={projectUsageByInstance?.[target.id]} workspaceOnly value={workspace ?? ''} workspace={workspace}
           onWorkspaceChange={(directory) => {
             setProject('');
             onChange({ instanceDefaults: { ...instanceDefaults, [target.id]: { ...instanceDefaults[target.id], workspaceDirectory: directory } } });
@@ -620,7 +625,7 @@ function FirstAgent({ state, instances, instanceDefaults, onChange, onStart, mod
       </div> : <p className="text-muted-foreground">Connect a Kiln in the setup steps to choose a workspace.</p>}
       {target && workspace ? <div>
         <p className="mb-2 text-sm text-muted-foreground">Start in a project, or work directly in your workspace.</p>
-        <ProjectPicker key={`${target.id}:${workspace}`} instance={target} projects={[]} value={project || workspace} workspace={workspace}
+        <ProjectPicker key={`${target.id}:${workspace}`} instance={target} projects={[]} projectUsage={projectUsageByInstance?.[target.id]} value={project || workspace} workspace={workspace}
           onWorkspaceChange={(directory) => {
             setProject('');
             onChange({ instanceDefaults: { ...instanceDefaults, [target.id]: { ...instanceDefaults[target.id], workspaceDirectory: directory } } });

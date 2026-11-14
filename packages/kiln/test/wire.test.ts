@@ -206,7 +206,32 @@ describe("hearth wire", () => {
     for (let index = 0; index < 2; index += 1) {
       const list = await body(await api("/conversations"));
       expect(list.conversations.find((entry: any) => entry.id === conversation.id).updatedAt).toBe(at);
+      expect(list.conversations.find((entry: any) => entry.id === conversation.id).createdAt).toBeUndefined();
     }
+  });
+
+  test("project start time uses the first own human entry and never latest output", async () => {
+    const conversation = await body(await api("/conversations", { method: "POST", body: JSON.stringify({ cwd: home }) }));
+    const empty = (await body(await api("/conversations"))).conversations.find((entry: any) => entry.id === conversation.id);
+    expect(empty.createdAt).toBeUndefined();
+    const started = 1234567890000;
+    await stack.harness.commit(async (tx) => {
+      await tx.appendEntry(conversation.id, { kind: "pi.user", model: [{ role: "user", content: "hello", timestamp: started } as any] });
+      await tx.appendEntry(conversation.id, { kind: "hearth.thread-result", data: { at: started + 1000 } });
+    }, context);
+    for (let index = 0; index < 2; index += 1) {
+      const list = await body(await api("/conversations"));
+      const summary = list.conversations.find((entry: any) => entry.id === conversation.id);
+      expect(summary.createdAt).toBe(started);
+      expect(summary.updatedAt).toBe(started + 1000);
+    }
+    const fork = await body(await api("/conversations/" + conversation.id + "/fork", { method: "POST", body: "{}" }));
+    expect(fork.createdAt).toBeUndefined();
+    await stack.harness.commit(async (tx) => {
+      await tx.appendEntry(fork.id, { kind: "pi.user", model: [{ role: "user", content: "new fork direction", timestamp: started + 2000 } as any] });
+    }, context);
+    const forks = await body(await api("/conversations"));
+    expect(forks.conversations.find((entry: any) => entry.id === fork.id).createdAt).toBe(started + 2000);
   });
 
   test("health answers with the token and rejects without it", async () => {

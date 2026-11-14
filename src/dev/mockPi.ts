@@ -77,6 +77,7 @@ type MockQuestion = {
 };
 
 type MockConversation = {
+  createdAt?: number;
   id: number;
   cwd: string;
   title?: string;
@@ -1063,6 +1064,7 @@ const ledgerCostOf = (conversation: MockConversation): number => {
 const summaryOf = (conversation: MockConversation): Record<string, unknown> => ({
   id: conversation.id,
   cwd: conversation.cwd,
+  ...(conversation.createdAt !== undefined ? { createdAt: conversation.createdAt } : {}),
   model: conversation.model,
   thinkingLevel: conversation.thinkingLevel,
   ...(conversation.title ? { title: conversation.title } : {}),
@@ -1359,6 +1361,10 @@ const piRequest = async (
     if (!mockFolders[parent] || mockFolders[path] || !name || /[\\/]/.test(name)) return fail(400, 'Choose another folder name.');
     mockFolders[parent].push(name); mockFolders[path] = [];
     return ok({ path }, 201);
+  }
+  if (fixtureParam === 'project-picker' && endpointId === 'pi:tower') {
+    if (url.pathname === '/conversations' && method === 'GET') return ok({ conversations: [] });
+    if (url.pathname === '/directories' && method === 'GET') return ok({ workspace: '/srv', path: '/srv', directories: [] });
   }
   if (url.pathname === '/directories' && method === 'GET') {
     const path = url.searchParams.get('path') || '/workspace';
@@ -1941,6 +1947,43 @@ const mockFolders: Record<string, string[]> = {
       '/Users/alex/Work/Website': [], '/Users/alex/Work/Research': [],
     };
 
+// The search-first picker needs enough known locations to exercise independent lists and
+// duplicate names outside the suggested workspace. Keep this world opt-in for browser tests.
+if (fixtureParam === 'project-picker') {
+  const paths = ['/workspace/atlas', '/Volumes/Studio/atlas', '/Users/alex/Experiments/atlas',
+    '/workspace/garden', '/Users/alex/Documents/notes', '/workspace/sandbox',
+    '/Volumes/Studio/kinetic', '/Users/alex/Experiments/weather', '/workspace/harbor',
+    '/Users/alex/recipes', '/Volumes/Backup/atlas', '/workspace/beacon'];
+  conversations.splice(0);
+  paths.forEach((cwd, index) => {
+    // Frequent order is the reverse of Recent, so a shared sort cannot pass by accident.
+    for (let chat = 0; chat < Math.max(1, 3 - index); chat++) {
+      conversations.push(makeConversation({ cwd, title: 'Picker ' + (index + 1) + ' chat ' + (chat + 1),
+        createdAt: minutes((12 - index) * 60 + chat),
+        entries: [{ id: 1, kind: 'pi.user', model: [userMessage('Project history', minutes((12 - index) * 60 + chat))] }],
+      }));
+    }
+    let current = cwd;
+    while (current !== '/') {
+      const slash = current.lastIndexOf('/');
+      const parent = current.slice(0, slash) || '/';
+      const name = current.slice(slash + 1);
+      mockFolders[current] ??= [];
+      mockFolders[parent] ??= [];
+      if (!mockFolders[parent].includes(name)) mockFolders[parent].push(name);
+      current = parent;
+    }
+  });
+  conversations.push(makeConversation({ cwd: '/workspace/unknown-start', title: 'Old host known project',
+    entries: [{ id: 1, kind: 'pi.user', model: [userMessage('Updated now, but creation time unknown')] }],
+  }));
+  mockFolders['/workspace/unknown-start'] = [];
+  mockFolders['/workspace'].push('unknown-start');
+  conversations.push(makeConversation({ cwd: '/workspace/worker-only', kind: 'worker',
+    lead: { conversationId: conversations[0].id, host: 'local' }, createdAt: Date.now() }));
+  conversations.push(makeConversation({ cwd: '/workspace/hidden-only', archived: Date.now(), createdAt: Date.now() }));
+}
+
 // ---- Bridge ---------------------------------------------------------------------------
 
 /**
@@ -2054,6 +2097,7 @@ export const bridge: EmberBridge = {
   listInstances: async () => {
     if (firstRunFixture) return [];
     if (outageFixture) return [ENDPOINT, OUTAGE_ENDPOINT];
+    if (fixtureParam === 'project-picker' && new URLSearchParams(window.location.search).has('pickerHosts')) return [ENDPOINT, { ...ENDPOINT, id: 'pi:tower', label: 'Tower (mock)' }];
     // The onboarding fixture reports the mock as the *local* host, so the id has to match the
     // endpoint it is listed from; a mismatch reads as one working remote and no local host.
     return [onboardingFixture ? { ...ENDPOINT, id: 'pi:local', label: 'This computer' } : ENDPOINT];

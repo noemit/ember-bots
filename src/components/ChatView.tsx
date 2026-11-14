@@ -1,4 +1,5 @@
 import QuestionsShelf from './QuestionsShelf';
+import type { ProjectUsage } from '../lib/projectUsage';
 import type { ThreadQuestion } from '../lib/threadQuestions';
 import { threadShelfStatus } from '../lib/crew';
 import { ThreadLinkContext } from './threadLinkContext';
@@ -139,6 +140,7 @@ type Props = {
   newSessionInstanceId: string | null;
   workspaceDirectory?: string;
   recentDirectories?: string[];
+  projectUsage?: ProjectUsage[];
   onWorkspaceChange?: (instanceId: string, directory: string) => void;
   /** Prefill for a new-agent draft: last-used or default folder, model and YOLO on that instance. */
   newSessionPrefill: { directory: string | null; model: ModelPrefill | null; bypass: boolean } | null;
@@ -456,6 +458,7 @@ function ChatView({
   newSessionInstanceId,
   workspaceDirectory,
   recentDirectories,
+  projectUsage,
   onWorkspaceChange,
   newSessionPrefill,
   instances,
@@ -2067,6 +2070,8 @@ function ChatView({
                     instance={draftInstance}
                     workspace={workspaceDirectory}
                     recentDirectories={recentDirectories}
+                    projectUsage={projectUsage}
+                    onAfterSelect={() => textareaRef.current?.focus()}
                     onWorkspaceChange={(directory) => {
                       onWorkspaceChange?.(draftInstance.id, directory);
                       draftTouchedRef.current.directory = true;

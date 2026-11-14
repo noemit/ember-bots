@@ -72,6 +72,7 @@ export type PiConversationSummary = {
   archived?: number;
   lastEntryId?: number;
   updatedAt?: number;
+  createdAt?: number;
   /** USD this conversation has spent (Hearth sums its own `pi.usage` ledger). */
   cost?: number;
   /** True while the conversation has a run in flight. */
@@ -115,6 +116,7 @@ export const piConversationToSession = (
   title: conversation.title,
   directory: conversation.cwd,
   updated: conversation.updatedAt ?? fallbackAt,
+  createdAt: conversation.createdAt,
   archived: conversation.archived,
   cost: conversation.cost,
   model: conversation.model

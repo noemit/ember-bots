@@ -1,5 +1,6 @@
 import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
 import { isAsyncQuestion, questionsForSupervisor } from './lib/asyncQuestions';
+import { projectUsageForHost } from './lib/projectUsage';
 import { questionKey, questionsFromThreads } from './lib/threadQuestions';
 import { sessionVisibilityFailure } from './lib/sessionVisibility';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
@@ -5018,6 +5019,15 @@ export default function App() {
 
   const modelInstanceId = selected?.instanceId ?? newSessionInstanceId;
   const selectedModels = modelInstanceId ? modelsByInstance[modelInstanceId] : undefined;
+  const projectUsageByInstance = React.useMemo(() => {
+    const now = Date.now();
+    return Object.fromEntries(Object.entries(sessionsByInstance).map(([id, list]) => {
+      const scheduled = new Set(Object.entries(settings.scheduledSessionBindings)
+        .filter(([key]) => key.startsWith(id + '::')).map(([key]) => key.slice(id.length + 2)));
+      return [id, projectUsageForHost(list, id, now, scheduled)];
+    }));
+  }, [sessionsByInstance, settings.scheduledSessionBindings]);
+
   const modelInstanceSessions = modelInstanceId ? sessionsByInstance[modelInstanceId] : undefined;
   const recentModels = React.useMemo(
     () => recentModelKeys(modelInstanceSessions ?? []),
@@ -5605,6 +5615,7 @@ export default function App() {
                   newSessionInstanceId={newSessionInstanceId}
                   newSessionPrefill={newSessionPrefill}
                   recentDirectories={recentProjectDirectories(sessionsByInstance[newSessionInstanceId ?? ''] ?? [])}
+                  projectUsage={projectUsageByInstance[newSessionInstanceId ?? '']}
                   workspaceDirectory={newSessionInstanceId ? settings.instanceDefaults[newSessionInstanceId]?.workspaceDirectory : undefined}
                   onWorkspaceChange={(id, directory) => handleSettings({ instanceDefaults: { ...settings.instanceDefaults, [id]: { ...settings.instanceDefaults[id], workspaceDirectory: directory } } })}
                   instances={instances}
@@ -5793,6 +5804,7 @@ export default function App() {
                 projectsByInstance={projectsByInstance}
                 modelsByInstance={modelsByInstance}
                 recentModelsByInstance={recentModelsByInstance}
+                projectUsageByInstance={projectUsageByInstance}
                 onChange={handleSettings}
                 onOpenChange={setSettingsOpen}
                 onViewChange={(next) => {
@@ -5815,6 +5827,7 @@ export default function App() {
                 open={onboardingOpen}
                 startAtWelcome={Boolean(settings.onboardingStartedAt)}
                 state={onboardingState}
+                projectUsageByInstance={projectUsageByInstance}
                 models={modelsByInstance[onboardingState.targetInstanceId ?? ""]?.models ?? []}
                 onRefreshModels={(id) => void refreshModels(id)}
                 localProblem={onboardingProblem}

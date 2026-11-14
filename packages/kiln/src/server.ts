@@ -372,6 +372,8 @@ type ConversationSummary = {
   lastEntryId?: EntryId;
   /** Epoch ms of the newest activity: the newest entry's own timestamp when it has one. */
   updatedAt?: number;
+  /** First own committed human entry, not inherited fork history or latest output. */
+  createdAt?: number;
   /** True while the conversation has a run in flight. */
   busy?: boolean;
   /** USD this conversation has spent, summed from its own usage ledger; 0 when it has never run. */
@@ -464,9 +466,10 @@ const costOfUsage = (usage: UsageState | undefined): number => {
 const summaryOf = async (
   harness: Harness,
   record: ConversationRecord,
+  storage: Storage,
   leftovers?: readonly LeftProcess[]
 ): Promise<ConversationSummary> => {
-  const [meta, agent, newest, live, auto, approvals, questions, usage, currentContext, inbox] = await Promise.all([
+  const [meta, agent, newest, live, auto, approvals, questions, usage, currentContext, inbox, oldest] = await Promise.all([
     harness.snapshot(MetaDoc, record.id, context),
     harness.snapshot(AgentDoc, record.id, context),
     harness.conversation(record.id, context).then((conversation) =>
@@ -479,6 +482,13 @@ const summaryOf = async (
     harness.snapshot(UsageDoc, record.id, context),
     harness.snapshot(CurrentContextDoc, record.id, context),
     harness.snapshot(InboxDoc, record.id, context),
+    // One bounded OWN-entry read: inherited fork history must not count as a new start.
+    // Polls/background replies can update newest, but never this first human-use evidence.
+    storage.conversation(record.id, context).then((own) => storage.scanEntries({
+      conversationId: record.id,
+      order: "ascending",
+      ...(own?.parent ? { minEntryId: (Number(own.parent.at) + 1) as EntryId } : {}),
+    }, 1, undefined, context)),
   ]);
   const processes = processesField(leftovers);
   return {
@@ -498,6 +508,7 @@ const summaryOf = async (
     needsInput: approvals.length > 0 || questions.length > 0,
     lastEntryId: newest?.items[0]?.id,
     updatedAt: newest?.items[0] ? entryTimestamp(newest.items[0]) : undefined,
+    ...(oldest.items[0]?.kind === "pi.user" ? { createdAt: entryTimestamp(oldest.items[0]) } : {}),
     busy: Boolean(live?.run),
     cost: costOfUsage(usage),
     // A crash may have stored an entry but not its asynchronously derived snapshot. Never expose
@@ -1623,7 +1634,7 @@ const server = Bun.serve<{
           if (summaries.has(entry.conversationId)) continue;
           const id = entry.conversationId as ConversationId;
           if (!(await harness.conversation(id, context))) continue;
-          summaries.set(entry.conversationId, await summaryOf(harness, { id }));
+          summaries.set(entry.conversationId, await summaryOf(harness, { id }, storage));
         }
         const stale = staleAgentNames(entries, summaries);
         if (stale.length > 0) {
@@ -1884,7 +1895,7 @@ const server = Bun.serve<{
           // and every summary picks its own conversation out of it.
           const leftovers = scan().byConversation;
           const summaries = await Promise.all(
-            records.map((record) => summaryOf(harness, record, leftovers.get(record.id as number)))
+            records.map((record) => summaryOf(harness, record, storage, leftovers.get(record.id as number)))
           );
           summaries.sort(byLastEntry);
           // `host` is the whole machine's memory, not a conversation's: it is what turns a session's
@@ -1909,7 +1920,7 @@ const server = Bun.serve<{
             if (title) doc.title = title;
             doc.delegates = delegates;
           }, context);
-          return json(await summaryOf(harness, { id: conversation.id }), 201);
+          return json(await summaryOf(harness, { id: conversation.id }, storage), 201);
         }
         return noRoute(request.method, path, routeMethods(path));
       }
@@ -1980,7 +1991,7 @@ const server = Bun.serve<{
             // running workers first. Peers are never cascaded.
             await archiveCrew(harness, conversationId, archived, title, context);
           }
-          return json(await summaryOf(harness, { id: conversationId }));
+          return json(await summaryOf(harness, { id: conversationId }, storage));
         }
 
         if (action === "processes" && request.method === "GET") {
@@ -2352,7 +2363,7 @@ const server = Bun.serve<{
             }
           }
           const fork = await conversation.fork(boundary, { ownership: { kind: "ownerless" } }, context);
-          return json(await summaryOf(harness, { id: fork.id }), 201);
+          return json(await summaryOf(harness, { id: fork.id }, storage), 201);
         }
 
         // Side question ("btw …"): fork the conversation (or start an empty child when the leader
@@ -2437,7 +2448,7 @@ const server = Bun.serve<{
               context
             );
           }
-          return json(await summaryOf(harness, { id: spawned.id }), 201);
+          return json(await summaryOf(harness, { id: spawned.id }, storage), 201);
         }
 
         // Human promotion: a worker becomes a named peer by forking it ownerless. Ownership is
@@ -2506,7 +2517,7 @@ const server = Bun.serve<{
             throw error;
           }
           writeAgentsMirror(config.home, await harness.snapshot(AgentsDoc, context));
-          return json(await summaryOf(harness, { id: forkId }), 201);
+          return json(await summaryOf(harness, { id: forkId }, storage), 201);
         }
 
         if (action === "reset" && request.method === "POST") {

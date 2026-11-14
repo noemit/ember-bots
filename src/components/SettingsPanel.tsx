@@ -1,3 +1,4 @@
+import type { ProjectUsage } from '../lib/projectUsage';
 import { AVATAR_SIZES, avatarPixels } from '../blob/size';
 import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from '../lib/instanceDefaultModel';
 import * as React from 'react';
@@ -62,6 +63,7 @@ type Props = {
   settings: EmberSettings;
   instances: Instance[];
   projectsByInstance: Record<string, Project[]>;
+  projectUsageByInstance?: Record<string, ProjectUsage[]>;
   modelsByInstance: Record<string, ModelList>;
   recentModelsByInstance: Record<string, string[]>;
   onChange: (patch: EmberSettingsPatch) => void;
@@ -139,11 +141,12 @@ const BLOB_STYLES = ACTIVE_BLOB_STYLES.map(id => ({ id, ...BLOB_STYLE_COPY[id] }
 const InstanceDefaultsSettings = ({
   instances,
   projectsByInstance,
+  projectUsageByInstance,
   modelsByInstance,
   recentModelsByInstance,
   settings,
   onChange,
-}: Pick<Props, 'instances' | 'projectsByInstance' | 'modelsByInstance' | 'recentModelsByInstance' | 'settings' | 'onChange'>) => {
+}: Pick<Props, 'instances' | 'projectsByInstance' | 'projectUsageByInstance' | 'modelsByInstance' | 'recentModelsByInstance' | 'settings' | 'onChange'>) => {
   const [editing, setEditing] = React.useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
 
@@ -376,11 +379,11 @@ const InstanceDefaultsSettings = ({
               {editingInstance ? <section className="flex flex-col gap-2">
                 <span className="text-xs font-medium">Workspace</span>
                 <span className="text-[11px] text-muted-foreground">The folder where your projects or work already live.</span>
-                <ProjectPicker instance={editingInstance} projects={projectsByInstance[editing] ?? []} workspaceOnly
+                <ProjectPicker instance={editingInstance} projects={projectsByInstance[editing] ?? []} projectUsage={projectUsageByInstance?.[editing]} workspaceOnly
                   workspace={editingDefaults.workspaceDirectory} value={editingDefaults.workspaceDirectory ?? ''}
                   onWorkspaceChange={(workspaceDirectory) => update(editing, { workspaceDirectory })} onSelect={() => {}} />
                 <span className="text-xs font-medium">Default project</span>
-                <ProjectPicker instance={editingInstance} projects={projectsByInstance[editing] ?? []}
+                <ProjectPicker instance={editingInstance} projects={projectsByInstance[editing] ?? []} projectUsage={projectUsageByInstance?.[editing]}
                   workspace={editingDefaults.workspaceDirectory} value={editingDefaults.directory ?? ''}
                   onWorkspaceChange={(workspaceDirectory) => update(editing, { workspaceDirectory })}
                   onSelect={(directory) => update(editing, { directory })} />
@@ -492,6 +495,7 @@ export default function SettingsPanel({
   settings,
   instances,
   projectsByInstance,
+  projectUsageByInstance,
   modelsByInstance,
   recentModelsByInstance,
   onChange,
@@ -897,6 +901,7 @@ export default function SettingsPanel({
                   <InstanceDefaultsSettings
                     instances={instances}
                     projectsByInstance={projectsByInstance}
+                    projectUsageByInstance={projectUsageByInstance}
                     modelsByInstance={modelsByInstance}
                     recentModelsByInstance={recentModelsByInstance}
                     settings={settings}
