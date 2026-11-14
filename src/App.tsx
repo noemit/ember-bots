@@ -5761,7 +5761,12 @@ export default function App() {
           {promoteTarget ? (
             <PromoteWorkerDialog
               worker={promoteTarget}
-              busy={(states[sessionKey(promoteTarget)] ?? 'unknown') === 'active'}
+              busy={
+                // Use Kiln's run state: a descendant's question can overlay a running
+                // worker's display mood with `needs-input` without ending its turn.
+                statesAnswered.has(promoteTarget.instanceId) &&
+                statesByInstance[promoteTarget.instanceId]?.[sessionKey(promoteTarget)] === 'active'
+              }
               onCancel={() => setPromoteTarget(null)}
               onConfirm={(input) => {
                 const worker = promoteTarget;

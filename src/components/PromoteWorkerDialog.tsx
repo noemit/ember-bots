@@ -58,7 +58,6 @@ export default function PromoteWorkerDialog({
             <DialogDescription>
               “{workerTitle}” becomes its own bot that others can message by name and that keeps
               running whether or not its parent does.
-              {busy ? ' This thread is still working — wait for it to finish, or stop it first.' : ''}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
@@ -100,11 +99,22 @@ export default function PromoteWorkerDialog({
           <p className="text-xs text-muted-foreground">
             This thread stays in its parent’s crew as history; the persistent bot is a new session in the rail.
           </p>
+          {busy ? (
+            <p id="promotion-blocked-reason" role="status" className="rounded-md bg-muted p-3 text-sm">
+              This thread is still working — wait for it to finish, or stop it first.
+              Kiln copies saved history into a new bot; it cannot transfer a running turn.
+              Choose Back to thread to wait or use its Stop button, then reopen Promote.
+            </p>
+          ) : !trimmedName ? (
+            <p id="promotion-blocked-reason" role="status" className="text-sm text-muted-foreground">
+              Enter a name above so other bots can find this bot.
+            </p>
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="secondary" onClick={onCancel}>
-              Cancel
+              {busy ? 'Back to thread' : 'Cancel'}
             </Button>
-            <Button type="submit" disabled={busy || !trimmedName}>
+            <Button type="submit" disabled={busy || !trimmedName} aria-describedby={busy || !trimmedName ? 'promotion-blocked-reason' : undefined}>
               Make persistent
             </Button>
           </DialogFooter>

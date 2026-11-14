@@ -31,6 +31,12 @@ describe('promote-to-a-persistent-bot copy', () => {
     expect(dialog).toContain('message by name');
     expect(dialog).toContain('Make persistent');
     expect(dialog).toMatch(/still working — wait for it to finish, or stop it first/);
+    // The block sits beside the disabled action, not buried in introductory copy.
+    expect(dialog).toContain('role="status"');
+    expect(dialog).toMatch(/Kiln[^;]*; it cannot transfer a running turn/);
+    expect(dialog).toMatch(/Back to thread.*Stop button/);
+    expect(dialog).toContain('aria-describedby=');
+    expect(dialog).toMatch(/Enter a name above/);
     expect(dialog).not.toContain('Promote worker to peer');
   });
 
