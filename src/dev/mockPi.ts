@@ -92,6 +92,7 @@ type MockConversation = {
   creatorId?: number;
   /** Set on a worker once a human promoted it; the peer fork's conversation id. */
   promotedTo?: number;
+  task?: import('../types').WorkerTask;
   /** Whether the conversation offers the delegation tool + leader section. */
   delegates?: boolean;
   entries: MockEntry[];
@@ -648,6 +649,31 @@ if (fixtureParam === 'two-level-crew' || fixtureParam === 'flat-crew') {
   conversations.push(sibling);
 }
 
+// Explicit lifecycle study: replies and idle workers are deliberately not completion.
+if (fixtureParam === 'task-lifecycle') {
+  fixtureH.task = { id: '17:1', title: 'Parse config outcome', status: 'working' };
+  fixtureI.task = { id: '18:1', title: 'Migrate schema outcome', status: 'blocked' };
+  for (const [id, status, title] of [
+    [90, 'done', 'Publish migration guide'],
+    [91, 'waiting', 'Check final reply without completion'],
+    [92, 'stopped', 'Stopped audit'],
+    [93, 'blocked', 'Dependency audit'],
+    [95, 'failed', 'Failed audit'],
+  ] as const) {
+    const task: NonNullable<MockConversation['task']> = { id: String(id) + ':1', title, status };
+    if (status === 'done') task.completion = {
+      task: task.id, requestId: 'complete-guide', at: Date.now(),
+      summary: 'Migration guide is ready.', evidence: 'docs/migration.md', remaining: 'Manual review remains.',
+    };
+    conversations.push(makeConversation({
+      id, title: 'Renamed source chat ' + id, task, cwd: '/workspace/hearth', kind: 'worker',
+      lead: { conversationId: 16, host: 'local' },
+      entries: [{ id: id * 10, kind: 'pi.assistant', model: [assistantMessage(text('Final reply exists; this alone does not finish the assigned purpose.'), 'stop', minutes(2))] }],
+    }));
+  }
+  conversations.push(makeConversation({ id: 94, title: 'Legacy finished chat', cwd: '/workspace/hearth', kind: 'worker', lead: { conversationId: 16, host: 'local' } }));
+}
+
 // A worker a human already promoted (`?promoted`): the strip row links to the peer fork and the
 // peer shows in the rail, while the worker itself stays hidden.
 const fixturePromotedWorker = makeConversation({
@@ -720,6 +746,7 @@ const FIXTURE_IDS = Math.max(0, ...conversations.map((conversation) => conversat
 const eventListeners = new Set<(event: unknown) => void>();
 type PiEventType =
   | 'run_start'
+  | 'view'
   | 'run_end'
   | 'message_start'
   | 'message_update'
@@ -1063,6 +1090,7 @@ const ledgerCostOf = (conversation: MockConversation): number => {
 
 const summaryOf = (conversation: MockConversation): Record<string, unknown> => ({
   id: conversation.id,
+  task: conversation.task,
   cwd: conversation.cwd,
   ...(conversation.createdAt !== undefined ? { createdAt: conversation.createdAt } : {}),
   model: conversation.model,
@@ -2195,6 +2223,13 @@ export const mockInternals = {
   conversations,
   processStopCalls,
   contextCompactionCalls,
+  /** Assignment-only updates exercise summary freshness without a reply or a run_end. */
+  setTask(id: number, task: MockConversation['task']) {
+    const conversation = conversations.find((entry) => entry.id === id);
+    if (!conversation) throw new Error('Unknown fixture conversation');
+    conversation.task = task;
+    emit(id, 'view');
+  },
   /** Deterministic current-context snapshots and invalidation; never runs a model. */
   setCurrentContext(id: number, tokens: number, epoch = 'initial', busy = false) {
     const conversation = conversations.find((entry) => entry.id === id);

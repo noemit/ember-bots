@@ -89,7 +89,7 @@ describe('the crew strip is a flat readable list', () => {
     expect(html).not.toContain('data-slot="card"');
     // It is still one named group, so the strip keeps a boundary a screen reader can announce.
     expect(html).toContain('role="group"');
-    expect(html).toContain('aria-label="Crew"');
+    expect(html).toMatch(/role="group"[^>]+aria-label="[^"]*[Tt]asks[^"]*"/);
   });
 
   test('a large crew is bounded without losing nested questions, Previous or keyboard controls', () => {
@@ -103,7 +103,8 @@ describe('the crew strip is a flat readable list', () => {
     expect(bricks(html)).toBe(21);
     expect(html).toContain('max-h-48');
     expect(html).toContain('overflow-y-auto');
-    expect(html).toMatch(/<ul[^>]+tabindex="0"[^>]+aria-label="Thread conversations, grouped by lead"/);
+    // The scrollable list is keyboard reachable and names the task source chats it opens.
+    expect(html).toMatch(/<ul[^>]+tabindex="0"[^>]+aria-label="[^"]*[Tt]ask[^"]*(?:chats|conversations)[^"]*"/);
     expect(html).toContain('focus-visible:ring-inset');
     for (const session of many) {
       expect(html).toContain('aria-label="' + session.title + '"');
@@ -236,7 +237,7 @@ describe('neutral rows preserve the leader relationship without tinted cards', (
 
   test('the group still names its leader', () => {
     expect(render({ workers: [worker('a')], leaderTitle: 'Lead agent', stateFor: () => 'active' }))
-      .toContain('aria-label="Crew of Lead agent"');
+      .toMatch(/role="group"[^>]+aria-label="[^"]*[Tt]asks[^"]*Lead agent[^"]*"/);
   });
 });
 

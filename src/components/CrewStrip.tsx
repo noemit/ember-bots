@@ -9,7 +9,8 @@ import { moodFrom } from '../blob/mood';
 import { seedIdentity } from '../blob/seed';
 import { sessionKey } from '../types';
 import {
-  brickStatusSignal,
+  taskStatusSignal,
+  taskIsDone,
   workerStateLabel,
   type ThreadRow,
   type CrewBrickTone,
@@ -94,8 +95,8 @@ const WorkerBrick = React.memo(function WorkerBrick({
   identityFor?: (session: Session) => AvatarIdentity | undefined;
 }) {
   // A promoted brick is a link to the peer fork; without the peer loaded it still opens the worker.
-  const promoted = worker.promotedTo !== undefined;
-  const linkTarget = peer ?? worker;
+  const promoted = worker.promotedTo !== undefined && !worker.task;
+  const linkTarget = worker.task ? worker : peer ?? worker;
   // Only promoted bots draw an avatar. Resolve the same identity their workspace uses;
   // the thread chip's inherited leader tint must not recolour that bot.
   const identity = React.useMemo(
@@ -106,13 +107,13 @@ const WorkerBrick = React.memo(function WorkerBrick({
     () => moodFrom(state, worker.needsInput ? 'question' : undefined, false),
     [state, worker.needsInput]
   );
-  const title = worker.title?.trim() || `Worker ${worker.id}`;
-  const signal = brickStatusSignal(status);
+  const title = worker.task?.title.trim() || worker.title?.trim() || `Worker ${worker.id}`;
+  const signal = taskStatusSignal(worker, state);
   // The brick's accessible name stays the worker's title — that is what a human, an agent and a test
   // look a worker up by — and the status rides along as its *description*, so a screen reader still
   // announces "Parse config, working" without the name growing a word per row.
   const statusId = React.useId();
-  const hint = promoted ? ('Open the persistent bot for ' + title) : ('Open ' + title);
+  const hint = worker.task ? ('Open source chat for ' + title) : promoted ? ('Open the persistent bot for ' + title) : ('Open ' + title);
   return (
     <motion.li
       layout="position"
@@ -121,7 +122,8 @@ const WorkerBrick = React.memo(function WorkerBrick({
       exit={{ opacity: 0, scale: 0.96 }}
       transition={springTransition}
       data-crew-brick=""
-      data-worker-status={status}
+      data-worker-status={worker.task?.status ?? status}
+      data-task-id={worker.task?.id}
       data-thread-depth={depth}
       data-thread-group={groupTitle}
       aria-level={depth}
@@ -152,6 +154,14 @@ const WorkerBrick = React.memo(function WorkerBrick({
               {signal.word}
             </span>
           </span>
+          {taskIsDone(worker) && worker.task?.completion ? (
+            <span className="mt-1 block space-y-0.5 text-[11px] text-muted-foreground">
+              <span className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{worker.task.completion.summary}</span>
+              <span className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">Evidence: {worker.task.completion.evidence}</span>
+              <span className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">Remaining: {worker.task.completion.remaining}</span>
+            </span>
+          ) : null}
+          {worker.task ? <span className="mt-0.5 block text-[10.5px] text-muted-foreground">Open source chat</span> : null}
         </span>
       </button>
       {promoted ? (
@@ -227,22 +237,25 @@ const CrewStrip = React.memo(function CrewStrip({
   leaderTitle,
 }: Props) {
   const [previousOpen, setPreviousOpen] = React.useState(false);
+  const [doneOpen, setDoneOpen] = React.useState(false);
+  const doneId = React.useId();
   if (rows.length === 0) return null;
 
   const groupLive = new Set<string>();
   for (const row of rows) {
     const state = stateFor?.(row.worker) ?? (row.worker.needsInput ? 'needs-input' : 'unknown');
     const status = workerStateLabel(row.worker, { state });
-    if ((status !== 'idle' && status !== 'reported') || row.worker.promotedTo) {
+    if (row.worker.task || (status !== 'idle' && status !== 'reported') || row.worker.promotedTo) {
       groupLive.add(sessionKey(row.group));
     }
   }
-  const visible = rows.filter((row) => groupLive.has(sessionKey(row.group)));
-  const previous = rows.filter((row) => !groupLive.has(sessionKey(row.group)));
+  const done = rows.filter((row) => taskIsDone(row.worker));
+  const visible = rows.filter((row) => !taskIsDone(row.worker) && (row.worker.task || groupLive.has(sessionKey(row.group))));
+  const previous = rows.filter((row) => !row.worker.task && !groupLive.has(sessionKey(row.group)));
   const brick = ({ worker, depth, group }: ThreadRow) => {
     const state = stateFor?.(worker) ?? (worker.needsInput ? 'needs-input' : 'unknown');
     return <WorkerBrick
-      key={sessionKey(worker)}
+      key={sessionKey(worker) + (worker.task?.id ?? '')}
       worker={worker}
       depth={depth}
       groupTitle={group.title?.trim() || `Worker ${group.id}`}
@@ -257,10 +270,22 @@ const CrewStrip = React.memo(function CrewStrip({
     />;
   };
   return (
-    <div role="group" aria-label={leaderTitle ? `Crew of ${leaderTitle}` : 'Crew'} className="group/strip @container min-w-0">
-      <ul tabIndex={0} aria-label="Thread conversations, grouped by lead"
+    <div role="group" aria-label={leaderTitle ? `Tasks for ${leaderTitle}` : 'Tasks'} className="group/strip @container min-w-0">
+      <ul tabIndex={0} aria-label="Task source chats, grouped by lead"
         className="flex max-h-48 min-w-0 list-none flex-col divide-y divide-border/50 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
         <AnimatePresence initial={false} mode="popLayout">{visible.map(brick)}</AnimatePresence>
+        {done.length > 0 ? (
+          <li className="min-w-0">
+            <button type="button" onClick={() => setDoneOpen((open) => !open)} aria-expanded={doneOpen} aria-controls={doneId}
+              className="inline-flex items-center px-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Done {done.length}
+            </button>
+            <div id={doneId} hidden={!doneOpen} role="group" aria-label="Done tasks">
+              <p className="px-1.5 pb-1 text-[10.5px] text-muted-foreground">Workers reported these tasks complete. Completion is not coordinator verification.</p>
+              <ul className="list-none divide-y divide-border/50">{doneOpen ? done.map(brick) : null}</ul>
+            </div>
+          </li>
+        ) : null}
         {previous.length > 0 ? (
           <li className="min-w-0">
             <button type="button" onClick={() => setPreviousOpen((open) => !open)} aria-expanded={previousOpen}

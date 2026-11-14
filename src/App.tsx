@@ -1760,7 +1760,7 @@ export default function App() {
   const openSession = React.useCallback((ref: SessionRef, known?: Session | null) => {
     const session = known ?? (sessionsByInstanceRef.current[ref.instanceId] ?? []).find((entry) => entry.id === ref.sessionId);
     if (session && isWorker(session)) {
-      if (!session.promotedTo) {
+      if (!session.promotedTo || session.task) {
         if (!threadModalKeyRef.current && document.activeElement instanceof HTMLElement) {
           threadReturnFocus.current = { element: document.activeElement, workspaceKey: activeKeyRef.current };
         }
@@ -5109,7 +5109,7 @@ export default function App() {
 
   const inspectedThread = threadModalKey ? sessionByKey.get(threadModalKey) : undefined;
   React.useEffect(() => {
-    if (!inspectedThread?.promotedTo) return;
+    if (!inspectedThread?.promotedTo || inspectedThread.task) return;
     openSession({ instanceId: inspectedThread.instanceId, sessionId: inspectedThread.promotedTo });
   }, [inspectedThread, openSession]);
 

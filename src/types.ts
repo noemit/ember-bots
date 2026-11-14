@@ -127,6 +127,14 @@ export type HostMemory = {
   level: 'normal' | 'low' | 'critical';
 };
 
+/** Explicit assigned purpose, separate from a conversation turn or result retrieval. */
+export type WorkerTask = {
+  id: string;
+  title: string;
+  status: 'working' | 'waiting' | 'blocked' | 'done' | 'stopped' | 'failed';
+  completion?: { summary: string; evidence: string; remaining: string; task: string; requestId: string; at: number };
+};
+
 export type Session = {
   id: string;
   instanceId: string;
@@ -160,6 +168,8 @@ export type Session = {
    * `id`), living on the same `instanceId`. The strip renders such a row as a peer link.
    */
   promotedTo?: string;
+  /** Host-owned lifecycle; absent on legacy workers. */
+  task?: WorkerTask;
   /** Server-computed: the conversation has a pending approval or question. */
   needsInput?: boolean;
   /** Whether this session offers the delegation tool (can lead a crew). */

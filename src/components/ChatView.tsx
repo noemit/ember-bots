@@ -2199,12 +2199,14 @@ function ChatView({
                     ? [
                         {
                           id: 'crew' as const,
-                          label: 'Threads',
+                          label: 'Tasks',
                           summary: threadStatus.summary,
                           summaryLabel: threadStatus.detail,
                           count: threadStatus.total,
                           alert: crewNeedsInput,
                           content: (
+                            <>
+                            <span className="sr-only" role="status">{threadStatus.detail}</span>
                             <CrewStrip
                               rows={threadRows}
                               onOpenWorker={onOpenWorker}
@@ -2221,6 +2223,7 @@ function ChatView({
                               leaderIdentity={identity}
                               leaderTitle={session.title?.trim() || undefined}
                             />
+                            </>
                           ),
                         },
                       ]

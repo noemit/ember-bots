@@ -221,12 +221,13 @@ const PI_RESOURCES: Record<string, ResourceHint[]> = {
   // see it and the column keeps showing the entries compaction removed. Only a full read can.
   'pi:compaction_start': [{ resource: 'sessions' }],
   'pi:compaction_end': [{ resource: 'sessions' }, { resource: 'messages', messageMode: 'full' }],
-  'pi:tasks': [{ resource: 'states' }],
+  // Assignment completion/reopening changes summary metadata without requiring a new reply.
+  'pi:tasks': [{ resource: 'states' }, { resource: 'sessions' }],
   // The stream (re)attached, or an overflow replaced what it could not deliver: the client may have
   // missed commits, so one bounded tail read makes the column agree with the host. Background
   // sessions get a summary refresh instead (see `invalidationsFor`), which is what keeps 200 watched
   // conversations from each paying a transcript read on every reconnect.
-  'pi:view': [{ resource: 'states' }, { resource: 'messages', messageMode: 'tail' }],
+  'pi:view': [{ resource: 'states' }, { resource: 'sessions' }, { resource: 'messages', messageMode: 'tail' }],
 };
 
 /**

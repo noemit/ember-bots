@@ -98,6 +98,8 @@ export type PiConversationSummary = {
   creatorId?: number;
   /** Set on a worker once a human promoted it; the peer conversation's id (the fork). */
   promotedTo?: number;
+  /** Present only for workers with an explicit assigned-task lifecycle. */
+  task?: Session['task'];
   /** Hearth-computed: a pending approval or question exists (so the strip needs no extra reads). */
   needsInput?: boolean;
   /** Whether the conversation offers the `session` tool + leader section. */
@@ -137,6 +139,7 @@ export const piConversationToSession = (
     : undefined,
   // Set once a human promotes the worker; the peer conversation id, stringified like `id`.
   promotedTo: conversation.promotedTo !== undefined ? String(conversation.promotedTo) : undefined,
+  task: conversation.task,
   needsInput: conversation.needsInput === true,
   delegates: conversation.delegates === true,
   currentContextTokens:
