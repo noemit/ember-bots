@@ -53,11 +53,15 @@ describe('image send reconciliation', () => {
     expect(outgoingMessageSignature(imageOnlyA)).not.toBeNull();
   });
 
-  test('MIME sniffing changes the signature to Kiln’s decoded image type', () => {
-    // The gateway corrects a misleading caller MIME using the bytes it actually decoded.
-    const sent = optimistic('mime', 'inspect', [localFile('upload.jpg', 'iVBORw0KGgo=', 'image/jpeg')]);
-    const [echo] = piEntriesToMessages([piUser(9, 'inspect', [{ data: 'iVBORw0KGgo=', mimeType: 'image/png' }])]);
+  test('an unsupported payload keeps the supplied MIME while valid sniffed image formats replace it', () => {
+    const sent = optimistic('mime', 'inspect', [localFile('upload.jpg', 'AQ==', 'image/jpeg')]);
+    const [echo] = piEntriesToMessages([piUser(9, 'inspect', [{ data: 'AQ==', mimeType: 'image/png' }])]);
     expect(outgoingMessageSignature(sent)).not.toBe(outgoingMessageSignature(echo));
+
+    const pngBytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+    const mislabeled = optimistic('valid-mime', 'inspect', [localFile('upload.jpg', pngBytes, 'image/jpeg')]);
+    const [sniffed] = piEntriesToMessages([piUser(10, 'inspect', [{ data: pngBytes, mimeType: 'image/png' }])]);
+    expect(outgoingMessageSignature(mislabeled)).toBe(outgoingMessageSignature(sniffed));
   });
 
   test('multiple images are ordered, exact payloads matter, repeated sends pair one-for-one', () => {

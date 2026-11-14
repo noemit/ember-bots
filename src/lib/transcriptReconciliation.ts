@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolCall } from '../types';
 import { messageSignature } from './messageSignature';
-import { sameRenderedContent } from './piMapping';
+import { detectImageMimeType } from '../../packages/kiln/src/view';
+import { imageContentDigest, sameRenderedContent } from './piMapping';
 
 export type TranscriptReconciliation = {
   messages: ChatMessage[];
@@ -51,23 +52,20 @@ const toolPartsEqual = (a: ChatMessage, b: ChatMessage): boolean => {
 export const equalMessage = (a: ChatMessage, b: ChatMessage): boolean =>
   a === b || (messageSignature(a) === messageSignature(b) && toolPartsEqual(a, b));
 
+/** Prefer Kiln's sniffed format for valid images, matching MIME correction on submission. */
+const fileIdentityMime = (mime: string, url: string): string => {
+  const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url);
+  if (!match || match[1] !== mime || !match[2]) return mime;
+  return detectImageMimeType(Buffer.from(match[2], 'base64')) ?? mime;
+};
+
 /** Digest a data URL on demand for older optimistic records without a cached digest. */
 const digestDataUrl = (mime: string, url: string): string | undefined => {
   const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url);
   if (!match || match[1] !== mime || !match[2]) return undefined;
   // Match Kiln's Buffer.from(data, 'base64') normalization: padding bits and other tolerated
   // non-canonical encodings do not create different identities for the same decoded bytes.
-  const bytes = Buffer.from(match[2], 'base64');
-  let first = 0x811c9dc5;
-  let second = 0x9e3779b9;
-  const prefix = `${mime}:${bytes.byteLength}:`;
-  const feed = (code: number) => {
-    first = Math.imul(first ^ code, 0x01000193);
-    second = Math.imul(second ^ code, 0x85ebca6b);
-  };
-  for (let index = 0; index < prefix.length; index += 1) feed(prefix.charCodeAt(index));
-  for (const byte of bytes) feed(byte);
-  return (first >>> 0).toString(16).padStart(8, '0') + (second >>> 0).toString(16).padStart(8, '0');
+  return imageContentDigest(mime, match[2]);
 };
 
 /**
@@ -84,7 +82,7 @@ export const outgoingMessageSignature = (message: ChatMessage): string | null =>
       const digest = part.file.contentDigest ?? digestDataUrl(part.file.mime, part.file.url);
       // Legacy OpenChamber records and non-data file references keep filename semantics. Do not
       // claim equivalence from MIME/count alone when there is no verifiable payload identity.
-      return digest ? [part.file.mime, digest] : [part.file.mime, part.file.filename];
+      return digest ? [fileIdentityMime(part.file.mime, part.file.url), digest] : [part.file.mime, part.file.filename];
     });
   return JSON.stringify([message.text, files]);
 };
