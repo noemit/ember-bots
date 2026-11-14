@@ -39,13 +39,17 @@ try {
   $settingsHash = (Get-FileHash $settings -Algorithm SHA256).Hash
   if ($state.pid -and (Get-Process -Id $state.pid -ErrorAction SilentlyContinue)) { throw 'Owned Kiln is still running after installed app quit' }
   if ((Owned-InstallProcesses).Count -ne 0) { throw 'Installed application processes remained after quit' }
-  Wait-BoundedProcess (Start-Process -FilePath $uninstall -ArgumentList '/S' -PassThru) 'NSIS uninstallation'
+  # NSIS _?= disables the normal temporary-copy/relaunch path, so this is the actual
+  # uninstalling process. NSIS requires _?= last and its path unquoted, including spaces.
+  # The original uninstaller may remain because it is running from the install directory;
+  # fixture cleanup below removes that residue only after this process has really exited.
+  Wait-BoundedProcess (Start-Process -FilePath $uninstall -ArgumentList ('/S _?=' + $install) -PassThru) 'NSIS uninstallation'
   $deadline = [DateTime]::UtcNow.AddSeconds(30)
   while ((Test-Path $exe) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
   if (Test-Path $exe) { throw 'NSIS uninstallation left Ember.exe installed' }
   if ((Owned-InstallProcesses).Count -ne 0) { throw 'Installed application processes remained after uninstall' }
   if (!(Test-Path $settings) -or (Get-FileHash $settings -Algorithm SHA256).Hash -ne $settingsHash) { throw 'Uninstallation changed or deleted retained synthetic user data' }
-  'PASS: native silent NSIS install, actual installed launch, isolated workspace persistence, app quit, owned Kiln stopped, silent uninstall, no installed processes, and unchanged synthetic user settings.' | Set-Content $report
+  'PASS: native silent NSIS install, actual installed launch, isolated workspace persistence, app quit, owned Kiln stopped, actual NSIS uninstaller completion (_?= mode), no installed processes, and unchanged synthetic EMBER_DATA_DIR settings. This does not test default-profile migration or retention.' | Set-Content $report
 } finally {
   Remove-Item Env:EMBER_PACKAGED_PROFILE_RECEIPT -ErrorAction SilentlyContinue
   # Process cleanup is restricted to executables inside this disposable install directory.
