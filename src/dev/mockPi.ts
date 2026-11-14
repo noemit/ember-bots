@@ -2135,7 +2135,7 @@ export const bridge: EmberBridge = {
   kilnSharing: async action => {
     if (action === 'enable') mockKilnShared = true;
     if (action === 'disable') mockKilnShared = false;
-    return { state: mockKilnShared ? 'ready' : 'off', enabled: mockKilnShared, message: mockKilnShared ? 'This computer’s mock Kiln is shared over the mock Tailscale connection.' : 'This computer’s Kiln is local only.' };
+    return { state: mockKilnShared ? 'ready' : 'off', enabled: mockKilnShared, canChange: true, ...(mockKilnShared ? { url: 'http://100.64.0.99:3003' } : {}), message: mockKilnShared ? 'This computer’s mock Kiln is shared over the mock Tailscale connection.' : 'This computer’s Kiln is local only.' };
   },
   kilnSharingDetails: async () => mockKilnShared ? { url: 'http://100.64.0.99:3003', token: 'synthetic-sharing-token' } : null,
   getSettings: async () => settings,

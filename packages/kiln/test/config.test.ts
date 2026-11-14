@@ -103,16 +103,18 @@ test('hearthVersion reads package.json', () => {
 });
 
 
-test('desktop bind overrides the standalone network default', () => {
+test('explicit bind overrides the fresh standalone loopback default', () => {
   const previous = process.env.HEARTH_BIND;
   const previousEmber = process.env.EMBER_BIND;
+  const home = mkdtempSync(join(tmpdir(), 'kiln-fresh-bind-'));
   try {
     delete process.env.HEARTH_BIND;
     delete process.env.EMBER_BIND;
-    expect(hearthConfig().bind).toBe('0.0.0.0');
+    expect(hearthConfig({ home }).bind).toBe('127.0.0.1');
     process.env.HEARTH_BIND = '127.0.0.1';
-    expect(hearthConfig().bind).toBe('127.0.0.1');
+    expect(hearthConfig({ home }).bind).toBe('127.0.0.1');
   } finally {
+    rmSync(home, { recursive: true, force: true });
     if (previous === undefined) delete process.env.HEARTH_BIND; else process.env.HEARTH_BIND = previous;
     if (previousEmber === undefined) delete process.env.EMBER_BIND; else process.env.EMBER_BIND = previousEmber;
   }

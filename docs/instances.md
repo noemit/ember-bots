@@ -10,6 +10,11 @@ when Ember quits. On macOS, closing a window does not quit the app. History stay
 Ember can connect to other Kilns without owning their lifetime. A standalone backend continues
 running when you quit Ember.
 
+## Add and share a Kiln
+
+Use **Settings → Instances → Add instance** to connect a local or remote Kiln by URL and bearer token.
+See [Kiln sharing](kiln-sharing.md) for conditional tailnet setup, Cloudflare Access and platform support.
+
 ## Ollama
 
 Open **Settings → Providers**, select the Kiln that should run the model, and find **Ollama**.
@@ -216,19 +221,21 @@ Kiln stays on loopback by default for new installations. Existing explicit bind 
 pre-upgrade standalone databases retain their previous bind behavior; changing that old setup is
 a separate, deliberate administrator action.
 
-On the computer running Kiln, open **Settings → Instances → Share this Kiln**, then choose
-**Enable remote Kiln access**. This is an explicit network configuration change. Ember checks
-Tailscale membership, checks that Kiln rejects anonymous API requests, and creates one persistent
-background **Serve TCP** forward only when its port is unused. It never enables Funnel and does
-not replace another Serve setup. It verifies the forwarded address both without and with the
-bearer token before offering **Reveal connection details**. Merely detecting a Tailscale IP does
-not prove Kiln is reachable. Tailscale ACLs must still allow the other computer to connect.
+On the computer running the included Kiln, open **Settings → Instances → Share this Kiln**.
+The panel checks sharing read-only; **Check sharing** refreshes it. Choose **Enable remote Kiln access** deliberately. Ember verifies authenticated
+readiness and anonymous denial, then uses Tailscale LocalAPI ETag/If-Match updates to add a persistent
+TCP forward. CLI writes, Funnel and whole-config resets are never used. Other settings are preserved;
+a concurrent change stops the operation rather than being overwritten. Controls are offered only
+for an Ember-owned bundled backend. External/Tinder processes receive copy-only guidance.
 
-The copyable URL and bearer token belong in **On another computer** on the second desktop.
-Keep the token private: it grants control of Kiln. **Turn off remote Kiln access** removes only
-the forward Ember recorded as its own; changed or conflicting rules require administrator review.
-A failed readiness check can still leave sharing enabled if rollback could not complete: use the
-stop-sharing action and read its result rather than assuming the forward was removed.
+Choose **Reveal connection details**, then copy its URL and bearer token into **On another computer** on the second
+desktop. A successful host-side check does not prove another computer’s ACL permissions: run
+**Test connection** there too. **Turn off remote Kiln access** requires the durable receipt and exact
+configuration digest. Unknown or changed configurations are not adopted or deleted. If a write
+was applied but its response was lost, Ember reports the uncertainty and leaves recovery read-only;
+review Serve on the host rather than assuming the forward was removed. See the
+[sharing safety and platform support matrix](kiln-sharing.md) for Mac proof discovery, Windows
+gating and the limits of content-addressed ownership receipts.
 
 The forward persists in Tailscale, not an Ember-owned helper process. The bundled Kiln still
 stops when Ember quits, and resumes with Ember; closing a macOS window is not quitting. An

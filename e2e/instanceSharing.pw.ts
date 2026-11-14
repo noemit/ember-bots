@@ -91,17 +91,16 @@ test('remote browser cannot change host sharing or connection credentials', asyn
 });
 
 
-test('a blocked but enabled share can still be turned off', async ({ page }) => {
+test('a blocked enabled share cannot be removed without verified current ownership', async ({ page }) => {
   await page.goto('/?noDock');
   await page.waitForFunction(() => !!window.ember?.getSettings);
   await page.evaluate(() => {
-    window.ember.kilnSharing = async action => action === 'disable'
-      ? { state: 'off', enabled: false, message: 'This computer’s Kiln is local only.' }
-      : { state: 'blocked', enabled: true, message: 'This computer’s sharing is enabled but Tailscale is unavailable. Turn off sharing below or restore the connection.' };
+    window.ember.kilnSharing = async () => ({ state: 'blocked', enabled: true, canChange: false, message: 'Tailscale is unavailable. Restore the local connection, then select Check sharing to verify ownership.' });
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
   const sharing = page.getByRole('region', { name: 'Share this Kiln', exact: true });
-  await sharing.getByRole('button', { name: 'Turn off remote Kiln access' }).click();
-  await expect(sharing).toContainText('local only');
+  await sharing.getByRole('button', { name: 'Check sharing', exact: true }).click();
+  await expect(sharing).toContainText('verify ownership');
+  await expect(sharing.getByRole('button', { name: 'Turn off remote Kiln access', exact: true })).toHaveCount(0);
 });

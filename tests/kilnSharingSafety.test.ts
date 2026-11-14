@@ -1,91 +1,80 @@
-import { expect, test } from 'bun:test'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { createKilnSharing, type KilnSharingDependencies } from '../electron/kilnSharing'
-const options = { hostLabel: 'Tower', localUrl: 'http://127.0.0.1:3002', token: 'private-token', statePath: '/unused' }
-const member = JSON.stringify({ BackendState: 'Running', Self: { Online: true, TailscaleIPs: ['100.64.0.2'] } })
+import { expect, test } from 'bun:test';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { KilnSharing, isTailnetAddress, sharingTarget, sharingErrorCopy } from '../electron/kilnSharing';
+import { fileShareOwnerStore } from '../electron/kilnSharingOwner';
+import { configDigest, LocalApiError, TailscaleLocalApi, type AtomicServeApi, type ServeConfig } from '../electron/tailscaleLocalApi';
+import { checkSharedKilnAuth } from '../electron/sharedKilnAuth';
 
-test.each([
-  { TCP: { '3002': { HTTPS: true } } },
-  { Web: { 'tower.ts.net:3002': { Handlers: {} } } },
-  { Foreground: { 'session-id': { TCP: { '3002': { TCPForward: '127.0.0.1:9999' } } } } },
-])('all occupied Serve port forms block enable without writes', async (config) => {
-  const mutations: unknown[] = []
-  const deps: KilnSharingDependencies = {
-    read: async () => undefined, save: async (v) => { mutations.push(v) },
-    request: async (_url, token) => token ? 200 : 401,
-    run: async (args) => { if (args[0] === 'status') return member; if (args[1] === 'status') return JSON.stringify(config); mutations.push(args); return '' },
+const endpoint = { id: 'pi:synthetic', label: 'Tower', url: 'http://127.0.0.1:3002/', token: 'private-synthetic-token' };
+
+test('numerical loopback targets and tailnet membership retain IPv4 and IPv6 safeguards', () => {
+  expect(sharingTarget('http://127.0.0.1:3002')).toBe('127.0.0.1:3002');
+  expect(sharingTarget('http://[::1]:3002')).toBe('[::1]:3002');
+  for (const url of ['http://localhost:3002', 'http://0.0.0.0:3002', 'http://[::]:3002', 'http://[::ffff:127.0.0.1]:3002', 'http://100.64.0.1:3002', 'https://127.0.0.1:3002', 'http://a:b@127.0.0.1:3002', 'http://127.0.0.1:3002/path', 'http://127.0.0.1:3002/?token=bad']) expect(() => sharingTarget(url)).toThrow();
+  for (const ip of ['100.64.0.1', '100.127.255.255', 'fd7a:115c:a1e0::1234']) expect(isTailnetAddress(ip)).toBe(true);
+  for (const ip of ['100.128.0.1', '100.63.0.1', '100.64.0.999', '10.0.0.1', 'fd7a:115c:a1e1::1', 'fe80::1%eth0', '::ffff:100.64.0.1']) expect(isTailnetAddress(ip)).toBe(false);
+});
+
+test('sharing requires anonymous denial as well as authenticated readiness', async () => {
+  for (const status of [200, 401, 403, 404, 500]) {
+    const seen: boolean[] = [];
+    const request = (async (url, init) => {
+      const authorized = new Headers(init?.headers).has('authorization');
+      seen.push(authorized);
+      return authorized ? Response.json(String(url).endsWith('/health') ? { ok: true, service: 'hearth' } : { conversations: [] }) : new Response(null, { status });
+    }) as typeof fetch;
+    expect((await checkSharedKilnAuth(endpoint, request)).ok).toBe(status === 401 || status === 403);
+    expect(seen).toEqual([true, true, false]);
   }
-  expect((await createKilnSharing(options, deps).enable()).state).toBe('blocked')
-  expect(mutations).toEqual([])
-})
+});
 
-test('missing Tailscale diagnostic is actionable and host-named', async () => {
-  const result = await createKilnSharing(options, { read: async () => undefined,
-    run: async () => { throw Object.assign(new Error('private-token'), { code: 'ENOENT' }) } }).enable()
-  expect(result.message).toContain('Tower')
-  expect(result.message).toMatch(/Install|install/)
-  expect(result.message).toContain('sign in')
-  expect(result.message).not.toContain('private-token')
-})
-
-test('unrecognized or malformed Serve status fails closed before persisting intent', async () => {
-  for (const raw of ['not json', '[]', '{"TCP":42}', 'null']) {
-    let saved = false
-    const result = await createKilnSharing(options, { read: async () => undefined,
-      save: async () => { saved = true }, request: async (_url, token) => token ? 200 : 401,
-      run: async (args) => args[0] === 'status' ? member : raw }).enable()
-    expect(result.state).toBe('blocked')
-    expect(saved).toBe(false)
-  }
-})
-
-test('persistent ownership is private, atomic and sufficient after a controller restart', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'kiln-share-state-'))
+test('private atomic receipt remains sufficient after controller restart, but never adopts legacy pending intent', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'kiln-share-state-'));
+  const file = join(home, 'owner.json');
+  let config: ServeConfig = { TCP: { '8443': { HTTPS: true } } };
+  let writes = 0;
+  const api: AtomicServeApi = {
+    status: async () => ({ nodeId: 'synthetic-node', ip: '100.64.0.2' }),
+    read: async () => ({ config: structuredClone(config), etag: configDigest(JSON.stringify(config)) }),
+    compareAndSwap: async (snapshot, next) => {
+      expect(snapshot.etag).toBe(configDigest(JSON.stringify(config))); writes++; config = structuredClone(next);
+    },
+  };
+  const make = () => new KilnSharing({ command: async () => '--bg --tcp status', api: () => api, owner: fileShareOwnerStore(file), check: async () => ({ ok: true }) });
   try {
-    const statePath = join(home, 'private', 'share.json')
-    let rule = false
-    const deps = {
-      request: async (_url: string, token?: string) => token ? 200 : 401,
-      run: async (args: string[]) => {
-        if (args[0] === 'status') return member
-        if (args[1] === 'status') return JSON.stringify(rule ? { TCP: { '3002': { TCPForward: '127.0.0.1:3002' } } } : {})
-        rule = !args.includes('off'); return ''
-      },
-    }
-    const localOptions = { ...options, statePath }
-    expect((await createKilnSharing(localOptions, deps).enable()).state).toBe('ready')
-    expect(await readFile(statePath, 'utf8')).not.toContain(options.token)
-    if (process.platform !== 'win32') expect((await stat(statePath)).mode & 0o777).toBe(0o600)
-    expect((await createKilnSharing(localOptions, deps).inspect()).state).toBe('ready')
-    expect((await createKilnSharing(localOptions, deps).disable()).state).toBe('off')
-    expect(rule).toBe(false)
-  } finally { await rm(home, { recursive: true, force: true }) }
-})
+    expect((await make().run('enable', endpoint, true)).ok).toBe(true);
+    expect(await readFile(file, 'utf8')).not.toContain(endpoint.token);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect((await make().run('inspect', endpoint, true)).canChange).toBe(true);
+    expect((await make().run('disable', endpoint, true)).ok).toBe(true);
+    expect(config).toEqual({ TCP: { '8443': { HTTPS: true } } });
+    config = { TCP: { '3002': { TCPForward: '127.0.0.1:3002' } } };
+    await writeFile(file, JSON.stringify({ version: 1, port: 3002, target: '127.0.0.1:3002', phase: 'pending' }));
+    expect((await make().run('disable', endpoint, true)).canChange).toBe(false);
+    expect(writes).toBe(2);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
 
-test('a newly public rule is never called ready or removed', async () => {
-  let mutations = 0
-  const result = await createKilnSharing(options, {
-    read: async () => JSON.stringify({ version: 1, port: 3002, target: '127.0.0.1:3002', phase: 'active' }),
-    run: async (args) => { if (args[1] !== 'status') mutations++; return JSON.stringify({ TCP: { '3002': { TCPForward: '127.0.0.1:3002' } }, AllowFunnel: { 'tower.ts.net:3002': true } }) },
-  }).disable()
-  expect(result.state).toBe('blocked')
-  expect(result.url).toBeUndefined()
-  expect(mutations).toBe(0)
-})
-
-test('an inaccessible tailnet address never receives the bearer token or a forwarding rule', async () => {
+test('invalid tailnet addresses cannot receive the bearer or a forwarding rule', async () => {
   for (const address of ['192.168.1.1', '::1', 'fd00::1', '100.64.0.256']) {
-    const requests: unknown[] = []
-    const writes: unknown[] = []
-    const result = await createKilnSharing(options, {
-      read: async () => undefined, save: async (v) => { writes.push(v) },
-      request: async (...args) => { requests.push(args); return 200 },
-      run: async () => JSON.stringify({ BackendState: 'Running', Self: { Online: true, TailscaleIPs: [address] } }),
-    }).enable()
-    expect(result.state).toBe('blocked')
-    expect(requests).toEqual([])
-    expect(writes).toEqual([])
+    let checked = false; let posted = false;
+    const api = new TailscaleLocalApi(async (method) => {
+      if (method === 'POST') posted = true;
+      return { status: 200, body: JSON.stringify({ BackendState: 'Running', Self: { ID: 'synthetic-node', TailscaleIPs: [address] } }) };
+    });
+    const sharing = new KilnSharing({ command: async () => '--bg --tcp status', api: () => api,
+      owner: { read: () => undefined, write: () => { throw new Error('must not save'); } }, check: async () => { checked = true; return { ok: true }; } });
+    expect((await sharing.run('enable', endpoint, true)).canChange).toBe(false);
+    expect(checked).toBe(false); expect(posted).toBe(false);
   }
-})
+});
+
+test('safe daemon diagnostics name Tailscale and a recovery, never raw output or credentials', () => {
+  for (const kind of ['unsupported', 'permission', 'timeout', 'invalid', 'unavailable'] as const) {
+    const message = sharingErrorCopy(new LocalApiError(kind), 'linux');
+    expect(message).toContain('Tailscale'); expect(message).toMatch(/Check sharing|Update|administrator/);
+    expect(message).not.toContain(endpoint.token); expect(message).not.toMatch(/EACCES|undefined|HTTP \d/);
+  }
+});

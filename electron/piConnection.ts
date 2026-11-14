@@ -1,4 +1,5 @@
 import type { PiEndpoint } from './transport';
+import { readConnectionJson } from './connectionJson';
 
 export type PiConnectionDraft = Pick<PiEndpoint, 'label' | 'url' | 'token'> & {
   access?: { clientId: string; clientSecret: string };
@@ -7,6 +8,7 @@ export type PiConnectionDraft = Pick<PiEndpoint, 'label' | 'url' | 'token'> & {
 export type PiConnectionOutcome = 'ready' | 'unreachable' | 'auth-rejected' | 'wrong-service' | 'tls-error' | 'timeout';
 export type PiConnectionTest = {
   outcome: PiConnectionOutcome;
+  authLayer?: 'access' | 'kiln' | 'gateway';
   host: string;
   message: string;
   version?: string;
@@ -54,7 +56,9 @@ export const connectionFailure = (error: unknown): PiConnectionOutcome => {
   return 'unreachable';
 };
 
-export const connectionMessage = (host: string, outcome: PiConnectionOutcome): string => {
+export const connectionMessage = (host: string, outcome: PiConnectionOutcome, authLayer?: PiConnectionTest['authLayer']): string => {
+  if (outcome === 'auth-rejected' && authLayer === 'access') return host + '’s Cloudflare Access gate needs service-token authentication. Check Advanced and the host’s Access policy, then test again.';
+  if (outcome === 'auth-rejected' && authLayer === 'kiln') return host + '’s Kiln rejected the bearer token. Copy its current Kiln token from the host, then test again.';
   switch (outcome) {
     case 'ready': return `${host} answered as Kiln and its authenticated conversation route is ready.`;
     case 'auth-rejected': return `${host} rejected the connection credentials. Check the Kiln bearer token and, if used, both Cloudflare Access credentials, then test again.`;
@@ -70,49 +74,43 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 /** A 200 page is not proof of Kiln: verify its health identity AND an authenticated route. */
 export const testPiEndpoint = async (
   endpoint: PiConnectionDraft,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; request?: typeof fetch } = {}
 ): Promise<PiConnectionTest> => {
   // A label is user-authored, never derive it from a credential-bearing URL.
   const host = endpoint.label.trim().slice(0, 160) || 'This Kiln';
-  const result = (outcome: PiConnectionOutcome): PiConnectionTest => ({ outcome, host, message: connectionMessage(host, outcome) });
+  const result = (outcome: PiConnectionOutcome, authLayer?: PiConnectionTest['authLayer']): PiConnectionTest => ({ outcome, host, ...(authLayer ? { authLayer } : {}), message: connectionMessage(host, outcome, authLayer) });
   try {
     const base = new URL(endpoint.url);
     if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash) return result('wrong-service');
     const headers = piConnectionHeaders(endpoint);
-    const signal = AbortSignal.timeout(options.timeoutMs ?? 4_000);
-    const read = async (path: string): Promise<{ outcome?: PiConnectionOutcome; body?: unknown }> => {
-      const response = await fetch(`${endpoint.url.replace(/\/+$/, '')}${path}`, { headers, redirect: 'error', signal });
+    const request = options.request ?? fetch;
+    const timeout = options.timeoutMs ?? 4_000;
+    const deadline = Date.now() + timeout;
+    const signal = AbortSignal.timeout(timeout);
+    const read = async (path: string): Promise<{ outcome?: PiConnectionOutcome; authLayer?: PiConnectionTest['authLayer']; body?: unknown }> => {
+      const response = await request(`${endpoint.url.replace(/\/+$/, '')}${path}`, { headers, redirect: 'manual', signal });
+      const location = response.headers.get('location') ?? '';
+      if (response.headers.has('cf-access-domain') || /\/cdn-cgi\/access\/|cloudflareaccess\.com/i.test(location)) {
+        void response.body?.cancel().catch(() => {});
+        return { outcome: 'auth-rejected', authLayer: 'access' };
+      }
       if (response.status === 401 || response.status === 403) {
-        await response.body?.cancel();
-        return { outcome: 'auth-rejected' };
+        let authLayer: PiConnectionTest['authLayer'] = 'gateway';
+        if (response.headers.get('content-type')?.includes('json')) {
+          const body = await readConnectionJson(response, 16 * 1024, Math.max(1, deadline - Date.now())).catch(() => null) as { error?: unknown } | null;
+          if (body?.error === 'unauthorized') authLayer = 'kiln';
+        } else void response.body?.cancel().catch(() => {});
+        return { outcome: 'auth-rejected', authLayer };
       }
-      if (!response.ok) {
-        await response.body?.cancel();
-        return { outcome: 'wrong-service' };
-      }
-      // Bound diagnostic reads: a misconfigured proxy must not download an arbitrary page.
-      const reader = response.body?.getReader();
-      let text = '';
-      let size = 0;
-      const decoder = new TextDecoder();
-      if (reader) for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        size += chunk.value.byteLength;
-        if (size > 1024 * 1024) {
-          await reader.cancel();
-          return { outcome: 'wrong-service' };
-        }
-        text += decoder.decode(chunk.value, { stream: true });
-      }
-      text += decoder.decode();
-      try { return { body: JSON.parse(text) }; } catch { return { outcome: 'wrong-service' }; }
+      if (!response.ok) { void response.body?.cancel().catch(() => {}); return { outcome: 'wrong-service' }; }
+      try { return { body: await readConnectionJson(response, 1024 * 1024, Math.max(1, deadline - Date.now())) }; }
+      catch (error) { return { outcome: connectionFailure(error) === 'timeout' ? 'timeout' : 'wrong-service' }; }
     };
     const health = await read('/health');
-    if (health.outcome) return result(health.outcome);
+    if (health.outcome) return result(health.outcome, health.authLayer);
     if (!isRecord(health.body) || health.body.ok !== true || !['hearth', 'kiln'].includes(String(health.body.service))) return result('wrong-service');
     const ready = await read('/conversations?limit=1');
-    if (ready.outcome) return result(ready.outcome);
+    if (ready.outcome) return result(ready.outcome, ready.authLayer);
     if (!isRecord(ready.body) || !Array.isArray(ready.body.conversations)) return result('wrong-service');
     // Only bounded build identifiers are allowed out of the health response.
     const secrets = [endpoint.token, endpoint.access?.clientId, endpoint.access?.clientSecret].filter((value): value is string => Boolean(value));

@@ -31,7 +31,7 @@ describe('separate transport credentials', () => {
       expect(headers.get('authorization')).toBe('Bearer kiln-secret');
       expect(headers.get('cf-access-client-id')).toBe('access-id');
       expect(headers.get('cf-access-client-secret')).toBe('access-secret');
-      expect(init?.redirect).toBe('error');
+      expect(['manual', 'error']).toContain(init?.redirect);
       expect(String(input)).not.toContain('secret');
       seen.push(String(input));
       return Response.json(String(input).endsWith('/health') ? { ok: true, service: 'hearth', version: '1.0.0' } : { conversations: [] });
@@ -52,6 +52,23 @@ describe('separate transport credentials', () => {
 });
 
 describe('verified readiness and safe diagnostics', () => {
+  test.each([
+    [new Response(null, { status: 302, headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' } }), 'access'],
+    [Response.json({ error: 'unauthorized' }, { status: 401 }), 'kiln'],
+    [new Response('private upstream diagnostics', { status: 403, headers: { server: 'cloudflare' } }), 'gateway'],
+  ] as const)('identifiable auth layers remain structured and never echo response diagnostics', async (response, layer) => {
+    globalThis.fetch = (async () => response) as typeof fetch;
+    const result = await testPiEndpoint(draft);
+    expect(result.outcome).toBe('auth-rejected'); expect(result.authLayer).toBe(layer);
+    expect(result.message).toContain(draft.label); expect(result.message).toContain('test again');
+    expect(result.message).not.toContain('private upstream'); expect(result.message).not.toContain(draft.access.clientSecret);
+  });
+  test('a mocked never-ending body cannot bypass the connection-test deadline', async () => {
+    let cancelled = false;
+    globalThis.fetch = (async () => new Response(new ReadableStream({ cancel() { cancelled = true; } }))) as typeof fetch;
+    expect((await testPiEndpoint(draft, { timeoutMs: 10 })).outcome).toBe('timeout');
+    expect(cancelled).toBe(true);
+  });
   test('real fixture requires bearer for health and conversation routes', async () => {
     const { server, endpoint } = fixture((request) => {
       if (request.headers.get('authorization') !== 'Bearer fixture-token') return new Response('secret echoed here', { status: 401 });

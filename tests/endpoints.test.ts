@@ -38,10 +38,10 @@ describe('validation and upsert', () => {
     expect(endpointError({ label: '', url: 'http://x:1', token: '' })).toContain('name');
     expect(endpointError({ label: 'K', url: 'ftp://host', token: '' })).toContain('http');
     expect(endpointError({ label: 'K', url: 'http://user:pass@host', token: '' })).toContain('http');
-    expect(endpointError({ label: 'K', url: 'http://x:1', token: '' })).toBeNull();
-    expect(endpointError({ label: 'K', url: 'http://x:1', token: '' }, [endpoint({ url: 'http://x:1' })])).toContain('already used');
+    expect(endpointError({ label: 'K', url: 'http://x:1', token: '' })).toContain('bearer token');
+    expect(endpointError({ label: 'K', url: 'http://x:1', token: 'synthetic' }, [endpoint({ url: 'http://x:1' })])).toContain('already used');
     // Editing an endpoint does not collide with itself.
-    expect(endpointError({ id: 'pi:keep', label: 'K', url: 'http://x:1', token: '' }, [endpoint({ url: 'http://x:1' })])).toBeNull();
+    expect(endpointError({ id: 'pi:keep', label: 'K', url: 'http://x:1', token: 'synthetic' }, [endpoint({ url: 'http://x:1' })])).toBeNull();
   });
 
   test('adds, replaces by id, and removes', () => {

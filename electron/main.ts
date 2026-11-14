@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createKilnSharing } from './kilnSharing';
+import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
 import { unlockEndpointSecrets, lockEndpointSecrets, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
 import {
@@ -1473,38 +1474,33 @@ ipcMain.handle('ember:pi:test', async (event, value: unknown) => {
   if (!parsed[0]) return { outcome: 'wrong-service', host: 'This Kiln', message: 'Ember needs a valid server address and Kiln bearer token. Check both, then test again.' };
   return testPiEndpoint(parsed[0]);
 });
-let sharingController: ReturnType<typeof createKilnSharing> | undefined;
-let sharingIdentity = '';
-let sharingOperations: Promise<unknown> = Promise.resolve();
-const withKilnSharing = <T,>(operation: (controller: ReturnType<typeof createKilnSharing>, token: string) => Promise<T>): Promise<T> => {
-  const run = sharingOperations.catch(() => {}).then(async () => {
-    // Unsharing must remain possible after Kiln was stopped or disabled. Its forward is
-    // independently persistent and removal uses only the durable ownership record.
-    const local = localHarnessEndpointInfo() ?? {
-      url: 'http://127.0.0.1:' + String(localHarness.options.port ?? LOCAL_HARNESS_PORT),
-      token: harnessTokenOnDisk(harnessHome()) ?? '',
-    };
-    const identity = JSON.stringify([local.url, local.token]);
-    if (!sharingController || sharingIdentity !== identity) {
-      sharingController = createKilnSharing({ hostLabel: 'This computer', localUrl: local.url, token: local.token, statePath: path.join(emberHome, 'kiln-sharing.json') });
-      sharingIdentity = identity;
-    }
-    return operation(sharingController, local.token);
+const inspectOwnedKilnSharing = (action: 'inspect' | 'enable' | 'disable') => runHarnessOperation(async () => {
+  const owner = fileShareOwnerStore(path.join(emberHome, 'kiln-sharing-owner.json'));
+  const currentOwned = canManageLocalToken(localHarnessState);
+  const receipt = owner.read();
+  // A disabled included backend may still have an owned persistent forward to remove.
+  // Attached external processes never gain mutation rights from a saved receipt.
+  const stoppedOwned = action !== 'enable' && localHarnessState.kind === 'disabled' && Boolean(receipt);
+  const local = currentOwned && 'url' in localHarnessState
+    ? { url: localHarnessState.url, token: localHarnessState.token }
+    : stoppedOwned && receipt ? { url: 'http://' + receipt.target, token: '' } : null;
+  const controller = createKilnSharing({
+    hostLabel: 'This computer', localUrl: local?.url ?? 'http://127.0.0.1:' + LOCAL_HARNESS_PORT,
+    token: local?.token ?? '', statePath: path.join(emberHome, 'kiln-sharing-owner.json'),
+    publicPort: receipt?.port, ownedProcess: currentOwned || stoppedOwned,
   });
-  sharingOperations = run;
-  return run;
-};
+  return controller[action]();
+});
 ipcMain.handle('ember:kiln:sharing', (event, action: unknown) => {
   assertTrustedSender(event);
   if (action !== 'inspect' && action !== 'enable' && action !== 'disable') throw new Error('Choose whether to check, share or stop sharing this computer’s Kiln.');
-  return withKilnSharing((controller) => controller[action]());
+  return inspectOwnedKilnSharing(action);
 });
-ipcMain.handle('ember:kiln:sharing-details', (event) => {
+ipcMain.handle('ember:kiln:sharing-details', async (event) => {
   assertTrustedSender(event);
-  return withKilnSharing(async (controller, token) => {
-    const status = await controller.inspect();
-    return status.state === 'ready' && status.url ? { url: status.url, token } : null;
-  });
+  const status = await inspectOwnedKilnSharing('inspect');
+  const token = canManageLocalToken(localHarnessState) && 'token' in localHarnessState ? localHarnessState.token : undefined;
+  return status.state === 'ready' && status.url && token ? { url: status.url, token } : null;
 });
 
 ipcMain.handle('ember:pi:request', (event, args: unknown) => {

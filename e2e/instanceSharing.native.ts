@@ -129,14 +129,14 @@ require(process.env.EMBER_TEST_ENTRY);
       // their TLS handshake locally; the test never resolves or contacts an external host.
     });
 
-    await test.step('inspection while off invokes no command; explicit enable only reaches the fake executable and fails closed', async () => {
-      expect((await window.evaluate(() => window.ember.kilnSharing!('inspect'))).state).toBe('off');
+    await test.step('a disabled non-owned backend invokes no daemon or CLI command, even on explicit enable', async () => {
+      expect((await window.evaluate(() => window.ember.kilnSharing!('inspect'))).state).toBe('blocked');
       expect(await readFile(calls, 'utf8')).toBe('');
       const enabled = await window.evaluate(() => window.ember.kilnSharing!('enable'));
       expect(enabled.state).toBe('blocked');
       expect(enabled.enabled).toBe(false);
-      expect(enabled.message).toMatch(/This computer.*Tailscale/s);
-      expect((await readFile(calls, 'utf8')).trim().split('\n')).toEqual(['status --json']);
+      expect(enabled.message).toContain('does not own');
+      expect(await readFile(calls, 'utf8')).toBe('');
       expect(await window.evaluate(() => window.ember.kilnSharingDetails!())).toBeNull();
     });
 
@@ -181,7 +181,7 @@ require(process.env.EMBER_TEST_ENTRY);
         expect([404, 405]).toContain(rejected.status());
       }
       expect(attemptedRequests()).toBe(before);
-      expect((await readFile(calls, 'utf8')).trim().split('\n')).toEqual(['status --json']);
+      expect(await readFile(calls, 'utf8')).toBe('');
     });
   } finally {
     await context.close();

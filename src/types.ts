@@ -22,9 +22,9 @@ export type PiEndpoint = {
   hasAccessSecret?: boolean;
 };
 
-export type KilnSharingStatus = { state: 'ready' | 'off' | 'blocked'; message: string; url?: string; enabled: boolean };
+export type KilnSharingStatus = { state: 'ready' | 'off' | 'blocked'; message: string; url?: string; enabled: boolean; canChange?: boolean; instructions?: string };
 export type EndpointTestDraft = { label: string; url: string; token: string; access?: { clientId: string; clientSecret: string }; id?: string; hasAccessSecret?: boolean };
-export type EndpointTestResult = { outcome: 'ready' | 'unreachable' | 'auth-rejected' | 'wrong-service' | 'tls-error' | 'timeout'; host: string; message: string };
+export type EndpointTestResult = { outcome: 'ready' | 'unreachable' | 'auth-rejected' | 'wrong-service' | 'tls-error' | 'timeout'; host: string; message: string; authLayer?: 'access' | 'kiln' | 'gateway' };
 
 export type Instance = {
   id: string;
@@ -888,7 +888,7 @@ export type EmberBridge = {
   activitySearch?(query: string, range?: ActivityQuery): Promise<ActivityPage>;
   activityDays?(): Promise<string[]>;
   activityClear?(): Promise<void>;
-  capabilities?: { dockIcon: boolean; appIcon?: boolean };
+  capabilities?: { dockIcon: boolean; appIcon?: boolean; endpointManagement?: boolean };
   listInstances(refresh?: boolean): Promise<unknown>;
   getSettings(): Promise<EmberSettings>;
   setSettings(patch: EmberSettingsPatch): Promise<EmberSettings>;

@@ -5,6 +5,7 @@ export type AlignmentSummary = { apiKeys: string[]; signIns: number; peers: Arra
 
 /** Never teach another machine that its own loopback is a different machine. */
 export const portableConnection = (endpoint: PiEndpoint): boolean => {
+  if (endpoint.access || endpoint.hasAccessSecret) return false;
   try {
     const u = new URL(endpoint.url);
     const host = u.hostname.toLowerCase();

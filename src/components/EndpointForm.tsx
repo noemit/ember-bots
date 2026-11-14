@@ -16,7 +16,7 @@ export default function EndpointForm({ draft, onChange }: { draft: EndpointDraft
     </details>
     <details className="text-xs"><summary className="cursor-pointer py-2 font-medium">Advanced</summary>
       <p className="mb-2 text-muted-foreground">Cloudflare Access service credentials are optional and separate from Kiln’s bearer token. Ember sends them only to this connection’s configured origin. Keep them private.</p>
-      <label>Cloudflare Access client ID<Input aria-label="Cloudflare Access client ID" value={draft.access?.clientId ?? ''} onChange={e => onChange({ ...draft, access: { clientId: e.target.value, clientSecret: draft.access?.clientSecret ?? '' } })} autoComplete="off" /></label>
+      <label>Cloudflare Access client ID<SecretInput aria-label="Cloudflare Access client ID" value={draft.access?.clientId ?? ''} onChange={e => onChange({ ...draft, access: { clientId: e.target.value, clientSecret: draft.access?.clientSecret ?? '' } })} autoComplete="off" /></label>
       <label>Cloudflare Access client secret<SecretInput aria-label="Cloudflare Access client secret" placeholder={draft.hasAccessSecret ? 'Saved securely; leave blank to keep' : ''} value={draft.access?.clientSecret ?? ''} onChange={e => onChange({ ...draft, access: { clientId: draft.access?.clientId ?? '', clientSecret: e.target.value } })} autoComplete="new-password" /></label>
       {draft.access && <Button size="xs" variant="ghost" onClick={() => onChange({ ...draft, access: undefined, hasAccessSecret: undefined })}>Remove Access credentials</Button>}
     </details>

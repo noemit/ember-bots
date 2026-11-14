@@ -16,6 +16,13 @@ test('private network sharing rejects deceptive hostnames and malformed IP addre
     expect(portableConnection(peer(`http://${host}:3002`))).toBe(false);
   }
 });
+test('alignment never exports desktop-only Access credentials or a locked Access connection', () => {
+  const endpoint = peer('https://kiln.example.test');
+  const protectedEndpoint = { ...endpoint, access: { clientId: 'synthetic-client', clientSecret: 'synthetic-secret' } };
+  expect(portableConnection(protectedEndpoint)).toBe(false);
+  expect(portableConnection({ ...endpoint, hasAccessSecret: true })).toBe(false);
+  expect(mergeConnections([], [protectedEndpoint])).toEqual([]);
+});
 test('alignment adds discovered connections without replacing existing credentials or ids', () => {
   const existing = peer('http://100.64.0.1:3002');
   const merged = mergeConnections([existing], [peer(existing.url + '/', 'different'), peer('http://100.64.0.2:3002'), peer('http://localhost:3002')]);

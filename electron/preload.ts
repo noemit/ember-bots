@@ -14,7 +14,7 @@ const ember = {
   activityDays: () => ipcRenderer.invoke('ember:activity:days'),
   activityClear: () => ipcRenderer.invoke('ember:activity:clear'),
   // The Dock on macOS, the window (taskbar) icon everywhere else; both go through `setAppIcon`.
-  capabilities: { dockIcon: process.platform === 'darwin', appIcon: true },
+  capabilities: { dockIcon: process.platform === 'darwin', appIcon: true, endpointManagement: true },
   listInstances: (refresh = true): Promise<unknown> => ipcRenderer.invoke('ember:instances', refresh),
   getSettings: (): Promise<EmberSettings> => ipcRenderer.invoke('ember:settings:get'),
   /**

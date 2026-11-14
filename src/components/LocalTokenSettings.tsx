@@ -117,7 +117,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
   return (
     <div className="flex flex-col gap-2" data-testid="local-harness-token">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Token</span>
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Kiln API token</span>
         {state?.url ? <span className="truncate text-[11px] text-muted-foreground">{state.url}</span> : null}
       </div>
 

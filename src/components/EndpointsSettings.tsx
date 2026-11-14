@@ -23,7 +23,7 @@ export default function EndpointsSettings({ endpoints, instances, onChange, onRe
   const [testing, setTesting] = React.useState<string | null>(null);
   const [results, setResults] = React.useState<Record<string, string>>({});
   const revision = React.useRef(0);
-  const desktop = typeof window.ember.testPiEndpoint === 'function';
+  const desktop = window.ember.capabilities?.endpointManagement !== false && typeof window.ember.testPiEndpoint === 'function';
   const commit = (next: PiEndpoint[]) => {
     onChange({ piEndpoints: next });
     window.setTimeout(() => onRefreshInstances?.(), 50);
@@ -44,7 +44,7 @@ export default function EndpointsSettings({ endpoints, instances, onChange, onRe
     setTesting(key);
     try {
       const result = await window.ember.testPiEndpoint!(value);
-      if (key !== 'draft' || revision.current === version) setResults(prev => ({ ...prev, [key]: endpointTestCopy(value.label, result.outcome) }));
+      if (key !== 'draft' || revision.current === version) setResults(prev => ({ ...prev, [key]: endpointTestCopy(value.label, result.outcome, result.authLayer) }));
     } catch {
       if (key !== 'draft' || revision.current === version) setResults(prev => ({ ...prev, [key]: endpointTestCopy(value.label, 'unreachable') }));
     } finally { setTesting(null); }

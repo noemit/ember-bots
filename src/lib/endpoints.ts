@@ -55,7 +55,7 @@ export const normalizeEndpointUrl = (value: string): string | null => {
   try {
     const url = new URL(candidate);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    if (url.username || url.password) return null;
+    if (url.username || url.password || url.search || url.hash) return null;
     url.hash = '';
     // Keep the path (a reverse-proxied Hearth may live under one) but drop a trailing slash.
     return url.toString().replace(/\/+$/, '');
@@ -70,6 +70,9 @@ export const endpointError = (draft: EndpointDraft, existing: readonly PiEndpoin
   if (draft.label.length > MAX_LABEL) return 'That name is too long.';
   const url = normalizeEndpointUrl(draft.url);
   if (!url) return 'Enter an http(s) address, e.g. http://100.64.0.1:3002.';
+  if (!draft.token.trim() || /[\r\n]/.test(draft.token)) return 'Enter the Kiln bearer token without line breaks.';
+  if (draft.access && !url.startsWith('https:')) return 'Cloudflare Access credentials need an HTTPS address.';
+  if (draft.access && /[\r\n]/.test(draft.access.clientId + draft.access.clientSecret)) return 'Enter Cloudflare Access credentials without line breaks.';
   if (draft.url.length > MAX_URL) return 'That address is too long.';
   if (draft.access && (!draft.access.clientId.trim() || (!draft.access.clientSecret.trim() && !draft.hasAccessSecret))) return 'Enter both Cloudflare Access fields, or remove the Access credentials.';
   if (draft.access && (draft.access.clientId.length > MAX_TOKEN || draft.access.clientSecret.length > MAX_TOKEN)) return 'Those Access credentials are too long. Check the values from Cloudflare.';
@@ -103,8 +106,10 @@ export const maskToken = (token: string): string =>
   token.length <= 4 ? '••••' : `••••••••${token.slice(-4)}`;
 
 /** Use fixed, actionable copy, never raw diagnostics that might contain credentials. */
-export function endpointTestCopy(label: string, outcome: string): string {
+export function endpointTestCopy(label: string, outcome: string, authLayer?: string): string {
   const actor = label.trim() || 'This Kiln';
+  if (outcome === 'auth-rejected' && authLayer === 'access') return actor + '’s Cloudflare Access gate needs service-token authentication. Check Advanced and the host’s Access policy, then test again.';
+  if (outcome === 'auth-rejected' && authLayer === 'kiln') return actor + '’s Kiln rejected the bearer token. Copy its current Kiln token from the host, then test again.';
   switch (outcome) {
     case 'ready': return actor + ` answered as Kiln and accepted the connection. You can add this instance.`;
     case 'auth-rejected': return actor + ` rejected the credentials. Check the bearer token and, if used, Cloudflare Access credentials, then test again.`;

@@ -205,7 +205,7 @@ export const parsePiEndpoints = (value: unknown, limit = 20): PiEndpoint[] => {
     const id = rawId ? (rawId.startsWith('pi:') ? rawId : `pi:${rawId}`) : undefined;
     const label = parseStringArray([raw.label], 1, 200)[0] ?? id;
     const url = parseHttpUrl(typeof raw.url === 'string' ? raw.url : '')?.toString();
-    const token = typeof raw.token === 'string' && raw.token.length > 0 && raw.token.length <= 4096 ? raw.token : undefined;
+    const token = typeof raw.token === 'string' && raw.token.length > 0 && raw.token.length <= 4096 && !/[\r\n]/.test(raw.token) ? raw.token : undefined;
     if (!id || id === 'pi:' || seen.has(id) || !url || !token) continue;
     const host = url.toString();
     if (seenHosts.has(host)) continue;
@@ -216,7 +216,7 @@ export const parsePiEndpoints = (value: unknown, limit = 20): PiEndpoint[] => {
       rawAccess.clientId.length <= 4096 && rawAccess.clientSecret.length <= 4096 &&
       !/[\r\n]/.test(rawAccess.clientId + rawAccess.clientSecret)
       ? { clientId: rawAccess.clientId, clientSecret: rawAccess.clientSecret } : undefined;
-    out.push({ id, label, url, token, ...(access ? { access } : {}), ...(raw.hasAccessSecret === true ? { hasAccessSecret: true } : {}) });
+    out.push({ id, label, url, token, ...(access ? { access } : {}), ...((raw.hasAccessSecret === true || (raw.access !== undefined && !access)) ? { hasAccessSecret: true } : {}) });
     if (out.length >= limit) break;
   }
   return out;

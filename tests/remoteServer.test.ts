@@ -166,6 +166,11 @@ test('proxies piRequest, eventStatus, and activity endpoints', async () => {
       expect(f.writes).not.toContain(`pi:pi:test:${path}`);
     }
 
+    // Host configuration commands and draft credential probes have no remote HTTP surface.
+    for (const path of ['/remote/kiln-sharing', '/remote/pi/test', '/remote/local-harness-token']) {
+      expect((await f.request(path, 'POST', { action: 'enable' }, cookie)).status).toBe(405);
+    }
+
     // Invalid pi request validation
     expect((await f.request('/remote/pi', 'POST', { endpointId: '', path: '/foo' }, cookie)).status).toBe(400);
     expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: 'no-slash' }, cookie)).status).toBe(400);

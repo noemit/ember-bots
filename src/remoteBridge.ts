@@ -86,7 +86,7 @@ const bridge: EmberBridge = {
   getModelStats: () => requestJson('/remote/model-stats'),
   observeModels: (observations) => requestJson('/remote/model-stats', jsonInit('POST', observations)),
   clearModelStats: async () => { await requestJson('/remote/model-stats', jsonInit('DELETE')); },
-  capabilities: { dockIcon: false },
+  capabilities: { dockIcon: false, endpointManagement: false },
   listInstances: (refresh = true) => requestJson(`/remote/instances?refresh=${refresh}`),
   getSettings: () => requestJson<EmberSettings>('/remote/settings'),
   // A rejected save is an error, exactly as it is on the desktop bridge. The caller keeps the
