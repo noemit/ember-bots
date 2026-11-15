@@ -210,6 +210,10 @@ function PickerContent({ instance, projects, recentDirectories = [], projectUsag
         </nav>
         <h3 ref={folderTitle} tabIndex={-1} className="text-sm font-medium outline-none [overflow-wrap:anywhere]">{currentPath === '/' ? 'Computer · filesystem root' : directoryName(currentPath) || 'Folders'}</h3>
         <p className="mb-3 mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">{currentPath || `Workspace suggested by ${instance.label}`}</p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-y py-3">
+          <div className="min-w-0 flex-1 text-xs text-muted-foreground"><span>{mode === 'workspace' ? 'Use as your workspace' : 'Use this project folder'}</span><span className="mt-1 block [overflow-wrap:anywhere]">{currentPath}</span></div>
+          <Button size="sm" className="min-h-11" disabled={creating || !!form || (canBrowse ? !listing || loading || failed : !currentPath.trim())} onClick={choose}><Check className="size-4" />{mode === 'workspace' ? 'Choose this workspace' : 'Choose this folder'}</Button>
+        </div>
         {loading ? <p role="status" className="flex items-center gap-2 py-5 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading folders on {instance.label}…</p> : null}
         {failed ? <div role="alert" className="py-3 text-xs leading-relaxed"><p>{instance.label} could not open this folder. Try again below, enter another path, or use the breadcrumbs to go back. An older Kiln may need an update to browse this computer.</p><Button variant="link" size="sm" onClick={() => setRetry((n) => n + 1)}>Try again</Button></div> : null}
         {!loading && !failed && listing ? <div className="border-t">{listing.directories.map((entry) => row(entry.path, entry.name))}{!listing.directories.length ? <p className="py-5 text-xs text-muted-foreground">No subfolders here. Choose this folder, or go up to explore another.</p> : null}</div> : null}
@@ -234,10 +238,6 @@ function PickerContent({ instance, projects, recentDirectories = [], projectUsag
           {createFailed ? <p role="alert" className="mt-2 text-xs text-destructive">{instance.label} could not create this folder. Try another name or check access to the parent, then try Create folder again.</p> : null}
           <div className="mt-3 flex gap-2"><Button size="sm" disabled={creating || !typed.trim() || (form === 'new' && (!validName || duplicateName))}>{creating ? 'Creating…' : form === 'path' ? 'Open path' : 'Create folder'}</Button><Button type="button" size="sm" variant="ghost" disabled={creating} onClick={cancelForm}>Cancel</Button></div>
         </form> : null}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-          <div className="min-w-0 flex-1 text-xs text-muted-foreground"><span>{mode === 'workspace' ? 'Use as your workspace' : 'Use this project folder'}</span><span className="mt-1 block [overflow-wrap:anywhere]">{currentPath}</span></div>
-          <Button size="sm" className="min-h-11" disabled={creating || !!form || (canBrowse ? !listing || loading || failed : !currentPath.trim())} onClick={choose}><Check className="size-4" />{mode === 'workspace' ? 'Choose this workspace' : 'Choose this folder'}</Button>
-        </div>
       </>}
     </div>
   </div>;

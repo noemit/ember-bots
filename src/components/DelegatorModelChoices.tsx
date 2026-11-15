@@ -21,7 +21,8 @@ type Props = {
 export default function DelegatorModelChoices({ choices, models, recentModels, instanceId, instanceLabel, onChange, onRefresh, onAddProviders }: Props) {
   const [editing, setEditing] = React.useState<'harder' | 'easier' | null>(null);
   const error = delegatorModelsError(choices, models);
-  return <div className="flex flex-col gap-2" role="group" aria-label="Ultra Delegator models">
+  return <div className="flex flex-col gap-2" role="group" aria-label="Pick default models for delegated tasks">
+    <p className="text-xs font-medium">Pick default models for delegated tasks</p>
     {(['harder', 'easier'] as const).map(role => {
       const label = role === 'harder' ? 'Harder tasks' : 'Easier tasks';
       const key = choices[role] ? modelRefKey(choices[role]!) : '';

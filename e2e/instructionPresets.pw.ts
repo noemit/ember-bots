@@ -9,6 +9,7 @@ test('draft picker and editor offer exactly three choices and preserve custom te
   await expect(picker.getByRole('radio')).toHaveCount(3);
   for (const name of names) await expect(picker.getByRole('radio', { name, exact: false })).toBeVisible();
   await expect(picker.getByRole('radio').first()).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('group', { name: 'Pick default models for delegated tasks' })).toHaveCount(0);
   await page.screenshot({ animations: 'disabled', path: info.outputPath('draft-picker.png') });
   await picker.getByRole('radio', { name: /Custom/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Standing instructions' });
@@ -19,7 +20,9 @@ test('draft picker and editor offer exactly three choices and preserve custom te
   await expect(text).toContainText('Worker model configuration');
   await expect(dialog.getByRole('button', { name: 'Harder tasks', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Easier tasks', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('group', { name: 'Pick default models for delegated tasks' })).toBeVisible();
   await dialog.getByRole('button', { name: names[2], exact: true }).click();
+  await expect(dialog.getByRole('group', { name: 'Pick default models for delegated tasks' })).toHaveCount(0);
   await expect(text).toBeFocused();
   await text.fill('My custom instructions');
   await page.screenshot({ animations: 'disabled', path: info.outputPath('instructions-editor.png') });
@@ -30,6 +33,7 @@ test('draft picker and editor offer exactly three choices and preserve custom te
   await expect(text).toHaveValue('My custom instructions');
   await dialog.getByRole('button', { name: names[0], exact: false }).click();
   await expect(text).toHaveValue('');
+  await expect(dialog.getByRole('group', { name: 'Pick default models for delegated tasks' })).toHaveCount(0);
 });
 
 for (const { id, instructions } of [...retired, { id: 'arbitrary', instructions: '  Keep my exact words\n' }]) {
@@ -143,10 +147,13 @@ test('changing instances restores that host’s independent worker choices', asy
   await expect(page.getByRole('button', { name: 'Easier tasks', exact: true })).toContainText('DeepSeek');
   await page.getByRole('combobox', { name: 'New bot instance' }).click();
   await page.getByRole('option', { name: 'Tower (mock)', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Harder tasks', exact: true })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Harder tasks', exact: true })).toContainText('DeepSeek');
   await expect(page.getByRole('button', { name: 'Easier tasks', exact: true })).toContainText('GLM');
   await page.getByRole('combobox', { name: 'New bot instance' }).click();
   await page.getByRole('option', { name: 'ember-harness (mock)', exact: true }).click();
+  // The outgoing instance column remains mounted briefly for its exit animation.
+  await expect(page.getByRole('button', { name: 'Harder tasks', exact: true })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Harder tasks', exact: true })).toContainText('GLM');
   await expect(page.getByRole('button', { name: 'Easier tasks', exact: true })).toContainText('DeepSeek');
 });
