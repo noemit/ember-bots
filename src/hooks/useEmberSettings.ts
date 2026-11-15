@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   autoFollow: true,
   splitView: false,
   instanceDefaults: {},
+  delegatorModels: {},
   sessionNotes: {},
   quoteLinks: [],
   readMarks: {},

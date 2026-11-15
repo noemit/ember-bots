@@ -24,6 +24,7 @@ import {
   parseColorAssignments,
   parseComposerDrafts,
   parseInstanceDefaults,
+  parseDelegatorModels,
   parsePiEndpoints,
   parseSessionGroups,
   parseReadMarks,
@@ -472,6 +473,7 @@ const readEmberSettings = (): EmberSettings => {
     splitView: root.splitView === true,
     sessionGroups: parseSessionGroups(root.sessionGroups),
     instanceDefaults: parseInstanceDefaults(root.instanceDefaults),
+    delegatorModels: parseDelegatorModels(root.delegatorModels),
     sessionNotes: parseSessionNotes(root.sessionNotes),
     quoteLinks: parseQuoteLinks(root.quoteLinks),
     readMarks: Object.fromEntries(Object.entries(parseReadMarks(root.readMarks)).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark])),
@@ -1088,6 +1090,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (typeof value.autoFollow === 'boolean') settings.autoFollow = value.autoFollow;
   if (typeof value.splitView === 'boolean') settings.splitView = value.splitView;
   if (value.sessionGroups !== undefined) settings.sessionGroups = parseSessionGroups(value.sessionGroups);
+  if (value.delegatorModels !== undefined) settings.delegatorModels = parseDelegatorModels(value.delegatorModels);
   if (value.instanceDefaults !== undefined) settings.instanceDefaults = parseInstanceDefaults(value.instanceDefaults);
   if (value.sessionNotes !== undefined) settings.sessionNotes = parseSessionNotes(value.sessionNotes);
   if (value.quoteLinks !== undefined) settings.quoteLinks = parseQuoteLinks(value.quoteLinks);

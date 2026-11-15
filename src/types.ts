@@ -52,6 +52,12 @@ export type ModelRef = {
   variant?: string;
 };
 
+/** Optional concrete worker choices, independent for each role and host. */
+export type DelegatorModels = {
+  harder?: { providerID: string; modelID: string };
+  easier?: { providerID: string; modelID: string };
+};
+
 export type InstanceDefaults = {
   /** User-chosen parent folder for discovering projects on this instance. */
   workspaceDirectory?: string;
@@ -705,6 +711,8 @@ export type EmberSettings = {
    */
   splitView: boolean;
   instanceDefaults: Record<string, InstanceDefaults>;
+  /** Omitted roles use the delegator’s normal choice; patches replace the whole map. */
+  delegatorModels?: Record<string, DelegatorModels>;
   sessionNotes: Record<string, SessionNote[]>;
   /** Ember-local, bidirectional references for quoted transcript text. */
   quoteLinks: QuoteLink[];

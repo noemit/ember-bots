@@ -6,7 +6,7 @@
  * pi transition builds parity. New work targets the pi mock
  * (`src/dev/mockPi.ts`), which is the default.
  */
-import { mergeAvatarAssignments, parseSnoozedSessions } from '../../electron/transport';
+import { parseDelegatorModels, mergeAvatarAssignments, parseSnoozedSessions } from '../../electron/transport';
 import type { ActivityEntry, ActivityPage, ActivityQuery, EmberBridge, EmberSettings, EmberSettingsPatch } from '../types';
 import type { ModelObservation } from '../lib/modelStats';
 import { activityDayKey } from '@/lib/activityView';
@@ -280,6 +280,12 @@ const queueSnapshot = (instanceId: string) => ({
   })),
 });
 
+const DELEGATOR_MODELS_KEY = 'ember-legacy-delegator-models';
+const storedDelegatorModels = () => {
+  try { return parseDelegatorModels(JSON.parse(localStorage.getItem(DELEGATOR_MODELS_KEY) ?? 'null')); }
+  catch { return {}; }
+};
+
 const SNOOZED_SESSIONS_KEY = 'ember-legacy-snoozed-sessions';
 const storedSnoozedSessions = (): string[] => {
   try { return parseSnoozedSessions(JSON.parse(localStorage.getItem(SNOOZED_SESSIONS_KEY) ?? 'null')); }
@@ -313,6 +319,7 @@ let settings: EmberSettings = {
     // Cross-instance on purpose: same project, two instances.
     { id: 'g-release-train', name: 'Release train', keys: ['local::ses_a2', 'studio::ses_b1'] },
   ],
+  delegatorModels: storedDelegatorModels(),
   instanceDefaults: {
     local: { markerColor: 0 },
     studio: { markerColor: 7 },
@@ -734,6 +741,7 @@ export const bridge: EmberBridge = {
     settings = {
       ...settings,
       ...safePatch,
+      delegatorModels: patch.delegatorModels === undefined ? settings.delegatorModels : parseDelegatorModels(patch.delegatorModels),
       snoozedSessions: patch.snoozedSessions === undefined ? settings.snoozedSessions : parseSnoozedSessions(patch.snoozedSessions),
       avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments),
       ...(composerDraftChanges ? { composerDrafts: drafts } : {}),
@@ -741,6 +749,7 @@ export const bridge: EmberBridge = {
         ? { remotePasswordConfigured: typeof remotePassword === 'string' && remotePassword.length >= 8 }
         : {}),
     };
+    if (patch.delegatorModels !== undefined) localStorage.setItem(DELEGATOR_MODELS_KEY, JSON.stringify(settings.delegatorModels));
     if (patch.snoozedSessions !== undefined) localStorage.setItem(SNOOZED_SESSIONS_KEY, JSON.stringify(settings.snoozedSessions));
     if (performanceFixture) sessionStorage.setItem('ember-performance-settings', JSON.stringify(settings));
     return delay(settings);

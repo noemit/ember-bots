@@ -625,6 +625,12 @@ const REASONING_DISPLAYS: ReasoningDisplay[] = ['expanded', 'collapsed', 'hidden
 export const isReasoningDisplay = (value: unknown): value is ReasoningDisplay =>
   typeof value === 'string' && (REASONING_DISPLAYS as string[]).includes(value);
 
+/** Optional concrete worker choices, independent for each role and host. */
+export type DelegatorModels = {
+  harder?: { providerID: string; modelID: string };
+  easier?: { providerID: string; modelID: string };
+};
+
 export type InstanceDefaults = {
   /** User-chosen parent folder for discovering projects on this instance. */
   workspaceDirectory?: string;
@@ -640,6 +646,33 @@ export type InstanceDefaults = {
    * path from the settings file to the renderer, and it rebuilds each entry field by field.
    */
   preferredProvider?: string;
+};
+
+/** Shared by disk reads, desktop writes and authenticated remote settings writes. */
+export const parseDelegatorModels = (value: unknown): Record<string, DelegatorModels> => {
+  const result: Record<string, DelegatorModels> = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return result;
+  const identity = (value: unknown, limit: number): value is string =>
+    typeof value === 'string' && value.length > 0 && value.length <= limit &&
+    value.trim() === value && value !== 'default' &&
+    Array.from(value).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127);
+  Object.entries(value)
+    .filter(([key]) => key.trim().length > 0 && key.length <= 500 && !UNSAFE_RECORD_KEYS.has(key))
+    .slice(0, 2000)
+    .forEach(([key, raw]) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+      const entry: DelegatorModels = {};
+      for (const role of ['harder', 'easier'] as const) {
+        if (!Object.hasOwn(raw, role)) continue;
+        const model = (raw as Record<string, unknown>)[role];
+        if (!model || typeof model !== 'object' || Array.isArray(model)) continue;
+        const { providerID, modelID } = model as Record<string, unknown>;
+        if (Object.hasOwn(model, 'providerID') && Object.hasOwn(model, 'modelID') &&
+          identity(providerID, 200) && identity(modelID, 300)) entry[role] = { providerID, modelID };
+      }
+      if (entry.harder || entry.easier) result[key] = entry;
+    });
+  return result;
 };
 
 /**
@@ -747,6 +780,8 @@ export type EmberSettings = {
   /** Agent groups: named, cross-instance sets of `instance::session` keys. Ember-side only. */
   sessionGroups: SessionGroup[];
   instanceDefaults: Record<string, InstanceDefaults>;
+  /** Omitted roles use the delegator’s normal choice; patches replace the whole map. */
+  delegatorModels?: Record<string, DelegatorModels>;
   sessionNotes: Record<string, StoredSessionNote[]>;
   quoteLinks: StoredQuoteLink[];
   /** Per-message read state by session key (`instance::session`); see `src/lib/readState.ts`. */
