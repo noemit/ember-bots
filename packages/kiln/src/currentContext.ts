@@ -1,14 +1,21 @@
-import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
+import { estimateContextTokens, estimateMessageTokens } from '@earendil-works/pi-ai/utils/estimate';
 import { defineDoc, type ContextView, type Harness, type ConversationId } from '@earendil-works/pi-durable';
 import type { Context } from '@earendil-works/chord';
 
 /** Latest applicable usage plus trailing estimates. A newer summary invalidates old prefix usage. */
 export const currentContextOf = (view: Pick<ContextView, 'head' | 'messages'>) => ({
   currentContextTokens: estimateContextTokens(view.messages).tokens,
+  // Only older conversation content, before the latest user message. The current request can
+  // itself be enormous without older turns. Usage includes instructions/tools, so never use it
+  // for this estimate. Synthetic user messages can conservatively undercount older history.
+  currentContextHistoryTokens: view.messages.slice(0, Math.max(0,
+    view.messages.findLastIndex((message) => message.role === 'user'))).reduce((sum, message) =>
+    sum + (message.role === 'system' ? 0 : estimateMessageTokens(message)), 0),
   currentContextEpoch: view.head === undefined ? 'initial' : String(view.head.id),
 });
 export const CurrentContextDoc = defineDoc<{
   currentContextTokens?: number;
+  currentContextHistoryTokens?: number;
   currentContextEpoch?: string;
   /** Newest visible entry incorporated by this derivation; readers must reject mismatched anchors. */
   sourceEntryId?: number;

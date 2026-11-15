@@ -101,6 +101,8 @@ type MockConversation = {
   /** True while a compaction task is in flight (manual, threshold or overflow). */
   compacting: boolean;
   currentContextTokens?: number;
+  /** Estimated older content before the latest user message; excludes system instructions/tools and usage totals. */
+  currentContextHistoryTokens?: number;
   currentContextEpoch?: string;
   approvals: MockApproval[];
   questions: MockQuestion[];
@@ -1132,6 +1134,7 @@ const summaryOf = (conversation: MockConversation): Record<string, unknown> => (
   autoAccept: conversation.autoAccept.enabled,
   compacting: conversation.compacting,
   currentContextTokens: conversation.currentContextTokens,
+  currentContextHistoryTokens: conversation.currentContextHistoryTokens,
   currentContextEpoch: conversation.currentContextEpoch,
   // Hearth sends `cost` on every summary; the mock has to as well, or the badge's "never ran" and
   // "unknown" states are indistinguishable in dev:web.
@@ -2295,10 +2298,11 @@ export const mockInternals = {
     emit(id, 'view');
   },
   /** Deterministic current-context snapshots and invalidation; never runs a model. */
-  setCurrentContext(id: number, tokens: number, epoch = 'initial', busy = false) {
+  setCurrentContext(id: number, tokens: number | undefined, epoch = 'initial', busy = false, historyTokens?: number) {
     const conversation = conversations.find((entry) => entry.id === id);
     if (!conversation) throw new Error('Unknown fixture conversation');
     conversation.currentContextTokens = tokens;
+    conversation.currentContextHistoryTokens = historyTokens;
     conversation.currentContextEpoch = epoch;
     conversation.busy = busy;
     // run_start invalidates states only; this hook also changes session-summary metadata.

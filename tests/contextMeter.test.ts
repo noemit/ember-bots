@@ -137,3 +137,14 @@ describe('context meter copy', () => {
     }
   });
 });
+
+test('invalid or loading windows and non-finite usage never create a context percentage', () => {
+  for (const contextTokens of [undefined, 0, -1, NaN, Infinity]) {
+    const state = contextMeterState([assistant()], { ...TURN_MODEL, details: { contextTokens } });
+    expect(state.kind).toBe('unknown');
+    expect(contextMeterTooltip(state)).not.toMatch(/NaN|Infinity|Context \d+%/);
+  }
+  for (const input of [NaN, Infinity]) {
+    expect(contextMeterState([assistant({ tokens: usage(input) })], { ...TURN_MODEL, details: { contextTokens: 200_000 } }).kind).toBe('unknown');
+  }
+});

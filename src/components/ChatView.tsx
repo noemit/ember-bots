@@ -2372,6 +2372,7 @@ function ChatView({
               key={sessionKey(session)}
               scope={sessionKey(session)}
               tokens={session.currentContextTokens}
+              historyTokens={session.currentContextHistoryTokens}
               epoch={session.currentContextEpoch}
               window={(model ?? defaultModel)?.details?.contextTokens}
               compacting={compacting}

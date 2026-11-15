@@ -8,9 +8,10 @@ import {
   observeContextRecommendation as observe,
   shouldRecommendContextCompaction as visible,
 } from '../src/lib/contextRecommendation';
+import { currentContextOf } from '../packages/kiln/src/currentContext';
 import { piConversationToSession } from '../src/lib/piMapping';
 
-const high = { scope: 'host::session', tokens: 100_000, epoch: 'initial', window: 200_000 };
+const high = { scope: 'host::session', historyTokens: 100_000, tokens: 100_000, epoch: 'initial', window: 200_000 };
 
 describe('context recommendation policy', () => {
   test('inclusive 100k ceiling, earlier at 60% of small windows, unknown windows conservative', () => {
@@ -20,7 +21,7 @@ describe('context recommendation policy', () => {
     expect(visible(observe(undefined, high), high)).toBe(true);
     const below = { ...high, tokens: 99_999 };
     expect(visible(observe(undefined, below), below)).toBe(false);
-    const small = { ...high, window: 50_000, tokens: 30_000 };
+    const small = { ...high, window: 50_000, tokens: 30_000, historyTokens: 30_000 };
     expect(visible(observe(undefined, small), small)).toBe(true);
   });
 
@@ -62,7 +63,9 @@ describe('context recommendation policy', () => {
     expect(piConversationToSession('host', { id: 1, cost: 100_000 }).currentContextTokens).toBeUndefined();
     expect(piConversationToSession('host', { id: 1, currentContextTokens: 0, currentContextEpoch: 'reset-2' }))
       .toMatchObject({ currentContextTokens: 0, currentContextEpoch: 'reset-2' });
+    expect(piConversationToSession('host', { id: 1, currentContextHistoryTokens: 0 }).currentContextHistoryTokens).toBe(0);
     for (const count of [NaN, Infinity, -1]) {
+      expect(piConversationToSession('host', { id: 1, currentContextHistoryTokens: count }).currentContextHistoryTokens).toBeUndefined();
       expect(piConversationToSession('host', { id: 1, currentContextTokens: count }).currentContextTokens).toBeUndefined();
     }
   });
@@ -94,6 +97,16 @@ describe('context recommendation rendering', () => {
     expect(render({ busy: true })).toContain('when the running turn finishes');
     expect(render({ compacting: true })).toContain('Compacting…');
   });
+  test('high first-request context is not evidence of older compactable history, even while busy', () => {
+    for (const historyTokens of [0, 10, 99_999, undefined]) {
+      const html = render({ historyTokens, busy: true });
+      expect(html).toContain('Kiln reports a large context');
+      expect(html).toContain('instructions and tools');
+      expect(html).not.toContain('>Compact</button>');
+      expect(html).not.toContain('when the running turn finishes');
+      expect(html).toContain('Dismiss context recommendation');
+    }
+  });
   test('no advice for unknown or below threshold context', () => {
     expect(render({ tokens: undefined })).toBe('');
     expect(render({ tokens: 99_999 })).toBe('');
@@ -104,5 +117,23 @@ describe('context recommendation rendering', () => {
     expect(source.indexOf('<ContextRecommendation')).toBeLessThan(source.indexOf('data-composer-surface'));
     expect(source).not.toContain('autoCompactedRef');
     expect(source).not.toContain('onCompact();');
+  });
+});
+
+describe('Kiln snapshot → pi session → rendered advice boundary', () => {
+  test('first request with huge instructions reproduces high snapshot without a useful Compact action', () => {
+    const snapshot = currentContextOf({ head: undefined, messages: [
+      { role: 'system', content: 'instructions '.repeat(35_000), timestamp: 1 },
+      { role: 'user', content: 'Hello', timestamp: 2 },
+    ] });
+    const session = piConversationToSession('host', { id: 123, ...snapshot, busy: true });
+    const html = renderToStaticMarkup(<ContextRecommendation scope="host::123"
+      tokens={session.currentContextTokens} historyTokens={session.currentContextHistoryTokens}
+      epoch={session.currentContextEpoch} busy compacting={false} onCompact={() => { throw new Error('automatic compaction'); }} />);
+    expect(session.currentContextTokens).toBeGreaterThan(100_000);
+    expect(html).toContain('Kiln reports a large context');
+    expect(html).not.toContain('summarize older turns');
+    expect(html).not.toContain('>Compact</button>');
+    expect(html).not.toContain('when the running turn finishes');
   });
 });

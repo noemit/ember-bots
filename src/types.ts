@@ -176,6 +176,8 @@ export type Session = {
   delegates?: boolean;
   /** Host snapshot of the current model context, never cumulative billed/crew usage. */
   currentContextTokens?: number;
+  /** Estimated older content before the latest user message; excludes system instructions/tools and usage totals. */
+  currentContextHistoryTokens?: number;
   /** Host context generation: changes after a reset or successful compaction. */
   currentContextEpoch?: string;
   /** True while a context compaction task is in flight (Hearth's `pi.live.compactions`). */

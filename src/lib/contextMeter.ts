@@ -91,7 +91,7 @@ export const contextMeterState = (
   const selected = refOf(selectedModel);
   const turnModel = last.model;
   const used = last.tokens ? tokensInContext(last.tokens) : 0;
-  if (!last.tokens || used <= 0) {
+  if (!last.tokens || !Number.isFinite(used) || used <= 0) {
     return { kind: 'unknown', reason: 'no-usage', turnModel, selectedModel: selected };
   }
   if (!turnModel) {
@@ -101,7 +101,7 @@ export const contextMeterState = (
     return { kind: 'unknown', reason: 'model-changed', used, turnModel, selectedModel: selected };
   }
   const limit = selectedModel?.details?.contextTokens;
-  if (!limit || limit <= 0) {
+  if (!limit || !Number.isFinite(limit) || limit <= 0) {
     return { kind: 'unknown', reason: 'no-window', used, turnModel, selectedModel: selected };
   }
   const percent = Math.max(0, Math.round((used / limit) * 100));

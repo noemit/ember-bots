@@ -81,6 +81,8 @@ export type PiConversationSummary = {
   autoAccept?: boolean;
   /** Current context snapshot; absent on older hosts, not the usage ledger. */
   currentContextTokens?: number;
+  /** Estimated older content before the latest user message; excludes system instructions/tools and usage totals. */
+  currentContextHistoryTokens?: number;
   currentContextEpoch?: string;
   /** True while a compaction task (manual/threshold/overflow) is in flight. */
   compacting?: boolean;
@@ -145,6 +147,10 @@ export const piConversationToSession = (
   currentContextTokens:
     typeof conversation.currentContextTokens === 'number' && Number.isFinite(conversation.currentContextTokens) && conversation.currentContextTokens >= 0
       ? conversation.currentContextTokens
+      : undefined,
+  currentContextHistoryTokens:
+    typeof conversation.currentContextHistoryTokens === 'number' && Number.isFinite(conversation.currentContextHistoryTokens) && conversation.currentContextHistoryTokens >= 0
+      ? conversation.currentContextHistoryTokens
       : undefined,
   currentContextEpoch: typeof conversation.currentContextEpoch === 'string' ? conversation.currentContextEpoch : undefined,
   compacting: conversation.compacting === true,

@@ -385,6 +385,8 @@ type ConversationSummary = {
   cost: number;
   /** Estimate of the active model context, not lifetime usage; epoch changes on reset/compaction. */
   currentContextTokens?: number;
+  /** Estimated older content before the latest user message; excludes system instructions/tools and usage totals. */
+  currentContextHistoryTokens?: number;
   currentContextEpoch?: string;
   /** Server-side YOLO policy: permission prompts auto-accept for this conversation. */
   autoAccept?: boolean;
@@ -529,6 +531,7 @@ const summaryOf = async (
     // the old size (especially a pre-compaction high watermark) as the current context.
     ...(currentContext?.sourceEntryId === (newest?.items[0]?.id ?? 0) ? {
       currentContextTokens: currentContext.currentContextTokens,
+      currentContextHistoryTokens: currentContext.currentContextHistoryTokens,
       currentContextEpoch: currentContext.currentContextEpoch,
     } : {}),
     autoAccept: Boolean(auto?.enabled),

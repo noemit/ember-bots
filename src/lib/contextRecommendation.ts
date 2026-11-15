@@ -14,6 +14,8 @@ export const contextRecommendationThreshold = (window: number | undefined): numb
 export type ContextRecommendationObservation = {
   scope: string;
   tokens?: number;
+  /** Host estimate of older conversation content, excluding the current user turn and instructions. */
+  historyTokens?: number;
   window?: number;
   epoch?: string;
 };
@@ -35,8 +37,18 @@ export const observeContextRecommendation = (
   return previous;
 };
 
-export const shouldRecommendContextCompaction = (
+export const shouldShowContextAdvice = (
   episode: ContextRecommendationEpisode,
   observation: ContextRecommendationObservation
 ): boolean => !episode.dismissed && validCurrentContext(observation.tokens) &&
   observation.tokens >= contextRecommendationThreshold(observation.window);
+
+/** Only recommend a history rewrite when the history itself is large. Total context also includes
+ * instructions/tools, which compaction retains. Older hosts without this breakdown remain honest:
+ * explain the uncertainty instead of promising a useful compaction. */
+export const shouldRecommendContextCompaction = (
+  episode: ContextRecommendationEpisode,
+  observation: ContextRecommendationObservation
+): boolean => shouldShowContextAdvice(episode, observation) &&
+  validCurrentContext(observation.historyTokens) &&
+  observation.historyTokens >= contextRecommendationThreshold(observation.window);

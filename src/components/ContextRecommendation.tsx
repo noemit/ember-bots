@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import {
   observeContextRecommendation,
   shouldRecommendContextCompaction,
+  shouldShowContextAdvice,
   type ContextRecommendationObservation,
   type ContextRecommendationEpisode,
 } from '../lib/contextRecommendation';
@@ -20,22 +21,29 @@ export default function ContextRecommendation({ compacting, busy, onCompact, ...
   // Adjust only when the pure episode policy changes (not on each poll or render). Keeping this
   // in the render avoids flashing dismissed advice before an effect processes a new snapshot.
   if (episode !== previous) setPrevious(episode);
-  if (!shouldRecommendContextCompaction(episode, observation)) return null;
+  if (!shouldShowContextAdvice(episode, observation)) return null;
+  const recommend = shouldRecommendContextCompaction(episode, observation);
 
   return (
     <section aria-label="Context recommendation" className="mb-2 flex items-start gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
       <div className="min-w-0 flex-1">
-        <p>This conversation has a lot in context. Compact can summarize older turns and keep recent messages.</p>
-        {busy && !compacting ? <p className="mt-1">You can compact when the running turn finishes.</p> : null}
+        {recommend ? (
+          <p>This conversation has a lot of history. Compact can summarize older turns and keep recent messages.</p>
+        ) : observation.historyTokens !== undefined ? (
+          <p>Kiln reports a large context, but older messages may not be why. Compact keeps instructions and tools. You can keep working or review this chat’s instructions.</p>
+        ) : (
+          <p>Kiln reports a large context, including instructions and tools. Ember doesn’t yet know how much is older conversation history. You can check the context meter for details.</p>
+        )}
+        {recommend && busy && !compacting ? <p className="mt-1">You can compact when the running turn finishes.</p> : null}
       </div>
-      <button
+      {recommend ? <button
         type="button"
         disabled={busy || compacting}
         onClick={onCompact}
         className="min-h-8 rounded px-2 font-medium text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
       >
         {compacting ? 'Compacting…' : 'Compact'}
-      </button>
+      </button> : null}
       <button
         type="button"
         aria-label="Dismiss context recommendation"
