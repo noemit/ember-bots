@@ -150,3 +150,30 @@ test('changing instances restores that host’s independent worker choices', asy
   await expect(page.getByRole('button', { name: 'Harder tasks', exact: true })).toContainText('GLM');
   await expect(page.getByRole('button', { name: 'Easier tasks', exact: true })).toContainText('DeepSeek');
 });
+
+test('a late instruction read cannot overwrite the human’s new draft', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
+  await page.evaluate(() => {
+    const original = window.ember.piRequest!;
+    let held = false;
+    window.ember.piRequest = async (instance, path, init) => {
+      const response = await original(instance, path, init);
+      if (!held && path.includes('/entries?') && path.includes('docs=1')) {
+        held = true;
+        await new Promise<void>(resolve => window.addEventListener('release-instruction-read', () => resolve(), { once: true }));
+        const data = response.data as { docs?: Record<string, unknown> };
+        data.docs = { ...data.docs, 'pi.agent': { instructions: 'Old host text' } };
+      }
+      return response;
+    };
+  });
+  await page.locator('main[data-session-key="pi:hearth::10"]').getByRole('button', { name: 'View options' }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Standing instructions' });
+  await expect(dialog.getByText(/Reading this session/)).toBeVisible();
+  await dialog.getByRole('textbox').fill('My new direction');
+  await page.evaluate(() => window.dispatchEvent(new Event('release-instruction-read')));
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(dialog.getByRole('textbox')).toHaveValue('My new direction');
+});

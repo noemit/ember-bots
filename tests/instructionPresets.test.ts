@@ -46,6 +46,9 @@ describe('standing instruction presets', () => {
     expect(text).toMatch(/Retrieved is not verified or incorporated.*check evidence/);
     expect(text).toContain('/threads/<conversationId>');
     expect(text).toMatch(/Coordinate silently/);
+    expect(text).toMatch(/without subagents.*yourself/);
+    expect(text).toMatch(/report.*incomplete.*not Done/);
+    expect(text).toMatch(/stalled attempt.*reopening/);
     expect(text).toMatch(/corrections.*spawn a new task for unrelated work/);
     expect(text).toMatch(/Resume until the agreed outcome is delivered/);
   });

@@ -699,6 +699,18 @@ function ChatView({
   /** What an existing session has, once the dialog has read it. Keyed, so switching columns is safe. */
   const [instructionsByKey, setInstructionsByKey] = React.useState<Record<string, string>>({});
   const [instructionsLoading, setInstructionsLoading] = React.useState(false);
+  const instructionsAttempt = React.useRef(0);
+  React.useLayoutEffect(() => {
+    instructionsAttempt.current += 1;
+    setInstructionsOpen(false);
+    setInstructionsLoading(false);
+    return () => { instructionsAttempt.current += 1; };
+  }, [composerKey]);
+  const changeInstructionsOpen = (open: boolean) => {
+    if (!open) { instructionsAttempt.current += 1; setInstructionsLoading(false); }
+    setInstructionsOpen(open);
+  };
+  const editInstructions = () => { instructionsAttempt.current += 1; setInstructionsLoading(false); };
   /** The preset whose full text is being read, or null. */
   const [previewPreset, setPreviewPreset] = React.useState<InstructionPreset | null>(null);
   const instructionsKey = session ? sessionKey(session) : null;
@@ -728,6 +740,7 @@ function ChatView({
     if (instructionInstanceId) onDelegatorModelsChange?.(instructionInstanceId, choices);
   };
   const pickInstructions = (preset: InstructionPreset, editor: boolean) => {
+    if (editor) editInstructions();
     let next = preset.instructions;
     if (preset.id === 'delegator') {
       const choices = seedWorkerModels();
@@ -743,6 +756,7 @@ function ChatView({
       onRefresh={onModelsRefresh}
       onAddProviders={instructionInstanceId && onOpenProviders ? () => onOpenProviders(instructionInstanceId) : undefined}
       onChange={choices => {
+        if (editor) editInstructions();
         rememberWorkerModels(choices);
         if (editor) setInstructionsDraft(delegatorInstructions(choices));
         else setInstructions(delegatorInstructions(choices));
@@ -759,16 +773,17 @@ function ChatView({
     const key = sessionKey(session);
     if (key in instructionsByKey) return;
     setInstructionsLoading(true);
+    const attempt = ++instructionsAttempt.current;
     void onLoadInstructions(session)
       .then((result) => {
-        if (!result.supported) return;
+        if (!result.supported || instructionsAttempt.current !== attempt) return;
         const text = result.instructions ?? '';
         setInstructionsByKey((previous) => ({ ...previous, [key]: text }));
         setInstructionsDraft(text);
         setEditingCustomInstructions(!presetFor(text));
       })
       .catch(() => undefined)
-      .finally(() => setInstructionsLoading(false));
+      .finally(() => { if (instructionsAttempt.current === attempt) setInstructionsLoading(false); });
   };
 
   const saveInstructions = async (text = instructionsDraft) => {
@@ -783,10 +798,11 @@ function ChatView({
       return;
     }
     const key = sessionKey(session);
+    const attempt = instructionsAttempt.current;
     const saved = await onSaveInstructions(session, text || null);
     if (!saved) return;
     setInstructionsByKey((previous) => ({ ...previous, [key]: text }));
-    setInstructionsOpen(false);
+    if (instructionsAttempt.current === attempt) setInstructionsOpen(false);
   };
   /**
    * YEET mode: every message steers the running turn instead of queueing behind it. Queueing is
@@ -3100,7 +3116,7 @@ function ChatView({
           }} />
         </React.Suspense>
       ) : null}
-      <Dialog open={instructionsOpen} onOpenChange={setInstructionsOpen}>
+      <Dialog open={instructionsOpen} onOpenChange={changeInstructionsOpen}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Standing instructions</DialogTitle>
@@ -3129,7 +3145,7 @@ function ChatView({
               ))}
               <button
                 type="button"
-                onClick={() => { setEditingCustomInstructions(true); instructionsTextRef.current?.focus(); }}
+                onClick={() => { editInstructions(); setEditingCustomInstructions(true); instructionsTextRef.current?.focus(); }}
                 className={cn(
                   'rounded-md border px-2.5 py-2 text-left text-xs font-medium transition-colors hover:bg-muted/60',
                   editingCustomInstructions && 'border-ring bg-muted/40'
@@ -3147,7 +3163,7 @@ function ChatView({
             <Textarea
               ref={instructionsTextRef}
               value={instructionsDraft}
-              onChange={(event) => { setInstructionsDraft(event.target.value); setEditingCustomInstructions(true); }}
+              onChange={(event) => { editInstructions(); setInstructionsDraft(event.target.value); setEditingCustomInstructions(true); }}
               placeholder="Or write your own — leave empty for none."
               aria-label="Standing instructions text"
               className="min-h-32 text-xs"
