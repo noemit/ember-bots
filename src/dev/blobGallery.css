@@ -44,7 +44,7 @@
 .blob-gallery[data-paused='true'] .blob *, .blob-gallery[data-paused='true'] .blob { animation-play-state: paused !important; }
 .blob-gallery[data-scribble-preview='true'] .blob-scribble[data-mood='busy'] { --scribble-delay: var(--gallery-scribble-delay) !important; }
 .blob-gallery[data-reduced='true'] .blob *, .blob-gallery[data-reduced='true'] .blob { animation: none !important; transition: none !important; }
-.blob-gallery[data-reduced='true'] .mosaic-pixel { opacity: .45; }
+.blob-gallery[data-reduced='true'] :is(.mosaic-pixel, .mosaic-thought) { opacity: 0; }
 @media (max-width: 900px) { .gallery-spotlights { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {
   .blob-gallery { padding: 28px 20px; }

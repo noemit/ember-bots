@@ -1,25 +1,9 @@
 /* The character stays anchored. Extra tiles flick on and off in discrete pixel-art frames. */
 .blob-mosaic .mosaic-step { width: 100%; height: 100%; }
-.blob-mosaic .mosaic-pixel {
+.blob-mosaic :is(.mosaic-pixel, .mosaic-thought) {
   opacity: 0;
-  animation-duration: 2.4s;
   animation-timing-function: steps(1, end);
   animation-iteration-count: infinite;
-}
-@keyframes mosaic-pixel-near {
-  0%, 12%, 62%, 100% { opacity: 0; }
-  22%, 48% { opacity: 1; }
-  54% { opacity: 0.55; }
-}
-@keyframes mosaic-pixel-far {
-  0%, 30%, 58%, 100% { opacity: 0; }
-  40%, 50% { opacity: 0.75; }
-}
-.blob-mosaic .mosaic-thought { animation: mosaic-thought 3s steps(1, end) infinite; }
-@keyframes mosaic-thought {
-  0%, 40%, 100% { opacity: 0; }
-  12%, 24% { opacity: .48; }
-  32% { opacity: .18; }
 }
 /* Whole-cell glances, shared by both eyes. Blink timing is independent of the edge pixels.
    A seeded phase keeps neighbouring chats from looking and blinking in unison. */
@@ -63,6 +47,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .blob-mosaic :is(.mosaic-eyes, .mosaic-pupil, .mosaic-eye-open, .mosaic-eye-closed) { animation: none !important; }
-  .blob-mosaic .mosaic-thought { animation: none !important; opacity: .12; }
-  .blob-mosaic .mosaic-pixel { animation: none !important; opacity: 0.45; }
+  .blob-mosaic .mosaic-thought { animation: none !important; opacity: 0; }
+  .blob-mosaic .mosaic-pixel { animation: none !important; opacity: 0; }
 }

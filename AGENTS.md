@@ -597,7 +597,7 @@ their existing names; archive references in the implementation notes below descr
   Scribble’s raised hand appears only for questions; working cycles through left/right/away
   glances with the same wire movement, then a stretch, on a sixteen-second timeline.
   Thinking is style-specific: Buddy leans/squashes/rises and glances, Scribble wires twitch,
-  Mosaic lights stepped tiles, Lava gathers/stretches/melts, and Crystal glints through facets.
+  Mosaic grows sparse perimeter clusters, Lava gathers/stretches/melts, and Crystal glints through facets.
   Only Crystal uses the orbit ring; Lava keeps decision badges without an orbit. No shared thinking ring. Reduced motion disables
   all of them; idle remains still. Mosaic's body, activity tiles and error crosses use whole cells.
   Its normal face is a separate smooth layer: two unequal, lopsided whites with larger pupils and
@@ -605,6 +605,11 @@ their existing names; archive references in the implementation notes below descr
   Error eyes remain three-by-three crosses of full-size cells, without diagonal strokes. Working
   and thinking pupils glance in both axes with quiet holds and occasional blinks; seeded CSS phases
   keep chats out of sync, and reduced motion leaves the eyes open.
+  Mosaic working/thinking perimeter motion uses bounded, seeded 79–106s CSS event tracks
+  (`mosaicActivityPlan.ts`): location, cluster size, hold and rest vary on the original whole-cell
+  grid. Thinking has one quiet cluster, working two independent tracks. No per-frame JavaScript or
+  timers; idle emits no activity layer. Mounted SVG styles use unique React ids, like Lava, and
+  disappear on unmount. Reduced motion hides extra pixels; app/gallery pause preserves phase.
   Stored Pip selections migrate to Mosaic.
   Gem, Critter and Glyph were removed, and stored
   settings that still name them fall back to the default. Renderers memoize on the `identity`
