@@ -27,10 +27,12 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
   let pid: number | undefined;
   try {
     if (process.env.EMBER_EXPECT_MANUAL_PACKAGE === '1') {
-      const metadata = await app.evaluate(async ({ app }) => {
-        const { readFileSync } = await import('node:fs');
-        return JSON.parse(readFileSync(app.getAppPath() + '/package.json', 'utf8'));
-      });
+      // Electron's evaluation context has no dynamic-import callback. Read metadata in the
+      // test process, using the ASAR reader for an actual package (plain fs for source rehearsals).
+      const applicationPath = await app.evaluate(({ app }) => app.getAppPath());
+      const metadata = JSON.parse(applicationPath.endsWith('.asar')
+        ? (await import('@electron/asar')).extractFile(applicationPath, 'package.json').toString()
+        : await readFile(join(applicationPath, 'package.json'), 'utf8'));
       expect(metadata.emberUpdateChannel).toBeUndefined();
     }
     const window = await app.firstWindow();
