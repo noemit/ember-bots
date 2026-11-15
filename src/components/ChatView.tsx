@@ -1,4 +1,4 @@
-import { annotationDraftMemory, rememberAnnotationDraft, completeAnnotationDraft, type AnnotationDraft } from '../lib/annotationDraftMemory';
+import type { AnnotationGuard } from '../lib/annotationNavigation';
 import { isRemoteBrowser, isRemoteExpired, remoteAuxiliaryDrafts, setRemoteDraftBlocker } from '../lib/remoteLifecycle';
 import QuestionsShelf from './QuestionsShelf';
 import type { ProjectUsage } from '../lib/projectUsage';
@@ -224,7 +224,7 @@ type Props = {
    */
   focusTarget?: { messageId: string; token: number } | null;
   onAnnotate: (input: PromptInput, source: QuoteAnchor) => Promise<boolean>;
-  onSaveAnnotationNote: (text: string, source: QuoteAnchor) => Promise<boolean>;
+  onSaveAnnotationNote: (text: string, source: QuoteAnchor, requestId?: string) => Promise<boolean>;
   quoteLinks: QuoteLink[];
   onNavigateQuote: (link: QuoteLink, direction: 'source' | 'destination') => void;
   quoteFocus?: QuoteAnchor | null;
@@ -332,6 +332,8 @@ type Props = {
   onRename?: (title: string) => void;
   /** Called when the user interacts with this column, so the active session follows focus. */
   onActivate?: () => void;
+  /** Ask before a parent navigation changes which session owns this editor. */
+  onBeforeNavigate?: (request: AnnotationGuard | null) => void;
   /** The column the user is working in; inactive columns trim their composer chrome. Defaults true. */
   active?: boolean;
   /** A leader's direct workers; used in transcript status. */
@@ -564,6 +566,7 @@ function ChatView({
   onAskSideQuestion,
   onMinimize,
   onActivate,
+  onBeforeNavigate,
   onOpenProviders,
   onArchive,
   snoozed = false,
@@ -630,8 +633,13 @@ function ChatView({
   );
 
   const [annotationDraft, setAnnotationDraft] = React.useState('');
-  const annotationDraftRef = React.useRef('');
   const [annotationBusy, setAnnotationBusy] = React.useState(false);
+  const [annotationError, setAnnotationError] = React.useState<string | null>(null);
+  const annotationOperation = React.useRef<Promise<boolean> | null>(null);
+  const annotationEpoch = React.useRef(0);
+  const [annotationDecisionOpen, setAnnotationDecisionOpen] = React.useState(false);
+  const annotationDecisionResolver = React.useRef<((allowed: boolean) => void) | null>(null);
+  const annotationDecisionPromise = React.useRef<Promise<boolean> | null>(null);
   const annotationRequestId = React.useRef<string | null>(null);
   const [sideQuestionOpen, setSideQuestionOpen] = React.useState(false);
   const [sideQuestionText, setSideQuestionText] = React.useState('');
@@ -1230,46 +1238,68 @@ function ChatView({
   // which one it is, so the labels stay neutral and the tooltip says why.
   const statusUnknown = Boolean(session) && state === 'unknown';
 
-  const selectionComments = useSelectionComments({ regionRef: transcriptRef, hostRef: columnRef, enabled: Boolean(session), sessionKey: session ? makeSessionKey(session) : null, messages, hasDraft: Boolean(annotationDraft) });
-  const { clearDraft: clearAnnotationSource, restoreDraft: restoreAnnotationSource } = selectionComments;
+  const [annotationKey, setAnnotationKey] = React.useState<string | null>(composerKey);
+  const annotationActions = React.useRef<{ clear: () => void; dismiss: () => void } | null>(null);
+  const clearAnnotationEditor = React.useCallback(() => {
+    annotationRequestId.current = null;
+    setAnnotationDraft('');
+    setAnnotationError(null);
+    annotationActions.current?.clear();
+    annotationActions.current?.dismiss();
+  }, []);
+  const settleAnnotationDecision = React.useCallback((allowed: boolean) => {
+    setAnnotationDecisionOpen(false);
+    annotationDecisionResolver.current?.(allowed);
+    annotationDecisionResolver.current = null;
+    annotationDecisionPromise.current = null;
+  }, []);
+  const discardAnnotation = React.useCallback(() => {
+    clearAnnotationEditor();
+    settleAnnotationDecision(true);
+  }, [clearAnnotationEditor, settleAnnotationDecision]);
+  const beginAnnotationDecision = React.useCallback(() => {
+    if (annotationDecisionPromise.current) return annotationDecisionPromise.current;
+    setAnnotationDecisionOpen(true);
+    annotationDecisionPromise.current = new Promise<boolean>(resolve => { annotationDecisionResolver.current = resolve; });
+    return annotationDecisionPromise.current;
+  }, []);
+  const requestAnnotationDismiss = React.useCallback((): boolean | Promise<boolean> => {
+    if (annotationDecisionPromise.current) return annotationDecisionPromise.current;
+    if (annotationOperation.current) return annotationOperation.current.then(accepted => accepted || beginAnnotationDecision());
+    if (!annotationDraft.trim()) { clearAnnotationEditor(); return true; }
+    return beginAnnotationDecision();
+  }, [annotationDraft, beginAnnotationDecision, clearAnnotationEditor]);
+  const annotationDismissRef = React.useRef(requestAnnotationDismiss);
+  annotationDismissRef.current = requestAnnotationDismiss;
+  const navigationCallbackRef = React.useRef(onBeforeNavigate);
+  navigationCallbackRef.current = onBeforeNavigate;
+  React.useLayoutEffect(() => {
+    navigationCallbackRef.current?.(() => annotationDismissRef.current());
+    return () => { navigationCallbackRef.current?.(null); settleAnnotationDecision(false); };
+  }, [composerKey, settleAnnotationDecision]);
+  const selectionComments = useSelectionComments({ regionRef: transcriptRef, hostRef: columnRef, enabled: Boolean(session), sessionKey: session ? makeSessionKey(session) : null, messages, hasDraft: Boolean(annotationDraft), onDismissRequest: requestAnnotationDismiss });
+  const { clearDraft: clearAnnotationSource, dismiss: dismissAnnotationEditor } = selectionComments;
+  annotationActions.current = { clear: clearAnnotationSource, dismiss: dismissAnnotationEditor };
   const annotationSource = selectionComments.anchor;
   const annotationHasSource = Boolean(annotationSource?.quote.trim() && annotationSource.spans.length && session && annotationSource.sessionKey === makeSessionKey(session));
   const annotationSourceValid = annotationHasSource && validateQuoteAnchor(annotationSource!, messages, session ? makeSessionKey(session) : undefined).valid;
   const annotationReason = selectionComments.reason ?? (annotationHasSource && !annotationSourceValid
-    ? 'Ember cannot find the unchanged quoted passage. Copy your annotation text, then discard this draft and select the passage again.' : null);
-  const annotationMemoryRef = React.useRef<{ key: string | null; draft: AnnotationDraft | null }>({ key: null, draft: null });
-  const discardAnnotation = React.useCallback(() => {
-    rememberAnnotationDraft(composerKey, null);
-    annotationMemoryRef.current.draft = null;
-    annotationRequestId.current = null;
-    annotationDraftRef.current = '';
-    setAnnotationDraft('');
-    clearAnnotationSource();
-  }, [clearAnnotationSource, composerKey]);
-  const [annotationKey, setAnnotationKey] = React.useState<string | null>(null);
-  if (annotationKey === composerKey) annotationMemoryRef.current = {
-    key: composerKey,
-    draft: annotationHasSource && annotationDraft.trim() ? { text: annotationDraft, source: annotationSource!, requestId: annotationRequestId.current } : null,
-  };
+    ? 'Ember cannot find the unchanged passage, so it cannot link this annotation. Copy your text, then select the passage again to create a new annotation.' : null);
   React.useLayoutEffect(() => {
-    rememberAnnotationDraft(annotationMemoryRef.current.key, annotationMemoryRef.current.draft);
-    const saved = composerKey ? annotationDraftMemory.get(composerKey) : undefined;
-    annotationDraftRef.current = saved?.text ?? '';
-    annotationRequestId.current = saved?.requestId ?? null;
-    setAnnotationDraft(saved?.text ?? '');
+    annotationEpoch.current += 1;
+    settleAnnotationDecision(false);
+    setAnnotationDraft('');
+    annotationRequestId.current = null;
     setAnnotationBusy(false);
-    restoreAnnotationSource(saved?.source ?? null);
+    dismissAnnotationEditor();
+    clearAnnotationSource();
     setAnnotationKey(composerKey);
-  }, [composerKey, restoreAnnotationSource]);
-  React.useLayoutEffect(() => () => {
-    rememberAnnotationDraft(annotationMemoryRef.current.key, annotationMemoryRef.current.draft);
-  }, []);
+    return () => { annotationEpoch.current += 1; };
+  }, [composerKey, clearAnnotationSource, dismissAnnotationEditor, settleAnnotationDecision]);
   React.useLayoutEffect(() => {
     setRemoteDraftBlocker(reloadBlockerKey, Boolean(text.length || attachments.length || replyContext || sideQuestionText.length || annotationDraft.length || annotationBusy));
     if (isRemoteBrowser()) {
-      if (sideQuestionText || annotationDraft) remoteAuxiliaryDrafts.set(reloadBlockerKey, {
-        question: sideQuestionText, annotationDraft, annotationQuote: annotationSource?.quote ?? '',
-      });
+      if (sideQuestionText || annotationDraft) remoteAuxiliaryDrafts.set(reloadBlockerKey, { question: sideQuestionText, annotationDraft, annotationQuote: annotationSource?.quote ?? '' });
       else remoteAuxiliaryDrafts.delete(reloadBlockerKey);
     }
     return () => {
@@ -1285,35 +1315,42 @@ function ChatView({
     mode: session?.agent,
     variant: variant || undefined,
   });
-  const finishAnnotation = (key: string, submitted: AnnotationDraft) => {
-    if (!completeAnnotationDraft(key, submitted, annotationMemoryRef.current)) return;
-    annotationMemoryRef.current.draft = null;
-    annotationRequestId.current = null;
-    annotationDraftRef.current = '';
-    setAnnotationDraft('');
-    setAnnotationBusy(false);
-    clearAnnotationSource();
-  };
-  const submitAnnotation = async (asNote: boolean) => {
-    if (!annotationSource || !annotationDraft.trim() || annotationBusy || !session || !composerKey || loadedComposerKey !== composerKey || (!asNote && modelError)) return;
-    if (!validateQuoteAnchor(annotationSource, messages, makeSessionKey(session)).valid) return;
-    const key = composerKey;
+  const submitAnnotation = (asNote: boolean): Promise<boolean> => {
+    if (annotationOperation.current) return annotationOperation.current;
+    if (!annotationSource || !annotationDraft.trim() || !session || !composerKey || loadedComposerKey !== composerKey || (!asNote && modelError)) return Promise.resolve(false);
+    if (!validateQuoteAnchor(annotationSource, messages, makeSessionKey(session)).valid) return Promise.resolve(false);
+    const epoch = annotationEpoch.current;
     const input = annotationInput(annotationDraft);
-    const submitted: AnnotationDraft = { text: annotationDraft, source: annotationSource, requestId: annotationRequestId.current };
-    // Publish the request identity synchronously, before switching can save this draft.
-    annotationMemoryRef.current = { key, draft: submitted };
+    const source = annotationSource;
+    setAnnotationError(null);
     setAnnotationBusy(true);
-    try {
-      const accepted = asNote
-        ? await onSaveAnnotationNote(input.text, submitted.source)
-        : await onAnnotate(input, submitted.source);
-      if (accepted) finishAnnotation(key, submitted);
-    } finally {
-      if (annotationMemoryRef.current.key === key && annotationRequestId.current === submitted.requestId) setAnnotationBusy(false);
-    }
+    const operation = (async () => {
+      try {
+        const accepted = asNote ? await onSaveAnnotationNote(input.text, source, input.requestId) : await onAnnotate(input, source);
+        if (annotationEpoch.current === epoch) {
+          if (accepted) { clearAnnotationEditor(); settleAnnotationDecision(true); }
+          else setAnnotationError(asNote ? 'Ember could not save this annotation. Your text is still here; try Save again.' : 'Ember could not finish saving this annotation and its source link. Your text is still here; try Send again.');
+        }
+        return accepted && annotationEpoch.current === epoch;
+      } catch {
+        if (annotationEpoch.current === epoch) setAnnotationError('Ember could not save this annotation. Your text is still here; try again.');
+        return false;
+      } finally {
+        annotationOperation.current = null;
+        if (annotationEpoch.current === epoch) setAnnotationBusy(false);
+      }
+    })();
+    annotationOperation.current = operation;
+    return operation;
   };
   const sendAnnotation = () => submitAnnotation(false);
   const saveAnnotationNote = () => submitAnnotation(true);
+  React.useEffect(() => {
+    if (!annotationDraft.trim() && !annotationBusy) return;
+    const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', preventLoss);
+    return () => window.removeEventListener('beforeunload', preventLoss);
+  }, [annotationDraft, annotationBusy]);
 
   const hideToolCalls = view.hideToolCalls;
   const reasoningDisplay = view.reasoningDisplay;
@@ -2153,7 +2190,6 @@ function ChatView({
         )}
       </AnimatePresence>
 
-      {annotationKey === composerKey && annotationDraft.trim() && annotationHasSource && !selectionComments.visible ? <Button variant="outline" size="xs" data-annotation-composer="" onClick={selectionComments.resume}>{annotationSourceValid ? 'Resume annotation for' : 'Review annotation draft for'} “{annotationSource?.quote.slice(0, 50)}”</Button> : null}
       {annotationKey === composerKey && selectionComments.position && selectionComments.visible ? (
         <SelectionCommentBar
           position={selectionComments.position}
@@ -2163,13 +2199,29 @@ function ChatView({
           focusEditor={selectionComments.focusEditor}
           busy={annotationBusy}
           queueing={shouldQueue}
-          onDraftChange={(value) => { if (value !== annotationDraftRef.current) annotationRequestId.current = null; annotationDraftRef.current = value; setAnnotationDraft(value); }}
+          onDraftChange={(value) => { if (value !== annotationDraft) annotationRequestId.current = null; setAnnotationError(null); setAnnotationDraft(value); }}
           onSend={sendAnnotation}
           onNote={saveAnnotationNote}
-          onDismiss={selectionComments.dismiss}
-          onDiscard={discardAnnotation}
+          onDismiss={() => { void requestAnnotationDismiss(); }}
+          error={annotationError}
         />
       ) : null}
+      <Dialog open={annotationDecisionOpen} onOpenChange={(open) => { if (!open && !annotationBusy) settleAnnotationDecision(false); }}>
+        <DialogContent showCloseButton={false} data-annotation-decision="" onEscapeKeyDown={(event) => { event.preventDefault(); if (!annotationBusy) settleAnnotationDecision(false); }} onPointerDownOutside={(event) => { event.preventDefault(); }}>
+          <DialogHeader>
+            <DialogTitle>Save this annotation for later?</DialogTitle>
+            <DialogDescription>{annotationReason ?? "Save keeps your text and its quoted passage in this chat’s For later tray. Escape returns to the editor."}</DialogDescription>
+          </DialogHeader>
+          {annotationError ? <p role="alert" className="text-sm text-destructive">{annotationError}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={annotationBusy} onClick={discardAnnotation}>Discard</Button>
+            <Button type="button" disabled={annotationBusy || !annotationSourceValid || Boolean(annotationReason)} onClick={async () => {
+              const saved = await saveAnnotationNote();
+              if (saved) settleAnnotationDecision(true);
+            }}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {composerKey ? (
         <div className="flex-none">
           <div data-composer-extras className="flex min-w-0 flex-col gap-2 px-2.5 py-2 empty:hidden sm:px-3">

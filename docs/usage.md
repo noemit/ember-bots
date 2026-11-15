@@ -55,8 +55,10 @@ Tool steps do not need receipts. “↑ Jump to your last message” appears onl
 is above the view and none of your messages is visible; jumping never marks anything read.
 
 Select a passage to open its floating annotation composer. Send follows the normal send/queue path;
-Note saves it in For later. Both leave your main draft untouched. Hide or click away to retain the
-annotation, then use Resume annotation to continue. Quote links connect the saved annotation and its
+Note saves it in For later. Both leave your main draft untouched. Clicking away or navigating with
+an unfinished annotation asks **Save this annotation for later?** Save keeps a linked note; Discard
+removes only the annotation. Escape returns to the editor. Failed saves keep your text visible and
+retryable; there are no hidden, resumable annotation drafts. Quote links connect the saved annotation and its
 source in both directions, without marking either read. Selections that cannot be mapped precisely
 are refused rather than attached to the wrong passage. Internal thread-result retrieval does not
 change your read marks.

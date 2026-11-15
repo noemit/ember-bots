@@ -11,10 +11,11 @@ type Options = {
   sessionKey: string | null;
   messages: readonly ChatMessage[];
   hasDraft: boolean;
+  onDismissRequest: () => void;
 };
 
 /** One retained source, independent of both the native selection and the main composer. */
-export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, messages, hasDraft }: Options) {
+export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, messages, hasDraft, onDismissRequest }: Options) {
   const [position, setPosition] = React.useState<CommentBarPosition | null>(null);
   const [anchor, setAnchor] = React.useState<QuoteAnchor | null>(null);
   const [quote, setQuote] = React.useState('');
@@ -32,13 +33,10 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
     setPosition(null);
     window.getSelection()?.removeAllRanges();
   }, []);
-  const restoreDraft = React.useCallback((source: QuoteAnchor | null) => {
-    setAnchor(source); setQuote(source?.quote ?? ''); setReason(null); dismiss();
-  }, [dismiss]);
   const clearDraft = React.useCallback(() => {
     setAnchor(null); setQuote(''); setReason(null); dismiss();
   }, [dismiss]);
-  const resume = React.useCallback(() => {
+  const focusCurrent = React.useCallback(() => {
     editing.current = true;
     setFocusEditor(true);
     setPosition({ left: 8, top: Math.max(8, (hostRef.current?.clientHeight ?? 400) * 0.25) });
@@ -54,8 +52,8 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
       const focus = focusRequested.current;
       if (retained.current) {
         // A retained draft keeps its original source. Honour the queued keyboard intent by
-        // resuming it after release, rather than silently dropping the request or rebinding it.
-        if (focus) { focusRequested.current = false; resume(); }
+        // focusing it after release, rather than silently dropping the request or rebinding it.
+        if (focus) { focusRequested.current = false; focusCurrent(); }
         return;
       }
       if (editing.current && !focus) return;
@@ -84,7 +82,7 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
       setPosition({ left: Math.max(8, Math.min(rect.left - hostRect.left, hostRect.width - 368)), top: rect.bottom - hostRect.top + 180 < hostRect.height ? rect.bottom - hostRect.top + 8 : Math.max(8, rect.top - hostRect.top - 180) });
       editing.current = true;
       // Native mouse selection stays selected until the person chooses the input. Only the
-      // explicit keyboard shortcut and Resume transfer focus to the editor automatically.
+      // explicit keyboard shortcut focuses the editor to the editor automatically.
       setFocusEditor(focus);
     };
     const schedule = () => { window.clearTimeout(timer); timer = window.setTimeout(() => capture(), 120); };
@@ -95,10 +93,10 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
       focusRequested.current = true;
       capture();
     };
-    const outside = (event: PointerEvent) => {
-      pointerHeld.current = event.button === 0 && Boolean(event.target instanceof Node && regionRef.current?.contains(event.target));
-      if (!(event.target instanceof Element) || event.target.closest('[data-annotation-composer]')) return;
-      if (editing.current) dismiss();
+    const pointer = (event: PointerEvent) => { pointerHeld.current = event.button === 0 && Boolean(event.target instanceof Node && regionRef.current?.contains(event.target)); };
+    const outside = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || event.target.closest('[data-annotation-composer], [data-annotation-decision]')) return;
+      if (editing.current) onDismissRequest();
     };
     const release = () => { const selected = pointerHeld.current; pointerHeld.current = false; if (selected) schedule(); };
     const cancel = () => { pointerHeld.current = false; focusRequested.current = false; };
@@ -106,9 +104,10 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
     document.addEventListener('pointercancel', cancel);
     document.addEventListener('selectionchange', schedule);
     document.addEventListener('keydown', shortcut);
-    document.addEventListener('pointerdown', outside);
-    return () => { window.clearTimeout(timer); document.removeEventListener('pointerup', release); document.removeEventListener('pointercancel', cancel); document.removeEventListener('selectionchange', schedule); document.removeEventListener('keydown', shortcut); document.removeEventListener('pointerdown', outside); };
-  }, [enabled, sessionKey, messages, regionRef, hostRef, dismiss, resume]);
+    document.addEventListener('pointerdown', pointer);
+    document.addEventListener('click', outside);
+    return () => { window.clearTimeout(timer); document.removeEventListener('pointerup', release); document.removeEventListener('pointercancel', cancel); document.removeEventListener('selectionchange', schedule); document.removeEventListener('keydown', shortcut); document.removeEventListener('pointerdown', pointer); document.removeEventListener('click', outside); };
+  }, [enabled, sessionKey, messages, regionRef, hostRef, dismiss, focusCurrent, onDismissRequest]);
 
-  return { position, visible: Boolean(position), focusEditor, anchor, quote, reason, dismiss, resume, clearDraft, restoreDraft };
+  return { position, visible: Boolean(position), focusEditor, anchor, quote, reason, dismiss, clearDraft };
 }

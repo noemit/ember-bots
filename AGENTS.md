@@ -760,8 +760,10 @@ their existing names; archive references in the implementation notes below descr
   (`Jump to 18:41 · bash failed`). Toggled by `showActivityRail` (default on, View → Layout).
 - `SelectionCommentBar.tsx` is the floating annotation composer, not a comment collection tray.
   `useSelectionComments` captures a stable source through `lib/quoteLinks.ts`; Send uses the normal
-  submit path, Note saves in For later, and neither consumes the main composer draft. Dismissal
-  retains the annotation and its source. Quote links persist locally in settings, with bounded exact
+  submit path, Note saves in For later, and neither consumes the main composer draft. Nonempty
+  dismissal asks Save/Discard; Escape cancels dismissal. There is no editor X, inline Discard or
+  hidden resumable draft. Navigation waits on the same decision (or in-flight save), and failures
+  leave the editor retryable. One stable attempt id prevents duplicate note/link saves. Quote links persist locally in settings, with bounded exact
   part snapshots and offsets. Unsupported or ambiguous selections are refused; changed sources never
   relocate. Canonical message/submission receipts, including explicit stop/reorder lineage, move
   queue links to transcript entries without text/time matching. Link controls are interactive and

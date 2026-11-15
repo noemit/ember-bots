@@ -1,3 +1,5 @@
+import { annotationNotePatch } from './lib/annotationNote';
+import { confirmAnnotations, type AnnotationGuard } from './lib/annotationNavigation';
 import { InstanceOutageToasts } from './components/InstanceOutageToasts';
 import type { DelegatorChoices } from './lib/delegatorModels';
 import { isRemoteBrowser, setRemoteActiveWork } from './lib/remoteLifecycle';
@@ -363,6 +365,15 @@ export default function App() {
   const [summaries, setSummaries] = React.useState<Record<string, SessionMessageSummary>>({});
   const [openSessions, setOpenSessions] = React.useState<string[]>([]);
   const [activeSession, setActiveSession] = React.useState<string | null>(null);
+  const annotationNavigationHandlers = React.useRef(new Map<string, AnnotationGuard>());
+  const annotationNavigationPending = React.useRef(false);
+  const navigateWithAnnotations = React.useCallback((action: () => void) => {
+    if (annotationNavigationPending.current) return;
+    const allowed = confirmAnnotations([...annotationNavigationHandlers.current.values()]);
+    if (typeof allowed === 'boolean') { if (allowed) action(); return; }
+    annotationNavigationPending.current = true;
+    void allowed.then(ok => { if (ok) action(); }, () => {}).finally(() => { annotationNavigationPending.current = false; });
+  }, []);
   // Inspection is not workspace navigation. This key is deliberately never persisted.
   const [threadModalKey, setThreadModalKey] = React.useState<string | null>(null);
   const threadModalKeyRef = React.useRef<string | null>(null);
@@ -605,11 +616,11 @@ export default function App() {
     const openOnShortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') return;
       event.preventDefault();
-      setCommandPaletteOpen(true);
+      navigateWithAnnotations(() => setCommandPaletteOpen(true));
     };
     window.addEventListener('keydown', openOnShortcut);
     return () => window.removeEventListener('keydown', openOnShortcut);
-  }, []);
+  }, [navigateWithAnnotations]);
 
   // Keep a live ref to the selected session so pollers can read its
   // directory (for routing) without re-running the effect on every session list refresh.
@@ -1717,7 +1728,7 @@ export default function App() {
    * `known` lets callers supply the session before the session list has caught up (a just-created
    * or restored one); it is not otherwise needed here, because the key alone is what gets opened.
    */
-  const openSession = React.useCallback((ref: SessionRef, known?: Session | null) => {
+  const performOpenSession = React.useCallback((ref: SessionRef, known?: Session | null) => {
     const session = known ?? (sessionsByInstanceRef.current[ref.instanceId] ?? []).find((entry) => entry.id === ref.sessionId);
     if (session && isWorker(session)) {
       if (!session.promotedTo || session.task) {
@@ -1764,6 +1775,12 @@ export default function App() {
     setUsageOpen(false);
     setScheduledOpen(false);
   }, [saveCurrentLayout, setDraftPendingId]);
+  const performOpenSessionRef = React.useRef(performOpenSession);
+  performOpenSessionRef.current = performOpenSession;
+  const openSession = React.useCallback((ref: SessionRef, known?: Session | null) => {
+    if (sessionKey(ref) === activeSessionRef.current && !threadModalKeyRef.current) { performOpenSessionRef.current(ref, known); return; }
+    navigateWithAnnotations(() => performOpenSessionRef.current(ref, known));
+  }, [navigateWithAnnotations]);
 
   /**
    * Open a project. `projectSessions` is exactly what the project's card showed, so opening it
@@ -1773,7 +1790,7 @@ export default function App() {
    * recency order. An empty set opens a draft.
    */
   /** Open a group: its members become the workspace's columns, replacing whatever was open. */
-  const openGroup = (members: Session[]) => {
+  const openGroup = (members: Session[]) => navigateWithAnnotations(() => {
     showActionError(null);
     const keys = members.filter((session) => !session.archived && !isWorker(session)).map(sessionKey);
     if (keys.length === 0) return;
@@ -1785,7 +1802,7 @@ export default function App() {
     setMinimizedSessions(new Set());
     setUsageOpen(false);
     setScheduledOpen(false);
-  };
+  });
 
   const ungroupGroup = (groupId: string) => {
     handleSettings({
@@ -1800,7 +1817,7 @@ export default function App() {
     });
   };
 
-  const openProject = React.useCallback((instanceId: string, project: Project, projectSessions: Session[]) => {
+  const performOpenProject = React.useCallback((instanceId: string, project: Project, projectSessions: Session[]) => {
     showActionError(null);
     const owned = projectSessions.filter((session) => !session.archived && !isWorker(session));
     const ownedKeys = new Set(owned.map(sessionKey));
@@ -1859,7 +1876,9 @@ export default function App() {
     setNewSessionDirectory(null);
   }, [showActionError, saveCurrentLayout]);
 
-  const activateSession = React.useCallback((key: string) => {
+  const openProject = useStableCallback((instanceId: string, project: Project, projectSessions: Session[]) => navigateWithAnnotations(() => performOpenProject(instanceId, project, projectSessions)));
+
+  const performActivateSession = React.useCallback((key: string) => {
     setActiveSession(key);
     // Leaving the new-agent draft for an existing session discards the draft pane.
     setNewSessionInstanceId(null);
@@ -1874,13 +1893,19 @@ export default function App() {
       return next;
     });
   }, []);
+  const performActivateSessionRef = React.useRef(performActivateSession);
+  performActivateSessionRef.current = performActivateSession;
+  const activateSession = React.useCallback((key: string) => {
+    if (key === activeSessionRef.current) return;
+    navigateWithAnnotations(() => performActivateSessionRef.current(key));
+  }, [navigateWithAnnotations]);
 
   /**
    * Close a session's column. It is not parked anywhere: with no tab strip there is nothing to
    * park it in, and the rail already lists every session, so closing simply hands the view back to
    * whatever else is open (or to the activity home when nothing is).
    */
-  const minimizeSession = React.useCallback((key: string) => {
+  const performMinimizeSession = React.useCallback((key: string) => {
     const remaining = openSessionsRef.current.filter((entry) => entry !== key);
     setOpenSessions(remaining);
     setMinimizedSessions((prev) => {
@@ -1894,6 +1919,8 @@ export default function App() {
       return remaining.find((entry) => !minimizedKeysRef.current.has(entry)) ?? remaining[0] ?? null;
     });
   }, []);
+
+  const minimizeSession = useStableCallback((key: string) => navigateWithAnnotations(() => performMinimizeSession(key)));
 
   const closeSession = React.useCallback((key: string) => {
     const remaining = openSessionsRef.current.filter((entry) => entry !== key);
@@ -3035,7 +3062,7 @@ export default function App() {
     }
   };
 
-  const beginNewAgent = React.useCallback((instanceId: string, directory?: string) => {
+  const performBeginNewAgent = React.useCallback((instanceId: string, directory?: string) => {
     showActionError(null);
     setDraftAppearance(null);
     // Keep the open columns; the draft simply takes the active pane (no session key yet). A
@@ -3049,6 +3076,8 @@ export default function App() {
     setUsageOpen(false);
     setScheduledOpen(false);
   }, [showActionError, setDraftPendingId]);
+
+  const beginNewAgent = useStableCallback((instanceId: string, directory?: string) => navigateWithAnnotations(() => performBeginNewAgent(instanceId, directory)));
 
   const dismissOnboarding = React.useCallback(() => {
     handleSettings({ onboardingDismissedAt: Date.now() }, { preserveActionError: true });
@@ -4189,7 +4218,7 @@ export default function App() {
    * permission/question or queued messages gets one confirmation first; archiving never sends an
    * abort and always offers Undo.
    */
-  const requestArchive = (session: Session) => {
+  const requestArchive = (session: Session) => navigateWithAnnotations(() => {
     const key = sessionKey(session);
     const ref = parseSessionKey(key);
     if (!ref || session.archived || archivingKeys.has(key)) return;
@@ -4210,7 +4239,7 @@ export default function App() {
       });
     if (pending) setArchiveConfirmKey(key);
     else void handleArchive(session, true);
-  };
+  });
 
   /** Bulk archive/restore from a project card's `+N` menu, with one undo notice for the batch. */
   const handleArchiveMany = async (sessions: Session[], archived = true, notice?: (count: number) => string) => {
@@ -4879,14 +4908,12 @@ export default function App() {
     setQuoteNavigation((previous) => ({ key, messageId: messageId ?? '', token: (previous?.token ?? 0) + 1, source: direction === 'source' ? link.source : null, destination: direction === 'destination' ? link.destination : null }));
   };
 
-  const saveAnnotationNote = async (key: string, text: string, source: QuoteAnchor): Promise<boolean> => {
-    const id = createNoteId();
-    const link: QuoteLink = { id: createQuoteLinkId(), source, destination: { kind: 'note', sessionKey: key, id } };
-    const sessionNotes = addNote(settingsRef.current.sessionNotes, key, { id, text, quoteLinkId: link.id });
-    if (!sessionNotes[key]?.some((note) => note.id === id)) return false;
+  const saveAnnotationNote = async (key: string, text: string, source: QuoteAnchor, requestId = createQuoteLinkId()): Promise<boolean> => {
+    const { sessionNotes, quoteLinks, link } = annotationNotePatch(settingsRef.current.sessionNotes, settingsRef.current.quoteLinks, key, text, source, requestId);
+    if (!sessionNotes[key]?.some(note => note.id === link.destination.id)) return false;
     try {
-      const stored = await handleSettings({ sessionNotes, quoteLinks: pruneAnnotationNotes([...settingsRef.current.quoteLinks, link].slice(-5000), sessionNotes) });
-      if (!stored.quoteLinks.some((entry) => entry.id === link.id)) {
+      const stored = await handleSettings({ sessionNotes, quoteLinks });
+      if (!stored.quoteLinks.some(entry => entry.id === link.id)) {
         showActionError('Ember could not retain this annotation’s source link. Shorten the selected passage, then try Note again.');
         return false;
       }
@@ -5297,7 +5324,7 @@ export default function App() {
           onDeleteNote={handleDeleteNote}
           quoteLinks={settings.quoteLinks.filter((link) => link.source.sessionKey === key || link.destination.sessionKey === key)}
           onAnnotate={(input, source) => sendAnnotation(ref, session.directory, input, source)}
-          onSaveAnnotationNote={(text, source) => saveAnnotationNote(notesKey, text, source)}
+          onSaveAnnotationNote={(text, source, requestId) => saveAnnotationNote(notesKey, text, source, requestId)}
           onNavigateQuote={navigateQuote}
           focusTarget={quoteNavigation?.key === key ? quoteNavigation : null}
           quoteFocus={quoteNavigation?.key === key ? quoteNavigation.source : null}
@@ -5358,6 +5385,11 @@ export default function App() {
           }
           onMinimize={modal ? undefined : () => minimizeSession(key)}
           onActivate={modal ? undefined : () => activateSession(key)}
+          onBeforeNavigate={(request) => {
+            const scope = (modal ? 'thread:' : 'column:') + key;
+            if (request) annotationNavigationHandlers.current.set(scope, request);
+            else annotationNavigationHandlers.current.delete(scope);
+          }}
           // The picker's "New provider" opens the host's own Providers screen. Which endpoint is
           // being configured is a property of that screen, so the id comes along.
           onOpenProviders={(instanceId) => {
@@ -5530,28 +5562,28 @@ export default function App() {
             mobileNavigationOpen={mobileRailOpen}
             railMode={settings.railMode}
             onCycleRailMode={cycleRailMode}
-            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+            onOpenCommandPalette={() => navigateWithAnnotations(() => setCommandPaletteOpen(true))}
             onRefresh={() => void refreshInstances()}
             onShowSessions={showSessions}
-            onShowUsage={() => {
+            onShowUsage={() => navigateWithAnnotations(() => {
               setScheduledOpen(false);
               setUsageOpen(true);
-            }}
+            })}
             usageActive={usageOpen}
-            onShowScheduled={() => {
+            onShowScheduled={() => navigateWithAnnotations(() => {
               setUsageOpen(false);
               setScheduledOpen(true);
-            }}
+            })}
             scheduledActive={scheduledOpen}
             unseenScheduledRuns={unseenScheduledRunsCount}
             hideNavigation={usageOpen || scheduledOpen}
-            onOpenSettings={() => {
+            onOpenSettings={() => navigateWithAnnotations(() => {
               setMobileRailOpen(false);
               setProviderEndpointId(undefined);
               setSettingsView('general');
               setSettingsActivated(true);
               setSettingsOpen(true);
-            }}
+            })}
             onOpenInstanceSettings={() => {
               setProviderEndpointId(undefined);
               setSettingsView('instances');
@@ -5619,7 +5651,7 @@ export default function App() {
               runningScheduledKeys={runningScheduledKeys}
               onRunScheduledTask={(task) => void handleRunScheduledTask(task)}
               onChangeScheduledTaskModel={handleChangeScheduledTaskModel}
-              onOpenArchive={() => setArchiveOpen(true)}
+              onOpenArchive={() => navigateWithAnnotations(() => setArchiveOpen(true))}
               onSelectSession={(session) => {
                 if (session.archived) void handleRestoreAndOpen(session);
                 else openSession({ instanceId: session.instanceId, sessionId: session.id }, session);
@@ -5812,7 +5844,7 @@ export default function App() {
           ) : null}
 
           {threadModalKey ? (
-            <Dialog open onOpenChange={(open) => { if (!open) setThreadModalKey(null); }}>
+            <Dialog open onOpenChange={(open) => { if (!open) navigateWithAnnotations(() => setThreadModalKey(null)); }}>
               <DialogContent className="flex h-[calc(100dvh-1rem)] max-h-[900px] w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[min(90dvh,900px)] sm:w-[min(1200px,94vw)] sm:max-w-[1200px]" data-testid="thread-session-modal"
                 onCloseAutoFocus={(event) => {
                   event.preventDefault();

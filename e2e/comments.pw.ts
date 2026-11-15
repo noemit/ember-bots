@@ -25,7 +25,7 @@ const select = async (page: Page, phrase = 'step counter shows') => {
 };
 const settings = (page: Page) => page.evaluate(() => window.ember.getSettings());
 
-test('annotation draft hides and resumes without consuming the main draft; Note links survive restart', async ({ page }) => {
+test('annotation dismissal saves a linked note without consuming the main draft; links survive restart', async ({ page }) => {
   const column = await open(page);
   const main = column.getByRole('textbox', { name: 'Message your bot', exact: true });
   await main.fill('Keep my main draft');
@@ -34,15 +34,16 @@ test('annotation draft hides and resumes without consuming the main draft; Note 
   await expect(bar).toBeVisible();
   await bar.getByRole('textbox').fill('Keep this annotation');
   await page.screenshot({ path: test.info().outputPath('annotation-composer.png') });
-  await bar.getByRole('button', { name: 'Close annotation editor' }).click();
-  await expect(bar).toHaveCount(0);
-  await expect(main).toHaveValue('Keep my main draft');
-  await column.getByRole('button', { name: /Resume annotation/ }).click();
+  await expect(bar.getByRole('button', { name: /Close|Discard/ })).toHaveCount(0);
+  await main.click();
+  const decision = page.getByRole('dialog', { name: 'Save this annotation for later?' });
+  await expect(decision).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(decision).toHaveCount(0);
   await expect(bar.getByRole('textbox')).toHaveValue('Keep this annotation');
   await main.click();
-  await expect(bar).toHaveCount(0);
-  await column.getByRole('button', { name: /Resume annotation/ }).click();
-  await bar.getByRole('button', { name: 'Save annotation with quote as a note' }).click();
+  await decision.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(decision).toHaveCount(0);
   await expect(bar).toHaveCount(0);
   await expect(main).toHaveValue('Keep my main draft');
   const saved = await settings(page);
@@ -375,29 +376,6 @@ test('annotation shortcut before the selection debounce opens and focuses immedi
   });
   const bar = column.getByRole('group', { name: 'Annotate selected text' });
   await expect(bar.getByRole('textbox')).toBeFocused();
-  await expect(bar.getByRole('textbox')).toHaveAttribute('aria-label', /step counter shows/);
-  expect((await settings(page)).readMarks).toEqual(before);
-});
-
-test('a held-pointer shortcut defers resuming an existing annotation until release without rebinding its source', async ({ page }) => {
-  const column = await open(page);
-  const before = (await settings(page)).readMarks;
-  await select(page);
-  const bar = column.getByRole('group', { name: 'Annotate selected text' });
-  await bar.getByRole('textbox').fill('Retain this annotation and its source');
-  await bar.getByRole('button', { name: 'Close annotation editor' }).click();
-  const box = await column.locator('[data-message-id="e2"] p').boundingBox();
-  if (!box) throw new Error('Source prose is not laid out');
-  await page.mouse.move(box.x + 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + 20, box.y + box.height / 2, { steps: 4 });
-  await page.keyboard.press('Control+Alt+c');
-  // Even an existing draft must not take focus in the middle of the native drag.
-  await expect(bar).toHaveCount(0);
-  await page.mouse.move(box.x + 145, box.y + box.height / 2, { steps: 10 });
-  await page.mouse.up();
-  await expect(bar.getByRole('textbox')).toBeFocused();
-  await expect(bar.getByRole('textbox')).toHaveValue('Retain this annotation and its source');
   await expect(bar.getByRole('textbox')).toHaveAttribute('aria-label', /step counter shows/);
   expect((await settings(page)).readMarks).toEqual(before);
 });
