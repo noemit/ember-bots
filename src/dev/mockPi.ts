@@ -2080,7 +2080,7 @@ const READ_STATE_KEY = 'ember-pi-read-state';
  */
 const NOTES_KEY = 'ember-pi-notes';
 
-const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'snoozedSessions' | 'instanceDefaults' | 'delegatorModels' | 'avatarOverrides' | 'avatarAssignments' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
+const storedReadState = (): Partial<Pick<EmberSettings, 'readMarks' | 'readSince' | 'mutedSessions' | 'snoozedSessions' | 'instanceDefaults' | 'automaticUpdateChecks' | 'delegatorModels' | 'avatarOverrides' | 'avatarAssignments' | 'theme' | 'blobStyle' | 'conversationFontSize'>> => {
   try {
     return JSON.parse(window.localStorage.getItem(READ_STATE_KEY) ?? 'null') ?? {};
   } catch {
@@ -2134,6 +2134,7 @@ let settings: EmberSettings = {
   composerDrafts: {},
   scheduledSessionBindings: {},
   autoArchiveScheduledRuns: true,
+  automaticUpdateChecks: storedRead.automaticUpdateChecks !== false,
   avatarOverrides: parseAvatarOverrides(storedRead.avatarOverrides),
   avatarAssignments: parseAvatarAssignments(storedRead.avatarAssignments),
   projectColorAssignments: {},
@@ -2233,10 +2234,10 @@ export const bridge: EmberBridge = {
     if (patch.quoteLinks !== undefined) window.localStorage.setItem('ember-pi-quote-links', JSON.stringify(patch.quoteLinks));
     if (patch.sessionNotes !== undefined) window.localStorage.setItem(NOTES_KEY, JSON.stringify(patch.sessionNotes));
     settings = { ...settings, ...safe, delegatorModels: patch.delegatorModels === undefined ? settings.delegatorModels : parseDelegatorModels(patch.delegatorModels), mutedSessions: patch.mutedSessions === undefined ? settings.mutedSessions : parseMutedSessions(patch.mutedSessions, undefined), snoozedSessions: patch.snoozedSessions === undefined ? settings.snoozedSessions : parseSnoozedSessions(patch.snoozedSessions), avatarAssignments: mergeAvatarAssignments(settings.avatarAssignments, patch.avatarAssignments), ...(patch.avatarOverrides ? { avatarOverrides: parseAvatarOverrides(patch.avatarOverrides) } : {}), ...(composerDraftChanges ? { composerDrafts: drafts } : {}) };
-    if (patch.delegatorModels !== undefined || patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.snoozedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
+    if (patch.automaticUpdateChecks !== undefined || patch.delegatorModels !== undefined || patch.avatarAssignments !== undefined || patch.readMarks !== undefined || patch.readSince !== undefined || patch.mutedSessions !== undefined || patch.snoozedSessions !== undefined || patch.instanceDefaults !== undefined || patch.avatarOverrides !== undefined || patch.theme !== undefined || patch.blobStyle !== undefined || patch.conversationFontSize !== undefined) {
       window.localStorage.setItem(
         READ_STATE_KEY,
-        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, snoozedSessions: settings.snoozedSessions, instanceDefaults: settings.instanceDefaults, delegatorModels: settings.delegatorModels, avatarOverrides: settings.avatarOverrides, avatarAssignments: settings.avatarAssignments, theme: settings.theme, blobStyle: settings.blobStyle, conversationFontSize: settings.conversationFontSize })
+        JSON.stringify({ readMarks: settings.readMarks, readSince: settings.readSince, mutedSessions: settings.mutedSessions, snoozedSessions: settings.snoozedSessions, instanceDefaults: settings.instanceDefaults, delegatorModels: settings.delegatorModels, automaticUpdateChecks: settings.automaticUpdateChecks, avatarOverrides: settings.avatarOverrides, avatarAssignments: settings.avatarAssignments, theme: settings.theme, blobStyle: settings.blobStyle, conversationFontSize: settings.conversationFontSize })
       );
     }
     return settings;

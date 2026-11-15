@@ -210,3 +210,17 @@ describe('desktop update controller', () => {
     expect(main).not.toMatch(/remote[^\n]{0,80}updates:action/i);
   });
 });
+
+test('automatic update failures and no-update checks stay quiet; available updates still notify', async () => {
+  const { controller, updater, states } = setup();
+  updater.checkForUpdates = async () => { throw new Error('offline'); };
+  await controller.action('check', true);
+  expect(controller.snapshot().phase).toBe('idle');
+  expect(states).toEqual([]);
+  updater.checkForUpdates = async () => null;
+  await controller.action('check', true);
+  expect(states).toEqual([]);
+  updater.checkForUpdates = async () => ({ isUpdateAvailable: true, updateInfo: { version: '1.3.0' } });
+  await controller.action('check', true);
+  expect(states.map(state => state.phase)).toEqual(['available']);
+});

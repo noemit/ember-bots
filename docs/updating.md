@@ -5,6 +5,16 @@ explicit owner approval and the gates below for every platform it offers. The ne
 promotion. See the canonical [release contract](../RELEASES.md) for names and manual Windows policy.
 See [Versioning](../VERSIONING.md) for the separate release authorization and version rules.
 
+## Daily checks
+
+Supported stable desktop installations check GitHub once every 24 hours while Ember is open.
+Settings → General → **Daily update checks** is on by default; switching it off leaves the top-bar
+manual check available. Attempt time is persisted, so restarting or waking Ember catches up only
+when a check is due. Background failures stay quiet and wait until the next day; an explicit check
+shows recovery guidance. Ember never downloads, installs or restarts automatically. There is no
+closed-app background service. Development, Canary and unsupported packages retain the eligibility
+rules below.
+
 ## Supported packages
 
 Updates use `electron-updater` and the public GitHub **stable** releases of

@@ -555,6 +555,16 @@ export default function SettingsPanel({
           <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5">
             <TabsContent value="general" className="mt-0 flex flex-col gap-5">
               <ModelExperienceSettings />
+              {window.ember.capabilities?.desktopUpdates === true ? <Card>
+                <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ember updates</CardTitle></CardHeader>
+                <CardContent className="flex items-center justify-between gap-3 p-3">
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="font-medium">Daily update checks</span>
+                    <span className="text-[11px] text-muted-foreground">In a supported stable installation, Ember checks GitHub once a day while it’s open. Downloads and installation are always your choice. Turn this off to check manually from the top bar.</span>
+                  </div>
+                  <Toggle pressed={settings.automaticUpdateChecks !== false} onPressedChange={enabled => onChange({ automaticUpdateChecks: enabled })} variant="outline" size="sm" aria-label="Daily update checks">{settings.automaticUpdateChecks !== false ? 'On' : 'Off'}</Toggle>
+                </CardContent>
+              </Card> : null}
               <Card>
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

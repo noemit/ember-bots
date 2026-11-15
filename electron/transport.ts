@@ -798,6 +798,8 @@ export type EmberSettings = {
   scheduledSessionBindings: Record<string, string>;
   /** Archive finished scheduled-task runs once they're a day old. */
   autoArchiveScheduledRuns: boolean;
+  /** Desktop-only, default on. Checks never download or install automatically. */
+  automaticUpdateChecks?: boolean;
   avatarOverrides: Record<string, StoredAvatarOverride>;
   avatarAssignments: Record<string, StoredAvatarAssignment>;
   projectColorAssignments: Record<string, number>;
@@ -896,6 +898,6 @@ export const redactRemoteSettings = <T extends { piEndpoints?: Array<{ id: strin
  */
 export const withoutDesktopOnlySettings = (patch: unknown): unknown => {
   if (!patch || typeof patch !== 'object') return patch;
-  const { piEndpoints: _ignored, remoteAccessProxyOrigin: _proxy, remoteAccessEnabled: _remote, remotePassword: _password, ...rest } = patch as Record<string, unknown>;
+  const { piEndpoints: _ignored, remoteAccessProxyOrigin: _proxy, remoteAccessEnabled: _remote, remotePassword: _password, automaticUpdateChecks: _updates, ...rest } = patch as Record<string, unknown>;
   return rest;
 };

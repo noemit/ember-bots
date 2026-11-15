@@ -1,3 +1,4 @@
+import { DailyUpdateChecks } from './dailyUpdateChecks';
 import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, powerMonitor, shell, safeStorage } from 'electron';
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import * as fs from 'node:fs';
@@ -485,6 +486,7 @@ const readEmberSettings = (): EmberSettings => {
     composerDrafts: parseComposerDrafts(root.composerDrafts),
     scheduledSessionBindings: parseStringRecord(root.scheduledSessionBindings),
     autoArchiveScheduledRuns: root.autoArchiveScheduledRuns !== false,
+    automaticUpdateChecks: root.automaticUpdateChecks !== false,
     avatarOverrides: parseAvatarOverrides(root.avatarOverrides),
     avatarAssignments: parseAvatarAssignments(root.avatarAssignments),
     projectColorAssignments: parseColorAssignments(root.projectColorAssignments),
@@ -1109,6 +1111,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
     settings.composerDrafts = parseComposerDrafts(next);
   }
   if (value.scheduledSessionBindings !== undefined) settings.scheduledSessionBindings = parseStringRecord(value.scheduledSessionBindings);
+  if (typeof value.automaticUpdateChecks === 'boolean') settings.automaticUpdateChecks = value.automaticUpdateChecks;
   if (typeof value.autoArchiveScheduledRuns === 'boolean') settings.autoArchiveScheduledRuns = value.autoArchiveScheduledRuns;
   if (value.avatarAssignments !== undefined) settings.avatarAssignments = mergeAvatarAssignments(settings.avatarAssignments, value.avatarAssignments);
   if (value.avatarOverrides !== undefined) settings.avatarOverrides = parseAvatarOverrides(value.avatarOverrides);
@@ -1178,6 +1181,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
     remoteListener.dispose();
     refreshRemoteServer();
   }
+  void dailyUpdateChecks?.check().catch(() => {});
   return maskEndpointSecrets(settings);
 };
 
@@ -1237,6 +1241,7 @@ ipcMain.handle('ember:open', async (event, args: { target?: unknown }): Promise<
 });
 
 let updateController: UpdateController | undefined;
+let dailyUpdateChecks: DailyUpdateChecks | undefined;
 let updateInstaller: import('electron-updater').AppUpdater | undefined;
 let updateRestartRequested = false;
 ipcMain.handle('ember:updates:state', (event) => {
@@ -1246,7 +1251,9 @@ ipcMain.handle('ember:updates:state', (event) => {
 ipcMain.handle('ember:updates:action', (event, action: unknown) => {
   assertTrustedSender(event);
   if (!['check', 'download', 'restart'].includes(String(action))) throw new Error('Unknown update action');
-  return updateController?.action(action as UpdateAction);
+  return action === 'check' && dailyUpdateChecks
+    ? dailyUpdateChecks.check(true).then(state => state ?? updateController?.snapshot())
+    : updateController?.action(action as UpdateAction);
 });
 
 /**
@@ -1605,8 +1612,16 @@ if (primaryInstance) app.whenReady().then(async () => {
     }
   });
   if (eligibility.enabled) {
-    void updateController.action('check');
-    setInterval(() => { void updateController?.action('check'); }, 6 * 60 * 60 * 1000).unref();
+    const attemptsPath = path.join(emberHome, 'update-checks.json');
+    dailyUpdateChecks = new DailyUpdateChecks({
+      enabled: () => readEmberSettings().automaticUpdateChecks !== false,
+      lastAttempt: () => readJson(attemptsPath).lastAttemptAt,
+      recordAttempt: at => writeJson(attemptsPath, { lastAttemptAt: at }),
+      check: quiet => updateController!.action('check', quiet),
+    });
+    void dailyUpdateChecks.check().catch(() => {});
+    // Checks run only while Ember runs; resume below catches up after sleep.
+    setInterval(() => { void dailyUpdateChecks?.check().catch(() => {}); }, 60_000).unref();
   }
   // Keep instance health fresh: a remote that was unreachable when probed (sleep, dropped
   // tunnel, VPN reconnect) reattaches on its own instead of waiting for a manual refresh.
@@ -1614,6 +1629,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   // On wake, bounce half-open sockets now (not in 90s at the stall detector) and re-probe so
   // remotes that came back while the machine slept reattach immediately.
   powerMonitor.on('resume', () => {
+    void dailyUpdateChecks?.check().catch(() => {});
     eventStreams.restartAll();
     piClient.restartAll();
     void loadInstances(true);
@@ -1632,6 +1648,8 @@ app.on('window-all-closed', () => {
 
 // Quit can't await, so the last buffered entries go out synchronously.
 app.on('will-quit', () => {
+  dailyUpdateChecks?.dispose();
+  updateController?.dispose();
   remoteListener.dispose();
 });
 

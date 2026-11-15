@@ -119,3 +119,22 @@ for (const remote of [false, true]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('daily checks can be disabled and persist without removing the manual check', async ({ page }, info) => {
+  await page.goto('/?noDock&updater=idle');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const toggle = page.getByRole('button', { name: 'Daily update checks', exact: true });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).automaticUpdateChecks)).toBe(false);
+  await page.screenshot({ path: info.outputPath('daily-update-preference.png') });
+  await page.reload();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Ember updates', exact: true });
+  await dialog.getByRole('button', { name: 'Check for updates', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Download update', exact: true })).toBeVisible();
+});

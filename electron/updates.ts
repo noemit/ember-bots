@@ -54,7 +54,7 @@ export class UpdateController {
   }
   snapshot(): UpdateSnapshot { return { ...this.state }; }
   private publish(patch: Partial<UpdateSnapshot>) { if (this.disposed) return; this.state = { ...this.state, ...patch }; this.changed(this.snapshot()); }
-  async action(action: UpdateAction): Promise<UpdateSnapshot> {
+  async action(action: UpdateAction, quiet = false): Promise<UpdateSnapshot> {
     if (this.disposed || !this.updater || this.state.phase === 'disabled' || this.busy) return this.snapshot();
     if (action === 'restart') {
       if (this.state.phase !== 'downloaded') return this.snapshot();
@@ -75,11 +75,11 @@ export class UpdateController {
     const progress = (value: { percent?: number }) => { if (typeof value.percent === 'number' && Number.isFinite(value.percent)) this.publish({ progress: Math.max(0, Math.min(100, value.percent)) }); };
     try {
       if (action === 'check') {
-        this.publish({ phase: 'checking', version: undefined, progress: undefined, message: 'Ember is checking GitHub for a stable update…' });
+        if (!quiet) this.publish({ phase: 'checking', version: undefined, progress: undefined, message: 'Ember is checking GitHub for a stable update…' });
         const result = await this.updater.checkForUpdates();
         const version = result?.updateInfo.version;
         if (result?.isUpdateAvailable === true && version && newer(this.state.currentVersion, version)) this.publish({ phase: 'available', version, message: `Ember ${version} is ready to download.` });
-        else this.publish({ phase: 'idle', message: 'Ember is up to date with the stable GitHub release.' });
+        else if (!quiet) this.publish({ phase: 'idle', message: 'Ember is up to date with the stable GitHub release.' });
       } else {
         this.publish({ phase: 'downloading', progress: 0, message: 'Ember is downloading and verifying the update…' });
         this.updater.on('download-progress', progress);
@@ -87,7 +87,7 @@ export class UpdateController {
         this.publish({ phase: 'downloaded', progress: 100, message: 'Ember has downloaded and checked the update. Choose Restart and install when you are ready; macOS verifies its signature before Ember stops its bundled Kiln.' });
       }
     } catch {
-      this.publish({ phase: 'error', progress: undefined, message: action === 'check' ? 'Ember could not check GitHub for updates. Check your connection, then choose Retry.' : 'Ember could not download or verify this update. Keep using this version, then choose Retry.' });
+      if (!(quiet && action === 'check')) this.publish({ phase: 'error', progress: undefined, message: action === 'check' ? 'Ember could not check GitHub for updates. Check your connection, then choose Retry.' : 'Ember could not download or verify this update. Keep using this version, then choose Retry.' });
     } finally { this.updater.removeListener('download-progress', progress); this.busy = false; }
     return this.snapshot();
   }

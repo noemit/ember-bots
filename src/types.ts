@@ -734,6 +734,8 @@ export type EmberSettings = {
   scheduledSessionBindings: Record<string, string>;
   /** Archive finished scheduled-task runs once they're a day old. */
   autoArchiveScheduledRuns: boolean;
+  /** Desktop-only, default on. Checks never download or install automatically. */
+  automaticUpdateChecks?: boolean;
   avatarOverrides: Record<string, AvatarOverride>;
   avatarAssignments: Record<string, AvatarAssignment>;
   projectColorAssignments: Record<string, number>;

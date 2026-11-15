@@ -1,0 +1,60 @@
+import { expect, test } from 'bun:test';
+import { DailyUpdateChecks, UPDATE_CHECK_INTERVAL_MS as DAY, updateCheckDue } from '../electron/dailyUpdateChecks';
+import { withoutDesktopOnlySettings } from '../electron/transport';
+
+test('due policy handles fresh installs, clock rollback, invalid state and exactly one day', () => {
+  const now = DAY * 10;
+  for (const last of [undefined, 0, -1, '10', NaN, Infinity, now + 1, now - DAY]) expect(updateCheckDue(last, now)).toBe(true);
+  for (const last of [now, now - DAY + 1]) expect(updateCheckDue(last, now)).toBe(false);
+});
+
+test('attempt receipts survive restart and failure; off suppresses automatic but not manual checks', async () => {
+  let now = DAY * 10, last: unknown, enabled = true;
+  const calls: boolean[] = [];
+  const create = () => new DailyUpdateChecks({ enabled: () => enabled, lastAttempt: () => last, now: () => now,
+    recordAttempt: async at => { last = at; }, check: async quiet => { calls.push(quiet); return { phase: 'idle', supported: true, currentVersion: '1.0.0' }; } });
+  const first = create();
+  await first.check(); await first.check();
+  expect(calls).toEqual([true]);
+  first.dispose();
+  const reopened = create();
+  await reopened.check(); expect(calls).toEqual([true]);
+  now += DAY;
+  enabled = false; await reopened.check(); expect(calls).toEqual([true]);
+  await reopened.check(true); expect(calls).toEqual([true, false]);
+  enabled = true; await reopened.check(); expect(calls).toHaveLength(2);
+  now += DAY; await reopened.check(); expect(calls).toEqual([true, false, true]);
+});
+
+test('concurrent startup, wake and timer checks share one attempt; manual check after quiet one is explicit', async () => {
+  let resolve!: () => void, last = 0;
+  const calls: boolean[] = [];
+  const runner = new DailyUpdateChecks({ enabled: () => true, lastAttempt: () => last, now: () => DAY,
+    recordAttempt: async at => { last = at; }, check: async quiet => { calls.push(quiet); if (quiet) await new Promise<void>(r => { resolve = r; }); return { phase: 'idle', supported: true, currentVersion: '1.0.0' }; } });
+  const automatic = runner.check();
+  await Promise.resolve();
+  const wake = runner.check(), timer = runner.check(), manual = runner.check(true);
+  expect(calls).toEqual([true]);
+  resolve();
+  await Promise.all([automatic, wake, timer, manual]);
+  expect(calls).toEqual([true, false]);
+});
+
+test('failed attempts are not retried automatically on every wake', async () => {
+  let last = 0, calls = 0;
+  const runner = new DailyUpdateChecks({ enabled: () => true, lastAttempt: () => last, now: () => DAY,
+    recordAttempt: async at => { last = at; }, check: async () => { calls++; throw Error('offline'); } });
+  await expect(runner.check()).rejects.toThrow();
+  await runner.check();
+  expect(calls).toBe(1);
+});
+
+test('no background request without durable receipt; manual recovery remains available', async () => {
+  let calls = 0;
+  const runner = new DailyUpdateChecks({ enabled: () => true, lastAttempt: () => 0,
+    recordAttempt: async () => { throw Error('disk full'); }, check: async () => { calls++; return { phase: 'idle', supported: true, currentVersion: '1.0.0' }; } });
+  await runner.check(); expect(calls).toBe(0);
+  await runner.check(true); expect(calls).toBe(1);
+  runner.dispose(); await runner.check(true); expect(calls).toBe(1);
+  expect(withoutDesktopOnlySettings({ automaticUpdateChecks: false, theme: 'clay' })).toEqual({ theme: 'clay' });
+});
