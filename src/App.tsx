@@ -1,4 +1,5 @@
 import { InstanceOutageToasts } from './components/InstanceOutageToasts';
+import type { DelegatorChoices } from './lib/delegatorModels';
 import { isRemoteBrowser, setRemoteActiveWork } from './lib/remoteLifecycle';
 import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
 import { isAsyncQuestion, questionsForSupervisor } from './lib/asyncQuestions';
@@ -530,6 +531,9 @@ export default function App() {
   }, [settings.conversationFontSize, settings.composerSize, settings.interfaceSize]);
 
   const handleSettings = updateSettings;
+  const rememberDelegatorModels = (instanceId: string, choices: DelegatorChoices) => {
+    handleSettings({ delegatorModels: { ...settingsRef.current.delegatorModels, [instanceId]: choices } });
+  };
   const setInstanceDefaultModel = (instanceId: string, model: import('./types').ModelRef) => {
     const current = settingsRef.current.instanceDefaults;
     handleSettings({ instanceDefaults: { ...current, [instanceId]: withInstanceDefaultModel(current[instanceId], model) } });
@@ -5299,6 +5303,8 @@ export default function App() {
           quoteFocus={quoteNavigation?.key === key ? quoteNavigation.source : null}
           quoteDestinationFocus={quoteNavigation?.key === key ? quoteNavigation : null}
           onViewChange={handleSettings}
+          delegatorModels={settings.delegatorModels}
+          onDelegatorModelsChange={rememberDelegatorModels}
           onLoadInstructions={loadInstructionsFor}
           onSaveInstructions={saveInstructionsFor}
           onBypassChange={(enabled) => void setYolo(ref, enabled, session.directory)}
@@ -5722,6 +5728,8 @@ export default function App() {
                   onUpdateNote={handleUpdateNote}
                   onDeleteNote={handleDeleteNote}
                   onViewChange={handleSettings}
+                  delegatorModels={settings.delegatorModels}
+                  onDelegatorModelsChange={rememberDelegatorModels}
                   onLoadInstructions={loadInstructionsFor}
                   onSaveInstructions={saveInstructionsFor}
                   onBypassChange={() => {}}

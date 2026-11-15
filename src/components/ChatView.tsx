@@ -21,9 +21,11 @@ import type { ModelPrefill } from '../lib/newSessionDefaults';
 import type { ThreadRow } from '../lib/crew';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import type { PromptInput } from '../api';
+import DelegatorModelChoices from './DelegatorModelChoices';
+import { seedDelegatorChoices, delegatorModelsError, type DelegatorChoices } from '../lib/delegatorModels';
 import { ModelPickerFallback } from './ModelPickerFallback';
 import ReasoningLevelPicker from './ReasoningLevelPicker';
-import { INSTRUCTION_PRESETS, presetFor, type InstructionPreset } from '../lib/instructionPresets';
+import { INSTRUCTION_PRESETS, presetFor, delegatorChoices, delegatorInstructions, type InstructionPreset } from '../lib/instructionPresets';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -143,6 +145,8 @@ type Props = {
   workspaceDirectory?: string;
   recentDirectories?: string[];
   projectUsage?: ProjectUsage[];
+  delegatorModels?: Record<string, DelegatorChoices>;
+  onDelegatorModelsChange?: (instanceId: string, choices: DelegatorChoices) => void;
   onWorkspaceChange?: (instanceId: string, directory: string) => void;
   /** Prefill for a new-agent draft: last-used or default folder, model and YOLO on that instance. */
   newSessionPrefill: { directory: string | null; model: ModelPrefill | null; bypass: boolean } | null;
@@ -465,6 +469,8 @@ function ChatView({
   recentDirectories,
   projectUsage,
   onWorkspaceChange,
+  delegatorModels,
+  onDelegatorModelsChange,
   newSessionPrefill,
   instances,
   mentionNames = [],
@@ -688,6 +694,8 @@ function ChatView({
   const [draftAppearanceOpen, setDraftAppearanceOpen] = React.useState(false);
   const [draftPickerBase, setDraftPickerBase] = React.useState<AvatarIdentity | null>(null);
   const [instructionsDraft, setInstructionsDraft] = React.useState('');
+  const [editingCustomInstructions, setEditingCustomInstructions] = React.useState(false);
+  const instructionsTextRef = React.useRef<HTMLTextAreaElement>(null);
   /** What an existing session has, once the dialog has read it. Keyed, so switching columns is safe. */
   const [instructionsByKey, setInstructionsByKey] = React.useState<Record<string, string>>({});
   const [instructionsLoading, setInstructionsLoading] = React.useState(false);
@@ -702,7 +710,49 @@ function ChatView({
     (draftInstanceId && draftInstance?.kind === 'pi') || (session && !draftInstanceId && instance?.kind === 'pi')
   );
 
+  const instructionInstanceId = draftInstanceId ?? session?.instanceId;
+  const previousInstructionInstance = React.useRef(instructionInstanceId);
+  React.useEffect(() => {
+    if (previousInstructionInstance.current === instructionInstanceId || loadedComposerKey !== composerKey) return;
+    previousInstructionInstance.current = instructionInstanceId;
+    // A generated draft belongs to one catalogue. Custom prose is never rewritten on host changes.
+    if (draftInstanceId && presetFor(instructions)?.id === 'delegator') {
+      const choices = seedDelegatorChoices(delegatorModels?.[draftInstanceId], modelId, defaultModelId, models);
+      setInstructions(delegatorInstructions(choices));
+      onDelegatorModelsChange?.(draftInstanceId, choices);
+    }
+    setInstructionsOpen(false);
+  }, [instructionInstanceId, draftInstanceId, instructions, delegatorModels, modelId, defaultModelId, models, onDelegatorModelsChange, loadedComposerKey, composerKey]);
+  const seedWorkerModels = () => seedDelegatorChoices(instructionInstanceId ? delegatorModels?.[instructionInstanceId] : undefined, modelId, defaultModelId, models);
+  const rememberWorkerModels = (choices: DelegatorChoices) => {
+    if (instructionInstanceId) onDelegatorModelsChange?.(instructionInstanceId, choices);
+  };
+  const pickInstructions = (preset: InstructionPreset, editor: boolean) => {
+    let next = preset.instructions;
+    if (preset.id === 'delegator') {
+      const choices = seedWorkerModels();
+      next = delegatorInstructions(choices);
+      rememberWorkerModels(choices);
+    }
+    if (editor) { setInstructionsDraft(next); setEditingCustomInstructions(false); }
+    else setInstructions(next);
+  };
+  const workerModelControls = (value: string, editor: boolean) => (
+    <DelegatorModelChoices choices={delegatorChoices(value) ?? {}} models={models} recentModels={recentModels}
+      instanceId={instructionInstanceId ?? undefined} instanceLabel={draftInstance?.label ?? instanceLabel}
+      onRefresh={onModelsRefresh}
+      onAddProviders={instructionInstanceId && onOpenProviders ? () => onOpenProviders(instructionInstanceId) : undefined}
+      onChange={choices => {
+        rememberWorkerModels(choices);
+        if (editor) setInstructionsDraft(delegatorInstructions(choices));
+        else setInstructions(delegatorInstructions(choices));
+      }} />
+  );
+  const draftWorkerModelError = presetFor(instructions)?.id === 'delegator' ? delegatorModelsError(delegatorChoices(instructions) ?? {}, models) : null;
+  const editorWorkerModelError = presetFor(instructionsDraft)?.id === 'delegator' ? delegatorModelsError(delegatorChoices(instructionsDraft) ?? {}, models) : null;
+
   const openInstructions = () => {
+    setEditingCustomInstructions(!presetFor(knownInstructions));
     setInstructionsOpen(true);
     setInstructionsDraft(knownInstructions ?? '');
     if (draftInstanceId || !session || !onLoadInstructions) return;
@@ -715,13 +765,14 @@ function ChatView({
         const text = result.instructions ?? '';
         setInstructionsByKey((previous) => ({ ...previous, [key]: text }));
         setInstructionsDraft(text);
+        setEditingCustomInstructions(!presetFor(text));
       })
       .catch(() => undefined)
       .finally(() => setInstructionsLoading(false));
   };
 
-  const saveInstructions = async () => {
-    const text = instructionsDraft.trim();
+  const saveInstructions = async (text = instructionsDraft) => {
+    if (presetFor(text)?.id === 'delegator' && delegatorModelsError(delegatorChoices(text) ?? {}, models)) return;
     if (draftInstanceId) {
       setInstructions(text);
       setInstructionsOpen(false);
@@ -1063,6 +1114,7 @@ function ChatView({
   const canSend =
     loadedComposerKey === composerKey &&
     !modelError &&
+    (!draftInstanceId || !draftWorkerModelError) &&
     (session ? true : draftReady) &&
     !pendingFailed &&
     (text.trim().length > 0 || attachments.length > 0);
@@ -1086,7 +1138,7 @@ function ChatView({
 
   /** Start the failed create again, with the destination shown under the message. */
   const retryPendingCreate = () => {
-    if (!pending || !onRetryCreate) return;
+    if (!pending || !onRetryCreate || draftWorkerModelError) return;
     const options = draftOptionsFor(variant);
     onRetryCreate(pending.id, options ?? pending.options);
   };
@@ -1978,7 +2030,7 @@ function ChatView({
                     </span>
                     <div className="flex flex-col gap-1" role="radiogroup" aria-label="Standing instructions">
                       {INSTRUCTION_PRESETS.map((preset) => {
-                        const selected = (instructionsPreset?.id ?? 'classic') === preset.id;
+                        const selected = instructionsPreset?.id === preset.id;
                         return (
                           <div
                             key={preset.id}
@@ -1990,8 +2042,9 @@ function ChatView({
                             <button
                               type="button"
                               role="radio"
+                              aria-label={preset.name}
                               aria-checked={selected}
-                              onClick={() => setInstructions(preset.instructions)}
+                              onClick={() => pickInstructions(preset, false)}
                               className="flex min-w-0 flex-1 items-center gap-2 text-left"
                             >
                               <span
@@ -2046,7 +2099,7 @@ function ChatView({
                             )}
                           />
                           <span className="min-w-0">
-                            <span className="block truncate text-xs font-medium text-foreground">Custom</span>
+                            <span className="block truncate text-xs font-medium text-foreground">Custom (type your own)</span>
                             <span className="block truncate text-[11px] text-muted-foreground">
                               {instructionsPreset === undefined && instructions.trim()
                                 ? 'Your own words — click to edit'
@@ -2066,6 +2119,7 @@ function ChatView({
                         </Button>
                       </div>
                     </div>
+                    {instructionsPreset?.id === 'delegator' ? workerModelControls(instructions, false) : null}
                   </div>
                 ) : null}
               </>
@@ -3023,7 +3077,7 @@ function ChatView({
             <Button
               disabled={!previewPreset}
               onClick={() => {
-                if (previewPreset) setInstructions(previewPreset.instructions);
+                if (previewPreset) pickInstructions(previewPreset, false);
                 setPreviewPreset(null);
               }}
             >
@@ -3047,7 +3101,7 @@ function ChatView({
         </React.Suspense>
       ) : null}
       <Dialog open={instructionsOpen} onOpenChange={setInstructionsOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Standing instructions</DialogTitle>
             <DialogDescription>
@@ -3062,25 +3116,38 @@ function ChatView({
                 <button
                   key={preset.id}
                   type="button"
-                  onClick={() => setInstructionsDraft(preset.instructions)}
+                  aria-label={preset.name}
+                  onClick={() => pickInstructions(preset, true)}
                   className={cn(
                     'rounded-md border px-2.5 py-2 text-left transition-colors hover:bg-muted/60',
-                    instructionsDraft === preset.instructions && 'border-ring bg-muted/40'
+                    !editingCustomInstructions && presetFor(instructionsDraft)?.id === preset.id && 'border-ring bg-muted/40'
                   )}
                 >
                   <span className="block text-xs font-medium">{preset.name}</span>
                   <span className="block text-[11px] text-muted-foreground">{preset.blurb}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => { setEditingCustomInstructions(true); instructionsTextRef.current?.focus(); }}
+                className={cn(
+                  'rounded-md border px-2.5 py-2 text-left text-xs font-medium transition-colors hover:bg-muted/60',
+                  editingCustomInstructions && 'border-ring bg-muted/40'
+                )}
+              >
+                Custom (type your own)
+              </button>
             </div>
+            {!editingCustomInstructions && presetFor(instructionsDraft)?.id === 'delegator' ? workerModelControls(instructionsDraft, true) : null}
             {instructionsLoading ? (
               <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Loader2 className="size-3 animate-spin" /> Reading this session's current prompt…
               </span>
             ) : null}
             <Textarea
+              ref={instructionsTextRef}
               value={instructionsDraft}
-              onChange={(event) => setInstructionsDraft(event.target.value)}
+              onChange={(event) => { setInstructionsDraft(event.target.value); setEditingCustomInstructions(true); }}
               placeholder="Or write your own — leave empty for none."
               aria-label="Standing instructions text"
               className="min-h-32 text-xs"
@@ -3092,12 +3159,12 @@ function ChatView({
               onClick={() => {
                 setInstructionsDraft('');
                 if (draftInstanceId) setInstructions('');
-                else void saveInstructions();
+                else void saveInstructions('');
               }}
             >
               Clear
             </Button>
-            <Button disabled={instructionsLoading} onClick={() => void saveInstructions()}>
+            <Button disabled={instructionsLoading || Boolean(editorWorkerModelError)} onClick={() => void saveInstructions()}>
               {draftInstanceId ? 'Use these' : 'Save'}
             </Button>
           </DialogFooter>

@@ -711,7 +711,7 @@ export type EmberSettings = {
    */
   splitView: boolean;
   instanceDefaults: Record<string, InstanceDefaults>;
-  /** Omitted roles use the delegator’s normal choice; patches replace the whole map. */
+  /** Omitted roles seed from the current composer model when choosing Ultra Delegator; patches replace the whole map. */
   delegatorModels?: Record<string, DelegatorModels>;
   sessionNotes: Record<string, SessionNote[]>;
   /** Ember-local, bidirectional references for quoted transcript text. */

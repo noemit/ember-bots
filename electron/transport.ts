@@ -780,7 +780,7 @@ export type EmberSettings = {
   /** Agent groups: named, cross-instance sets of `instance::session` keys. Ember-side only. */
   sessionGroups: SessionGroup[];
   instanceDefaults: Record<string, InstanceDefaults>;
-  /** Omitted roles use the delegator’s normal choice; patches replace the whole map. */
+  /** Omitted roles seed from the current composer model when choosing Ultra Delegator; patches replace the whole map. */
   delegatorModels?: Record<string, DelegatorModels>;
   sessionNotes: Record<string, StoredSessionNote[]>;
   quoteLinks: StoredQuoteLink[];

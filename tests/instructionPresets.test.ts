@@ -1,55 +1,52 @@
 import { describe, expect, test } from 'bun:test';
-import { INSTRUCTION_PRESETS, presetFor } from '../src/lib/instructionPresets';
+import { INSTRUCTION_PRESETS, presetFor, delegatorInstructions, delegatorChoices } from '../src/lib/instructionPresets';
+import retired from './fixtures/retiredInstructionTexts.json';
 
-/**
- * The shipped prompt library. These are the only prompts Ember puts in front of a model without the
- * user writing them, so the qualities that matter are: they are distinct jobs, each says what it must
- * not do, and none is so long it crowds out the session's own context.
- */
+const text = INSTRUCTION_PRESETS[1].instructions;
 describe('standing instruction presets', () => {
-  test('the library has a classic (nothing added) plus distinct jobs', () => {
-    expect(INSTRUCTION_PRESETS.length).toBeGreaterThanOrEqual(4);
-    expect(INSTRUCTION_PRESETS.map((preset) => preset.id)).toContain('delegator');
-    expect(new Set(INSTRUCTION_PRESETS.map((preset) => preset.id)).size).toBe(INSTRUCTION_PRESETS.length);
-    // Pi classic is the empty one on purpose: a list of roles with no way to choose none would change
-    // every session by default, and "the harness prompt as it is" is a legitimate answer.
-    const classic = INSTRUCTION_PRESETS.find((preset) => preset.id === 'classic');
-    expect(classic?.instructions).toBe('');
-    expect(classic?.note?.length ?? 0).toBeGreaterThan(40);
-    expect(presetFor('')).toBe(classic!);
-    for (const preset of INSTRUCTION_PRESETS) {
-      expect(preset.name.length).toBeGreaterThan(0);
-      expect(preset.blurb.length).toBeGreaterThan(0);
-      if (preset.instructions === '') continue; // classic adds nothing, so there is nothing to size
-      expect(preset.instructions.trim().length).toBeGreaterThan(80);
-      // Long enough to say something, short enough to leave room for the session's own context.
-      expect(preset.instructions.length).toBeLessThan(2_000);
-      expect(preset.instructions).not.toMatch(/undefined|\bprompt\b.*\bprompt\b/);
-    }
-  });
-
-  test('each names a scope rather than asking for good behaviour', () => {
-    for (const preset of INSTRUCTION_PRESETS) {
-      if (preset.instructions === '') continue;
-      // A prompt that only says "be careful" changes nothing: each of these says what not to do.
-      expect(preset.instructions.toLowerCase()).toMatch(/do not|not to|never|only when/);
-    }
-  });
-
-  test('delegation names the worker task, separates completion from review, and keeps corrections in scope', () => {
-    const text = INSTRUCTION_PRESETS.find(preset => preset.id === 'delegator')!.instructions;
-    expect(text).toMatch(/task runs in a worker conversation/);
-    expect(text).toMatch(/Tasks in Ember/);
-    expect(text).toMatch(/assignment token/);
-    expect(text).toMatch(/final reply is not Done/);
-    expect(text).toMatch(/claim, not your verification/);
-    expect(text).toMatch(/corrections.*spawn a new task for unrelated work/);
-  });
-
-  test('a session reads its preset back from the text it stored', () => {
-    const delegator = INSTRUCTION_PRESETS.find((preset) => preset.id === 'delegator');
-    expect(presetFor(delegator?.instructions)).toBe(delegator!);
+  test('only classic and delegator are shipped prompts, with stable ids', () => {
+    expect(INSTRUCTION_PRESETS.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'classic', name: 'Pi Classic' },
+      { id: 'delegator', name: 'Ultra Delegator' },
+    ]);
+    expect(INSTRUCTION_PRESETS[0].instructions).toBe('');
+    expect(presetFor('')).toBe(INSTRUCTION_PRESETS[0]);
+    expect(presetFor(text)).toBe(INSTRUCTION_PRESETS[1]);
     expect(presetFor(undefined)).toBeUndefined();
-    expect(presetFor('something the person wrote themselves')).toBeUndefined();
+  });
+
+  test('arbitrary and retired saved texts remain custom, not reinterpreted as new presets', () => {
+    for (const instructions of [...retired.map(p => p.instructions), '  My own instructions\n']) {
+      expect(presetFor(instructions)).toBeUndefined();
+    }
+  });
+
+  test('generated prompts route exact configured identities without asking for approval', () => {
+    const choices = { harder: { providerID: 'provider-a', modelID: 'family/hard' }, easier: { providerID: 'provider-b', modelID: 'small' } };
+    const generated = delegatorInstructions(choices);
+    expect(delegatorChoices(generated)).toEqual(choices);
+    expect(presetFor(generated)?.id).toBe('delegator');
+    expect(generated).toContain('Harder tasks: provider-a/family/hard');
+    expect(generated).toContain('Easier tasks: provider-b/small');
+    expect(generated).toMatch(/route easier tasks.*harder tasks/);
+    expect(generated).not.toMatch(/ask.*confirm|wait for.*approval|silence|session models/i);
+    expect(generated).toMatch(/unavailable.*replace it in Standing instructions.*never silently substitute/);
+    expect(presetFor(generated + ' My changes')).toBeUndefined();
+    expect(delegatorChoices(delegatorInstructions({}))).toEqual({});
+    text.split('\n').forEach((line, i) => expect(line.startsWith(`${i + 1}. `)).toBe(true));
+    expect(text.length).toBeLessThan(3500);
+  });
+
+  test('coordination keeps durable continuation, explicit completion and evidence rules', () => {
+    expect(text).toMatch(/session wait.*durable continuation/);
+    expect(text).toMatch(/Do not poll/);
+    expect(text).toMatch(/self-contained brief, acceptance criteria and evidence/);
+    expect(text).toMatch(/assignment token.*final reply is not Done/);
+    expect(text).toMatch(/claim, not your verification/);
+    expect(text).toMatch(/Retrieved is not verified or incorporated.*check evidence/);
+    expect(text).toContain('/threads/<conversationId>');
+    expect(text).toMatch(/Coordinate silently/);
+    expect(text).toMatch(/corrections.*spawn a new task for unrelated work/);
+    expect(text).toMatch(/Resume until the agreed outcome is delivered/);
   });
 });
