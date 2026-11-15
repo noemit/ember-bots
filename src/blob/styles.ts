@@ -6,8 +6,9 @@ export type ActiveBlobStyle = (typeof ACTIVE_BLOB_STYLES)[number];
 
 export const effectiveBlobStyle = (
   fallback: BlobStyle,
-  identity?: Pick<AvatarIdentity, 'style'>,
+  _identity?: Pick<AvatarIdentity, 'style'>,
 ): ActiveBlobStyle => {
-  const style = identity?.style ?? fallback;
-  return style === 'scribble' ? 'buddy' : style;
+  // Persisted scope styles are legacy data only. The global preference is the single
+  // authority so customized identities cannot pin a renderer after a settings change.
+  return fallback === 'scribble' ? 'buddy' : fallback;
 };

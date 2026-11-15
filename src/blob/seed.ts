@@ -140,7 +140,9 @@ export const avatarAppearanceOverride = (
     if (choice.color !== undefined) override.color = choice.color;
     if (choice.colorIndex !== undefined) override.colorIndex = choice.colorIndex;
     if (choice.shapeSeed !== undefined) override.shapeSeed = choice.shapeSeed;
-    if (choice.style !== undefined) override.style = choice.style;
+    // Blob style is a global preference. Keep legacy per-scope style fields readable in
+    // settings, but never let them override the current global choice. Appearance scopes remain
+    // authoritative for colour and named shape; the renderer validates a shape for the style.
     if (choice.shapeName !== undefined) override.shapeName = choice.shapeName;
   }
   return override;

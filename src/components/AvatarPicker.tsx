@@ -52,9 +52,10 @@ const shapesForStyle = (style: ActiveBlobStyle): string[] => {
   return shapes.map((shape) => shape.name);
 };
 
-/** A style choice belongs to this override, never the global appearance preference. */
+/** The global style is authoritative; style choices are not persisted as scope overrides. */
 export function pickerStyleDraft(draft: AvatarOverride, style: ActiveBlobStyle, currentShapeName?: string): AvatarOverride {
-  const next = { ...draft, style };
+  const next = { ...draft };
+  delete next.style;
   const shapeName = draft.shapeName ?? currentShapeName;
   // Mask the frozen preview base too: deleting this field would inherit its old shape again.
   if (shapeName !== undefined) next.shapeName = shapesForStyle(style).includes(shapeName) ? shapeName : 'automatic';
@@ -108,7 +109,7 @@ export default function AvatarPicker({
   const previewColor = preview.color ?? colors[preview.colorIndex ?? 0];
   const chosenColor = draft.color ?? (draft.colorIndex !== undefined ? colors[draft.colorIndex] : previewColor);
   const colorOverridden = scopeKind !== 'session' && chosenColor !== previewColor;
-  const hasOverride = draft.style !== undefined || draft.color !== undefined || draft.colorIndex !== undefined || draft.shapeName !== undefined;
+  const hasOverride = draft.color !== undefined || draft.colorIndex !== undefined || draft.shapeName !== undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -156,7 +157,7 @@ export default function AvatarPicker({
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-medium">Preview</span>
               <span className="text-xs text-muted-foreground">
-                Color and shape help you recognize this chat wherever it appears.
+                Color and shape help you recognize this chat wherever it appears. Blob style follows Settings.
               </span>
               {colorOverridden ? (
                 <span className="text-xs text-muted-foreground">
@@ -168,7 +169,7 @@ export default function AvatarPicker({
 
           {allowStyleChoice ? (
             <div role="group" aria-label="Bot style" className="flex flex-col gap-2">
-              <span className="text-xs font-medium">Bot style</span>
+              <span className="text-xs font-medium">Bot style · global</span>
               <div className="grid grid-cols-4 gap-2">
                 {ACTIVE_BLOB_STYLES.map((option) => (
                   <button

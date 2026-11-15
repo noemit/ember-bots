@@ -14,7 +14,7 @@ test('picker style choices keep colour edits and mask incompatible shapes withou
   for (const style of ACTIVE_BLOB_STYLES) {
     const draft = { color: '#123456', colorIndex: 2, shapeName: 'not-a-shape' };
     const next = pickerStyleDraft(draft, style);
-    expect(next).toEqual({ color: draft.color, colorIndex: draft.colorIndex, style, shapeName: 'automatic' });
+    expect(next).toEqual({ color: draft.color, colorIndex: draft.colorIndex, shapeName: 'automatic' });
     expect(draft.shapeName).toBe('not-a-shape');
   }
 });
@@ -22,9 +22,9 @@ test('picker style choices keep colour edits and mask incompatible shapes withou
 test('compatible shapes survive a style choice and style-only edits remain sparse', () => {
   for (const style of ACTIVE_BLOB_STYLES) {
     const shapeName = shapes[style][0].name;
-    expect(pickerStyleDraft({ shapeName }, style)).toEqual({ shapeName, style });
-    expect(pickerStyleDraft({}, style)).toEqual({ style });
-    expect(pickerStyleDraft({}, style, shapeName)).toEqual({ style, shapeName });
+    expect(pickerStyleDraft({ shapeName }, style)).toEqual({ shapeName });
+    expect(pickerStyleDraft({}, style)).toEqual({});
+    expect(pickerStyleDraft({}, style, shapeName)).toEqual({ shapeName });
   }
 });
 
@@ -36,7 +36,7 @@ test('switching Crystal to Lava and back masks the frozen quartz shape instead o
   // Even a shape inherited from the preview (absent from the editable override) must be cleared.
   const lavaDraft = pickerStyleDraft({}, 'lava', base.shapeName);
   const lavaPreview = previewDraftAppearance(base, lavaDraft);
-  expect(lavaPreview.style).toBe('lava');
+  expect(lavaPreview.style).toBe('crystal');
   expect(lavaPreview.shapeName).toBe('automatic');
   const crystalDraft = pickerStyleDraft(lavaDraft, 'crystal', lavaPreview.shapeName);
   const crystalPreview = previewDraftAppearance(base, crystalDraft);

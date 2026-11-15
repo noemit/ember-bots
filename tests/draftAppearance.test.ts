@@ -10,17 +10,17 @@ const draft = { id: 'draft:local', instanceId: 'local', directory: '/work' };
 const created = { ...draft, id: 'created' };
 const projectOverrides = { 'directory:local::/work': { color: '#118844', shapeName: 'cloud' } };
 
-test('draft appearance freezes the selected style, colour, shape and geometry seed', () => {
+test('draft appearance inherits global style and freezes compatible colour, shape and geometry seed', () => {
   const base = resolveAvatarIdentity(draft, [], {}, projectOverrides, { colorIndex: 3, shapeSeed: 'reserved-seed' });
   const preview = previewDraftAppearance(base, { style: 'crystal', color: '#6633aa', shapeName: 'quartz' });
-  const choice = freezeDraftAppearance(preview, 'buddy');
+  const choice = freezeDraftAppearance(preview, 'crystal');
   const stored = withSessionAppearance(created, projectOverrides, choice.override);
   expect(Object.keys(stored).sort()).toEqual(['directory:local::/work', 'session:local::created']);
   expect(projectOverrides).toEqual({ 'directory:local::/work': { color: '#118844', shapeName: 'cloud' } });
   // Another client may win the automatic-assignment race; the explicit draft choice still wins.
   const after = resolveAvatarIdentity(created, [], {}, stored, { colorIndex: 18, shapeSeed: 'other-client-seed' });
-  for (const field of ['style', 'color', 'colorIndex', 'shapeName', 'shapeSeed'] as const) expect(after[field]).toEqual(preview[field]);
-  expect(after.style).toBe('crystal');
+  for (const field of ['color', 'colorIndex', 'shapeName', 'shapeSeed'] as const) expect(after[field]).toEqual(preview[field]);
+  expect(after.style).toBeUndefined();
   expect(after.shapeSeed).toBe('reserved-seed');
 });
 
@@ -47,7 +47,7 @@ test('an automatic shape keeps its exact geometry and masks a folder shape after
     const shapes = style === 'crystal' ? CRYSTAL_SHAPES : LAVA_SHAPES;
     const inherited = { 'directory:local::/work': { shapeName: shapes[0].name } };
     const preview = previewDraftAppearance(resolveAvatarIdentity(draft, [], {}, inherited), { style, shapeName: undefined });
-    const choice = freezeDraftAppearance(preview, 'buddy');
+    const choice = freezeDraftAppearance(preview, style);
     const after = resolveAvatarIdentity(created, [], {}, withSessionAppearance(created, inherited, choice.override), choice.assignment);
     const geometry = (identity: AvatarIdentity) => style === 'crystal'
       ? crystalGeometry(mulberry32(hashString(`crystal:${identity.shapeSeed}`)), mulberry32(123), CRYSTAL_SHAPES.find(shape => shape.name === identity.shapeName))

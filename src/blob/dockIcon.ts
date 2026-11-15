@@ -11,8 +11,8 @@ type BlobComponent = React.ComponentType<{
   interactive?: boolean;
 }>;
 
-export const loadBlobComponent = async (requestedStyle: BlobStyle, identity?: Pick<AvatarIdentity, 'style'>): Promise<BlobComponent> => {
-  const style = effectiveBlobStyle(requestedStyle, identity);
+export const loadBlobComponent = async (requestedStyle: BlobStyle, _identity?: Pick<AvatarIdentity, 'style'>): Promise<BlobComponent> => {
+  const style = effectiveBlobStyle(requestedStyle);
   if (style === 'mosaic') return (await import('./MosaicBlob')).default;
   if (style === 'lava') return (await import('./LavaBlob')).default;
   if (style === 'crystal') return (await import('./CrystalBlob')).default;

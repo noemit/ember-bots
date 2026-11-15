@@ -23,7 +23,7 @@ test('stored styles validate sparsely and retain retired preferences without rew
   expect(parseAvatarOverrides(JSON.parse('{"__proto__":{"style":"lava"}}'))).toEqual({});
 });
 
-test('scope styles merge independently with session over task over project', () => {
+test('legacy project, task and session style fields never affect any global style; sparse traits inherit', () => {
   const session = { id: 'bot', instanceId: 'local', directory: '/work' };
   const bindings = { 'local::bot': 'task' };
   const overrides: Record<string, AvatarOverride> = {
@@ -32,45 +32,46 @@ test('scope styles merge independently with session over task over project', () 
     'session:local::bot': { style: 'scribble', colorIndex: 3 },
   };
   const identity = resolveAvatarIdentity(session, [], bindings, overrides);
-  expect(identity.style).toBe('scribble');
-  expect(effectiveBlobStyle('mosaic', identity)).toBe('buddy');
+  expect(identity.style).toBeUndefined();
+  expect(effectiveBlobStyle('mosaic', identity)).toBe('mosaic');
   expect(identity.colorIndex).toBe(3);
   expect(identity.color).toBeUndefined();
   expect(identity.shapeName).toBe('cloud');
   overrides['session:local::bot'] = { style: undefined };
-  expect(avatarAppearanceOverride(session, [], bindings, overrides)).toEqual({ style: 'crystal', color: '#551eb3', shapeName: 'cloud' });
+  expect(avatarAppearanceOverride(session, [], bindings, overrides)).toEqual({ color: '#551eb3', shapeName: 'cloud' });
   delete overrides.task;
-  expect(resolveAvatarIdentity(session, [], bindings, overrides).style).toBe('lava');
+  expect(resolveAvatarIdentity(session, [], bindings, overrides).style).toBeUndefined();
 });
 
-test('renderer, dock and colour use the identity style before the global default', async () => {
+test('legacy identity styles cannot override the global renderer or dock style', async () => {
   for (const style of ['buddy', 'crystal', 'mosaic', 'lava', 'scribble'] as const) {
     const identity = { ...seedIdentity('bot'), style };
     const effective = effectiveBlobStyle('lava', identity);
     const actual = renderToStaticMarkup(<Blob style="lava" seed="bot" identity={identity} />);
     expect(actual).toContain(`blob-${effective}`);
     expect(blobColor('lava', identity)).toBe(blobColor(effective, seedIdentity('bot')));
-    expect(await loadBlobComponent('lava', identity)).toBe(await loadBlobComponent(effective));
+    expect(await loadBlobComponent('lava')).toBe(await loadBlobComponent(effective));
     expect(blobColor('lava', { ...identity, color: '#123456' })).toBe('#123456');
     expect(blobColor('lava', { ...identity, colorIndex: 4 })).toBe('var(--blob-4)');
     expect(identity.style).toBe(style);
   }
-  expect(await loadBlobComponent('lava', { style: 'scribble' })).toBe(BuddyBlob);
-  expect(await loadBlobComponent('lava', { style: 'crystal' })).toBe(CrystalBlob);
+  expect(await loadBlobComponent('lava')).not.toBe(BuddyBlob);
+  expect(await loadBlobComponent('lava')).not.toBe(CrystalBlob);
 });
 
 test('allocator targets the override style and compares peers in their actual style', () => {
   const peers = Array.from({ length: 8 }, (_, i) => ({ ...seedIdentity(`peer-${i}`), style: 'crystal' as const, colorIndex: i }));
   const override = { style: 'crystal' as const, color: '#551eb3' };
-  expect(allocateAvatar('new', peers, 'buddy', undefined, override)).toEqual(allocateAvatar('new', peers, 'crystal', undefined, override));
-  expect(allocateAvatar('new', peers, 'lava', undefined, { style: 'scribble' })).toEqual(allocateAvatar('new', peers, 'buddy'));
+  expect(allocateAvatar('new', peers, 'buddy', undefined, override)).toEqual(allocateAvatar('new', peers, 'buddy'));
+  expect(allocateAvatar('new', peers, 'lava', undefined, { style: 'scribble' })).toEqual(allocateAvatar('new', peers, 'lava'));
   // Foreign shapes must not be interpreted as target shapes, even with identical names/seeds.
   for (let i = 0; i < 20; i++) {
     const foreign = [{ ...seedIdentity('foreign'), style: 'mosaic' as const, colorIndex: 2, shapeName: 'cloud' }];
-    const changedForeignShape = [{ ...foreign[0], shapeSeed: `changed-${i}`, shapeName: 'other' }];
+    const changedForeignShape = [{ ...foreign[0], shapeName: 'other' }];
     expect(allocateAvatar(`new-${i}`, foreign, 'buddy')).toEqual(allocateAvatar(`new-${i}`, changedForeignShape, 'buddy'));
   }
-  expect(identityShape('buddy', peers[0])).toBe(identityShape('crystal', peers[0]));
+  expect(identityShape('buddy', peers[0])).not.toBe('quartz');
+  expect(identityShape('crystal', peers[0])).toBe('quartz');
 });
 
 

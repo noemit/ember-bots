@@ -12,7 +12,7 @@ import type { AvatarIdentity, BlobStyle } from '../types';
 export const blobColor = (style: BlobStyle, seedOrIdentity: string | AvatarIdentity): string => {
   const identity = typeof seedOrIdentity === 'string' ? seedIdentity(seedOrIdentity) : seedOrIdentity;
   if (identity.color) return identity.color;
-  switch (effectiveBlobStyle(style, identity)) {
+  switch (effectiveBlobStyle(style)) {
     case 'mosaic': {
       const index = identity.colorIndex ?? hashString(`mosaic:${identity.colorSeed}`) % IDENTITY_COLORS.length;
       return `var(--blob-${Math.abs(index) % IDENTITY_COLORS.length})`;

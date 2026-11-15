@@ -30,6 +30,35 @@ test('new bots in the same folder get distinct durable defaults without recolour
   expect(await assignments(page)).toEqual(stored);
 });
 
+test('global blob style changes every recognized chat while preserving scoped custom appearance', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ember-pi-read-state', JSON.stringify({
+    blobStyle: 'buddy',
+    avatarOverrides: {
+      'directory:pi:hearth::/workspace/habit': { style: 'crystal', color: '#551eb3', shapeName: 'quartz' },
+      'session:pi:hearth::13': { style: 'lava', colorIndex: 4, shapeName: 'peanut' },
+    },
+  })));
+  await page.goto('/?noDock');
+  await expect(page.locator('[data-active-chat]')).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+b');
+  const rail = page.locator('aside');
+  const customizedRow = rail.locator('[data-session-key="pi:hearth::10"]').locator('..').locator('..');
+  const customized = customizedRow.locator('.blob').first();
+  await expect(customized).toHaveClass(/blob-buddy/);
+  const before = await customized.locator('svg path').first().getAttribute('fill');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const settings = page.getByRole('tab', { name: 'General' });
+  await settings.click();
+  await page.getByRole('button', { name: 'Crystal' }).click();
+  await expect(customized).toHaveClass(/blob-crystal/);
+  await expect.poll(async () => (await page.evaluate(async () => (await window.ember.getSettings()).avatarOverrides))['directory:pi:hearth::/workspace/habit']).toMatchObject({ color: '#551eb3' });
+  expect(await page.evaluate(async () => (await window.ember.getSettings()).avatarOverrides['directory:pi:hearth::/workspace/habit'].color)).toBe('#551eb3');
+  const anotherRow = rail.locator('[data-session-key="pi:hearth::15"]').locator('..').locator('..');
+  await expect(anotherRow.locator('.blob').first()).toHaveClass(/blob-crystal/);
+  expect(before).not.toBe('#551eb3');
+  await page.screenshot({ path: '/tmp/ember-global-blob-style.png', animations: 'disabled' });
+});
+
 test('an explicit shared folder colour remains shared, even for newly allocated bots', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ember-pi-read-state', JSON.stringify({
     avatarOverrides: { 'directory:pi:hearth::/workspace/hearth': { color: '#551eb3', shapeName: 'cloud' } },
