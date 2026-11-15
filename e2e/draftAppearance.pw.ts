@@ -29,13 +29,13 @@ const customize = async (page: Page, style = 'Mosaic', shape = 'crown') => {
   await dialog.getByRole('combobox', { name: 'Appearance scope' }).click();
   await expect(page.getByRole('option')).toHaveCount(1);
   await page.getByRole('option', { name: 'This new bot', exact: true }).click();
-  const styles = dialog.getByRole('group', { name: 'Bot style' });
-  await expect(styles.getByRole('button')).toHaveText(['Buddy', 'Crystal', 'Mosaic', 'Lava']);
-  await expect(dialog.getByRole('button', { name: 'Scribble', exact: true })).toHaveCount(0);
-  await styles.getByRole('button', { name: style, exact: true }).click();
+  await expect(dialog.getByTestId('global-blob-style')).toContainText('Blob style: Buddy.');
+  await expect(dialog.getByTestId('global-blob-style')).toContainText('Change it in Settings → General; it applies to every chat.');
+  await expect(dialog.getByRole('group', { name: 'Bot style' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /^(Buddy|Crystal|Mosaic|Lava|Scribble)$/ })).toHaveCount(0);
   await dialog.getByLabel('Custom bot color').fill('#158cba');
   await dialog.getByRole('button', { name: shape, exact: true }).click();
-  const colors = await paints(dialog.locator(`.blob-${style.toLowerCase()}`).first());
+  const colors = await paints(dialog.locator('.blob').first());
   if (style === 'Mosaic') await page.screenshot({ path: '/tmp/ember-draft-appearance-picker.png' });
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => paints(center(page).locator('.blob'))).toEqual(colors);
@@ -45,27 +45,28 @@ const send = async (page: Page, text: string) => {
   await page.locator('textarea').first().fill(text);
   await page.locator('textarea').first().press('Enter');
 };
-const assertCreated = async (page: Page, before: Awaited<ReturnType<typeof snapshot>>, colors: string[], style = 'Mosaic', shape = 'crown') => {
+const assertCreated = async (page: Page, before: Awaited<ReturnType<typeof snapshot>>, colors: string[], shape = 'crown') => {
   const column = page.locator('main[data-session-key]');
   await expect(column).toBeVisible();
   await expect.poll(async () => (await snapshot(page)).conversations.length).toBe(before.conversations.length + 1);
   const key = await column.getAttribute('data-session-key');
   await expect.poll(async () => (await snapshot(page)).overrides?.[`session:${key}`]).toMatchObject({
-    style: style.toLowerCase(), color: '#158cba', shapeName: shape,
+    color: '#158cba', shapeName: shape,
   });
   const after = await snapshot(page);
   expect(after.style).toBe(before.style);
   for (const [key, value] of Object.entries(before.overrides ?? {})) expect(after.overrides?.[key]).toEqual(value);
   expect(Object.keys(after.overrides ?? {})).toHaveLength(Object.keys(before.overrides ?? {}).length + 1);
-  const identity = page.locator('[data-composer-identity]').filter({ has: page.locator(`.blob-${style.toLowerCase()}`) }).first();
+  const globalStyle = (await snapshot(page)).style;
+  const identity = page.locator('[data-composer-identity]').filter({ has: page.locator(`.blob-${globalStyle}`) }).first();
   await expect.poll(() => paints(identity.locator('.blob').first())).toEqual(colors);
   const title = await identity.locator('span[title]').last().innerText();
   // Leaving the chat moves the same identity from the composer dock into the rail.
   await page.locator('aside').getByRole('button', { name: /Screenshot review/ }).first().click();
-  const railBlob = page.locator('aside').getByRole('button', { name: new RegExp(title) }).locator(`.blob-${style.toLowerCase()}`);
+  const railBlob = page.locator('aside').getByRole('button', { name: new RegExp(title) }).locator(`.blob-${globalStyle}`);
   await expect(railBlob).toHaveCount(1);
   await expect.poll(() => paints(railBlob)).toEqual(colors);
-  if (style === 'Mosaic') await expect(railBlob).toHaveAttribute('data-shape', shape);
+  if (globalStyle === 'mosaic') await expect(railBlob).toHaveAttribute('data-shape', shape);
 };
 
 for (const [style, shape] of [['Buddy', 'cloud'], ['Crystal', 'prism'], ['Mosaic', 'crown'], ['Lava', 'peanut']]) {
@@ -75,7 +76,7 @@ for (const [style, shape] of [['Buddy', 'cloud'], ['Crystal', 'prism'], ['Mosaic
     expect(await snapshot(page)).toEqual(before);
     if (style === 'Mosaic') await page.screenshot({ path: '/tmp/ember-draft-appearance-preview.png' });
     await send(page, `appearance ${style.toLowerCase()}`);
-    await assertCreated(page, before, colors, style, shape);
+    await assertCreated(page, before, colors, shape);
     if (style === 'Mosaic') await page.screenshot({ path: '/tmp/ember-draft-appearance-created.png' });
   });
 }
@@ -96,14 +97,16 @@ test('closing the picker or cancelling a draft never changes the next draft', as
   const original = await paints(center(page).locator('.blob'));
   await center(page).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('group', { name: 'Bot style' }).getByRole('button', { name: 'Mosaic' }).click();
+  await expect(dialog.getByRole('group', { name: 'Bot style' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /^(Buddy|Crystal|Mosaic|Lava|Scribble)$/ })).toHaveCount(0);
   await dialog.getByLabel('Custom bot color').fill('#158cba');
   await page.keyboard.press('Escape');
   await expect.poll(() => paints(center(page).locator('.blob'))).toEqual(original);
   await customize(page);
   await page.getByRole('button', { name: 'Cancel new bot' }).click();
   await page.getByRole('button', { name: 'New bot', exact: true }).first().click();
-  await expect(center(page).locator('.blob-buddy')).toBeVisible();
+  await expect(center(page).locator('.blob')).toBeVisible();
+  await expect(center(page).getByRole('group', { name: 'Bot style' })).toHaveCount(0);
   await expect.poll(() => paints(center(page).locator('.blob'))).toEqual(original);
   expect(await snapshot(page)).toEqual(before);
 });
@@ -124,30 +127,14 @@ test('a slow create keeps its appearance when it completes away from the draft',
   await assertCreated(page, before, colors);
 });
 
-// Shape coordinates, not SVG ids or animation phases: automatic Crystal/Lava geometry is seeded.
-const geometry = (blob: Locator) => blob.locator('svg').first().locator('path, circle, ellipse').evaluateAll(elements =>
-  elements.filter(el => !el.closest('.blob-badge')).map(el =>
-    ['d', 'cx', 'cy', 'r', 'rx', 'ry'].map(attribute => el.getAttribute(attribute))));
-
-for (const style of ['Crystal', 'Lava']) {
-  test(`${style}: choosing only a style freezes automatic geometry through creation`, async ({ page }) => {
-    const before = await start(page);
-    await center(page).focus();
-    await page.keyboard.press('Space');
-    const dialog = page.getByRole('dialog', { name: 'Customize appearance' });
-    await dialog.getByRole('group', { name: 'Bot style' }).getByRole('button', { name: style }).click();
-    const selector = `.blob-${style.toLowerCase()}`;
-    const preview = dialog.locator(selector).first();
-    const shape = await geometry(preview);
-    const colors = await paints(preview);
-    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => geometry(center(page).locator(selector))).toEqual(shape);
-    await expect.poll(() => paints(center(page).locator(selector))).toEqual(colors);
-    expect(await snapshot(page)).toEqual(before);
-    await send(page, `automatic ${style.toLowerCase()} identity`);
-    await expect(page.locator('main[data-session-key]')).toBeVisible();
-    const saved = page.locator('[data-composer-identity]').locator(selector).first();
-    await expect.poll(() => geometry(saved)).toEqual(shape);
-    await expect.poll(() => paints(saved)).toEqual(colors);
-  });
-}
+// No blob-style selector is available inside appearance customization; style changes live in Settings.
+test('draft picker shows the global style without offering a misleading per-bot selector', async ({ page }) => {
+  await start(page);
+  await center(page).focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Customize appearance' });
+  await expect(dialog.getByTestId('global-blob-style')).toContainText('Blob style: Buddy.');
+  await expect(dialog.getByTestId('global-blob-style')).toContainText('Change it in Settings → General; it applies to every chat.');
+  await expect(dialog.getByRole('group', { name: 'Bot style' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /^(Buddy|Crystal|Mosaic|Lava|Scribble)$/ })).toHaveCount(0);
+});

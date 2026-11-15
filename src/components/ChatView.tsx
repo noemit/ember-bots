@@ -3034,7 +3034,7 @@ function ChatView({
       {draftInstance && draftPickerBase && onDraftAppearanceChange ? (
         <React.Suspense fallback={null}>
         <AvatarPicker open={draftAppearanceOpen} onOpenChange={setDraftAppearanceOpen}
-          title="New bot" style={blobStyle} theme={draftAppearanceTheme} allowStyleChoice
+          title="New bot" style={blobStyle} theme={draftAppearanceTheme}
           identity={draftPickerBase}
           scopes={[{ key: 'new-bot', label: 'This new bot', kind: 'session' }]}
           overrides={draftAppearance ? { 'new-bot': draftAppearance.override } : {}}

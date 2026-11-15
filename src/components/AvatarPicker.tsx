@@ -5,7 +5,7 @@ import { IDENTITY_COLORS, identityPaletteFor } from '../blob/contrast';
 import { themeById } from '../themes';
 import { CRYSTAL_SHAPES } from '../blob/crystal';
 import { BUDDY_SHAPES } from '../blob/buddy';
-import { ACTIVE_BLOB_STYLES, effectiveBlobStyle, type ActiveBlobStyle } from '../blob/styles';
+import { effectiveBlobStyle } from '../blob/styles';
 import { MOSAIC_SHAPES } from '../blob/mosaic';
 import { LAVA_SHAPES } from '../blob/lava';
 import { cn } from '@/lib/utils';
@@ -34,7 +34,6 @@ type Props = {
   title: string;
   style: BlobStyle;
   theme: string;
-  allowStyleChoice?: boolean;
   resolvePreview: (scopeKey: string, override: AvatarOverride) => AvatarIdentity;
   identity: AvatarIdentity;
   scopes: Scope[];
@@ -45,29 +44,11 @@ type Props = {
 
 const COLOR_COUNT = IDENTITY_COLORS.length;
 
-const shapesForStyle = (style: ActiveBlobStyle): string[] => {
-  const shapes = style === 'crystal' ? CRYSTAL_SHAPES
-    : style === 'buddy' ? BUDDY_SHAPES
-      : style === 'lava' ? LAVA_SHAPES : MOSAIC_SHAPES;
-  return shapes.map((shape) => shape.name);
-};
-
-/** The global style is authoritative; style choices are not persisted as scope overrides. */
-export function pickerStyleDraft(draft: AvatarOverride, style: ActiveBlobStyle, currentShapeName?: string): AvatarOverride {
-  const next = { ...draft };
-  delete next.style;
-  const shapeName = draft.shapeName ?? currentShapeName;
-  // Mask the frozen preview base too: deleting this field would inherit its old shape again.
-  if (shapeName !== undefined) next.shapeName = shapesForStyle(style).includes(shapeName) ? shapeName : 'automatic';
-  return next;
-}
-
 export default function AvatarPicker({
   open,
   title,
   style: storedStyle,
   theme,
-  allowStyleChoice = false,
   resolvePreview,
   identity,
   scopes,
@@ -105,7 +86,9 @@ export default function AvatarPicker({
     resolvePreview(scopeKey, { ...draft, ...patch });
   const preview = previewIdentity({});
   const style = effectiveBlobStyle(storedStyle, preview);
-  const shapes = shapesForStyle(style);
+  const shapes = (style === 'crystal' ? CRYSTAL_SHAPES
+    : style === 'buddy' ? BUDDY_SHAPES
+      : style === 'lava' ? LAVA_SHAPES : MOSAIC_SHAPES).map((shape) => shape.name);
   const previewColor = preview.color ?? colors[preview.colorIndex ?? 0];
   const chosenColor = draft.color ?? (draft.colorIndex !== undefined ? colors[draft.colorIndex] : previewColor);
   const colorOverridden = scopeKind !== 'session' && chosenColor !== previewColor;
@@ -135,9 +118,7 @@ export default function AvatarPicker({
               </Select>
             </div>
             <span className="text-[11px] text-muted-foreground">
-              {allowStyleChoice
-                ? 'Only this new bot uses these choices. Existing bots won’t change.'
-                : scopeKind === 'project'
+              {scopeKind === 'project'
                 ? 'Shared by every session in this project or folder.'
                 : scopeKind === 'task'
                   ? 'Used only by this scheduled task.'
@@ -157,7 +138,7 @@ export default function AvatarPicker({
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-medium">Preview</span>
               <span className="text-xs text-muted-foreground">
-                Color and shape help you recognize this chat wherever it appears. Blob style follows Settings.
+                Color and shape help you recognize this chat wherever it appears.
               </span>
               {colorOverridden ? (
                 <span className="text-xs text-muted-foreground">
@@ -167,27 +148,10 @@ export default function AvatarPicker({
             </div>
           </div>
 
-          {allowStyleChoice ? (
-            <div role="group" aria-label="Bot style" className="flex flex-col gap-2">
-              <span className="text-xs font-medium">Bot style · global</span>
-              <div className="grid grid-cols-4 gap-2">
-                {ACTIVE_BLOB_STYLES.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    aria-pressed={style === option}
-                    onClick={() => setDraft((prev) => pickerStyleDraft(prev, option, preview.shapeName))}
-                    className={cn(
-                      'min-h-10 rounded-lg border text-xs transition-colors hover:bg-muted',
-                      style === option && 'border-highlight bg-muted ring-2 ring-highlight/30'
-                    )}
-                  >
-                    {option[0].toUpperCase() + option.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          <p data-testid="global-blob-style" className="text-xs text-muted-foreground">
+            Blob style: <span className="font-medium text-foreground">{style[0].toUpperCase() + style.slice(1)}</span>.
+            Change it in Settings → General; it applies to every chat.
+          </p>
 
           <section className="flex flex-col gap-2">
             <span className="text-xs font-medium">Color</span>
