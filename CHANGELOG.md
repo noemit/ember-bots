@@ -1,3 +1,45 @@
+## 1.24.0 — 2026-11-15
+
+### Added
+- Questions accept one immutable answer, with “Add more context” appending independent messages
+  beneath it. Answered history stays readable, source links point to verified original messages,
+  and drafts survive conflicting answers, lost responses and late callbacks.
+- Optional daily GitHub update checks, enabled by default on supported stable desktop installs.
+  Settings shows Check now, the installed version and the last result. Check timing survives
+  restarts and includes a small random delay; downloads and installation remain your choice.
+- Independent default models for Ultra Delegator's harder and easier tasks, remembered per Kiln.
+  Pi Classic and Custom instructions remain available; unavailable model choices block creation
+  rather than silently selecting a replacement.
+- Delegated tasks can report blocked, incomplete or handoff-needed outcomes without claiming Done.
+
+### Changed
+- Tasks use a compact, column-responsive grid, with completed outcomes available in history.
+- New conversation names use grounded task summaries rather than invented roles. Human renames
+  remain final.
+- Blob style is one global preference, including customized chats; colour and shape customization
+  remain available. Mosaic's active states use irregular, seeded pixel activity with proper pause
+  and reduced-motion behavior.
+- Leaving a nonempty annotation asks whether to save it in For later or discard it. Navigation
+  waits for that decision, and failed saves retain the text and exact source link for retry.
+- Includes Kiln 1.12.0. Release downloads follow the fixed platform-and-architecture filenames
+  in RELEASES.md; publishing still requires the complete audited platform set.
+
+### Fixed
+- Stop ends the current reply and then advances waiting human messages in order, including a
+  pending steer. The handoff survives Kiln restarts, retains inputs accepted while stopping and
+  avoids duplicate sends. Worker cancellation and held Questions answers do not restart work.
+- YEET bypasses the follow-up queue even when other messages are already waiting.
+- Worker context advisories no longer inject synthetic handoff instructions into the worker's
+  conversation or repeat for each assignment; unfinished outcomes need explicit new direction.
+- The folder-selection action sits above the subfolder list. Delegated-model controls appear
+  only for Ultra Delegator, under “Pick default models for delegated tasks”.
+- Muted chats suppress unread banners and per-message read controls without changing read marks.
+- Host-outage notices stay above the workspace and keep conversation controls reachable.
+- Context advice distinguishes large standing instructions from older conversation history and
+  gives truthful recovery guidance when the context measurement is unavailable.
+- Restored approved onboarding copy, protected instruction edits from late host responses and
+  preserved exact annotation selections instead of guessing their source.
+
 ## 1.23.0 — 2026-11-14
 
 ### Added

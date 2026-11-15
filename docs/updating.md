@@ -7,13 +7,18 @@ See [Versioning](../VERSIONING.md) for the separate release authorization and ve
 
 ## Daily checks
 
-Supported stable desktop installations check GitHub once every 24 hours while Ember is open.
-Settings → General → **Daily update checks** is on by default; switching it off leaves the top-bar
-manual check available. Attempt time is persisted, so restarting or waking Ember catches up only
-when a check is due. Background failures stay quiet and wait until the next day; an explicit check
-shows recovery guidance. Ember never downloads, installs or restarts automatically. There is no
-closed-app background service. Development, Canary and unsupported packages retain the eligibility
-rules below.
+Supported stable desktop installations check GitHub roughly once a day while Ember is open:
+24 hours plus a persisted random delay of up to 15 minutes. Settings → General → **Check for Ember
+updates daily and notify me** is on by default. Switching it off leaves **Check now** available in
+that same Settings section, alongside the installed version, last result and check time.
+
+Attempt time and the next check deadline are persisted, so restarting or waking Ember catches up
+only when overdue; missed days are never replayed. One desktop-owned scheduler prevents overlapping
+checks. Background failures stay quiet in Settings until the next daily attempt; manual checking
+remains available. The top bar shows available updates, requested downloads and installer problems,
+not idle/checking status or background check failures. Ember never downloads, installs or restarts
+automatically. There is no closed-app background service. Development, Canary and unsupported
+packages retain the eligibility rules below.
 
 ## Supported packages
 
@@ -195,14 +200,19 @@ Before publishing a release:
 
 ## Next-contract macOS commands
 
-After the owner authorizes and tags the next release (example `v1.23.1`), with the signing and
+After the owner authorizes and tags the next release (example `v1.24.0`), with the signing and
 notarization prerequisites above already configured privately:
 
 ```sh
-git fetch --tags
-git checkout v1.23.1
+# From your existing repository; leave its branch and working files untouched.
+git fetch origin tag v1.24.0
+mkdir -p "$HOME/.ember-worktrees"
+git worktree add --detach "$HOME/.ember-worktrees/ember-release-1.24.0" v1.24.0
+cd "$HOME/.ember-worktrees/ember-release-1.24.0"
+test "$(uname -m)" = arm64
 bun install --frozen-lockfile
-bun run dist:mac
+(cd packages/kiln && bun install --frozen-lockfile)
+bun run dist:mac --arm64
 bun run dist:cli
 hdiutil attach release/Ember-macos-arm64.dmg -mountpoint /tmp/ember-release-mount
 codesign --verify --deep --strict /tmp/ember-release-mount/Ember.app
@@ -216,7 +226,9 @@ codesign --verify --deep --strict "$ZIP_CHECK/Ember.app"
 spctl -a -vvv -t exec "$ZIP_CHECK/Ember.app"
 xcrun stapler validate "$ZIP_CHECK/Ember.app"
 file "$ZIP_CHECK/Ember.app/Contents/Resources/kiln"
-node scripts/release-assets.mjs checksums release macos 1.23.1 manual
+EMBER_PACKAGED_EXECUTABLE="$ZIP_CHECK/Ember.app/Contents/MacOS/Ember" \
+  bunx --no-install playwright test --config playwright.packaged.config.ts
+node scripts/release-assets.mjs checksums release macos 1.24.0 manual
 ```
 
 Confirm both `file` results are Mach-O arm64 and the packaged stable marker is present. Upload only

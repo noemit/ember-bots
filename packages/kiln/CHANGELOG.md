@@ -1,3 +1,23 @@
+## 1.12.0 — 2026-11-15
+
+### Added
+- Immutable Questions answers and payload-bound, ordered additional-context deliveries through
+  `POST /questions/:conversation/:key/context`. Concurrent appends retain independent receipts;
+  task ancestry supplies verified source-message links, including nested code-mode questions.
+- `session report` records blocked, incomplete and handoff-needed outcomes separately from Done,
+  with durable evidence and explicit correction-driven continuation.
+- Desktop `POST /abort` can opt into `continueQueue: true`: after the current reply stops, a
+  durable handoff admits waiting human inputs in order, including pending steers. Recovery resumes
+  an interrupted handoff after restart without replaying an input already placed in history.
+
+### Fixed
+- Worker context guidance is delivered to the coordinator once per worker, not injected into the
+  worker as synthetic user instructions or repeated after each assignment and compaction.
+- Removed the post-wake spawn cooldown while retaining burst and hourly loop safeguards.
+- Paused or completed task outcomes and held Questions answers cannot silently restart workers.
+- Inputs accepted while a desktop stop winds down join its durable handoff snapshot; full API
+  stops and worker cancellation retain the park-only contract.
+
 ## 1.11.0 — 2026-11-14
 
 ### Added
