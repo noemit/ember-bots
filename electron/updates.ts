@@ -1,6 +1,8 @@
 import type { EventEmitter } from 'node:events';
 
 export type UpdateSnapshot = {
+  lastCheckedAt?: number;
+  lastCheckResult?: 'current' | 'available' | 'failed';
   phase: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
   currentVersion: string;
   version?: string;
@@ -52,6 +54,11 @@ export class UpdateController {
       updater.on('error', this.swallowError);
     }
   }
+  restoreCheckResult(at: unknown, result: unknown) {
+    if (typeof at === 'number' && Number.isFinite(at) && at > 0 && at <= Date.now() && ['current', 'available', 'failed'].includes(String(result))) {
+      this.state = { ...this.state, lastCheckedAt: at, lastCheckResult: result as UpdateSnapshot['lastCheckResult'] };
+    }
+  }
   snapshot(): UpdateSnapshot { return { ...this.state }; }
   private publish(patch: Partial<UpdateSnapshot>) { if (this.disposed) return; this.state = { ...this.state, ...patch }; this.changed(this.snapshot()); }
   async action(action: UpdateAction, quiet = false): Promise<UpdateSnapshot> {
@@ -78,6 +85,8 @@ export class UpdateController {
         if (!quiet) this.publish({ phase: 'checking', version: undefined, progress: undefined, message: 'Ember is checking GitHub for a stable update…' });
         const result = await this.updater.checkForUpdates();
         const version = result?.updateInfo.version;
+        const available = result?.isUpdateAvailable === true && version && newer(this.state.currentVersion, version);
+        this.publish({ lastCheckedAt: Date.now(), lastCheckResult: available ? 'available' : 'current' });
         if (result?.isUpdateAvailable === true && version && newer(this.state.currentVersion, version)) this.publish({ phase: 'available', version, message: `Ember ${version} is ready to download.` });
         else if (!quiet) this.publish({ phase: 'idle', message: 'Ember is up to date with the stable GitHub release.' });
       } else {
@@ -87,6 +96,7 @@ export class UpdateController {
         this.publish({ phase: 'downloaded', progress: 100, message: 'Ember has downloaded and checked the update. Choose Restart and install when you are ready; macOS verifies its signature before Ember stops its bundled Kiln.' });
       }
     } catch {
+      if (action === 'check') this.publish({ lastCheckedAt: Date.now(), lastCheckResult: 'failed' });
       if (!(quiet && action === 'check')) this.publish({ phase: 'error', progress: undefined, message: action === 'check' ? 'Ember could not check GitHub for updates. Check your connection, then choose Retry.' : 'Ember could not download or verify this update. Keep using this version, then choose Retry.' });
     } finally { this.updater.removeListener('download-progress', progress); this.busy = false; }
     return this.snapshot();

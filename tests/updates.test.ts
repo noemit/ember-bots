@@ -216,11 +216,23 @@ test('automatic update failures and no-update checks stay quiet; available updat
   updater.checkForUpdates = async () => { throw new Error('offline'); };
   await controller.action('check', true);
   expect(controller.snapshot().phase).toBe('idle');
-  expect(states).toEqual([]);
+  expect(states.map(state => state.phase)).toEqual(['idle']);
+  expect(controller.snapshot().lastCheckResult).toBe('failed');
   updater.checkForUpdates = async () => null;
   await controller.action('check', true);
-  expect(states).toEqual([]);
+  expect(states.map(state => state.phase)).toEqual(['idle', 'idle']);
+  expect(controller.snapshot().lastCheckResult).toBe('current');
   updater.checkForUpdates = async () => ({ isUpdateAvailable: true, updateInfo: { version: '1.3.0' } });
   await controller.action('check', true);
-  expect(states.map(state => state.phase)).toEqual(['available']);
+  expect(states.map(state => state.phase)).toEqual(['idle', 'idle', 'idle', 'available']);
+});
+
+
+test('saved check results restore without advertising an unverified update after restart', () => {
+  const { controller } = setup();
+  controller.restoreCheckResult(1234, 'available');
+  expect(controller.snapshot()).toMatchObject({ phase: 'idle', lastCheckedAt: 1234, lastCheckResult: 'available' });
+  expect(controller.snapshot().version).toBeUndefined();
+  controller.restoreCheckResult(NaN, 'failed');
+  expect(controller.snapshot().lastCheckedAt).toBe(1234);
 });

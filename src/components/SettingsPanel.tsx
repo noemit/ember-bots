@@ -1,3 +1,4 @@
+import DesktopUpdates from './DesktopUpdates';
 import type { ProjectUsage } from '../lib/projectUsage';
 import { AVATAR_SIZES, avatarPixels } from '../blob/size';
 import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from '../lib/instanceDefaultModel';
@@ -557,12 +558,16 @@ export default function SettingsPanel({
               <ModelExperienceSettings />
               {window.ember.capabilities?.desktopUpdates === true ? <Card>
                 <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ember updates</CardTitle></CardHeader>
-                <CardContent className="flex items-center justify-between gap-3 p-3">
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="font-medium">Daily update checks</span>
-                    <span className="text-[11px] text-muted-foreground">In a supported stable installation, Ember checks GitHub once a day while it’s open. Downloads and installation are always your choice. Turn this off to check manually from the top bar.</span>
+                <CardContent className="space-y-3 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="font-medium">Check for Ember updates daily and notify me</span>
+                      <span className="text-[11px] text-muted-foreground">Checks GitHub while Ember is open. Downloads and installation only happen when you choose.</span>
+                    </div>
+                    <Toggle pressed={settings.automaticUpdateChecks !== false} onPressedChange={enabled => onChange({ automaticUpdateChecks: enabled })} variant="outline" size="sm" aria-label="Daily update checks">{settings.automaticUpdateChecks !== false ? 'On' : 'Off'}</Toggle>
                   </div>
-                  <Toggle pressed={settings.automaticUpdateChecks !== false} onPressedChange={enabled => onChange({ automaticUpdateChecks: enabled })} variant="outline" size="sm" aria-label="Daily update checks">{settings.automaticUpdateChecks !== false ? 'On' : 'Off'}</Toggle>
+                  {settings.automaticUpdateChecks === false ? <p className="text-xs text-muted-foreground">Automatic checks are off. You can check manually below.</p> : null}
+                  <DesktopUpdates placement="settings" />
                 </CardContent>
               </Card> : null}
               <Card>

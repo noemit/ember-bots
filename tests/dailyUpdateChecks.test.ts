@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { DailyUpdateChecks, UPDATE_CHECK_INTERVAL_MS as DAY, updateCheckDue } from '../electron/dailyUpdateChecks';
+import { DailyUpdateChecks, UPDATE_CHECK_INTERVAL_MS as DAY, UPDATE_CHECK_JITTER_MS as JITTER, updateCheckDue } from '../electron/dailyUpdateChecks';
 import { withoutDesktopOnlySettings } from '../electron/transport';
 
 test('due policy handles fresh installs, clock rollback, invalid state and exactly one day', () => {
@@ -57,4 +57,26 @@ test('no background request without durable receipt; manual recovery remains ava
   await runner.check(true); expect(calls).toBe(1);
   runner.dispose(); await runner.check(true); expect(calls).toBe(1);
   expect(withoutDesktopOnlySettings({ automaticUpdateChecks: false, theme: 'clay' })).toEqual({ theme: 'clay' });
+});
+
+
+test('daily jitter is bounded, persisted before networking and stable across restart', async () => {
+  let now = DAY * 10, last = 0, next = 0, calls = 0;
+  const create = (random = 0.5) => new DailyUpdateChecks({ enabled: () => true, lastAttempt: () => last, nextAttempt: () => next,
+    now: () => now, random: () => random, recordAttempt: async (at, due) => { last = at; next = due; },
+    check: async () => { expect(next).toBeGreaterThan(now); calls++; return { phase: 'idle', supported: true, currentVersion: '1.0.0' }; } });
+  const runner = create(); await runner.check();
+  expect(next).toBe(now + DAY + JITTER / 2); expect(calls).toBe(1); runner.dispose();
+  const restarted = create(1); now += DAY;
+  await restarted.check(); expect(calls).toBe(1);
+  now = next; await restarted.check(); expect(calls).toBe(2);
+  expect(next).toBe(now + DAY + JITTER);
+  await restarted.check(true); expect(calls).toBe(3);
+});
+
+test('corrupt or far-future jitter cannot suppress checks indefinitely; no early checks', () => {
+  const last = DAY * 10;
+  expect(updateCheckDue(last, last + DAY, last + DAY + JITTER)).toBe(false);
+  expect(updateCheckDue(last, last + DAY + JITTER, last + DAY + JITTER)).toBe(true);
+  for (const next of [NaN, Infinity, 'future', last + DAY * 100, last - 1]) expect(updateCheckDue(last, last + DAY, next)).toBe(true);
 });

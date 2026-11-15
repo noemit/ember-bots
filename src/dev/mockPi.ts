@@ -2181,9 +2181,10 @@ let mockKilnShared = false;
 const updaterFixture = new URLSearchParams(window.location.search).get('updater');
 const updateListeners = new Set<(state: UpdateSnapshot) => void>();
 let updateSnapshot: UpdateSnapshot = {
-  phase: updaterFixture === 'unsupported' ? 'idle' : (['available', 'downloading', 'downloaded', 'error', 'disabled'].includes(updaterFixture ?? '') ? updaterFixture as UpdateSnapshot['phase'] : 'idle'),
+  phase: updaterFixture === 'unsupported' ? 'idle' : (['checking', 'available', 'downloading', 'downloaded', 'error', 'disabled'].includes(updaterFixture ?? '') ? updaterFixture as UpdateSnapshot['phase'] : 'idle'),
   currentVersion: '1.22.0',
   version: '1.23.0',
+  ...(['quiet-error', 'current'].includes(updaterFixture ?? '') ? { lastCheckedAt: Date.now(), lastCheckResult: updaterFixture === 'quiet-error' ? 'failed' as const : 'current' as const } : {}),
   supported: updaterFixture !== 'unsupported' && updaterFixture !== 'disabled',
   ...(updaterFixture === 'downloading' ? { progress: 42 } : {}),
 };
@@ -2253,7 +2254,7 @@ export const bridge: EmberBridge = {
     if (action === 'check') {
       publishUpdate({ phase: 'checking' });
       await new Promise(resolve => window.setTimeout(resolve, 250));
-      return publishUpdate({ phase: 'available' });
+      return publishUpdate({ phase: 'available', lastCheckedAt: Date.now(), lastCheckResult: 'available' });
     }
     if (action === 'download') {
       publishUpdate({ phase: 'downloading', progress: 0 });

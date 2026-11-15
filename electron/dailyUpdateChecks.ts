@@ -1,8 +1,12 @@
 import type { UpdateSnapshot } from './updates';
 
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export function updateCheckDue(last: unknown, now: number): boolean {
-  return typeof last !== 'number' || !Number.isFinite(last) || last <= 0 || last > now || now - last >= UPDATE_CHECK_INTERVAL_MS;
+export const UPDATE_CHECK_JITTER_MS = 15 * 60 * 1000;
+export function updateCheckDue(last: unknown, now: number, next?: unknown): boolean {
+  if (typeof last !== 'number' || !Number.isFinite(last) || last <= 0 || last > now) return true;
+  const earliest = last + UPDATE_CHECK_INTERVAL_MS;
+  const due = typeof next === 'number' && Number.isFinite(next) && next >= earliest && next <= earliest + UPDATE_CHECK_JITTER_MS ? next : earliest;
+  return now >= due;
 }
 
 /** Main-process only. Persist attempts before contacting GitHub, including failed attempts, so
@@ -14,7 +18,9 @@ export class DailyUpdateChecks {
   constructor(private readonly options: {
     enabled: () => boolean;
     lastAttempt: () => unknown;
-    recordAttempt: (at: number) => Promise<void>;
+    nextAttempt?: () => unknown;
+    recordAttempt: (at: number, next: number) => Promise<void>;
+    random?: () => number;
     check: (quiet: boolean) => Promise<UpdateSnapshot>;
     now?: () => number;
   }) {}
@@ -22,11 +28,15 @@ export class DailyUpdateChecks {
     if (this.disposed) return Promise.resolve(undefined);
     if (this.running) return manual && !this.runningManual ? this.running.then(() => this.check(true), () => this.check(true)) : this.running;
     const now = (this.options.now ?? Date.now)();
-    if (!manual && (!this.options.enabled() || !updateCheckDue(this.options.lastAttempt(), now))) return Promise.resolve(undefined);
+    if (!manual && (!this.options.enabled() || !updateCheckDue(this.options.lastAttempt(), now, this.options.nextAttempt?.()))) return Promise.resolve(undefined);
     this.runningManual = manual;
     this.running = (async () => {
       // Failure to record an automatic attempt must not turn restarts into a request loop.
-      try { await this.options.recordAttempt(now); } catch { if (!manual) return undefined; }
+      try {
+        const random = (this.options.random ?? Math.random)();
+        const jitter = Number.isFinite(random) ? Math.floor(Math.max(0, Math.min(1, random)) * UPDATE_CHECK_JITTER_MS) : 0;
+        await this.options.recordAttempt(now, now + UPDATE_CHECK_INTERVAL_MS + jitter);
+      } catch { if (!manual) return undefined; }
       if (this.disposed || (!manual && !this.options.enabled())) return undefined;
       return this.options.check(!manual);
     })().finally(() => { this.running = undefined; });

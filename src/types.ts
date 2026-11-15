@@ -980,6 +980,8 @@ declare global {
 
 /** Sanitized desktop updater state; no provider errors, paths or download URLs cross the bridge. */
 export type UpdateSnapshot = {
+  lastCheckedAt?: number;
+  lastCheckResult?: 'current' | 'available' | 'failed';
   phase: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
   currentVersion: string;
   version?: string;

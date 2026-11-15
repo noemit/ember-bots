@@ -2,7 +2,10 @@ import { expect, test, type Page } from '@playwright/test';
 
 const openUpdater = async (page: Page, phase: string, label: string) => {
   await page.goto(`/?noDock&updater=${phase}`);
-  await page.getByRole('button', { name: label, exact: true }).click();
+  if (phase === 'unsupported' || phase === 'disabled') {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Update details', exact: true }).click();
+  } else await page.getByRole('button', { name: label, exact: true }).click();
   return page.getByRole('dialog', { name: 'Ember updates', exact: true });
 };
 
@@ -82,7 +85,10 @@ test('error without a known version retries checking rather than downloading', a
       bridge = { ...value, getUpdateState: async () => ({ phase: 'error', currentVersion: '1.22.0', supported: true }) };
     } });
   });
-  const dialog = await openUpdater(page, 'error', 'Update needs attention');
+  await page.goto('/?noDock&updater=error');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Update details', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Ember updates', exact: true });
   await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Download update', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Restart and install', exact: true })).toHaveCount(0);
@@ -132,9 +138,23 @@ test('daily checks can be disabled and persist without removing the manual check
   await page.reload();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Ember updates', exact: true });
-  await dialog.getByRole('button', { name: 'Check for updates', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Download update', exact: true })).toBeVisible();
+  await expect(page.getByText('Automatic checks are off. You can check manually below.')).toBeVisible();
+  await expect(page.getByText('Installed: Ember 1.22.0')).toBeVisible();
+  await page.getByRole('button', { name: 'Check now', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Update available', exact: true }).last()).toBeVisible();
 });
+
+
+for (const phase of ['idle', 'checking', 'quiet-error', 'current']) {
+  test(`${phase} update checks stay out of the top bar and remain reachable in Settings`, async ({ page }, info) => {
+    await page.goto('/?noDock&updater=' + phase);
+    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Check for updates|Update needs attention|Update available|Checking/ })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.getByText('Installed: Ember 1.22.0')).toBeVisible();
+    if (phase === 'quiet-error') await expect(page.getByText(/Ember could not check GitHub/)).toBeVisible();
+    if (phase === 'current') await expect(page.getByText(/up to date with the stable GitHub release/)).toBeVisible();
+    await expect(page.getByRole('button', { name: phase === 'checking' ? 'Checking…' : 'Check now', exact: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath('updates-settings.png') });
+  });
+}

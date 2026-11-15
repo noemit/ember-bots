@@ -1613,11 +1613,18 @@ if (primaryInstance) app.whenReady().then(async () => {
   });
   if (eligibility.enabled) {
     const attemptsPath = path.join(emberHome, 'update-checks.json');
+    const priorCheck = readJson(attemptsPath);
+    updateController.restoreCheckResult(priorCheck.lastCheckedAt, priorCheck.lastCheckResult);
     dailyUpdateChecks = new DailyUpdateChecks({
       enabled: () => readEmberSettings().automaticUpdateChecks !== false,
       lastAttempt: () => readJson(attemptsPath).lastAttemptAt,
-      recordAttempt: at => writeJson(attemptsPath, { lastAttemptAt: at }),
-      check: quiet => updateController!.action('check', quiet),
+      nextAttempt: () => readJson(attemptsPath).nextAttemptAt,
+      recordAttempt: (at, next) => writeJson(attemptsPath, { ...readJson(attemptsPath), lastAttemptAt: at, nextAttemptAt: next }),
+      check: async quiet => {
+        const state = await updateController!.action('check', quiet);
+        if (state.lastCheckedAt) await writeJson(attemptsPath, { ...readJson(attemptsPath), lastCheckedAt: state.lastCheckedAt, lastCheckResult: state.lastCheckResult });
+        return state;
+      },
     });
     void dailyUpdateChecks.check().catch(() => {});
     // Checks run only while Ember runs; resume below catches up after sleep.

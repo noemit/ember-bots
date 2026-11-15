@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import UpdateCheckSummary from './UpdateCheckSummary';
 import type { UpdateSnapshot } from '../types';
 
 const releases = 'https://github.com/noemit/ember-bots/releases';
@@ -18,7 +19,7 @@ function updateCopy(state: UpdateSnapshot): string {
 }
 
 /** The desktop owns discovery and installation. Rendering this never starts a network check. */
-export default function DesktopUpdates() {
+export default function DesktopUpdates({ placement = 'toolbar' }: { placement?: 'toolbar' | 'settings' }) {
   const enabled = window.ember.capabilities?.desktopUpdates === true;
   const [snapshot, setSnapshot] = React.useState<UpdateSnapshot | null>(null);
   const [open, setOpen] = React.useState(false);
@@ -63,16 +64,22 @@ export default function DesktopUpdates() {
     }
   };
   if (!enabled) return null;
-  const attention = snapshot && ['available', 'downloading', 'downloaded', 'error'].includes(snapshot.phase);
+  const attention = snapshot && (['available', 'downloading', 'downloaded'].includes(snapshot.phase) || (snapshot.phase === 'error' && Boolean(snapshot.version)));
   const label = snapshot?.phase === 'available' ? 'Update available' : snapshot?.phase === 'downloaded' ? 'Update ready' : snapshot?.phase === 'downloading' ? 'Downloading update' : snapshot?.phase === 'error' ? 'Update needs attention' : 'Check for updates';
   const busy = pending || snapshot?.phase === 'checking' || snapshot?.phase === 'downloading';
   const progress = typeof snapshot?.progress === 'number' && Number.isFinite(snapshot.progress) ? Math.round(Math.max(0, Math.min(100, snapshot.progress))) : undefined;
   const requestRestart = () => { setConfirm(true); };
 
   return <>
-    <button type="button" className={`no-drag shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] focus-visible:outline-2 focus-visible:outline-ring ${attention ? 'border-highlight/40 text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label={`${label}${snapshot?.phase === 'downloading' && progress !== undefined ? ` · ${progress}%` : ''}`}>
+    {placement === 'settings' ? <div className="space-y-3">
+      <UpdateCheckSummary snapshot={snapshot} />
+      {snapshot?.supported && snapshot.phase !== 'disabled' ? <Button size="sm" variant="outline" disabled={busy} onClick={() => { void act('check'); }}>{busy ? 'Checking…' : 'Check now'}</Button> : <p className="text-xs text-muted-foreground">{snapshot ? updateCopy(snapshot) : null}</p>}
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>Update details</Button>
+      {attention ? <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>{label}</Button> : null}
+      {!snapshot?.supported ? <Button size="sm" variant="outline" onClick={() => void window.ember.openExternal(releases)}>Open Releases</Button> : null}
+    </div> : attention ? <button type="button" className={`no-drag shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] focus-visible:outline-2 focus-visible:outline-ring ${attention ? 'border-highlight/40 text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label={`${label}${snapshot?.phase === 'downloading' && progress !== undefined ? ` · ${progress}%` : ''}`}>
       <span role="status">{label}{snapshot?.phase === 'downloading' && progress !== undefined ? ` · ${progress}%` : ''}</span>
-    </button>
+    </button> : null}
     <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (!value) setConfirm(false); }}>
       <DialogContent>
         <DialogHeader>
