@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { taskIsDone, taskStatusSignal, threadShelfStatus } from '../src/lib/crew';
+import { taskIsDone, taskIsUnfinished, taskStatusSignal, threadShelfStatus } from '../src/lib/crew';
 import { invalidationsFor } from '../src/lib/invalidation';
 import { piConversationToSession } from '../src/lib/piMapping';
 import type { Session, WorkerTask } from '../src/types';
@@ -43,6 +43,22 @@ describe('explicit task lifecycle presentation', () => {
     expect(counts.detail).toContain('1 completed');
     expect(counts.detail).toContain('1 stopped');
     expect(counts.detail).toContain('1 failed');
+  });
+  test('unfinished outcomes retain evidence without active/completed counts or false success', () => {
+    const tasks = (['blocked', 'incomplete', 'handoff-needed'] as const).map((outcome, i) => worker(outcome, {
+      id: String(i), task: { ...worker(outcome).task!, completion: { ...completion, outcome } },
+    }));
+    for (const task of tasks) {
+      expect(taskIsDone(task)).toBe(false);
+      expect(taskIsUnfinished(task)).toBe(true);
+      expect(taskStatusSignal(task).word).not.toMatch(/Working|Completed|Waiting for you/);
+      expect(piConversationToSession('host', { id: task.id, kind: 'worker', task: task.task }).task).toEqual(task.task);
+    }
+    const counts = threadShelfStatus(tasks, [], () => 'idle');
+    expect(counts).toMatchObject({ running: 0, needsHuman: 0, summary: '0 active' });
+    expect(counts.detail).toContain('3 unfinished');
+    expect(counts.detail).toContain('0 completed');
+    expect(taskIsDone(worker('done', { task: { ...worker('done').task!, completion: { ...completion, outcome: 'incomplete' } } }))).toBe(false);
   });
   test('wire preserves stable outcome identity/title and completion independently of chat title', () => {
     const task = { ...worker('done').task!, completion };

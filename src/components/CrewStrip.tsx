@@ -12,6 +12,7 @@ import { sessionKey } from '../types';
 import {
   taskStatusSignal,
   taskIsDone,
+  taskIsUnfinished,
   workerStateLabel,
   type ThreadRow,
   type CrewBrickTone,
@@ -211,7 +212,8 @@ const WorkerBrick = React.memo(function WorkerBrick({
           ) : null}
         </>
       )}
-      {taskIsDone(worker) && worker.task?.completion ? (
+      {taskIsUnfinished(worker) ? <p className="basis-full px-1 text-[11px] text-muted-foreground">The worker paused before finishing. Open its source chat to review the outcome and decide how to continue.</p> : null}
+      {(taskIsDone(worker) || taskIsUnfinished(worker)) && worker.task?.completion ? (
         <details className="min-w-0 basis-full text-[11px] text-muted-foreground">
           <summary className="min-h-11 min-w-11 cursor-pointer content-center rounded-sm px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Outcome details
@@ -219,7 +221,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
           <dl className="space-y-2 px-1 pb-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
             <div><dt className="font-medium text-foreground">Summary</dt><dd>{worker.task.completion.summary}</dd></div>
             <div><dt className="font-medium text-foreground">Evidence</dt><dd>{worker.task.completion.evidence}</dd></div>
-            <div><dt className="font-medium text-foreground">Remaining</dt><dd>{worker.task.completion.remaining}</dd></div>
+            <div><dt className="font-medium text-foreground">{taskIsUnfinished(worker) ? 'Next steps' : 'Remaining'}</dt><dd>{worker.task.completion.remaining}</dd></div>
           </dl>
         </details>
       ) : null}

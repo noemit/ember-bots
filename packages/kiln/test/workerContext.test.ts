@@ -11,7 +11,7 @@ import { MetaDoc } from '../src/meta';
 import { SessionsDoc, SessionTool, submitCrewMessage } from '../src/sessions';
 import { threadTask } from '../src/threadResults';
 import { resumeThreads } from '../src/threadSupervisor';
-import { WORKER_CONTEXT_ADVICE, WorkerContext, WorkerContextDoc } from '../src/workerContext';
+import { WorkerContext, WorkerContextDoc } from '../src/workerContext';
 import { currentContextOf } from '../src/currentContext';
 import { tick as crewTick } from '../src/crew';
 import { runTask, type ScheduledTask } from '../src/scheduler';
@@ -45,10 +45,6 @@ const answerWithUsage = (tokens: number) => {
 };
 
 describe('worker current-context advisory', () => {
-  test('prompt is actionable and honest about advisory enforcement', () => {
-    for (const word of ['bounded task', 'explicit', 'queued messages', 'progress', 'files', 'commits', 'tests', 'blockers', 'next steps', 'Sol/Luna', 'advisory', 'not a hard']) expect(WORKER_CONTEXT_ADVICE).toContain(word);
-  });
-
   test('two 60k usage blocks are not 120k current context; cache tokens count once', () => {
     const first = answerWithUsage(60_000);
     const second = answerWithUsage(60_000);
@@ -56,7 +52,7 @@ describe('worker current-context advisory', () => {
     expect(currentContextOf({ head: undefined, messages: [first, second] }).currentContextTokens).toBe(60_000);
   });
 
-  test('lifecycle captures handoff and adds guidance without interrupting bounded work', async () => {
+  test('lifecycle records context but never appends advice to worker model requests', async () => {
     const f = await setup();
     const prompts: string[] = [];
     try {
@@ -80,19 +76,49 @@ describe('worker current-context advisory', () => {
           conversationId: f.leader.id, snapshot: f.harness.snapshot.bind(f.harness), commit: f.harness.commit.bind(f.harness),
         } as never, context);
         const output = JSON.stringify(result.output);
-        expect(output).toContain('fresh Sol/Luna worker recommended');
-        expect(output).toContain('Handoff:');
-        expect(output).toContain(String(doc!.handoff!.answerEntryId));
+        expect(output).not.toContain('fresh Sol/Luna');
+        expect(output).not.toContain('Handoff:');
       }
       await f.worker.submit({ type: 'input', content: 'Explicit override: small completion' }, context);
       await f.worker.waitForIdle(context);
-      expect(prompts[1]).toContain('advisory guidance');
-      expect(prompts[0]).toContain('advisory guidance');
+      expect(prompts[1]).not.toContain('Kiln worker context policy');
+      expect(prompts[0]).not.toContain('Kiln worker context policy');
       expect(await f.resume()).toBe(1);
       expect(await f.resume()).toBe(0);
       const notice = (await f.notices())[0]!;
       expect(notice.data).toMatchObject({ internal: true });
       expect(JSON.stringify(notice.data)).not.toContain('Files: a.ts');
+    } finally { await f.harness.close(context); }
+  });
+
+  test('coordinator advice is once per worker, not once per assignment or compaction epoch', async () => {
+    const f = await setup();
+    try {
+      f.faux.setResponses([answerWithUsage(100_001), answerWithUsage(1), answerWithUsage(100_001), answerWithUsage(100_001)]);
+      await f.harness.commit(tx => configure(tx, f.leader.id, { model: { provider: 'faux', modelId: 'faux-1' } }), context);
+      await f.worker.submit({ type: 'input', content: 'First task ' + 'x'.repeat(410_000) }, context);
+      await f.worker.waitForIdle(context);
+      expect(await f.resume()).toBe(1);
+      await f.leader.waitForIdle(context);
+      const receipt = (await f.harness.snapshot(WorkerContextDoc, f.worker.id, context))!.notifiedAt;
+      expect(receipt).toBeGreaterThan(0);
+      const notice = (await f.notices())[0]!;
+      expect(JSON.stringify(notice.model)).toMatch(/Wrap up.*fresh agents/);
+      const prior = (await f.state())!.items.worker!;
+      await submitCrewMessage({ conversationId: f.leader.id, taskId: 'new-assignment', commit: f.harness.commit.bind(f.harness) } as never,
+        (await f.harness.conversation(f.worker.id, context))! as never, 'worker', prior, 'Finish existing bounded work', false, context);
+      await f.worker.waitForIdle(context);
+      expect(await f.resume()).toBe(0);
+      // A context reset followed by another large task must not reset the worker's receipt.
+      await f.harness.commit(async tx => {
+        const summary = await tx.appendEntry(f.worker.id, { kind: 'test.summary', model: [{ role: 'user', content: 'Brief summary', timestamp: Date.now() }] });
+        await tx.appendEntry(f.worker.id, { kind: 'test.reset', head: summary.id });
+      }, context);
+      await f.worker.submit({ type: 'input', content: 'More work ' + 'x'.repeat(410_000) }, context);
+      await f.worker.waitForIdle(context);
+      expect(await f.resume()).toBe(0);
+      expect(await f.notices()).toHaveLength(1);
+      expect((await f.harness.snapshot(WorkerContextDoc, f.worker.id, context))!.notifiedAt).toBe(receipt);
     } finally { await f.harness.close(context); }
   });
 

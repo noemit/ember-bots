@@ -140,7 +140,7 @@ export const threadShelfStatus = (
   let running = 0;
   let needsHuman = 0;
   for (const worker of all.values()) {
-    if (taskIsDone(worker) || worker.task?.status === 'stopped' || worker.task?.status === 'failed') continue;
+    if (taskIsDone(worker) || taskIsUnfinished(worker) || worker.task?.status === 'stopped' || worker.task?.status === 'failed') continue;
     if (worker.needsInput || stateFor?.(worker) === 'needs-input' || blockedKeys.has(sessionKey(worker))) needsHuman += 1;
     else if (worker.task ? worker.task.status === 'working' : stateFor?.(worker) === 'active') running += 1;
   }
@@ -150,17 +150,18 @@ export const threadShelfStatus = (
     : `${running} of ${all.size} tasks running`;
   if (workers.some((worker) => worker.task)) {
     const done = [...all.values()].filter(taskIsDone).length;
+    const unfinished = [...all.values()].filter(taskIsUnfinished).length;
     const stopped = [...all.values()].filter((worker) => worker.task?.status === 'stopped').length;
     const failed = [...all.values()].filter((worker) => worker.task?.status === 'failed').length;
     const active = [...all.values()].filter((worker) => {
-      if (worker.task) return !taskIsDone(worker) && worker.task.status !== 'stopped' && worker.task.status !== 'failed';
+      if (worker.task) return !taskIsDone(worker) && !taskIsUnfinished(worker) && worker.task.status !== 'stopped' && worker.task.status !== 'failed';
       const legacyStatus = workerStateLabel(worker, { state: stateFor?.(worker) });
       return legacyStatus !== 'idle' && legacyStatus !== 'reported';
     }).length;
     return {
       total: all.size, running, needsHuman,
       summary: `${active} active`,
-      detail: `${active} active tasks · ${running} working · ${needsHuman} waiting for you · ${done} completed · ${stopped} stopped · ${failed} failed`,
+      detail: `${active} active tasks · ${running} working · ${needsHuman} waiting for you · ${done} completed · ${unfinished} unfinished · ${stopped} stopped · ${failed} failed`,
     };
   }
   return { total: all.size, running, needsHuman, summary: `${running} / ${all.size}`, detail };
@@ -168,13 +169,20 @@ export const threadShelfStatus = (
 
 /** Only the host's explicit completion receipt can put a purpose in Done. */
 export const taskIsDone = (worker: Session): boolean =>
-  worker.task?.status === 'done' && worker.task.completion?.task === worker.task.id;
+  worker.task?.status === 'done' && worker.task.completion?.task === worker.task.id &&
+  (worker.task.completion.outcome ?? 'done') === 'done';
+
+/** A stopped execution can retain unresolved work without becoming an active task or Done. */
+export const taskIsUnfinished = (worker: Session): boolean =>
+  worker.task?.completion?.task === worker.task?.id &&
+  ['blocked', 'incomplete', 'handoff-needed'].includes(worker.task?.completion?.outcome ?? '');
 
 /** Waiting for a turn is not waiting for a human. Legacy rows retain their old signals. */
 export const taskStatusSignal = (worker: Session, state?: BallState): CrewBrickSignal => {
   const task = worker.task;
   if (!task) return brickStatusSignal(workerStateLabel(worker, { state }));
   if (taskIsDone(worker)) return { word: 'Completed', tone: 'done', showWord: true };
+  if (taskIsUnfinished(worker)) return { word: task.status === 'handoff-needed' ? 'Handoff needed' : task.status === 'blocked' ? 'Blocked' : 'Incomplete', tone: 'attention', showWord: true };
   if (task.status === 'stopped') return { word: 'Stopped', tone: 'quiet', showWord: true };
   if (task.status === 'failed') return { word: 'Failed', tone: 'failed', showWord: true };
   if (worker.needsInput || state === 'needs-input') return { word: 'Waiting for you', tone: 'attention', showWord: true };

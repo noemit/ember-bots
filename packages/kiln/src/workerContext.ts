@@ -1,22 +1,16 @@
 import { defineDoc, defineExtension, defineTask, GenerationTask, hook, runEndTask, type ConversationId, type EntryId } from "@earendil-works/pi-durable";
-import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { currentContextOf } from "./currentContext";
 import { MetaDoc } from "./meta";
 import { SessionsDoc } from "./sessions";
 import { threadTask } from "./threadResults";
 
 export const WORKER_CONTEXT_LIMIT = 100_000;
-export const WORKER_CONTEXT_ADVICE =
-  "Kiln worker context policy: this worker has reached approximately 100k current-context tokens, not lifetime usage. " +
-  "Finish the active bounded task; do not start substantial new assignments by default. Small completion work or an explicit human/leader override is allowed. " +
-  "Never discard queued messages or leave an active task stranded: acknowledge new directions and explain any deferral. " +
-  "Before finishing, write a concise handoff with progress, files, commits, tests, blockers and next steps (say none or not run when appropriate). " +
-  "Recommend a fresh Sol/Luna worker to the leader; do not automatically spawn one or change models. This is advisory guidance, not a hard execution gate.";
-
 export type WorkerContextState = {
   currentContextTokens?: number;
   currentContextEpoch?: string;
   recommendation?: "fresh-worker";
+  /** Once per physical worker, retained across assignments, compaction and restarts. */
+  notifiedAt?: number;
   handoff?: { answerEntryId: number; text: string; at: number };
 };
 export const WorkerContextDoc = defineDoc<WorkerContextState>({
@@ -52,7 +46,7 @@ export const WorkerContextTask = defineTask<{ answer: number; through: number; t
             const crew = await tx.doc(SessionsDoc, meta.lead.conversationId as ConversationId);
             const entry = Object.values(crew.items).find((item) => item.conversationId === runtime.conversationId);
             // A newly queued/reassigned task must not receive an advisory for the previous answer.
-            if (entry && threadTask(entry) === task.input.task) {
+            if (entry && !doc.notifiedAt && !entry.notifiedContextEpoch && threadTask(entry) === task.input.task) {
               if (doc.recommendation) entry.contextAdvisory = {
                 epoch: measured.currentContextEpoch, task: task.input.task,
                 tokens: measured.currentContextTokens, answerEntryId: task.input.answer, throughEntryId: task.input.through,
@@ -74,7 +68,7 @@ export const WorkerContext = defineExtension({
   name: "worker-context",
   tasks: [WorkerContextTask],
   hooks: [hook(GenerationTask, {
-    beforeRequest: async ({ messages }, api, context) => {
+    beforeRequest: async (_request, api, context) => {
       const meta = await api.snapshot(MetaDoc, api.conversationId, context);
       if (meta?.kind !== "worker") return;
       if (meta.lead?.host === "local") {
@@ -82,8 +76,8 @@ export const WorkerContext = defineExtension({
         const entry = Object.values(crew?.items ?? {}).find((item) => item.conversationId === api.conversationId);
         if (entry) await api.memo("worker-context-task", threadTask(entry), context);
       }
-      if (estimateContextTokens(messages).tokens < WORKER_CONTEXT_LIMIT) return;
-      return { messages: [...messages, { role: "user", content: WORKER_CONTEXT_ADVICE, timestamp: Date.now() }] };
+      // Context is metadata for the coordinator, never a synthetic user instruction.
+      return undefined;
     },
     afterRun: async (run, api, context) => {
       const meta = await api.snapshot(MetaDoc, api.conversationId, context);

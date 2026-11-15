@@ -52,7 +52,7 @@ import {
   type PeerEndpoint,
 } from "./agents";
 import {
-  explicitDone,
+  explicitSettled,
   workerAssignment,
   rearmWorker,
   type TaskCompletion,
@@ -368,7 +368,7 @@ type ConversationSummary = {
   lead?: { conversationId: number; host: string };
   /** Whether this conversation offers the `session` tool + crew section. */
   creatorId?: number;
-  task?: { id: string; title: string; status: "working" | "waiting" | "blocked" | "done" | "stopped" | "failed"; completion?: TaskCompletion };
+  task?: { id: string; title: string; status: "working" | "waiting" | "blocked" | "incomplete" | "handoff-needed" | "done" | "stopped" | "failed"; completion?: TaskCompletion };
   delegates: boolean;
   /** Set on a worker after a human promotes it; the peer fork that now carries its name. */
   promotedTo?: number;
@@ -501,9 +501,9 @@ const summaryOf = async (
   const task = assignment?.entry.taskLifecycle === "explicit" ? {
     id: String(assignment.entry.conversationId) + ":" + (assignment.entry.taskAt ?? assignment.entry.spawnedAt),
     title: assignment.entry.title,
-    status: (explicitDone(assignment.entry) ? "done" : assignment.entry.state === "failed" ? "failed" : assignment.entry.state === "stopped" ? "stopped" :
-      approvals.length || questions.length ? "blocked" : live?.run ? "working" : "waiting") as "working" | "waiting" | "blocked" | "done" | "stopped" | "failed",
-    ...(explicitDone(assignment.entry) ? { completion: assignment.entry.completion } : {}),
+    status: (explicitSettled(assignment.entry) ? assignment.entry.completion?.outcome ?? "done" : assignment.entry.state === "failed" ? "failed" : assignment.entry.state === "stopped" ? "stopped" :
+      approvals.length || questions.length ? "blocked" : live?.run ? "working" : "waiting") as "working" | "waiting" | "blocked" | "incomplete" | "handoff-needed" | "done" | "stopped" | "failed",
+    ...(explicitSettled(assignment.entry) ? { completion: assignment.entry.completion } : {}),
   } : undefined;
   const processes = processesField(leftovers);
   return {
@@ -2214,7 +2214,7 @@ const server = Bun.serve<{
               const prior = toPlace.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, toPlace.requestId);
               if (draft.type === "input" && !prior) {
                 const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, await tx.doc(MetaDoc, conversationId));
-                if (assignment && (explicitDone(assignment.entry) || (assignment.entry.taskLifecycle === "explicit" &&
+                if (assignment && (explicitSettled(assignment.entry) || (assignment.entry.taskLifecycle === "explicit" &&
                     (assignment.entry.state === "failed" || assignment.entry.state === "stopped")))) {
                   await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
                 }

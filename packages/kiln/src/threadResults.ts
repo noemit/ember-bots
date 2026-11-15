@@ -9,12 +9,12 @@ export const resultRetrieved = (entry: CrewEntry): boolean =>
 export const threadCompletionDue = (entry: CrewEntry): boolean =>
   entry.delivery === 'thread' && entry.report !== undefined &&
   entry.notifiedResult !== entry.report.requestId && !resultRetrieved(entry) &&
-  (entry.state === 'failed' || entry.state === 'stopped' || entry.resumeTask === threadTask(entry));
+  (entry.state === 'failed' || entry.state === 'stopped' || entry.report.status !== 'ok' || entry.resumeTask === threadTask(entry));
 
 /** Bounded metadata notification; result text lives only in the worker and the result document. */
 export const threadNotice = (entries: readonly [string, CrewEntry][]): string =>
   '[threads] Outcomes available:\n' + entries.map(([name, entry]) =>
-    `${name}: ${entry.state}; task ${threadTask(entry)}; result ${entry.report?.requestId ?? 'pending'}; ` +
+    `${name}: ${entry.report?.status !== "ok" ? entry.report?.status ?? entry.state : entry.state}; task ${threadTask(entry)}; result ${entry.report?.requestId ?? 'pending'}; ` +
     `conversation ${entry.conversationId}`
   ).join('\n') +
   '\nUse session results with a name for the result and evidence link. Retrieved does not mean verified or incorporated. ' +

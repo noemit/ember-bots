@@ -118,6 +118,14 @@ their existing names; archive references in the implementation notes below descr
 - The root's Tasks shelf shows all new workers in a flat list; legacy nested workers remain
   reachable at their recorded depth. Status, human blockers and result links stay reachable without
   marking any human messages read.
+- Worker context advice is coordinator-only and delivered once per worker, persisted across
+  reassignment, compaction and restart. Never inject a synthetic user reminder into each model request.
+  Notifications do not block spawning; independent burst-rate and hourly-budget limits still apply.
+- `session report(task,outcome,summary,evidence,remaining)` records `blocked`, `incomplete`, or
+  `handoff-needed` without claiming Done. These outcomes pause execution, remain outside Completed,
+  retain evidence/next steps, and wake the coordinator once without restarting work. `complete` is
+  reserved for delivered outcomes. Explicit reopening preserves prior results and changes the task
+  version; pending questions cannot silently resume a paused assignment.
 - New Kiln workers default to `delivery: thread` in `hearth.sessions`. A final result stays in the
   result document and worker transcript; `hearth.thread-result` records only identifiers/status and
   evidence references. Existing delivery-less entries retain the legacy report contract.

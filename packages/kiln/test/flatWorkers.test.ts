@@ -128,17 +128,27 @@ describe('one flat worker layer with explicit requester rights', () => {
       expect((await f.state(f.requester))!.items.sibling.state).toBe('stopped');
     } finally { await f.harness.close(context); }
   });
-  test.each(['burst', 'budget', 'wake'] as const)('sibling spawn obeys shared supervisor %s safeguard', async (guard) => {
+  test.each(['burst', 'budget'] as const)('sibling spawn obeys shared supervisor %s safeguard', async (guard) => {
     const f = await setup();
     try {
       await f.harness.commit(async (tx) => {
         const doc = await tx.doc(SessionsDoc, f.root);
         if (guard === 'burst') doc.spawnedAt = Array(SPAWN_RATE_LIMIT).fill(Date.now());
         if (guard === 'budget') doc.spawnedAt = Array(SPAWN_BUDGET).fill(Date.now() - 120_000);
-        if (guard === 'wake') { doc.woke = true; doc.wokeAt = Date.now(); }
       }, context);
       expect(f.text(await f.call(f.requester, { action: 'spawn', name: 'denied', brief: 'work' }))).toContain('Refused');
       expect((await f.state(f.requester))!.items.denied).toBeUndefined();
+    } finally { await f.harness.close(context); }
+  });
+  test('shared supervisor notification never blocks a legitimate sibling assignment', async () => {
+    const f = await setup();
+    try {
+      await f.harness.commit(async tx => {
+        const doc = await tx.doc(SessionsDoc, f.root);
+        doc.woke = true; doc.wokeAt = Date.now();
+      }, context);
+      expect(f.text(await f.call(f.requester, { action: 'spawn', name: 'fresh', brief: 'Finish the reviewed handoff' }))).toContain('Started worker');
+      expect((await f.state(f.requester))!.items.fresh).toBeDefined();
     } finally { await f.harness.close(context); }
   });
   test('stale cross-supervisor references fail closed', async () => {

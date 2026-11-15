@@ -1633,7 +1633,7 @@ describe("hearth wire", () => {
     );
   }, 20_000);
 
-  test("a leader is refused a new crew right after being woken with its reports", async () => {
+  test("a leader can start new work immediately after a coordinator notification", async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [fauxToolCall("session", { action: "spawn", name: "second-crew", brief: "More work." })],
@@ -1665,13 +1665,13 @@ describe("hearth wire", () => {
         .map((entry: any) => entry.model?.[0]?.content ?? "")
         .flatMap((content: any) => (Array.isArray(content) ? content.map((part: any) => part.text ?? "") : []))
         .join("\n");
-      if (toolText.includes("Refused")) break;
+      if (toolText.includes("Started worker")) break;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    expect(toolText).toContain("reported back");
-    expect(toolText).toContain("message");
+    expect(toolText).toContain("Started worker");
+    expect(toolText).not.toContain("Refused");
     const list = await body(await api("/conversations"));
-    expect(list.conversations.some((entry: any) => entry.lead?.conversationId === leader.id)).toBe(false);
+    expect(list.conversations.some((entry: any) => entry.lead?.conversationId === leader.id)).toBe(true);
   }, 20_000);
 
   test("a leader with four active workers may start a fifth (no ceiling by default)", async () => {

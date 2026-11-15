@@ -38,13 +38,11 @@ export const WORKER_INSTRUCTIONS =
   "You own the delegated task in your brief, shown in Ember as a Task. Work toward that concrete outcome. " +
   "For default explicit tasks, call session complete " +
   "with task (the current version from session status without a name), summary, evidence and remaining limitations (say none when appropriate); a final reply or idle run does not complete the task. " +
-  "Done is your completion claim, not coordinator verification. A blocker is not completion: ask the human or report what you need. " +
+  "Done is your completion claim, not coordinator verification. A blocker is not completion: use session report with outcome blocked, incomplete, or handoff-needed, plus task, summary, evidence and remaining next steps. It pauses this assignment without marking Done. " +
   "Legacy report=always/on-failure and side-question workers still settle on a final reply. " +
   "Use session status without a name to inspect your own task identity and version. Do not complete while corrections or commands are pending. You may ask the human when blocked; the question " +
   "reaches your leader too. Keep the final handoff concise: progress, files, commits, tests, blockers and next steps; " +
-  "say none or not run where appropriate. Around 100k current-context tokens, finish the active bounded task and " +
-  "recommend a fresh Sol/Luna worker for substantial new work; small completion work or an explicit override may continue. " +
-  "Never discard pending human or leader directions, automatically spawn a replacement, or change models for this policy.";
+  "say none or not run where appropriate. Do not automatically replace workers or change models.";
 
 /** The worker instruction naming its own delegation, for a worker that keeps the crew tool. */
 export const WORKER_DELEGATION_INSTRUCTIONS =
@@ -107,13 +105,6 @@ export const CREW_WAIT_MS = 10 * 60 * 1000;
 /** One worker layer below the root. Every worker's helper joins that same root's crew. */
 export const MAX_DEPTH = 1;
 /**
- * A leader may start a new generation's crew only this long after the previous crew's wake. One
- * generation's spawns are instantaneous (a leader fans out, then waits); a *second* crew right after
- * being woken is a model reading "delegate when it helps" as "spawn again", and is how a report-back
- * loop becomes an unbounded tree of agents.
- */
-export const CREW_SPAWN_MIN_GAP_MS = 10 * 60 * 1000;
-/**
  * Concurrent workers in `starting | running` one leader may have: **no limit by default**.
  *
  * There used to be a hard 4 here, chosen as a load guardrail rather than a policy — each active worker
@@ -123,8 +114,7 @@ export const CREW_SPAWN_MIN_GAP_MS = 10 * 60 * 1000;
  * decision, and a refusal in the way of it is worse than the load it prevents.
  *
  * The guards that matter for a runaway *loop* are untouched: `SPAWN_RATE_LIMIT` (bursts),
- * `SPAWN_BUDGET` (per hour) and `CREW_SPAWN_MIN_GAP_MS` (a leader cannot raise a second crew right
- * after being woken). Those bound what a model can do; this only bounded what a fleet may be.
+ * `SPAWN_BUDGET` (per hour). Notifications do not prohibit legitimate replacement work.
  *
  * `HEARTH_MAX_ACTIVE_WORKERS` restores a ceiling for a host that wants one (0 or unset means none).
  */
@@ -167,7 +157,8 @@ export const SPAWN_HISTORY_MS = 24 * 60 * 60 * 1000;
 /** A report's text is capped here; the crew doc holds the report, the wake only a digest. */
 export const REPORT_CAP = 8_000;
 
-export type TaskCompletion = { summary: string; evidence: string; remaining: string; task: string; requestId: string; at: number };
+export type TaskOutcome = "done" | "blocked" | "incomplete" | "handoff-needed";
+export type TaskCompletion = { outcome?: TaskOutcome; summary: string; evidence: string; remaining: string; task: string; requestId: string; at: number };
 /** Replay receipts are retained across reopen, so an old tool cannot finish a new assignment. */
 export const TaskCallsDoc = defineDoc<{ calls: Record<string, string> }>({
   kind: "hearth.task-calls", version: 1, scope: "conversation", history: "latest", fork: "initial",
@@ -191,8 +182,12 @@ export const workerAssignment = async (
   }
 };
 
-export const explicitDone = (entry: CrewEntry): boolean => entry.taskLifecycle === "explicit" &&
+export const explicitSettled = (entry: CrewEntry): boolean => entry.taskLifecycle === "explicit" &&
   entry.state === "reported" && entry.completion?.task === threadTask(entry);
+
+/** Missing outcome is the legacy successful completion contract. */
+export const explicitDone = (entry: CrewEntry): boolean => explicitSettled(entry) &&
+  (entry.completion?.outcome ?? "done") === "done";
 
 /** One crew member this conversation started. */
 export type CrewEntry = {
@@ -257,7 +252,7 @@ export type CrewEntry = {
   notifiedDeadline?: string;
   /** Advisory only; reassignments invalidate its task version without touching the inbox. */
   contextAdvisory?: { epoch: string; task: string; tokens: number; answerEntryId: number; throughEntryId?: number };
-  /** Durable once-per-context-episode receipt, independent from result retrieval. */
+  /** Legacy once-per-worker receipt, independent from result retrieval. */
   notifiedContextEpoch?: string;
   /** Input admission and reassignment share a commit; tool replay must not create a new task. */
   lastMessageRequestId?: string;
@@ -272,7 +267,7 @@ export type CrewEntry = {
   };
   /** Written by the crew supervisor; the only report the leader's wake reads. */
   report?: {
-    status: "ok" | "failed" | "aborted";
+    status: "ok" | "failed" | "aborted" | "blocked" | "incomplete" | "handoff-needed";
     /** Capped at `REPORT_CAP`. */
     text: string;
     at: number;
@@ -307,7 +302,7 @@ export type SessionsState = {
    * Absent on documents written before it existed; at worst that re-sends one digest after upgrade.
    */
   wokeKey?: string;
-  /** Epoch ms that wake was sent; the one-crew-at-a-time spawn gap counts from here. */
+  /** Epoch ms that wake was sent (legacy bookkeeping, never a spawn cooldown). */
   wokeAt?: number;
 };
 
@@ -413,41 +408,25 @@ export const rateLimited = (
   windowMs = SPAWN_RATE_WINDOW_MS
 ): boolean => spawnedAt.filter((at) => now - at < windowMs).length >= limit;
 
-/**
- * How long a leader must wait before spawning after a wake, or 0 when it may spawn now. The crew is
- * idle after a wake (`woke`), so a spawn would start a new generation; that is the loop's edge and it
- * waits for the gap. Spawns within one un-woken generation stay free. Pure.
- */
-export const spawnGapMs = (state: { woke?: boolean; wokeAt?: number }, now: number): number => {
-  if (state.woke !== true || state.wokeAt === undefined) return 0;
-  return Math.max(0, state.wokeAt + CREW_SPAWN_MIN_GAP_MS - now);
-};
-
 /** How many spawns this conversation asked for in the hour ending at `now`. Pure. */
 export const recentSpawns = (spawnedAt: readonly number[], now: number, windowMs = SPAWN_BUDGET_WINDOW_MS): number =>
   spawnedAt.filter((at) => now - at < windowMs).length;
 
 /** What a spawn would hit right now, or undefined when it is allowed. Pure. */
-export type SpawnRefusal = { readonly minutes: number } | { readonly budget: true };
+export type SpawnRefusal = { readonly budget: true };
 
 export const spawnRefusal = (
   state: { woke?: boolean; wokeAt?: number; spawnedAt?: readonly number[] },
   now: number
 ): SpawnRefusal | undefined => {
-  const gap = spawnGapMs(state, now);
-  if (gap > 0) return { minutes: Math.ceil(gap / 60_000) };
   if (recentSpawns(state.spawnedAt ?? [], now) >= SPAWN_BUDGET) return { budget: true };
   return undefined;
 };
 
 /** The refusal text a model can act on. Pure. */
-export const spawnRefusalText = (refusal: SpawnRefusal): string =>
-  "budget" in refusal
-    ? `Refused: this conversation has asked for ${SPAWN_BUDGET} workers in the last hour. Work on ` +
-      `what you have, reply to the user, or use \`message\` to reach an existing worker.`
-    : `Refused: a crew reported back ${refusal.minutes <= 1 ? "under a minute ago" : `${refusal.minutes} minutes ago`}. ` +
-      `Read \`results\`, reply to the user, and only spawn again if the work genuinely needs a new ` +
-      `crew. Delegating does not need a new spawn: \`message\` reaches the workers you already have.`;
+export const spawnRefusalText = (_refusal: SpawnRefusal): string =>
+  `Refused: this conversation has asked for ${SPAWN_BUDGET} workers in the last hour. Work on ` +
+  `what you have, reply to the user, or use \`message\` to reach an existing worker.`;
 
 /** Drop spawn timestamps older than the window. Pure. */
 export const pruneSpawns = (spawnedAt: readonly number[], now: number, windowMs = SPAWN_RATE_WINDOW_MS): number[] =>
@@ -588,7 +567,7 @@ export const submitCrewMessage = async (
     if (!current || current.conversationId !== entry.conversationId || (expectedTask !== undefined && threadTask(current) !== expectedTask)) return false;
     if (current.lastMessageRequestId === requestId) return false;
     await rearmWorker(tx, owner.conversationId, owner.key, entry.conversationId, Date.now());
-    const direction = current.taskLifecycle === "explicit" ? message + "\n\nTask assignment version: " + threadTask(current) + ". Complete only this version; use session status without a name to review it." : message;
+    const direction = current.taskLifecycle === "explicit" ? message + "\n\nTask assignment version: " + threadTask(current) + ". Complete or report only this version; use session status without a name to review it." : message;
     await handle.submit(tx, { type: "input", content: direction,
       whenBusy: followUp ? "followUp" : "steer", requestId });
     if (current) current.lastMessageRequestId = requestId;
@@ -644,15 +623,8 @@ export const contextAdvisoryIsCurrent = async (tx: Tx, entry: CrewEntry): Promis
   return !(await tx.doc(InboxDoc, entry.conversationId)).items.some((item) => item.mode !== "write");
 };
 
-export const contextAdvisoryText = (entry: CrewEntry): string => {
-  const advice = entry.contextAdvisory;
-  if (!advice || advice.task !== threadTask(entry)) return "";
-  return `\nLast measured context ~${advice.tokens} tokens; fresh Sol/Luna worker recommended for substantial work (advisory; small completion or explicit override allowed). ` +
-    `Handoff: [worker](/threads/${entry.conversationId}) entry ${advice.answerEntryId}.`;
-};
-
 export const crewEntryText = (key: string, entry: CrewEntry): string => {
-  const header = `${key} (${entry.kind}/${entry.state}): ${entry.title}${contextAdvisoryText(entry)}`;
+  const header = `${key} (${entry.kind}/${explicitSettled(entry) ? entry.completion?.outcome ?? "done" : entry.state}): ${entry.title}`;
   if (entry.report) return `${header}\n${entry.report.text.slice(0, REPORT_CAP)}\n` +
     `Result: ${entry.report.requestId}; task: ${threadTask(entry)}; evidence: [${entry.title.replace(/[\[\]]/g, '')}](/threads/${entry.conversationId})` +
     (entry.report.entryId === undefined ? '' : ` (entry ${entry.report.entryId})`);
@@ -701,19 +673,20 @@ export const SessionTool = defineTool({
     "wait(name?) registers a durable continuation for thread tasks and returns immediately: end your turn to stay responsive. First subscriber per task wins; other authorized readers use results. " +
     "Failures and human blockers get priority; already-retrieved results do not wake you again. " +
     "Workers inspect status without a name, then call complete(task,summary,evidence,remaining) with that current assignment token and no name. " +
-    "Done persists the worker’s claim, not coordinator verification. Blockers and pending corrections/commands are not completion. " +
+    "Done persists the worker’s claim, not coordinator verification. Use report(task,outcome,summary,evidence,remaining) for blocked, incomplete or handoff-needed work; it pauses without Done. Pending corrections/commands must be processed first. " +
     "Authorized coordinators use reopen(name,message) for corrections. " +
     "message steers a thread, followUp=true queues; stop aborts it. kind=peer creates an independent visible conversation. " +
     "Legacy report=always/on-failure workers settle on a final reply: always copies reports; on-failure suppresses successful delivery. Side questions also retain final-reply settlement. " +
     `Caps: one worker layer; every worker's helper is a sibling directly under the root supervisor, ${workerCapsText()}, ${SPAWN_RATE_LIMIT} spawns/minute.`,
   parameters: obj({
-    action: oneOf(["spawn", "models", "list", "status", "message", "stop", "results", "wait", "read", "complete", "reopen"], {
-      description: "models: search available models; spawn: create a worker task (or explicit peer chat); status without name: own assignment; complete: own task only; reopen: named task correction; other actions use names from list/results.",
+    action: oneOf(["spawn", "models", "list", "status", "message", "stop", "results", "wait", "read", "complete", "report", "reopen"], {
+      description: "models: search available models; spawn: create a worker task (or explicit peer chat); status without name: own assignment; complete: own successful task; report: own unfinished outcome; reopen: named task correction; other actions use names from list/results.",
     }),
-    summary: opt(str({ description: "complete: outcome summary, required, up to 4,000 characters." })),
-    evidence: opt(str({ description: "complete: evidence references and checks, required, up to 3,000 characters." })),
-    remaining: opt(str({ description: "complete: remaining limitations, required, up to 1,000 characters; say none if none." })),
-    task: opt(str({ description: "complete: required current task version from status without a name. reopen: optional expected version. Stale versions are refused." })),
+    outcome: opt(oneOf(["blocked", "incomplete", "handoff-needed"], { description: "report: required. blocked needs a dependency/decision; incomplete has unfinished work; handoff-needed needs a fresh worker. All pause without Done. Explain recovery in remaining." })),
+    summary: opt(str({ description: "complete/report: outcome summary, required, up to 4,000 characters." })),
+    evidence: opt(str({ description: "complete/report: evidence references and checks, required, up to 3,000 characters." })),
+    remaining: opt(str({ description: "complete/report: remaining limitations, required, up to 1,000 characters; say none if none." })),
+    task: opt(str({ description: "complete/report: required current task version from status without a name. reopen: optional expected version. Stale versions are refused." })),
     query: opt(str({ description: "models: case-insensitive search of provider, model ID or display name (up to 200 characters)." })),
     limit: opt(num({ description: "models: page size, an integer from 1 to 100 (default 50)." })),
     offset: opt(num({ description: "models: zero-based offset from nextOffset (default 0)." })),
@@ -803,14 +776,18 @@ export const SessionTool = defineTool({
         return reply("Kiln could not check this host's model availability. Try session models again; if it still fails, ask the host operator to check provider configuration.");
       }
     }
-    if (action === "complete") {
+    if (action === "complete" || action === "report") {
+      if ((action === "report" && !["blocked", "incomplete", "handoff-needed"].includes(args.outcome ?? "")) || (action === "complete" && args.outcome !== undefined)) {
+        return reply("Use report with outcome blocked, incomplete, or handoff-needed for unfinished work; use complete only for a delivered outcome.");
+      }
+      const taskOutcome: TaskOutcome = action === "complete" ? "done" : args.outcome!;
       if (name !== undefined || typeof args.task !== "string" || !args.task.trim() || [args.summary, args.evidence, args.remaining].some(v => typeof v !== "string" || !v.trim()) ||
           args.summary!.length > 4000 || args.evidence!.length > 3000 || args.remaining!.length > 1000 || (args.task?.length ?? 0) > 200) {
-        return reply("Kiln needs your own task's summary (up to 4,000 characters), evidence (3,000), and remaining limitations (1,000). Use status without a name for your current task version, then include task and omit name when completing.");
+        return reply("Kiln needs your own task's summary (up to 4,000 characters), evidence (3,000), and remaining limitations (1,000). Use status without a name for your current task version, then include task and omit name when reporting an outcome.");
       }
       const outcome = await api.commit(async tx => {
         const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), api.conversationId, await tx.doc(MetaDoc, api.conversationId));
-        if (!assignment || assignment.entry.taskLifecycle !== "explicit") return "Kiln can only complete your own explicit worker task. Continue here or ask your coordinator to review it.";
+        if (!assignment || assignment.entry.taskLifecycle !== "explicit") return "Kiln can only record an outcome for your own explicit worker task. Continue here or ask your coordinator to review it.";
         const { entry, owner, key } = assignment;
         const source = await tx.task(api.taskId);
         const assistant = (source?.input as { assistant?: unknown } | undefined)?.assistant;
@@ -820,32 +797,34 @@ export const SessionTool = defineTool({
         const old = calls.calls[requestId];
         if (old !== undefined && old !== threadTask(entry)) return "Kiln already handled this completion call for an earlier assignment. Review the current task before completing it.";
         if (args.task !== threadTask(entry)) return "Kiln found a newer task assignment. Review status before completing it.";
-        if (old !== undefined && explicitDone(entry) && (entry.completion!.summary !== args.summary || entry.completion!.evidence !== args.evidence || entry.completion!.remaining !== args.remaining)) return "Kiln already saved a different outcome for this completion call. Ask your coordinator to reopen the task before changing its result.";
+        if (old !== undefined && explicitSettled(entry) && ((entry.completion!.outcome ?? "done") !== taskOutcome || entry.completion!.summary !== args.summary || entry.completion!.evidence !== args.evidence || entry.completion!.remaining !== args.remaining)) return "Kiln already saved a different outcome for this completion call. Ask your coordinator to reopen the task before changing its result.";
         if (entry.state === "stopped" || entry.state === "failed") return "Kiln will not complete a stopped or failed task. Ask your coordinator to reopen it first.";
         // Queue reads and completion share one commit. Never clear/abort the queue to finish a task.
         const inbox = await tx.doc(InboxDoc, api.conversationId);
         if (inbox.items.length) return "Kiln is holding corrections or commands for this conversation. Process them before calling complete again.";
-        if (explicitDone(entry)) return undefined;
+        if (explicitSettled(entry)) {
+          return (entry.completion?.outcome ?? "done") === taskOutcome ? undefined : "Kiln already saved this assignment’s outcome. Ask your coordinator to reopen it before changing it.";
+        }
         const task = threadTask(entry);
-        const completion: TaskCompletion = { summary: args.summary!, evidence: args.evidence!, remaining: args.remaining!, task,
+        const completion: TaskCompletion = { outcome: taskOutcome, summary: args.summary!, evidence: args.evidence!, remaining: args.remaining!, task,
           requestId: 'hearth.task.complete:' + owner + ':' + key + ':' + task, at: Date.now() };
         calls.calls[requestId] = task;
         // Receipt eviction is safe: every call must carry its immutable assignment version,
-        // and explicitDone prevents duplicate settlement of the current assignment.
+        // and explicitSettled prevents duplicate settlement of the current assignment.
         for (const key of Object.keys(calls.calls).slice(0, -64)) delete calls.calls[key];
         entry.completion = completion;
         entry.state = "reported";
-        entry.report = { status: "ok", text: completion.summary + '\n\nEvidence: ' + completion.evidence + '\n\nRemaining: ' + completion.remaining, at: completion.at, requestId: completion.requestId };
+        entry.report = { status: taskOutcome === "done" ? "ok" : taskOutcome, text: completion.summary + '\n\nEvidence: ' + completion.evidence + '\n\nRemaining: ' + completion.remaining, at: completion.at, requestId: completion.requestId };
         delete entry.followUpAt;
         await tx.appendEntry(api.conversationId, { kind: "hearth.task-completion", data: completion });
-        await tx.appendEntry(owner, { kind: "hearth.thread-result", data: { at: completion.at, resultId: completion.requestId, task, status: "ok", conversationId: String(api.conversationId) } });
+        await tx.appendEntry(owner, { kind: "hearth.thread-result", data: { at: completion.at, resultId: completion.requestId, task, status: taskOutcome === "done" ? "ok" : taskOutcome, conversationId: String(api.conversationId) } });
         return undefined;
       }, context);
-      return outcome ? reply(outcome) : { ...reply("Kiln saved your task outcome as Done. This is your completion claim, not coordinator verification."), control: { terminate: true } };
+      return outcome ? reply(outcome) : { ...reply(taskOutcome === "done" ? "Kiln saved your task outcome as Done. This is your completion claim, not coordinator verification." : `Kiln saved the ${taskOutcome} outcome. The assignment is paused, not Done. Your coordinator can review the evidence and explicitly reopen or hand off the work.`), control: { terminate: true } };
     }
     if (action === "status" && name === undefined) {
       const assignment = await workerAssignment(id => api.snapshot(SessionsDoc, id, context), api.conversationId, await api.snapshot(MetaDoc, api.conversationId, context));
-      return assignment ? reply(JSON.stringify({ task: threadTask(assignment.entry), title: assignment.entry.title, state: assignment.entry.state, done: explicitDone(assignment.entry), completion: assignment.entry.completion ?? null })) :
+      return assignment ? reply(JSON.stringify({ task: threadTask(assignment.entry), title: assignment.entry.title, state: assignment.entry.state, done: explicitDone(assignment.entry), outcome: explicitSettled(assignment.entry) ? assignment.entry.completion?.outcome ?? "done" : null, completion: assignment.entry.completion ?? null })) :
         reply("Kiln found no task assignment for this conversation. Use status with a crew member's name instead.");
     }
     const spawner: ConversationId = api.conversationId;
@@ -880,7 +859,7 @@ export const SessionTool = defineTool({
       if (items.length === 0) return reply("No crew.");
       return reply(
         items
-          .map(([key, entry]) => `${key}: [${entry.kind}/${entry.state}] conversation ${entry.conversationId} — ${entry.title}${contextAdvisoryText(entry)}`)
+          .map(([key, entry]) => `${key}: [${entry.kind}/${explicitSettled(entry) ? entry.completion?.outcome ?? "done" : entry.state}] conversation ${entry.conversationId} — ${entry.title}`)
           .join("\n")
       );
     }
@@ -1022,7 +1001,7 @@ export const SessionTool = defineTool({
       // Busy while it has a run (pi.live.run set), same signal Ember's summary uses.
       const busy = (await api.snapshot(LiveDoc, entry.conversationId, context))?.run !== undefined;
       return reply(
-        `${entry.title}: ${busy ? "working" : "idle"} — [${entry.kind}/${entry.state}] ${entry.title}${contextAdvisoryText(entry)}`
+        `${entry.title}: ${busy ? "working" : "idle"} — [${entry.kind}/${explicitSettled(entry) ? entry.completion?.outcome ?? "done" : entry.state}] ${entry.title}`
       );
     }
 
@@ -1108,8 +1087,7 @@ export const SessionTool = defineTool({
         `Refused: more than ${SPAWN_RATE_LIMIT} spawns in the last minute. Wait a moment before spawning again.`
       );
     }
-    // The post-wake window and the hourly budget. The same guards run again inside the commit below
-    // (two spawns of one turn commit back to back, so the second must see the first's `wokeAt`).
+    // The hourly budget is checked again inside the commit so concurrent spawns see each other.
     const early = spawnKind === "worker" ? spawnRefusal(state, now) : undefined;
     if (early !== undefined) return reply(spawnRefusalText(early));
     let supervisor = spawner;
@@ -1200,7 +1178,7 @@ export const SessionTool = defineTool({
         return undefined;
       }
       // The loop guards again, inside the serialized commit: two spawns of the same turn commit one
-      // after the other, so the second sees the first's `wokeAt` and budget rather than a stale read.
+      // after the other, so the second sees the first's budget rather than a stale read.
       const fresh = { woke: doc.woke, wokeAt: doc.wokeAt, spawnedAt: doc.spawnedAt } as const;
       // Refusing inside the commit (writing nothing) is what makes the guard exact: a second spawn
       // of the same turn commits first, so this one sees the new timestamps, not a stale read.
@@ -1386,6 +1364,7 @@ const crewSection = section(
     "Retrieved means available to you, not verified or incorporated. Do not claim checks you have not made. " +
     "Use wait to register a continuation, then end your turn instead of blocking or polling. " +
     "Workers use status without a name for the current assignment token, then complete(task,summary,evidence,remaining) without name. " +
+    "Workers report(task,outcome,summary,evidence,remaining) for blocked, incomplete or handoff-needed outcomes; these pause without Done. " +
     "Explicit task Done is the worker’s claim, never your verification. Review evidence separately; use reopen with a correction to request more work. " +
     "A completion is information, not a demand for an acknowledgement or another crew. " +
     "Coordinate silently; speak for useful answers, meaningful changes, decisions, blockers or the final result. " +

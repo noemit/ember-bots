@@ -107,12 +107,24 @@ nothing to compact. Dismiss hides the advice through further growth and polling;
 (after compaction/reset) or a substantial drop in usage rearms it. Dismissal is local to the mounted
 conversation view, not a permanent setting.
 
-Kiln workers reaching about 100,000 current-context tokens receive advisory instructions to finish
-their bounded assignment and leave a concise durable handoff: progress, files, commits, tests, blockers
-and next steps. Their leader is advised to prefer a fresh Sol/Luna worker for substantial new work.
-Small completion work and an explicit override may continue; this is guidance, not a hard execution
-ban. Queued directions are retained, and no replacement worker is started automatically. Older Kilns
-without this policy continue their existing worker behavior.
+When a worker reaches about 100,000 current-context tokens, Kiln notifies its coordinator once
+for that worker. The coordinator can wrap up the current task and assign substantial new work to a
+fresh agent. Kiln never appends context reminders to the worker’s model requests, and neither
+reopening nor compaction repeats the notice. No replacement worker is started automatically.
+Notifications do not impose a spawn cooldown; independent burst-rate and hourly-budget safeguards remain.
+
+A worker can report **Blocked**, **Incomplete**, or **Handoff needed** instead of claiming completion.
+These outcomes pause the assignment without marking it Done. They remain visible in Tasks, outside
+Completed, with evidence and next steps under **Outcome details**. Open the source chat to review the
+work before deciding whether to continue it or assign a fresh worker. An unanswered question alone
+still follows the normal Questions flow; an unfinished outcome never silently resumes work when a
+previous question receives an answer.
+
+For agents, `session report` requires `outcome` (`blocked`, `incomplete`, or `handoff-needed`) and the
+same `task`, `summary`, `evidence`, and `remaining` fields as `complete`. Use `remaining` for the blocker
+and next steps. Only a delivered outcome should use `complete`; all outcomes remain claims until
+reviewed. Explicit `reopen` or a new human direction starts another assignment version and keeps the
+previous outcome in the thread’s history.
 
 ## Tool approvals
 

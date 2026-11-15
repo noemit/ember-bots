@@ -1,3 +1,4 @@
+import { WorkerContextDoc } from './workerContext';
 import { createHash } from 'node:crypto';
 import type { Context } from '@earendil-works/chord';
 import { InboxDoc, LiveDoc, type ConversationId, type Harness } from '@earendil-works/pi-durable';
@@ -64,11 +65,11 @@ export const resumeThreads = async (
   const notices: Notice[] = [];
   for (const [name, entry] of threads) {
     const advisory = entry.contextAdvisory;
-    if (advisory && advisory.task === threadTask(entry) && entry.notifiedContextEpoch !== advisory.epoch) {
+    if (advisory && advisory.task === threadTask(entry) && !entry.notifiedContextEpoch && !(await harness.snapshot(WorkerContextDoc, entry.conversationId, context))?.notifiedAt) {
       notices.push({ name, entry, token: advisory.epoch, kind: 'context',
         text: `${name}: Kiln estimates ${advisory.tokens} current-context tokens, not lifetime usage. ` +
           `Review the handoff at [worker](/threads/${entry.conversationId}), answer entry ${advisory.answerEntryId}. ` +
-          'Prefer a fresh Sol/Luna worker for substantial new work; small completion or explicit override can continue here. ' +
+          'Wrap up the current task if practical; assign substantial new tasks to fresh agents. ' +
           'Do not automatically spawn or change models. Preserve pending directions and review progress, files, commits, tests, blockers and next steps. ' +
           'This is advisory, not a hard gate or proof the task succeeded.' });
     }
@@ -88,7 +89,7 @@ export const resumeThreads = async (
     }
   }
   // Blockers and failures precede routine results. Bounded batches coalesce nearby completions.
-  notices.sort((a, b) => Number(b.kind === 'blocker' || b.entry.state === 'failed') - Number(a.kind === 'blocker' || a.entry.state === 'failed'));
+  notices.sort((a, b) => Number(b.kind === 'blocker' || b.entry.state === 'failed' || Boolean(b.entry.report && b.entry.report.status !== 'ok')) - Number(a.kind === 'blocker' || a.entry.state === 'failed' || Boolean(a.entry.report && a.entry.report.status !== 'ok')));
   const batch = notices.slice(0, 32);
   if (!batch.length) return 0;
   if ((await harness.snapshot(LiveDoc, recipientId, context))?.run) return 0;
@@ -120,7 +121,7 @@ export const resumeThreads = async (
           if (advice && (await tx.latestEntryId(entry.conversationId) !== (advice.throughEntryId ?? advice.answerEntryId) ||
               (await tx.doc(InboxDoc, entry.conversationId)).items.some((item) => item.mode !== 'write'))) delete entry.contextAdvisory;
         } else if (entry.contextAdvisory?.epoch === notice.token &&
-            epoch === notice.token && entry.notifiedContextEpoch !== notice.token &&
+            epoch === notice.token && !entry.notifiedContextEpoch && !(await tx.doc(WorkerContextDoc, entry.conversationId)).notifiedAt &&
             // The same task/epoch can finish another directly submitted bounded assignment
             // between scan and admission. Never receipt the old handoff as the new one's notice.
             entry.contextAdvisory.answerEntryId === notice.entry.contextAdvisory?.answerEntryId &&
@@ -148,7 +149,10 @@ export const resumeThreads = async (
       if (notice.kind === 'result') entry.notifiedResult = notice.token;
       if (notice.kind === 'blocker') entry.notifiedBlockers = [...new Set([...(entry.notifiedBlockers ?? []), ...(notice.blockers ?? [])])];
       if (notice.kind === 'deadline') entry.notifiedDeadline = notice.token;
-      if (notice.kind === 'context') entry.notifiedContextEpoch = notice.token;
+      if (notice.kind === 'context') {
+        entry.notifiedContextEpoch = notice.token;
+        (await tx.doc(WorkerContextDoc, entry.conversationId)).notifiedAt = now;
+      }
     }
     for (const id of new Set([leaderId, recipientId])) {
       const waiting = await tx.doc(SessionsDoc, id);

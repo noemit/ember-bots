@@ -376,3 +376,18 @@ describe('explicit completion remains host-owned', () => {
     }
   });
 });
+
+for (const outcome of ['blocked', 'incomplete', 'handoff-needed'] as const) {
+  test(`unfinished ${outcome} stays visible with recovery and evidence outside Completed`, () => {
+    const task = worker('unfinished', { task: { id: 'unfinished:1', title: 'Fix navigation', status: outcome,
+      completion: { outcome, task: 'unfinished:1', requestId: 'report', at: 1, summary: 'Not delivered', evidence: 'Regression still failing', remaining: 'Review source and fix the guard' } } });
+    const html = render({ rows: [{ worker: task, group: task, depth: 1 }], stateFor: () => 'idle' });
+    expect(html).not.toContain('Completed tasks');
+    expect(html).toContain('Outcome details');
+    expect(html).toContain('Next steps');
+    expect(html).toContain('Regression still failing');
+    expect(html).toContain('Open its source chat');
+    expect(html).toContain('worker paused');
+    expect(html).not.toContain('undefined');
+  });
+}

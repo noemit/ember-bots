@@ -663,7 +663,7 @@ if (fixtureParam === 'two-level-crew' || fixtureParam === 'flat-crew') {
 }
 
 // Explicit lifecycle study: replies and idle workers are deliberately not completion.
-if (fixtureParam === 'task-lifecycle') {
+if (fixtureParam === 'task-lifecycle' || fixtureParam === 'task-outcomes') {
   fixtureH.task = { id: '17:1', title: 'Parse config outcome', status: 'working' };
   fixtureI.task = { id: '18:1', title: 'Migrate schema outcome', status: 'blocked' };
   for (const [id, status, title] of [
@@ -685,6 +685,23 @@ if (fixtureParam === 'task-lifecycle') {
     }));
   }
   conversations.push(makeConversation({ id: 94, title: 'Legacy finished chat', cwd: '/workspace/hearth', kind: 'worker', lead: { conversationId: 16, host: 'local' } }));
+}
+
+// Unfinished execution outcomes are durable, inspectable and never Completed.
+if (fixtureParam === 'task-outcomes') {
+  for (const [index, outcome] of (['blocked', 'incomplete', 'handoff-needed'] as const).entries()) {
+    const id = 96 + index;
+    const task: NonNullable<MockConversation['task']> = {
+      id: String(id) + ':1', title: ['Review deployment access', 'Finish navigation coverage', 'Review animation handoff'][index], status: outcome,
+      completion: { outcome, task: String(id) + ':1', requestId: 'outcome-' + id, at: Date.now(),
+        summary: 'The worker paused before delivering the requested outcome.', evidence: 'Focused checks passed; full verification remains.',
+        remaining: 'Review the source chat and assign the next step.' },
+    };
+    conversations.push(makeConversation({ id, title: task.title, task, cwd: '/workspace/hearth', kind: 'worker',
+      lead: { conversationId: 16, host: 'local' },
+      entries: [{ id: id * 10, kind: 'pi.assistant', model: [assistantMessage(text('Handoff evidence is available here. No success claimed.'), 'stop', minutes(2))] }],
+    }));
+  }
 }
 
 // A worker a human already promoted (`?promoted`): the strip row links to the peer fork and the

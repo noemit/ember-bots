@@ -346,6 +346,33 @@ describe("submission actions", () => {
 
   });
 
+  test.each(['blocked', 'incomplete', 'handoff-needed'] as const)('wire exposes %s as unfinished and explicit input starts a new version once', async outcome => {
+    const owner = await createConversation('Outcome coordinator') as ConversationId;
+    const worker = await createConversation('Paused worker') as ConversationId;
+    await harness.commit(async tx => {
+      Object.assign(await tx.doc(MetaDoc, worker), { kind: 'worker', creatorId: owner, lead: { conversationId: owner, host: 'local' } });
+      (await tx.doc(SessionsDoc, owner)).items.work = { kind: 'worker', conversationId: worker, creatorId: owner,
+        title: 'Finish the reviewed feature', state: 'running', spawnedAt: 100, generation: 1, briefRequestId: 'brief', delivery: 'thread', taskLifecycle: 'explicit' };
+    }, context);
+    const toolApi = { taskId: 'wire-report-' + outcome, conversationId: worker, commit: harness.commit.bind(harness), snapshot: harness.snapshot.bind(harness) } as unknown as ToolExecutionApi;
+    expect((await SessionTool.execute({ action: 'report', outcome, task: String(worker) + ':100', summary: 'Not delivered', evidence: 'A regression still fails', remaining: 'Review and fix the failing case' }, toolApi, context)).control?.terminate).toBe(true);
+    const summary = async () => (await body(await api('/conversations'))).conversations.find((c: any) => c.id === worker);
+    const paused = await summary();
+    expect(paused.task).toMatchObject({ status: outcome, completion: { outcome, summary: 'Not delivered' } });
+    expect(paused.task.status).not.toBe('done');
+    faux.setResponses([fauxAssistantMessage([fauxText('Explicit direction received')])]);
+    const draft = { type: 'input', content: 'Fix the guard before continuing', requestId: 'reopen-' + outcome };
+    expect((await submit(worker, draft)).status).toBe(201);
+    await settle(worker);
+    const reopened = await summary();
+    expect(reopened.task.status).toBe('waiting');
+    expect(reopened.task.completion).toBeUndefined();
+    expect(reopened.task.id).not.toBe(paused.task.id);
+    await submit(worker, draft);
+    expect((await summary()).task.id).toBe(reopened.task.id);
+    expect(await userEntries(worker, draft.content)).toBe(1);
+  });
+
   test.each(['failed', 'stopped'] as const)('authenticated human correction reopens %s task and can complete once without retry reassignment', async terminal => {
     const owner = await createConversation('Terminal task coordinator') as ConversationId;
     const worker = await createConversation('Terminal task worker') as ConversationId;

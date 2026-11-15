@@ -131,8 +131,8 @@ export type HostMemory = {
 export type WorkerTask = {
   id: string;
   title: string;
-  status: 'working' | 'waiting' | 'blocked' | 'done' | 'stopped' | 'failed';
-  completion?: { summary: string; evidence: string; remaining: string; task: string; requestId: string; at: number };
+  status: 'working' | 'waiting' | 'blocked' | 'incomplete' | 'handoff-needed' | 'done' | 'stopped' | 'failed';
+  completion?: { outcome?: 'done' | 'blocked' | 'incomplete' | 'handoff-needed'; summary: string; evidence: string; remaining: string; task: string; requestId: string; at: number };
 };
 
 export type Session = {

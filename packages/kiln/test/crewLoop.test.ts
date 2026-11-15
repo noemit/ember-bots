@@ -15,7 +15,6 @@ import {
   SessionsDoc,
   spawnRefusal,
   spawnRefusalText,
-  CREW_SPAWN_MIN_GAP_MS,
   SPAWN_BUDGET,
 } from "../src/sessions";
 import { SPAWN_GUARD, spawnGuard, tick } from "../src/crew";
@@ -76,16 +75,13 @@ const conversationsOf = async (storage: Awaited<ReturnType<typeof open>>["storag
   (await storage.scanConversations({}, 50, undefined, context)).items;
 
 describe("spawn loop guards", () => {
-  test("the window and the budget are pure and say what to do instead", () => {
+  test("notifications do not block new work and the budget is pure and say what to do instead", () => {
     const now = 1_000_000;
     expect(spawnRefusal({}, now)).toBeUndefined();
-    // A crew that just reported back: no new crew yet.
-    const justWoke = spawnRefusal({ woke: true, wokeAt: now - 30_000, spawnedAt: [] }, now);
-    expect(justWoke).toEqual({ minutes: Math.ceil((CREW_SPAWN_MIN_GAP_MS - 30_000) / 60_000) });
-    expect(spawnRefusalText(justWoke!)).toContain("reported back");
-    // After the window it is allowed again…
-    expect(spawnRefusal({ woke: true, wokeAt: now - CREW_SPAWN_MIN_GAP_MS }, now)).toBeUndefined();
-    // …until the conversation has asked for its hour's worth of workers.
+    // Results, context advice and deadlines must never restart a spawn cooldown.
+    expect(spawnRefusal({ woke: true, wokeAt: now, spawnedAt: [] }, now)).toBeUndefined();
+    expect(spawnRefusal({ woke: true, wokeAt: now - 30_000 }, now)).toBeUndefined();
+    // The independent hourly budget still bounds runaway delegation.
     const spent = Array.from({ length: SPAWN_BUDGET }, (_, index) => now - index * 1_000);
     expect(spawnRefusal({ spawnedAt: spent }, now)).toEqual({ budget: true });
     expect(spawnRefusalText({ budget: true })).toContain(`${SPAWN_BUDGET} workers in the last hour`);
@@ -150,7 +146,7 @@ describe("spawn loop guards", () => {
     }
   }, 30_000);
 
-  test("a leader is not woken into a second crew right after its crew reported", async () => {
+  test("a leader can assign new work immediately after its crew reports", async () => {
     const isolated = await open();
     try {
       isolated.faux.setResponses([WORKER_SPAWN, fauxAssistantMessage([fauxText("understood")])]);
@@ -179,18 +175,17 @@ describe("spawn loop guards", () => {
       expect(woke?.woke).toBe(true);
       expect(typeof woke?.wokeAt).toBe("number");
 
-      // The leader answers the wake by delegating again. That would start a new generation, and a
-      // new generation waits out the window, so no second worker appears.
+      // A legitimate new assignment after a result needs no cooldown or human-message bypass.
       await (await isolated.harness.conversation(leader.id, context))!.submit(
         { type: "input", content: "plenty to do?" },
         context
       );
       await new Promise((resolve) => setTimeout(resolve, 500));
       const after = await isolated.harness.snapshot(SessionsDoc, leader.id, context);
-      expect(Object.keys(after?.items ?? {})).toEqual(["wk"]);
-      expect(await toolTextOf(isolated.harness, leader.id as unknown as number)).toContain("reported back");
-      // Still one conversation beyond the leader and its one worker.
-      expect(await conversationsOf(isolated.storage)).toHaveLength(2);
+      expect(Object.keys(after?.items ?? {})).toEqual(["wk", "helper"]);
+      expect(await toolTextOf(isolated.harness, leader.id as unknown as number)).toContain("Started worker");
+      // The original worker and its replacement are distinct conversations.
+      expect(await conversationsOf(isolated.storage)).toHaveLength(3);
     } finally {
       await isolated.harness.close(context);
       await rm(isolated.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => undefined);

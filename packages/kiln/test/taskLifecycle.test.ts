@@ -7,7 +7,7 @@ import { Harness, MemoryStorage, createRegistry, configure, InboxDoc, LiveDoc, t
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { fauxAssistantMessage, fauxText, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
-import { Sessions, SessionsDoc, SessionTool, TaskCallsDoc, WORKER_INSTRUCTIONS, WORKER_DELEGATION_INSTRUCTIONS, explicitDone, rearmWorker } from '../src/sessions';
+import { Sessions, SessionsDoc, SessionTool, TaskCallsDoc, WORKER_INSTRUCTIONS, WORKER_DELEGATION_INSTRUCTIONS, explicitDone, explicitSettled, rearmWorker } from '../src/sessions';
 import { MetaDoc } from '../src/meta';
 import { tick } from '../src/crew';
 import { threadTask } from '../src/threadResults';
@@ -59,6 +59,72 @@ describe('explicit worker task lifecycle', () => {
     expect(WORKER_INSTRUCTIONS).toMatch(/blocker is not completion/i);
     expect(WORKER_INSTRUCTIONS).toMatch(/Do not complete while corrections or commands are pending/);
     expect(WORKER_DELEGATION_INSTRUCTIONS).toMatch(/sibling directly under that root/);
+  });
+
+  for (const outcome of ['blocked', 'incomplete', 'handoff-needed'] as const) {
+    test(`${outcome} pauses without Done, notifies once, and requires explicit reopening`, async () => {
+      const f = await setup();
+      try {
+        const report = { ...f.complete, action: 'report' as const, outcome, remaining: 'Review the failing test and assign the next step.' };
+        expect((await f.call(report)).control?.terminate).toBe(true);
+        const paused = await f.entry();
+        expect(explicitDone(paused)).toBe(false);
+        expect(explicitSettled(paused)).toBe(true);
+        expect(paused.report?.status).toBe(outcome);
+        const own = JSON.parse(((await f.call({ action: 'status' })).output![0] as { text: string }).text);
+        expect(own).toMatchObject({ done: false, outcome });
+        // A paused outcome is not silently promoted to success, even with a different tool id.
+        expect((await f.call(f.complete, f.worker.id, 'change-outcome')).control).toBeUndefined();
+        await f.call(report); await f.call(report, f.worker.id, 'report-retry');
+        expect((await f.entries()).filter(e => e.kind === 'hearth.thread-result')).toHaveLength(1);
+        // Unfinished outcomes notify the coordinator even without a wait subscription.
+        await tick(f.harness, f.storage, context); await tick(f.harness, f.storage, context);
+        expect((await f.entries()).filter(e => e.kind === 'hearth.thread-notice')).toHaveLength(1);
+        expect(JSON.stringify((await f.entries()).find(e => e.kind === 'hearth.thread-notice')?.model)).toContain(outcome);
+        const result = await f.call({ action: 'results', name: 'work' }, f.root.id);
+        expect(JSON.stringify(result.output)).toContain(outcome);
+        await tick(f.harness, f.storage, context);
+        expect((await f.entries()).filter(e => e.kind === 'hearth.thread-notice')).toHaveLength(1);
+        expect(explicitDone(await f.entry())).toBe(false);
+        await f.call({ action: 'reopen', name: 'work', message: 'Address the failing test', task: report.task }, f.root.id, 'reopen-paused');
+        expect((await f.entry()).completion).toBeUndefined();
+        expect(threadTask(await f.entry())).not.toBe(report.task);
+        expect((await f.call(report, f.worker.id, 'stale-report')).control).toBeUndefined();
+        expect((await f.entries(f.worker.id)).some(e => e.kind === 'hearth.task-completion' && (e.data as { outcome?: string })?.outcome === outcome)).toBe(true);
+      } finally { await f.harness.close(context); }
+    });
+
+    test(`${outcome} cannot discard queued corrections or wake itself from a held answer`, async () => {
+      const f = await setup();
+      try {
+        const question = await createQuestion(f.api(f.worker.id, 'question'), { question: 'Continue with the new format?' }, context);
+        await f.call({ ...f.complete, action: 'report', outcome });
+        await answerQuestion(f.harness, f.worker.id, question.key, 'Yes', 1, 'answer', context);
+        expect(await resumeQuestions(f.harness, f.worker.id, context)).toBe(0);
+        const held = (await f.harness.snapshot(QuestionsDoc, f.worker.id, context))!.items[question.key];
+        expect(held.delivery?.holdReason).toMatch(/paused.*reopen/);
+        await authorizeQuestionResume(f.harness, f.worker.id, question.key, held.revision!, 'resume', context);
+        expect(await resumeQuestions(f.harness, f.worker.id, context)).toBe(0);
+        expect(explicitSettled(await f.entry())).toBe(true);
+        await f.harness.commit(tx => rearmWorker(tx, f.root.id, 'work', f.worker.id, Date.now()), context);
+        await f.harness.commit(tx => configure(tx, f.worker.id, { model: { provider: 'faux', modelId: 'faux-1' } }), context);
+        await f.worker.submit({ type: 'input', content: 'Start' }, context);
+        await f.worker.submit({ type: 'input', content: 'Preserve this correction', whenBusy: 'followUp' }, context);
+        const before = await f.harness.snapshot(InboxDoc, f.worker.id, context);
+        expect(before!.items.length).toBeGreaterThan(0);
+        expect((await f.call({ ...f.complete, action: 'report', outcome, task: threadTask(await f.entry()) }, f.worker.id, 'pending-report')).control).toBeUndefined();
+        expect(await f.harness.snapshot(InboxDoc, f.worker.id, context)).toEqual(before);
+      } finally { await f.harness.close(context); }
+    });
+  }
+
+  test('unfinished reports require an explicit non-success outcome', async () => {
+    const f = await setup();
+    try {
+      expect((await f.call({ ...f.complete, action: 'report' })).control).toBeUndefined();
+      expect((await f.call({ ...f.complete, outcome: 'incomplete' })).control).toBeUndefined();
+      expect(explicitSettled(await f.entry())).toBe(false);
+    } finally { await f.harness.close(context); }
   });
 
   test('documented own-status then complete example uses the actual assignment token', async () => {
@@ -221,7 +287,8 @@ describe('explicit worker task lifecycle', () => {
 
   test('direct tool schema exposes lifecycle actions and bounded result fields', () => {
     const schema = SessionTool.parameters as { properties: Record<string, { enum?: string[]; description?: string }> };
-    expect(schema.properties.action.enum).toContain('complete'); expect(schema.properties.action.enum).toContain('reopen');
+    expect(schema.properties.action.enum).toContain('complete'); expect(schema.properties.action.enum).toContain('report');
+    expect(schema.properties.outcome.enum).toEqual(['blocked', 'incomplete', 'handoff-needed']); expect(schema.properties.action.enum).toContain('reopen');
     for (const field of ['summary', 'evidence', 'remaining', 'task']) expect(schema.properties[field]).toBeDefined();
     expect(schema.properties.task.description).toContain('required');
   });
@@ -240,6 +307,31 @@ describe('explicit worker task lifecycle', () => {
       expect(entries.filter(e => e.kind === 'pi.assistant')).toHaveLength(2); // seed progress + tool request, no final reply
       expect(JSON.stringify(entries)).toContain('Kiln saved your task outcome');
     } finally { await f.harness.close(context); }
+  });
+
+  test('real report tool yields without another model turn and survives SQLite restart', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kiln-report-'));
+    const file = join(dir, 'test.sqlite');
+    const f = await setup(await openNodeSqliteStorage(file));
+    let recovered: Harness | undefined;
+    try {
+      const faux = fauxProvider(); f.models.setProvider(faux.provider);
+      faux.setResponses([fauxAssistantMessage([fauxToolCall('session', { ...f.complete, action: 'report', outcome: 'handoff-needed' })], { stopReason: 'toolUse' })]);
+      await f.harness.commit(tx => configure(tx, f.worker.id, { model: { provider: 'faux', modelId: 'faux-1' } }), context);
+      f.harness.resume();
+      await f.worker.submit({ type: 'input', content: 'Report the unfinished work honestly' }, context);
+      await f.worker.waitForIdle(context);
+      expect(explicitDone(await f.entry())).toBe(false);
+      expect(explicitSettled(await f.entry())).toBe(true);
+      expect((await f.entries(f.worker.id)).filter(e => e.kind === 'pi.assistant')).toHaveLength(2);
+      const expected = await f.entry();
+      await f.harness.close(context);
+      const storage = await openNodeSqliteStorage(file);
+      recovered = await Harness.open(storage, { models: f.models, registry: f.registry }, context);
+      expect((await recovered.snapshot(SessionsDoc, f.root.id, context))!.items.work).toEqual(expected);
+      await tick(recovered, storage, context);
+      expect(explicitDone((await recovered.snapshot(SessionsDoc, f.root.id, context))!.items.work)).toBe(false);
+    } finally { if (recovered) await recovered.close(context); else await f.harness.close(context); await rm(dir, { recursive: true, force: true }); }
   });
 
   test('complete refuses an earlier queued correction and SDK keeps that human direction', async () => {
