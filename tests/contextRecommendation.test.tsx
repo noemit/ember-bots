@@ -107,6 +107,17 @@ describe('context recommendation rendering', () => {
       expect(html).toContain('Dismiss context recommendation');
     }
   });
+  test('unknown breakdown names the host and offers recovery without promising unavailable details', () => {
+    const html = render({ historyTokens: undefined });
+    const text = html.replace(/<[^>]*>/g, ' ').toLowerCase();
+    expect(text).toMatch(/kiln/);
+    expect(text).toMatch(/doesn.t.*know/);
+    expect(text).toMatch(/keep working|continue/);
+    expect(text).toMatch(/dismiss/);
+    expect(text).not.toMatch(/check.*meter|details|undefined|null|something went wrong/);
+    expect(html).toMatch(/aria-label="Dismiss[^"]*"/);
+    expect(html).not.toContain('>Compact</button>');
+  });
   test('no advice for unknown or below threshold context', () => {
     expect(render({ tokens: undefined })).toBe('');
     expect(render({ tokens: 99_999 })).toBe('');

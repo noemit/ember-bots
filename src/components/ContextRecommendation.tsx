@@ -32,7 +32,7 @@ export default function ContextRecommendation({ compacting, busy, onCompact, ...
         ) : observation.historyTokens !== undefined ? (
           <p>Kiln reports a large context, but older messages may not be why. Compact keeps instructions and tools. You can keep working or review this chat’s instructions.</p>
         ) : (
-          <p>Kiln reports a large context, including instructions and tools. Ember doesn’t yet know how much is older conversation history. You can check the context meter for details.</p>
+          <p>Kiln reports a large context, including instructions and tools. Ember doesn’t yet know how much is older conversation history. You can keep working or dismiss this reminder.</p>
         )}
         {recommend && busy && !compacting ? <p className="mt-1">You can compact when the running turn finishes.</p> : null}
       </div>
