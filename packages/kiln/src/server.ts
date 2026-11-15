@@ -78,7 +78,7 @@ import {
   type ApprovalDecision,
 } from "./approvals";
 import { clearPendingQuestions, pendingQuestions, replyQuestion, QuestionsDoc } from "./ask";
-import { listQuestions, answerQuestion, withdrawQuestion, authorizeQuestionResume, resumeQuestions, reconcileQuestions } from "./questions";
+import { listQuestions, answerQuestion, appendQuestionContext, withdrawQuestion, authorizeQuestionResume, resumeQuestions, reconcileQuestions } from "./questions";
 import { archiveCrew, unarchiveCrew, markWorkerStopped } from "./crew";
 import {
   createContextRule,
@@ -1085,7 +1085,7 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/conversations\/[^/]+\/permission-rules$/, ["GET", "DELETE"]],
   [/^\/conversations\/[^/]+\/permission-rules\/[^/]+$/, ["DELETE"]],
   [/^\/questions$/, ["GET"]],
-  [/^\/questions\/[^/]+\/[^/]+\/(reply|withdraw|resume)$/, ["POST"]],
+  [/^\/questions\/[^/]+\/[^/]+\/(reply|withdraw|resume|context)$/, ["POST"]],
 ];
 
 /** The actions a conversation answers, for the same 404 sentence. */
@@ -2693,7 +2693,7 @@ const server = Bun.serve<{
         const next = cursor + page.length;
         return json({ questions: page, ...(next < questions.length ? { next: String(next) } : {}) });
       }
-      const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/(reply|withdraw|resume)$/.exec(path);
+      const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/(reply|withdraw|resume|context)$/.exec(path);
       if (questionReply && request.method === "POST") {
         const body = await readBody(request);
         const answer = body.answer;
@@ -2708,11 +2708,12 @@ const server = Bun.serve<{
           const requestId = body.requestId;
           if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1 || typeof requestId !== "string" || !requestId.trim() || requestId.length > 200) return badRequest("Review the question's revision and provide a requestId (up to 200 characters).");
           const action = questionReply[3];
-          if (action === "reply" && (typeof answer !== "string" || !answer.trim() || answer.length > 32000)) return badRequest("Write an answer of 1–32,000 characters, or use Withdraw to close the question.");
+          if ((action === "reply" || action === "context") && (typeof answer !== "string" || !answer.trim() || answer.length > 32000)) return badRequest("Write an answer of 1–32,000 characters, or use Withdraw to close the question.");
           const result = action === "withdraw" ? await withdrawQuestion(harness, conversationId, key, revision, requestId, context) :
+            action === "context" ? await appendQuestionContext(harness, conversationId, key, answer as string, revision, requestId, context) :
             action === "resume" ? await authorizeQuestionResume(harness, conversationId, key, revision, requestId, context) :
             await answerQuestion(harness, conversationId, key, answer as string, revision, requestId, context);
-          if (!result.ok) return result.error === "missing" ? notFound("Kiln no longer has this question. Refresh Questions to review the current inbox.") : json({ error: "This question changed. Refresh Questions before trying again." }, 409);
+          if (!result.ok) return result.error === "missing" ? notFound("Kiln no longer has this question. Refresh Questions to review the current inbox.") : json({ error: result.error === "limit" ? "This question already has 100 additional messages. Open its source chat to continue." : "This question changed. Refresh Questions before trying again." }, 409);
           await resumeQuestions(harness, conversationId, context);
           return json(result);
         }

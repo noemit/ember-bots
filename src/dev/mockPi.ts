@@ -605,15 +605,17 @@ const fixtureI = makeConversation({
 conversations.push(fixtureA, fixtureB, fixtureC, fixtureD, fixtureE, fixtureF, fixtureG, fixtureH, fixtureI);
 
 // Async Questions are durable host records, not parked calls or session summary flags.
+const questionMutationReceipts = new Map<string, { payload: string; result: unknown }>();
 const asyncQuestionFixture: PiQuestion[] = fixtureParam === 'async-questions' ? [
-  { conversationId: '16', key: 'own:decision', question: 'Keep the rollout gradual?', options: ['Gradual', 'All at once'], mode: 'async', revision: 1, status: 'pending', context: 'The bot can keep preparing the release while you decide.', recommendation: 'Start with a small group.', source: 'Crew: auth refactor · message e94', ancestry: [] },
-  { conversationId: '81', key: 'nested:decision', question: 'Keep the migration backup?', options: ['Keep', 'Remove'], mode: 'async', revision: 3, status: 'pending', context: 'This nested worker is not in the session listing.', recommendation: 'Keep it until the rollout is verified.', source: 'Backup audit · message e810', origin: { conversationId: '81', toolTaskId: 'nested:decision', taskKey: 'backup-review', assignmentVersion: '81:1' }, ancestry: [{ conversationId: '18', title: 'Migrate schema' }, { conversationId: '16', title: 'Crew: auth refactor' }] },
-  { conversationId: '81', key: 'previous', question: 'Use a dry run first?', options: [], mode: 'async', revision: 1, status: 'answered', delivery: { requestId: 'prior', status: 'seen' }, answer: 'Yes, dry run first.', source: 'Backup audit', ancestry: [{ conversationId: '18', title: 'Migrate schema' }, { conversationId: '16', title: 'Crew: auth refactor' }] },
+  { conversationId: '16', sourceTitle: 'Crew: auth refactor', key: 'own:decision', question: 'Keep the rollout gradual?', options: ['Gradual', 'All at once'], mode: 'async', revision: 1, status: 'pending', context: 'The bot can keep preparing the release while you decide.', recommendation: 'Start with a small group.', source: 'Release plan', origin: { conversationId: '16', sourceMessageId: 'e91' }, ancestry: [] },
+  { conversationId: '81', sourceTitle: 'Backup audit', key: 'nested:decision', question: 'Keep the migration backup?', options: ['Keep', 'Remove'], mode: 'async', revision: 3, status: 'pending', context: 'This nested worker is not in the session listing.', recommendation: 'Keep it until the rollout is verified.', source: 'Backup audit · message e810', origin: { conversationId: '81', toolTaskId: 'nested:decision', sourceMessageId: 'e811', taskKey: 'backup-review', assignmentVersion: '81:1' }, ancestry: [{ conversationId: '18', title: 'Migrate schema' }, { conversationId: '16', title: 'Crew: auth refactor' }] },
+  { conversationId: '81', sourceTitle: 'Backup audit', key: 'previous', question: 'Use a dry run first?', options: [], mode: 'async', revision: 1, status: 'answered', delivery: { requestId: 'prior', status: 'seen' }, answer: 'Yes, dry run first.', source: 'Backup audit', ancestry: [{ conversationId: '18', title: 'Migrate schema' }, { conversationId: '16', title: 'Crew: auth refactor' }] },
 ] : [];
 if (fixtureParam === 'async-questions') {
+  fixtureG.entries.find(entry => entry.id === 91)!.model = [assistantMessage(text('Spinning up two workers. Keep the rollout gradual?'), 'stop', minutes(19))];
   fixtureI.questions = [];
   fixtureI.parked = undefined;
-  conversations.push(makeConversation({ id: 81, title: 'Backup audit', cwd: '/workspace/hearth', kind: 'worker', lead: { conversationId: 18, host: 'local' }, entries: [{ id: 810, kind: 'pi.user', model: [userMessage('Review the backup policy.', minutes(2))] }] }));
+  conversations.push(makeConversation({ id: 81, title: 'Backup audit', cwd: '/workspace/hearth', kind: 'worker', lead: { conversationId: 18, host: 'local' }, entries: [{ id: 810, kind: 'pi.user', model: [userMessage('Review the backup policy.', minutes(2))] }, { id: 811, kind: 'pi.assistant', model: [assistantMessage(text('Keep the migration backup?'), 'stop', minutes(1))] }] }));
 }
 
 // Opt-in grandchild question: the root leader must surface decisions at any depth without
@@ -1515,18 +1517,34 @@ const piRequest = async (
       )],
     });
   }
-  const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/(reply|withdraw|resume)$/.exec(url.pathname);
+  const questionReply = /^\/questions\/([^/]+)\/([^/]+)\/(reply|withdraw|resume|context)$/.exec(url.pathname);
   if (questionReply && method === 'POST') {
     const asyncQuestion = asyncQuestionFixture.find((item) => item.conversationId === decodeURIComponent(questionReply[1]) && item.key === decodeURIComponent(questionReply[2]));
     if (asyncQuestion) {
-      if (asyncQuestion.receipt && asyncQuestion.receipt.requestId === body.requestId && asyncQuestion.receipt.revision === body.revision && asyncQuestion.receipt.answer === body.answer) return ok({ ok: true, question: asyncQuestion });
-      if (body.revision !== asyncQuestion.revision) return fail(409, 'Question changed; refresh it before answering.');
-      if (questionReply[3] === 'withdraw') { asyncQuestion.status = 'withdrawn'; asyncQuestion.answer = undefined; }
-      else if (questionReply[3] === 'resume') asyncQuestion.delivery = { requestId: String(body.requestId), status: 'admitted' };
-      else { asyncQuestion.status = 'answered'; asyncQuestion.delivery = { requestId: String(body.requestId), status: 'held', holdReason: 'The origin conversation is held. Resume explicitly when ready.' }; asyncQuestion.answer = String(body.answer); }
-      asyncQuestion.receipt = { requestId: String(body.requestId), answer: asyncQuestion.answer || '', revision: Number(body.revision), at: Date.now() };
+      const receiptKey = JSON.stringify([asyncQuestion.conversationId, asyncQuestion.key, body.requestId]);
+      const payload = JSON.stringify([questionReply[3], body.revision, body.answer]);
+      const old = questionMutationReceipts.get(receiptKey);
+      if (old) return old.payload === payload ? ok(old.result) : fail(409, 'This request was already used with different text.');
+      if (questionReply[3] !== 'context' && body.revision !== asyncQuestion.revision) return fail(409, 'Question changed; refresh it before answering.');
+      const action = questionReply[3];
+      if (action === 'context') {
+        if (asyncQuestion.status !== 'answered' || asyncQuestion.replyTo) return fail(409, 'Answer the original question first.');
+        asyncQuestionFixture.push({ ...asyncQuestion, key: 'context:' + JSON.stringify([asyncQuestion.key, body.requestId]), replyTo: asyncQuestion.key, contextSequence: asyncQuestionFixture.filter(item => item.replyTo === asyncQuestion.key).length + 1, revision: 1,
+          answer: String(body.answer), receipt: { requestId: String(body.requestId), revision: Number(body.revision), answer: String(body.answer), at: Date.now() },
+          createdAt: Date.now(), delivery: { requestId: String(body.requestId), status: 'held', holdReason: 'The task was stopped. Open its source chat to decide how to continue.' } });
+      } else if (action === 'withdraw') {
+        if (asyncQuestion.status !== 'pending') return fail(409, 'Sent answers cannot be withdrawn.');
+        asyncQuestion.status = 'withdrawn';
+      } else if (action === 'resume') asyncQuestion.delivery = { requestId: String(body.requestId), status: 'admitted' };
+      else {
+        if (asyncQuestion.status !== 'pending') return fail(409, 'This question was already answered.');
+        asyncQuestion.status = 'answered'; asyncQuestion.delivery = { requestId: String(body.requestId), status: 'held', holdReason: 'The task was stopped. Open its source chat to decide how to continue.' }; asyncQuestion.answer = String(body.answer);
+        asyncQuestion.receipt = { requestId: String(body.requestId), answer: asyncQuestion.answer, revision: Number(body.revision), at: Date.now() };
+      }
       asyncQuestion.revision!++;
-      return ok({ ok: true, question: asyncQuestion });
+      const result = structuredClone({ ok: true, question: asyncQuestion });
+      questionMutationReceipts.set(receiptKey, { payload, result });
+      return ok(result);
     }
     const conversation = conversationById(decodeURIComponent(questionReply[1]));
     if (!conversation) return fail(404, 'no such conversation');

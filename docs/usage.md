@@ -83,15 +83,24 @@ The **Questions** shelf collects decisions from the current chat and its workers
 source. A question does not stop unrelated work. Work that depends on your decision must wait;
 silence is never permission. Security approvals remain separate and still block the action.
 
-Read the context, options and recommendation, then choose an option or write an answer. The shelf
-keeps the question’s history and shows whether Kiln is holding your answer or has admitted it to the
-originating chat. Saving an answer is not proof that the agent has read or acted on it. Answers wait
-for the current turn and queued human directions rather than interrupting them.
+Read the context, options and recommendation, then choose an option or write an answer and choose
+**Send**. Each question accepts one immutable answer, then moves into **Answered and closed**.
+There is no unsend, answer edit or repeated resume action. **Add more context** sends a separate
+immutable message under the same question without replacing your answer or consuming the main
+composer draft. An unconfirmed request retains its exact text and retry identity; a matching host
+receipt can confirm delivery even if the original response was lost.
+
+The shelf distinguishes an answer held on Kiln from one admitted or placed in its originating chat.
+Neither admission nor placement proves that the bot has read or acted on it. The answer and added
+context wait in order for the current turn and queued human directions rather than interrupting
+them. **Go to question** uses a host-recorded message link; older records without one offer the
+source chat, never a guessed message target.
 
 A stopped, hidden, missing or reassigned origin cannot silently restart or receive permission for a
-new assignment. Its answer stays held for explicit review. Withdrawing a question ends that request;
-it does not undo work already performed. Older blocking questions and OpenChamber forms continue to
-appear in the conversation.
+new assignment. Its answer stays held for explicit review, including when the task is Done or has
+reported unfinished work. You may withdraw a question only before answering it; that closes the
+request without undoing work already performed. Older blocking questions and OpenChamber forms
+continue to appear in the conversation.
 
 ## Context and compaction
 

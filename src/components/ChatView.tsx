@@ -1,3 +1,4 @@
+import { questionSourceMessage } from '../lib/asyncQuestions';
 import type { AnnotationGuard } from '../lib/annotationNavigation';
 import { isRemoteBrowser, isRemoteExpired, remoteAuxiliaryDrafts, setRemoteDraftBlocker } from '../lib/remoteLifecycle';
 import QuestionsShelf from './QuestionsShelf';
@@ -353,7 +354,7 @@ type Props = {
   /** Data crosses both memo boundaries; a stabilized lookup callback cannot signal YOLO changes. */
   workerAutoAcceptByKey?: Readonly<Record<string, boolean>>;
   /** Open a worker as a transient column. */
-  onOpenWorker?: (worker: Session) => void;
+  onOpenWorker?: (worker: Session, messageId?: string) => void;
   /** Resolve a promoted worker's peer session, so the strip row links to the peer fork. */
   workerPeer?: (worker: Session) => Session | null;
   /** Toggle a worker's auto-accept from the strip. */
@@ -2419,10 +2420,14 @@ function ChatView({
                       ]
                     : []),
                   {
-                    id: 'questions', label: 'Questions', count: asyncQuestions.length,
+                    id: 'questions', label: 'Questions', count: asyncQuestions.filter(request => !request.replyTo).length,
                     alert: asyncQuestions.some((request) => request.status === 'pending'),
                     content: <QuestionsShelf hostLabel={instanceLabel} requests={asyncQuestions} sessionId={session.id} onAnswer={onQuestion}
-                      onOpenSource={onOpenWorker ? (request) => onOpenWorker({ id: request.sessionId, instanceId: request.instanceId, title: 'Question source', kind: request.ancestry?.length ? 'worker' : undefined } as Session) : undefined} />,
+                      onOpenSource={(request) => {
+                        const messageId = questionSourceMessage(request);
+                        if (request.sessionId === session.id) { if (messageId) jumpToMessage(messageId); return; }
+                        onOpenWorker?.({ id: request.sessionId, instanceId: request.instanceId, title: 'Question source', kind: request.ancestry?.length ? 'worker' : undefined } as Session, messageId);
+                      }} />,
                   },
                 ]}
               />

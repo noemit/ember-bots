@@ -12,8 +12,10 @@ import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { createRegistry, Harness, InboxDoc, LiveDoc, MemoryStorage, type ConversationId, type Storage, type ToolExecutionApi } from '@earendil-works/pi-durable';
 import { AskTool, QuestionsDoc, clearPendingQuestions, pendingQuestions, replyQuestion } from '../src/ask';
-import { answerQuestion, authorizeQuestionResume, createQuestion, listQuestions, reconcileQuestions, resumeQuestions, withdrawQuestion } from '../src/questions';
+import { answerQuestion, appendQuestionContext, authorizeQuestionResume, createQuestion, listQuestions, reconcileQuestions, resumeQuestions, withdrawQuestion } from '../src/questions';
 import { MetaDoc } from '../src/meta';
+import { hearthCodemodeExtensions } from '../src/codemode';
+import { threadTask } from '../src/threadResults';
 import { SessionsDoc } from '../src/sessions';
 import { archiveCrew, markWorkerStopped, tick } from '../src/crew';
 
@@ -34,7 +36,7 @@ const setup = async (storage: Storage = new MemoryStorage()) => {
     (await tx.doc(SessionsDoc, creator)).items.task = { kind: 'worker', conversationId: worker.id, creatorId: creator, supervisorId: root.id, title: 'Worker', state, spawnedAt: 100, taskAt: 101, generation: 1, briefRequestId: 'brief', delivery: 'thread', report: { status: 'ok', text: 'Prior result', at: 103, requestId: 'old-report' } };
     if (creator !== root.id) (await tx.doc(SessionsDoc, root.id)).items.alias = { ...(await tx.doc(SessionsDoc, creator)).items.task, taskOwner: { conversationId: creator, key: 'task' } };
   }, context);
-  return { harness, storage, models, root, worker, sibling, api, create, get, entries, member };
+  return { harness, storage, models, registry, root, worker, sibling, api, create, get, entries, member };
 };
 
 describe('Questions inbox durable lifecycle', () => {
@@ -93,7 +95,7 @@ describe('Questions inbox durable lifecycle', () => {
     } finally { await f.harness.close(context); }
   });
 
-  test('only origin assignment or human may withdraw; answered held permits human withdrawal only', async () => {
+  test('only origin assignment or human may withdraw a pending question; sent answers cannot be retracted', async () => {
     const f = await setup();
     try {
       await f.member(); await f.create(f.worker.id);
@@ -103,7 +105,7 @@ describe('Questions inbox durable lifecycle', () => {
       await answerQuestion(f.harness, f.worker.id, 'question-tool-1', 'EU', 1, 'a', context);
       expect((await withdrawQuestion(f.harness, f.worker.id, 'question-tool-1', 2, 'origin', context, f.worker.id)).ok).toBe(false);
       const result = await withdrawQuestion(f.harness, f.worker.id, 'question-tool-1', 2, 'human', context);
-      expect(result.ok).toBe(true); expect(result.question?.receipt?.answer).toBe('EU');
+      expect(result.ok).toBe(false); expect((await f.get(f.worker.id)).receipt?.answer).toBe('EU');
       expect(await resumeQuestions(f.harness, f.worker.id, context)).toBe(0);
       expect(await withdrawQuestion(f.harness, f.worker.id, 'question-tool-1', 2, 'human', context)).toEqual(result);
     } finally { await f.harness.close(context); }
@@ -235,7 +237,7 @@ describe('Questions inbox durable lifecycle', () => {
       expect(await resumeQuestions(f.harness, f.worker.id, context)).toBe(0);
       expect((await f.get(f.worker.id)).delivery?.holdReason).toContain('assignment is missing');
       expect((await listQuestions(f.harness, [f.worker.id], context))).toHaveLength(1);
-      expect((await withdrawQuestion(f.harness, f.worker.id, q.key, 2, 'human-withdraw', context)).ok).toBe(true);
+      expect((await withdrawQuestion(f.harness, f.worker.id, q.key, 2, 'human-withdraw', context)).ok).toBe(false);
     } finally { await f.harness.close(context); }
   });
 
@@ -440,6 +442,10 @@ describe('Questions persistence and wire contract', () => {
       const first = await (await api('/questions')).json() as { questions: Array<{ conversationId: string; key: string; mode: string; revision: number }> };
       const q = first.questions.find(q => q.conversationId === String(root.id))!;
       expect(q.mode).toBe('async');
+      const stored = (await f.harness.snapshot(QuestionsDoc, root.id, context))!.items[q.key];
+      expect(stored.origin?.sourceMessageId).toMatch(/^e[1-9][0-9]*$/);
+      const originEntry = (await root.entries({}, 100, undefined, context)).items.find(entry => 'e' + entry.id === stored.origin?.sourceMessageId);
+      expect(originEntry?.kind).toBe('pi.assistant');
       const summaries = await (await api('/conversations')).json() as { conversations: Array<{ id: number; needsInput: boolean }> };
       expect(summaries.conversations.find(row => row.id === root.id)?.needsInput).toBe(false);
       const path = '/questions/' + root.id + '/' + encodeURIComponent(q.key);
@@ -458,7 +464,12 @@ describe('Questions persistence and wire contract', () => {
       expect((await api(path + '/withdraw', { revision: 3, requestId: 'withdraw' })).status).toBe(409);
       await f.create(f.root.id, 'held'); await f.harness.commit(async tx => { (await tx.doc(MetaDoc, f.root.id)).archived = Date.now(); }, context);
       expect((await api('/questions/' + f.root.id + '/held/reply', { answer: 'US', revision: 1, requestId: 'held-answer' })).status).toBe(200);
-      expect((await api('/questions/' + f.root.id + '/held/withdraw', { revision: 2, requestId: 'held-withdraw' })).status).toBe(200);
+      expect((await api('/questions/' + f.root.id + '/held/withdraw', { revision: 2, requestId: 'held-withdraw' })).status).toBe(409);
+      expect((await api('/questions/' + f.root.id + '/held/context', { answer: 'More review context', revision: 2, requestId: 'held-more' })).status).toBe(200);
+      expect((await api('/questions/' + f.root.id + '/held/context', { answer: 'More review context', revision: 2, requestId: 'held-more' })).status).toBe(200);
+      expect((await api('/questions/' + f.root.id + '/held/context', { answer: 'Changed text', revision: 2, requestId: 'held-more' })).status).toBe(409);
+      expect((await f.get(f.root.id, 'held')).receipt?.answer).toBe('US');
+      expect((await listQuestions(f.harness, [f.root.id], context)).filter(q => q.replyTo === 'held')).toHaveLength(1);
       const page = await (await api('/questions?limit=1')).json() as { next: string };
       expect(page.next).toBeTruthy(); expect((await api('/questions?limit=1&cursor=' + page.next)).status).toBe(200);
       expect((await api('/questions?limit=501')).status).toBe(400);
@@ -466,4 +477,156 @@ describe('Questions persistence and wire contract', () => {
       expect((await api('/questions/' + f.root.id + '/legacy/reply', { answer: 'yes' })).status).toBe(200);
     } finally { await server.close(); await f.harness.close(context); await rm(directory, { recursive: true, force: true }); }
   });
+});
+
+
+describe('Append-only question context', () => {
+  test('every addition has immutable text, independent delivery and payload-bound replay', async () => {
+    const f = await setup();
+    try {
+      await f.create();
+      expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Too soon', 1, 'early', context)).ok).toBe(false);
+      await answerQuestion(f.harness, f.root.id, 'question-tool-1', 'EU', 1, 'answer', context);
+      const original = (await f.get()).receipt;
+      const first = await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Keep the backup', 2, 'more', context);
+      expect(first.ok).toBe(true);
+      expect(await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Keep the backup', 2, 'more', context)).toEqual(first);
+      expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Delete it', 2, 'more', context)).ok).toBe(false);
+      expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'A concurrent addition', 2, 'another', context)).ok).toBe(true);
+      const rows = await listQuestions(f.harness, [f.root.id], context);
+      expect(rows).toHaveLength(3);
+      expect(rows.filter(q => q.replyTo).map(q => q.contextSequence)).toEqual([1, 2]);
+      const child = rows.find(q => q.replyTo)!;
+      expect(child.replyTo).toBe('question-tool-1');
+      expect(child.receipt?.answer).toBe('Keep the backup');
+      expect(child.delivery?.requestId).not.toBe((await f.get()).delivery?.requestId);
+      expect((await f.get()).receipt).toEqual(original);
+      expect((await withdrawQuestion(f.harness, f.root.id, child.key, 1, 'withdraw-context', context)).ok).toBe(false);
+      expect((await appendQuestionContext(f.harness, f.root.id, child.key, 'Nested context', 1, 'nested', context)).ok).toBe(false);
+      expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', '   ', 3, 'blank', context)).ok).toBe(false);
+      expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'x'.repeat(32001), 3, 'large', context)).ok).toBe(false);
+    } finally { await f.harness.close(context); }
+  });
+
+  test('stopped and changed assignments cannot be restarted by additional context', async () => {
+    const f = await setup();
+    try {
+      await f.member('stopped'); await f.create(f.worker.id);
+      await answerQuestion(f.harness, f.worker.id, 'question-tool-1', 'EU', 1, 'answer', context);
+      await appendQuestionContext(f.harness, f.worker.id, 'question-tool-1', 'Also keep backups', 2, 'context', context);
+      expect(await resumeQuestions(f.harness, f.worker.id, context)).toBe(0);
+      expect((await listQuestions(f.harness, [f.worker.id], context)).every(q => q.delivery?.status === 'held')).toBe(true);
+      await f.harness.commit(async tx => { const task = (await tx.doc(SessionsDoc, f.root.id)).items.task; task.state = 'running'; task.taskAt = 999; }, context);
+      expect(await resumeQuestions(f.harness, f.worker.id, context)).toBe(0);
+      expect((await f.entries(f.worker.id)).filter(entry => entry.kind === 'hearth.question-answer')).toHaveLength(0);
+    } finally { await f.harness.close(context); }
+  });
+
+  test('a new context message cannot overtake an older held answer after visibility is repaired', async () => {
+    const f = await setup();
+    try {
+      await f.create(); await answerQuestion(f.harness, f.root.id, 'question-tool-1', 'EU', 1, 'answer', context);
+      await f.harness.commit(async tx => { (await tx.doc(MetaDoc, f.root.id)).archived = Date.now(); }, context);
+      expect(await resumeQuestions(f.harness, f.root.id, context)).toBe(0);
+      await f.harness.commit(async tx => { delete (await tx.doc(MetaDoc, f.root.id)).archived; }, context);
+      const parent = await f.get();
+      await appendQuestionContext(f.harness, f.root.id, parent.key, 'Do not restart automatically', parent.revision!, 'context', context);
+      expect(await resumeQuestions(f.harness, f.root.id, context)).toBe(0);
+      expect((await f.entries()).filter(entry => entry.kind === 'hearth.question-answer')).toHaveLength(0);
+    } finally { await f.harness.close(context); }
+  });
+
+  test('SQLite recovery retains independent additions and exact retry receipts', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kiln-question-context-'));
+    const path = join(directory, 'kiln.sqlite');
+    const f = await setup(await openNodeSqliteStorage(path));
+    await f.create(); await answerQuestion(f.harness, f.root.id, 'question-tool-1', 'EU', 1, 'answer', context);
+    const result = await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Keep backups', 2, 'more', context);
+    await f.harness.close(context);
+    const recovered = await Harness.open(await openNodeSqliteStorage(path), { models: createModels(), registry: createRegistry() }, context);
+    try {
+      expect(await appendQuestionContext(recovered, f.root.id, 'question-tool-1', 'Keep backups', 2, 'more', context)).toEqual(result);
+      const rows = await listQuestions(recovered, [f.root.id], context);
+      expect(rows).toHaveLength(2);
+      expect(rows.find(q => q.replyTo)?.receipt?.answer).toBe('Keep backups');
+      expect(rows.find(q => !q.replyTo)?.receipt?.answer).toBe('EU');
+    } finally { await recovered.close(context); await rm(directory, { recursive: true, force: true }); }
+  });
+});
+
+
+test('nested codemode questions link to the actual assistant entry, not free-text source claims', async () => {
+  const f = await setup();
+  const codemode = hearthCodemodeExtensions({ env: {} });
+  for (const extension of codemode.extensions) f.registry.install(extension);
+  const faux = fauxProvider(); f.models.setProvider(faux.provider);
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall('codemode', { code: 'text(await tools.ask({ action: "create", question: "Keep the nested backup?", source: "made-up e999999" }));' })], { stopReason: 'toolUse' }),
+    fauxAssistantMessage([fauxText('I continued independent work.')]),
+  ]);
+  try {
+    const root = await f.harness.root(context, { agent: { model: { provider: 'faux', modelId: 'faux-1' } } });
+    await (await root.submit({ type: 'input', content: 'Ask from codemode' }, context)).wait(context);
+    const questions = Object.values((await f.harness.snapshot(QuestionsDoc, root.id, context))?.items ?? {});
+    expect(questions).toHaveLength(1);
+    const entries = (await root.entries({}, 100, undefined, context)).items;
+    const source = entries.find(entry => 'e' + entry.id === questions[0].origin?.sourceMessageId);
+    expect(source?.kind).toBe('pi.assistant');
+    expect(JSON.stringify(source?.model)).toContain('codemode');
+    expect(questions[0].origin?.sourceMessageId).not.toBe('e999999');
+  } finally { await f.harness.close(context); codemode.close(); }
+}, 30000);
+
+test('original answer and concurrent additions are delivered exactly once in their durable sequence', async () => {
+  const f = await setup();
+  const faux = fauxProvider(); f.models.setProvider(faux.provider);
+  faux.setResponses([fauxAssistantMessage('Used the original answer'), fauxAssistantMessage('Used context one'), fauxAssistantMessage('Used context two')]);
+  try {
+    await f.root.configure({ model: { provider: 'faux', modelId: 'faux-1' } }, context);
+    await f.create(); await answerQuestion(f.harness, f.root.id, 'question-tool-1', 'EU', 1, 'original', context);
+    const additions = await Promise.all([
+      appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Keep backups', 2, 'context-one', context),
+      appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Verify the rollout', 2, 'context-two', context),
+    ]);
+    expect(additions.every(result => result.ok)).toBe(true);
+    for (let i = 0; i < 3; i++) { await resumeQuestions(f.harness, f.root.id, context); await f.root.waitForIdle(context); }
+    const entries = (await f.entries()).filter(entry => entry.kind === 'hearth.question-answer').sort((a, b) => Number(a.id) - Number(b.id));
+    const text = entries.map(entry => (entry.data as { receipt: { answer: string } }).receipt.answer);
+    expect(text).toEqual(['EU', 'Keep backups', 'Verify the rollout']);
+    expect((await f.get()).receipt?.answer).toBe('EU');
+    expect(await resumeQuestions(f.harness, f.root.id, context)).toBe(0);
+    expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Keep backups', 2, 'context-one', context)).ok).toBe(true);
+    expect((await f.entries()).filter(entry => entry.kind === 'hearth.question-answer')).toHaveLength(3);
+  } finally { await f.harness.close(context); }
+});
+
+for (const outcome of ['done', 'blocked', 'incomplete', 'handoff-needed'] as const) {
+  test(`additional context never reopens an explicit ${outcome} assignment`, async () => {
+    const f = await setup();
+    try {
+      await f.member('reported'); await f.create(f.worker.id);
+      await f.harness.commit(async tx => {
+        const entry = (await tx.doc(SessionsDoc, f.root.id)).items.task;
+        entry.taskLifecycle = 'explicit';
+        entry.completion = { task: threadTask(entry), requestId: 'outcome-receipt', outcome, summary: 'Recorded outcome', evidence: 'Result document', remaining: 'Needs direction', at: 123 };
+      }, context);
+      await answerQuestion(f.harness, f.worker.id, 'question-tool-1', 'EU', 1, 'answer', context);
+      await appendQuestionContext(f.harness, f.worker.id, 'question-tool-1', 'Keep this for review', 2, 'more', context);
+      expect(await resumeQuestions(f.harness, f.worker.id, context)).toBe(0);
+      expect((await f.entries(f.worker.id)).filter(entry => entry.kind === 'hearth.question-answer')).toHaveLength(0);
+      expect((await f.harness.snapshot(SessionsDoc, f.root.id, context))?.items.task.completion?.outcome).toBe(outcome);
+    } finally { await f.harness.close(context); }
+  });
+}
+
+test('context limit bounds new records without rejecting an exact accepted retry', async () => {
+  const f = await setup();
+  try {
+    await f.create(); await answerQuestion(f.harness, f.root.id, 'question-tool-1', 'EU', 1, 'answer', context);
+    for (let i = 0; i < 100; i++) expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Context ' + i, 2, 'context-' + i, context)).ok).toBe(true);
+    expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'One too many', 2, 'over-limit', context)).error).toBe('limit');
+    expect((await appendQuestionContext(f.harness, f.root.id, 'question-tool-1', 'Context 0', 2, 'context-0', context)).ok).toBe(true);
+    expect((await listQuestions(f.harness, [f.root.id], context)).filter(item => item.replyTo)).toHaveLength(100);
+    expect((await f.get()).receipt?.answer).toBe('EU');
+  } finally { await f.harness.close(context); }
 });

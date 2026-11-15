@@ -1,6 +1,6 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { Context } from '@earendil-works/chord';
-import { InboxDoc, LiveDoc, type ConversationId, type Harness, type ToolExecutionApi, type Tx } from '@earendil-works/pi-durable';
+import { InboxDoc, LiveDoc, type ConversationId, type TaskId, type EntryId, type Harness, type ToolExecutionApi, type Tx } from '@earendil-works/pi-durable';
 import { QuestionsDoc, type ParkedQuestion, type QuestionHost, type QuestionOrigin, type QuestionsState } from './ask';
 import { MetaDoc } from './meta';
 import { explicitDone, explicitSettled, SessionsDoc, type CrewEntry } from './sessions';
@@ -22,9 +22,29 @@ const receiptOperation = (doc: QuestionsState, question: ParkedQuestion, request
 };
 
 
+/** Follow durable tool-task provenance, including nested codemode calls. Never parse model prose
+ * or guess that a task id is a transcript entry. Old questions without this evidence stay unlinked. */
+const sourceMessageIn = async (tx: Tx, id: ConversationId, toolTaskId: string): Promise<string | undefined> => {
+  let taskId = Number(toolTaskId);
+  const seen = new Set<number>();
+  for (let depth = 0; depth < 32 && Number.isSafeInteger(taskId) && taskId > 0 && !seen.has(taskId); depth++) {
+    seen.add(taskId);
+    const task = await tx.task(taskId as TaskId);
+    if (!task || task.conversationId !== id || task.kind !== 'pi.tool') return;
+    const input = task.input as { kind?: unknown; assistant?: unknown; parent?: unknown };
+    if (input.kind === 'model' && typeof input.assistant === 'number' && Number.isSafeInteger(input.assistant)) {
+      const entry = await tx.entry(input.assistant as EntryId);
+      return entry?.conversationId === id && entry.kind === 'pi.assistant' ? `e${entry.id}` : undefined;
+    }
+    if (input.kind !== 'nested' || typeof input.parent !== 'number') return;
+    taskId = input.parent;
+  }
+};
+
 /** Resolve actual creator/task ownership, not supervisory aliases. */
 const originIn = async (tx: Tx, id: ConversationId, toolTaskId: string): Promise<QuestionOrigin> => {
-  const origin: QuestionOrigin = { conversationId: String(id), toolTaskId };
+  const sourceMessageId = await sourceMessageIn(tx, id, toolTaskId);
+  const origin: QuestionOrigin = { conversationId: String(id), toolTaskId, ...(sourceMessageId ? { sourceMessageId } : {}) };
   const meta = await tx.doc(MetaDoc, id);
   origin.kind = meta.kind === 'worker' ? 'worker' : 'root';
   if (origin.kind === 'worker') origin.assignmentMissing = true;
@@ -107,7 +127,7 @@ const reconcileDeliveryIn = async (tx: Tx, id: ConversationId, q: ParkedQuestion
     if (record) delivery.sdkStatus = record.status; else delete delivery.sdkStatus;
     if (record?.status === 'unanswered') delivery.failureReason = record.reason;
     delivery.holdReason = delivery.placement === 'unplaced'
-      ? 'Kiln withdrew this answer before placing it in the conversation. Resume it explicitly after the origin is ready.'
+      ? 'Kiln stopped delivery before placing this answer in the conversation. Open the source chat to review how to continue; the answer stays here.'
       : 'Kiln cannot verify where this admission landed. The answer is held for human review; do not resend it without resolving the missing submission evidence.';
     q.resumeRequired = true;
     if (q.mutation?.action === 'resume') delete q.mutation;
@@ -135,13 +155,14 @@ export const listQuestions = async (host: QuestionHost, ids: readonly Conversati
       const ancestry: Array<{ conversationId: string; title?: string }> = [];
       const seen = new Set<string>([String(id)]);
       let meta = await host.snapshot(MetaDoc, id, context);
+      const sourceTitle = meta?.title;
       while (meta?.lead?.host === 'local' && !seen.has(String(meta.lead.conversationId))) {
         const parent = meta.lead.conversationId as ConversationId;
         seen.add(String(parent));
         meta = await host.snapshot(MetaDoc, parent, context);
         ancestry.push({ conversationId: String(parent), ...(meta?.title ? { title: meta.title } : {}) });
       }
-      rows.push({ ...item, ancestry });
+      rows.push({ ...item, ancestry, ...(sourceTitle ? { sourceTitle } : {}) });
     }
   }
   return rows;
@@ -158,7 +179,7 @@ export const withdrawQuestion = async (host: QuestionHost, id: ConversationId, k
     if (String(actor) !== item.origin?.conversationId || origin.assignmentMissing || item.origin?.assignmentMissing || origin.assignmentVersion !== item.origin?.assignmentVersion) return { ok: false, error: 'forbidden' };
   }
   const replay = replayOperation(doc, key, requestId, 'withdraw', revision); if (replay) return replay;
-  if ((item.status !== 'pending' && !(actor === 'human' && item.status === 'answered' && item.delivery?.status === 'held')) || item.revision !== revision) return { ok: false, error: 'conflict' };
+  if (item.status !== 'pending' || item.revision !== revision) return { ok: false, error: 'conflict' };
   item.status = 'withdrawn'; item.revision++; item.updatedAt = Date.now();
   item.mutation = { action: 'withdraw', requestId, revision };
   return receiptOperation(doc, item, requestId, 'withdraw', revision);
@@ -178,6 +199,35 @@ export const answerQuestion = async (host: QuestionHost, id: ConversationId, key
   item.receipt = { requestId, answer, revision, at: now };
   item.delivery = { requestId: `hearth.question.answer:${id}:${key}:${requestId}`, status: 'held', holdReason: 'Waiting for the conversation and its human inbox to clear.' };
   return receiptOperation(doc, item, requestId, 'answer', revision, answer);
+}, context);
+
+/** Original answers are immutable. Every addition has its own admission and retry identity,
+ * follows the original assignment boundary, and can never restart a stopped or settled worker. */
+export const appendQuestionContext = async (host: QuestionHost, id: ConversationId, key: string, answer: string, revision: number, requestId: string,
+  context: Context = BACKGROUND_CONTEXT): Promise<QuestionResult> => host.commit(async tx => {
+  if (!validMutation(revision, requestId) || typeof answer !== 'string' || !answer.trim() || answer.length > 32000) return { ok: false, error: 'invalid' };
+  const doc = await tx.doc(QuestionsDoc, id);
+  const parent = doc.items[key];
+  if (!parent || parent.mode !== 'async') return { ok: false, error: 'missing' };
+  const replay = replayOperation(doc, key, requestId, 'context', revision, answer); if (replay) return replay;
+  if (parent.replyTo || parent.status !== 'answered' || revision > (parent.revision ?? 1)) return { ok: false, error: 'conflict' };
+  const previous = Object.values(doc.items).filter(item => item.replyTo === key);
+  if (previous.length >= 100) return { ok: false, error: 'limit' };
+  // Delivery receipts can advance the parent revision while the human writes. Appending never
+  // overwrites the original answer, so concurrent additions need no parent-delivery CAS.
+  const contextSequence = Math.max(0, ...previous.map(item => item.contextSequence ?? 0)) + 1;
+  const now = Date.now();
+  const childKey = `context:${JSON.stringify([key, requestId])}`;
+  if (doc.items[childKey]) return { ok: false, error: 'conflict' };
+  doc.items[childKey] = {
+    conversationId: String(id), key: childKey, replyTo: key, contextSequence, question: parent.question, options: [], mode: 'async',
+    status: 'answered', answer, revision: 1, createdAt: now, updatedAt: now, ...(parent.origin ? { origin: clone(parent.origin) } : {}),
+    ...(parent.resumeRequired ? { resumeRequired: true } : {}),
+    receipt: { requestId, answer, revision, at: now },
+    delivery: { requestId: `hearth.question.context:${id}:${JSON.stringify([key, requestId])}`, status: 'held', holdReason: 'Waiting for the conversation and its human inbox to clear.' },
+  };
+  parent.revision = (parent.revision ?? 1) + 1; parent.updatedAt = now;
+  return receiptOperation(doc, parent, requestId, 'context', revision, answer);
 }, context);
 
 /** Human resume never changes assignment, visibility or stop state. It only reconsiders delivery. */
@@ -227,9 +277,9 @@ export const resumeQuestions = async (harness: Harness, id: ConversationId, cont
       const entry = origin?.taskKey === undefined ? undefined : owner?.items[origin.taskKey];
       // Watermark read before submit; continuing a settled assignment preserves its prior result.
       const newest = await tx.latestEntryId(id);
-      const unsafe = !conversation ? 'The origin conversation is missing.' : meta.archived ? 'The origin conversation is hidden. Restore it before explicitly resuming this answer.' :
-        meta.stoppedAt ? 'The origin conversation was stopped. Start it explicitly before resuming this answer.' :
-        live.runFailure ? 'The origin conversation failed. Recover it explicitly before resuming this answer.' :
+      const unsafe = !conversation ? 'The origin conversation is missing.' : meta.archived ? 'The origin conversation is hidden. Restore the source chat to review how to continue; this answer stays held.' :
+        meta.stoppedAt ? 'The origin conversation was stopped. Open the source chat to decide how to continue; this answer stays held.' :
+        live.runFailure ? 'The origin conversation failed. Open the source chat to review the failure; this answer stays held.' :
         (origin?.kind === 'worker' || meta.kind === 'worker') && (origin?.assignmentMissing || !origin?.assignmentVersion || !entry) ? 'The origin worker assignment is missing. This answer remains here for human review.' :
         origin?.assignmentVersion !== undefined && (!entry || entry.taskOwner || assignment(entry) !== origin.assignmentVersion) ? 'The origin assignment changed. This answer remains here for human review.' :
         entry && explicitSettled(entry) ? (explicitDone(entry) ? 'The origin task is Done.' : 'The origin task has paused with unfinished work.') + ' Its coordinator or human must explicitly reopen it before this answer can continue work.' :
@@ -243,6 +293,14 @@ export const resumeQuestions = async (harness: Harness, id: ConversationId, cont
         return 0;
       }
       if (q.status !== 'answered' || !q.receipt || !q.delivery) return 0;
+      if (q.replyTo) {
+        const parent = doc.items[q.replyTo];
+        const earlier = Object.values(doc.items).filter(item => item.replyTo === q.replyTo && (item.contextSequence ?? 0) < (q.contextSequence ?? 0));
+        if (!parent || [parent, ...earlier].some(item => item.status !== 'answered' || item.delivery?.status !== 'admitted')) {
+          q.delivery.holdReason = 'An earlier answer or context message is held. Open the source chat to review how to continue.';
+          return 0;
+        }
+      }
       if (q.resumeRequired && q.mutation?.action !== 'resume') return 0;
       // SDK requestId dedup checks only the submission TYPE. Do not let an unrelated input
       // occupying this ID become a false delivery receipt for the Question's answer.
@@ -264,8 +322,8 @@ export const resumeQuestions = async (harness: Harness, id: ConversationId, cont
       }
       const submission = await conversation!.submit(tx, {
         type: 'input', whenBusy: 'followUp', requestId: q.delivery.requestId,
-        content: `Human answer to async question ${q.key}:\n${q.question}\n\n${q.receipt.answer}\n\nThis is a correlated Questions inbox answer, not a new task assignment. Continue the original task only where this answer applies.`,
-        entry: { kind: 'hearth.question-answer', data: { internal: true, questionId: q.key, origin: q.origin ?? null, receipt: q.receipt } },
+        content: `${q.replyTo ? 'Additional human context for async question ' + q.replyTo : 'Human answer to async question ' + q.key}:\n${q.question}\n\n${q.receipt.answer}\n\nThis is a correlated Questions inbox answer, not a new task assignment. Continue the original task only where this answer applies.`,
+        entry: { kind: 'hearth.question-answer', data: { internal: true, questionId: q.key, ...(q.replyTo ? { replyTo: q.replyTo } : {}), origin: q.origin ?? null, receipt: q.receipt } },
       });
       // Admitted is not a claim of execution or even human-visible placement.
       q.delivery = { requestId: q.delivery.requestId, ...(q.delivery.attempt === undefined ? {} : { attempt: q.delivery.attempt }), status: 'admitted', placement: 'unknown', admittedAt: Date.now(), submissionId: String(submission) };

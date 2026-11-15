@@ -1112,7 +1112,7 @@ export const piReplyQuestion = async (
   const answer = (answers[0] ?? []).join('\n');
   const response = await request(
     endpointId,
-    `/questions/${encodeURIComponent(conversationId)}/${encodeURIComponent(key ?? '')}/${request_.mutation?.action === 'resume' ? 'resume' : request_.mutation?.action === 'withdraw' ? 'withdraw' : 'reply'}`,
+    `/questions/${encodeURIComponent(conversationId)}/${encodeURIComponent(key ?? '')}/${request_.mutation?.action === 'context' ? 'context' : request_.mutation?.action === 'resume' ? 'resume' : request_.mutation?.action === 'withdraw' ? 'withdraw' : 'reply'}`,
     { method: 'POST', body: request_.mode === 'async' ? { answer, requestId: request_.mutation?.requestId, revision: request_.mutation?.revision } : { answer } }
   );
   return response.ok;

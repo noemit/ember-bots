@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 export type QuestionStatus = "pending" | "answered" | "cancelled" | "withdrawn" | "superseded";
-export type QuestionOrigin = { conversationId: string; toolTaskId: string; kind?: "root" | "worker"; assignmentMissing?: boolean; taskOwnerId?: string; taskKey?: string; assignmentVersion?: string; supervisorId?: string };
+export type QuestionOrigin = { conversationId: string; toolTaskId: string; sourceMessageId?: string; kind?: "root" | "worker"; assignmentMissing?: boolean; taskOwnerId?: string; taskKey?: string; assignmentVersion?: string; supervisorId?: string };
 export type QuestionReceipt = { requestId: string; answer: string; at: number; revision: number };
 /** Admission is not proof of placement, model execution, or human acknowledgement. */
 export type QuestionDelivery = {
@@ -30,6 +30,10 @@ export type ParkedQuestion = {
   answer?: string;
   mode?: "async";
   resumeRequired?: boolean;
+  /** Immutable appended human context, stored as its own delivery record. */
+  replyTo?: string;
+  contextSequence?: number;
+  sourceTitle?: string;
   decision?: string;
   context?: string;
   recommendation?: string;

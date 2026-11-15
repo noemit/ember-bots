@@ -491,19 +491,22 @@ export type QuestionRequest = {
   context?: string;
   recommendation?: string;
   source?: string;
-  origin?: { conversationId: string; toolTaskId?: string; taskOwnerId?: string; taskKey?: string; assignmentVersion?: string; supervisorId?: string };
+  origin?: { conversationId: string; toolTaskId?: string; sourceMessageId?: string; taskOwnerId?: string; taskKey?: string; assignmentVersion?: string; supervisorId?: string };
   assignment?: { conversationId?: string; title?: string };
   ancestry?: QuestionAncestry[];
   receipt?: { requestId: string; answer: string; at: number; revision: number };
-  delivery?: { requestId: string; status: 'held' | 'admitted' | 'placed' | 'seen' | 'executed'; holdReason?: string; admittedAt?: number; submissionId?: string };
+  delivery?: { requestId: string; status: 'held' | 'admitted' | 'placed' | 'seen' | 'executed'; holdReason?: string; admittedAt?: number; submissionId?: string; placement?: 'unknown' | 'queued' | 'placed' | 'unplaced'; entryId?: number };
   resumeRequired?: boolean;
+  replyTo?: string;
+  contextSequence?: number;
+  sourceTitle?: string;
   decision?: string;
   freeText?: boolean;
   createdAt?: number;
   updatedAt?: number;
   answer?: string;
   /** Retry identity belongs to the human mutation, not to the question or render. */
-  mutation?: { requestId: string; revision: number; action?: 'answer' | 'withdraw' | 'resume' };
+  mutation?: { requestId: string; revision: number; action?: 'answer' | 'withdraw' | 'resume' | 'context' };
   id: string;
   instanceId: string;
   sessionId: string;

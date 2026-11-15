@@ -142,6 +142,16 @@ their existing names; archive references in the implementation notes below descr
   transcript messages or unread targets. Ultra delegator uses durable continuations and permits
   small foreground decisions; it does not demand delegation for every action.
 
+## Questions delivery
+
+Async Questions accept one immutable answer. The shelf moves answered questions into history;
+**Add more context** appends independent, ordered delivery records with the original assignment
+boundary. It never edits/retracts the answer or resumes stopped, failed or explicitly settled work.
+Pending questions may still be withdrawn; legacy blocking forms retain their reply contract.
+Retries use exact payload-bound receipts, not prose/time matching. Shared question drafts survive
+moving into history, and late callbacks may settle only their own mutation. Canonical source links
+follow durable tool-task ancestry; descriptive source text must never be parsed into a message id.
+
 ## Workspace connection (1.16.0)
 
 - The rail displays older entries above newer entries and pins the current chat beside the input

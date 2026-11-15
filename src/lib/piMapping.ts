@@ -1159,7 +1159,7 @@ export const piApprovalToPermissionRequest = (
 
 export type PiQuestion = {
   conversationId: string; key: string; question: string; options?: string[];
-} & Pick<QuestionRequest, 'mode' | 'revision' | 'status' | 'context' | 'recommendation' | 'source' | 'origin' | 'assignment' | 'ancestry' | 'receipt' | 'answer' | 'delivery' | 'resumeRequired' | 'decision' | 'freeText' | 'createdAt' | 'updatedAt'>;
+} & Pick<QuestionRequest, 'mode' | 'revision' | 'status' | 'context' | 'recommendation' | 'source' | 'origin' | 'assignment' | 'ancestry' | 'receipt' | 'answer' | 'delivery' | 'resumeRequired' | 'replyTo' | 'contextSequence' | 'sourceTitle' | 'decision' | 'freeText' | 'createdAt' | 'updatedAt'>;
 
 export const piQuestionToQuestionRequest = (
   endpointId: string,

@@ -4,7 +4,7 @@ import { InstanceOutageToasts } from './components/InstanceOutageToasts';
 import type { DelegatorChoices } from './lib/delegatorModels';
 import { isRemoteBrowser, setRemoteActiveWork } from './lib/remoteLifecycle';
 import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
-import { isAsyncQuestion, questionsForSupervisor } from './lib/asyncQuestions';
+import { isAsyncQuestion, questionMutationConfirmed, questionsForSupervisor } from './lib/asyncQuestions';
 import { projectUsageForHost } from './lib/projectUsage';
 import { preserveAnnotationEcho } from './lib/annotationEcho';
 import { recordAnnotationAcceptance } from './lib/annotationAcceptance';
@@ -4435,15 +4435,21 @@ export default function App() {
     showActionError(null);
     const host = instances.find((instance) => instance.id === request.instanceId)?.label || 'The host';
     const source = sessionByKey.get(sessionKey(request))?.title?.trim() || 'this conversation';
-    const operation = request.mutation?.action === 'resume' ? 'resume' : request.mutation?.action === 'withdraw' ? 'withdrawal' : answers ? 'answer' : 'dismissal';
+    const operation = request.mutation?.action === 'context' ? 'additional context' : request.mutation?.action === 'resume' ? 'resume' : request.mutation?.action === 'withdraw' ? 'withdrawal' : answers ? 'answer' : 'dismissal';
     const failure = host + ' did not confirm the ' + operation + ' for ' + source + '. Your answer is still in the question card; try again there.';
+    const confirmReceipt = async () => {
+      if (!isAsyncQuestion(request) || !request.mutation) return false;
+      const next = await loadAllQuestions([request.instanceId], promptHintsFor([request.instanceId], questionsByInstance)).catch(() => ({} as Record<string, QuestionRequest[]>));
+      setQuestionsByInstance(prev => shareValue(prev, { ...prev, ...next }));
+      return questionMutationConfirmed(request, answers, next[request.instanceId] ?? []);
+    };
     try {
       const directory = request.directory ?? sessionDirectory(request.instanceId, request.sessionId);
       const ok = answers
         ? await replyQuestion(request, answers, directory)
         : await rejectQuestion(request, directory);
       if (!ok) {
-        if (isAsyncQuestion(request)) void refreshQuestions([request.instanceId]);
+        if (await confirmReceipt()) return true;
         showActionError(
           failure,
           () => void handleQuestion(request, answers)
@@ -4458,6 +4464,7 @@ export default function App() {
       else void refreshQuestions([request.instanceId]);
       return true;
     } catch {
+      if (await confirmReceipt()) return true;
       showActionError(
         failure,
         () => void handleQuestion(request, answers)
@@ -5194,7 +5201,7 @@ export default function App() {
       const key = sessionKey(request);
       if (!map.has(key)) map.set(key, {
         id: request.sessionId, instanceId: request.instanceId,
-        title: 'Question source · ' + request.sessionId,
+        title: request.sourceTitle || 'Question source · ' + request.sessionId,
         kind: request.ancestry?.length ? 'worker' : undefined,
         lead: request.ancestry?.[0] ? { instanceId: request.instanceId, sessionId: request.ancestry[0].conversationId } : undefined,
       });
@@ -5412,9 +5419,11 @@ export default function App() {
             sessionKey(worker),
             Boolean(autoAcceptByInstance[worker.instanceId]?.sessions[worker.id] ?? false),
           ]))}
-          onOpenWorker={(worker) =>
-            openSession({ instanceId: worker.instanceId, sessionId: worker.id }, worker)
-          }
+          onOpenWorker={(worker, messageId) => navigateWithAnnotations(() => {
+            const known = sessionByKey.get(sessionKey(worker)) ?? worker;
+            performOpenSession({ instanceId: worker.instanceId, sessionId: worker.id }, known);
+            if (messageId) setQuoteNavigation(previous => ({ key: sessionKey(worker), messageId, token: (previous?.token ?? 0) + 1, source: null, destination: null }));
+          })}
           onToggleWorkerYolo={(worker, enabled) =>
             void setYolo({ instanceId: worker.instanceId, sessionId: worker.id }, enabled, worker.directory)
           }

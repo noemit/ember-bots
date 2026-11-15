@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { isAsyncQuestion, questionsForSupervisor, questionStatusLabel, questionSupervisor } from '../src/lib/asyncQuestions';
+import { isAsyncQuestion, questionMutationConfirmed, questionFollowups, questionSourceMessage, questionsForSupervisor, questionStatusLabel, questionSupervisor } from '../src/lib/asyncQuestions';
 import { piQuestionToQuestionRequest } from '../src/lib/piMapping';
 import type { QuestionRequest } from '../src/types';
 
@@ -19,6 +19,14 @@ describe('async Questions inbox policy', () => {
     expect(nested.origin?.assignmentVersion).toBe('81:1');
     expect(nested.revision).toBe(3);
   });
+  test('canonical provenance is required for source navigation and context belongs to one question', () => {
+    expect(questionSourceMessage(nested)).toBeUndefined();
+    expect(questionSourceMessage({ ...nested, origin: { ...nested.origin!, sourceMessageId: 'e811' } })).toBe('e811');
+    expect(questionSourceMessage({ ...nested, origin: { ...nested.origin!, sourceMessageId: '../e811' } })).toBeUndefined();
+    expect(questionSourceMessage({ ...nested, origin: { ...nested.origin!, conversationId: 'other', sourceMessageId: 'e811' } })).toBeUndefined();
+    const more = { ...nested, id: '81:context', replyTo: 'call:part:3', createdAt: 11 };
+    expect(questionFollowups(nested, [more, { ...more, id: 'other:context', instanceId: 'other' }])).toEqual([more]);
+  });
   test('answer acceptance cannot imply placement, seeing, or execution', () => {
     const answered: QuestionRequest = { ...nested, status: 'answered' };
     expect(questionStatusLabel(answered)).toContain('not yet confirmed');
@@ -26,4 +34,16 @@ describe('async Questions inbox policy', () => {
     expect(questionStatusLabel({ ...answered, delivery: { requestId: 'r', status: 'admitted' } })).toContain('not yet confirmed seen');
     expect(questionStatusLabel({ ...answered, delivery: { requestId: 'r', status: 'seen' } })).toContain('seen by');
   });
+});
+
+
+test('uncertain replies need an exact receipt on the same host, conversation and question', () => {
+  const request: QuestionRequest = { ...nested, mutation: { action: 'context', requestId: 'append', revision: 3 } };
+  const accepted: QuestionRequest = { ...nested, id: '81:child', replyTo: 'call:part:3', receipt: { requestId: 'append', revision: 3, answer: 'More context', at: 1 } };
+  expect(questionMutationConfirmed(request, [['More context']], [accepted])).toBe(true);
+  expect(questionMutationConfirmed(request, [['Other text']], [accepted])).toBe(false);
+  expect(questionMutationConfirmed(request, [['More context']], [{ ...accepted, instanceId: 'another-host' }])).toBe(false);
+  expect(questionMutationConfirmed(request, [['More context']], [{ ...accepted, replyTo: 'another-question' }])).toBe(false);
+  expect(questionMutationConfirmed(request, [['More context']], [{ ...accepted, receipt: { ...accepted.receipt!, requestId: 'another-request' } }])).toBe(false);
+  expect(questionStatusLabel({ ...accepted, status: 'answered', delivery: { requestId: 'delivery', status: 'admitted', placement: 'placed' } })).toMatch(/Delivered.*not yet confirmed seen/);
 });
