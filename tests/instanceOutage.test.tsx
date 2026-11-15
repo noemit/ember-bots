@@ -1,14 +1,15 @@
 /**
  * C2 (audit): an outage renders as itself, not as deletion.
  *
- * The pure halves are covered in `instanceHealth.test.ts`; this renders the rail so the *shape* is
- * pinned too: the silent host gets one honest row of its own (not a session row, not a survivor
+ * The pure halves are covered in `instanceHealth.test.ts`; this renders the rail and window notices so the *shape* is
+ * pinned too: the silent host gets one honest toast of its own (not a session row, not a survivor
  * session), its last-known sessions are still listed, and the empty state names the real case
  * instead of the old "No instances connected. Add a Hearth endpoint in Settings, then refresh."
  */
 import { describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { InstanceOutageToasts } from '../src/components/InstanceOutageToasts';
 import LeftRail from '../src/components/LeftRail';
 import { TooltipProvider } from '../src/components/ui/tooltip';
 import { silentInstances } from '../src/lib/instanceHealth';
@@ -53,6 +54,7 @@ const render = (
   const everySession = extra.everySession ?? list;
   return renderToStaticMarkup(
     <TooltipProvider>
+      <InstanceOutageToasts entries={silentInstances(instances, list, undefined, new Set(extra.dismissed ?? []))} onRetry={() => undefined} onDismiss={() => undefined} onSettings={() => undefined} retrying={false} />
       <LeftRail
         instances={instances}
         projectsByInstance={{}}
@@ -67,10 +69,6 @@ const render = (
         compact={false}
         loading={false}
         startupMessage={null}
-        silentInstances={silentInstances(instances, list, undefined, new Set(extra.dismissed ?? []))}
-        onRetryInstances={() => undefined}
-        onDismissOutage={() => undefined}
-        retryingInstances={false}
         mobileOpen={false}
         reloadingKeys={new Set()}
         archivingKeys={new Set()}
@@ -117,7 +115,7 @@ describe('the rail during an outage', () => {
   test('names the silent host, counts what is still listed, and offers Retry', () => {
     const html = render([host], sessions);
     const text = textOf(html);
-    expect(countOf(html, 'data-testid="rail-silent-instance"')).toBe(1);
+    expect(countOf(html, 'data-testid="instance-outage-toast"')).toBe(1);
     expect(text).toContain('Keep');
     expect(text).toMatch(/not answering/i);
     expect(text).toContain('2 sessions');
@@ -150,6 +148,8 @@ describe('the rail during an outage', () => {
     const html = render([{ ...host, status: 'unsupported' }], sessions);
     expect(textOf(html)).toMatch(/Sessions unavailable/i);
     expect(html).not.toContain('Stop warning about');
+    expect(html).toContain('Connection settings for Keep');
+    expect(textOf(html)).not.toMatch(/undefined|null|HTTP|!/);
   });
 
   test('a dismissed host draws no row, and its sessions are still listed', () => {

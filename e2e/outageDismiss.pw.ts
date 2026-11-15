@@ -3,9 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 /**
  * A host that is down has to be answerable, not just announced.
  *
- * The rail's outage row is the whole truth about a dead host ("Not answering", its last-known
- * sessions still listed below), and it has no other surface: one blip — a laptop that slept, a
- * Hearth restarting — used to leave it above every session for good, with no way to say "I know".
+ * Window-level notices keep the host's state visible without removing its last-known sessions.
+ * Dismissal still lasts only for the current outage.
  *
  * `?outage` gives the pi mock a second endpoint that is down; nothing else in the mock produces an
  * unreachable host. The rules under test are the ones the feature turns on: dismissing hides the
@@ -13,11 +12,11 @@ import { expect, test, type Page } from '@playwright/test';
  * an explicit reprobe is "asking again", so it un-hides what was dismissed.
  */
 
-const silentRow = (page: Page) => page.locator('aside [data-testid="rail-silent-instance"]');
+const silentRow = (page: Page) => page.locator('[data-testid="instance-outage-toast"]');
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/?outage&noDock');
-  // The rail only exists in the workspace, so open a conversation first.
+  // Exercise notices while a real workspace conversation is open.
   await page.getByRole('button', { name: /Habit onboarding QA/ }).first().click();
   await expect(page.locator('main[data-session-key="pi:hearth::10"]')).toBeVisible();
 });

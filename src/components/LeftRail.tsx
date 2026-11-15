@@ -15,7 +15,6 @@ import {
   Box,
   ChevronDown,
   Plus,
-  RefreshCw,
   Search,
   EyeOff,
   X,
@@ -27,7 +26,7 @@ import { useStableCallback } from '@/lib/useStableCallback';
 import { splitSnoozedRail } from '@/lib/snoozedRail';
 import { isWorker } from '@/lib/crew';
 import { groupNewAgentTarget } from '@/lib/railStrip';
-import { endpointState, instanceReady, outageCopy, railEmptyCopy, type SilentInstance } from '@/lib/instanceHealth';
+import { endpointState, instanceReady, railEmptyCopy } from '@/lib/instanceHealth';
 import {
   buildRailEntries,
   groupDraftFromEntry,
@@ -92,21 +91,6 @@ type Props = {
    * wording is testable rather than scattered through JSX.
    */
   startupMessage: string | null;
-  /**
-   * Configured hosts that are not answering, each with the sessions Ember still lists from its last
-   * answer (`silentInstances` in `lib/instanceHealth`). One row each, above the sessions, because
-   * the alternative — subtracting those sessions from the rail — is indistinguishable from deletion.
-   */
-  silentInstances: SilentInstance[];
-  /** Reprobe every configured instance (what the outage rows' Retry button runs). */
-  onRetryInstances: () => void;
-  /**
-   * "I know, stop telling me" for one host's outage. Only the warning goes away: that host's
-   * last-known sessions stay exactly where they are, and nothing on the host is touched.
-   */
-  onDismissOutage: (entry: SilentInstance) => void;
-  /** A probe is already in flight, so the outage rows' Retry shows a spinner instead of a second run. */
-  retryingInstances: boolean;
   mobileOpen: boolean;
   reloadingKeys: Set<string>;
   archivingKeys: Set<string>;
@@ -173,10 +157,6 @@ export default function LeftRail({
   mode,
   loading,
   startupMessage,
-  silentInstances,
-  onRetryInstances,
-  onDismissOutage,
-  retryingInstances,
   mobileOpen,
   reloadingKeys,
   archivingKeys,
@@ -387,71 +367,6 @@ export default function LeftRail({
         ) : null}
       </div>
     ) : null;
-
-  /**
-   * One row per configured host that is not answering. Deliberately not a session row: no blob, no
-   * preview, no archive control — this is a statement about a host, and the sessions below it are
-   * the ones that host listed the last time it answered.
-   */
-  const renderSilentInstance = (entry: SilentInstance) => {
-    const copy = outageCopy(entry);
-    return (
-      <div
-        key={`silent:${entry.instanceId}`}
-        data-testid="rail-silent-instance"
-        className="mx-1 my-1 flex items-start gap-2 rounded-lg border border-dashed bg-muted/40 px-2.5 py-2"
-      >
-        <span
-          aria-hidden="true"
-          className="mt-1 size-1.5 flex-none rounded-full bg-muted-foreground/60"
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-baseline gap-1.5">
-            <span className="min-w-0 truncate text-[12.5px] font-medium text-foreground">
-              {entry.label}
-            </span>
-            <span className="flex-none text-[11px] text-muted-foreground">{copy.status}</span>
-          </span>
-          <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground">
-            {copy.detail}
-          </span>
-        </span>
-        {copy.retryable ? (
-          <span className="mt-0.5 flex flex-none items-center gap-1">
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={retryingInstances}
-              onClick={onRetryInstances}
-              aria-label={`Retry ${entry.label}`}
-            >
-              {retryingInstances ? (
-                <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-              Retry
-            </Button>
-            {/* Only on a plain outage: "Sessions unavailable" is a settings problem, and
-                dismissing that would hide the very thing that needs fixing. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  onClick={() => onDismissOutage(entry)}
-                  aria-label={`Stop warning about ${entry.label}`}
-                >
-                  <X />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Hide this warning until this host answers again</TooltipContent>
-            </Tooltip>
-          </span>
-        ) : null}
-      </div>
-    );
-  };
 
   // Default target for "New agent": whichever instance was active most recently.
   const defaultInstanceId =
@@ -919,11 +834,6 @@ export default function LeftRail({
         ) : null}
         {mode === 'mini' ? null : (
           <>
-        {silentInstances.length > 0 ? (
-          <div className="mb-1 flex flex-col" data-testid="rail-silent-instances">
-            {silentInstances.map(renderSilentInstance)}
-          </div>
-        ) : null}
           <AnimatePresence initial={false} mode="popLayout">
             {railEntries.map(entry => <RailItem key={entry.id}>{renderEntry(entry)}</RailItem>)}
           </AnimatePresence>

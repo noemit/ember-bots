@@ -525,14 +525,18 @@ their existing names; archive references in the implementation notes below descr
   "Search all time" and "Search hidden sessions", the latter listing archived hits as individual
   rows under a Hidden heading (clearing the box resets the scope). Empty configured projects also
   appear in search results when their name or path matches, listed after projects that have sessions.
-  The selected session is pinned into the list even when filters hide it. Above the sessions, one
-  dashed row per host that is not answering names it and offers **Retry** and **Dismiss**
+  The selected session is pinned into the list even when filters hide it. Window-level persistent
+  `InstanceOutageToasts` name each host that is not answering and offer **Retry** and **Dismiss**
   (`silentInstances`/`reconcileOutageDismissals` in `src/lib/instanceHealth.ts`). Dismiss stores
   the id in `settings.dismissedOutages` and hides only the warning — that host's last-known
   sessions stay rows. A dismissal is cleared when the host answers again (`ready` or
   `unsupported`), so the next outage warns, and an explicit reprobe clears it too (asking again is
   asking again), which is the only route back once the row is gone. A host reporting
-  `unsupported` is never dismissable: that is a settings problem, not an outage.
+  `unsupported` is never dismissable: that is a settings problem, not an outage. It offers Settings.
+  The safe-area-aware toast stack is independent of rail scrolling/width and mobile closure, capped
+  at 40dvh/24rem with internal scrolling, and below modal layers. When a visible conversation needs
+  a decision, its measured height reserves workspace clearance so approval/question controls stay
+  reachable; otherwise only the toast itself intercepts pointers. Polls do not rewrite its live text.
 - `src/components/ProjectCard.tsx` — a multi-session project: name, `+`, and a row of 48px
   mood-carrying blobs that shrink then overflow to `+N`. Every blob carries the session title
   beneath it as a two-line chip (hard-clipped, no ellipsis), so `blobStripLayout`

@@ -1,3 +1,4 @@
+import { InstanceOutageToasts } from './components/InstanceOutageToasts';
 import { isRemoteBrowser, setRemoteActiveWork } from './lib/remoteLifecycle';
 import { pruneSnoozedSessions, setSessionSnoozed } from './lib/snoozedSessions';
 import { isAsyncQuestion, questionsForSupervisor } from './lib/asyncQuestions';
@@ -5553,6 +5554,21 @@ export default function App() {
             }}
           />
 
+          <InstanceOutageToasts
+            entries={silentInstancesList}
+            retrying={refreshing}
+            protectDecisions={columns.some(key => moods[key] === 'input' || moods[key] === 'question')}
+            onRetry={() => void refreshInstances()}
+            onDismiss={dismissOutage}
+            onSettings={() => {
+              setMobileRailOpen(false);
+              setProviderEndpointId(undefined);
+              setSettingsView('instances');
+              setSettingsActivated(true);
+              setSettingsOpen(true);
+            }}
+          />
+
           <div className="relative flex min-h-0 flex-1">
             {/* The workspace keeps its rail available even when every column is closed. */}
             {mobileRailOpen ? (
@@ -5585,10 +5601,6 @@ export default function App() {
               compact={settings.compactRail}
               loading={loading}
               startupMessage={startupMessage}
-              silentInstances={silentInstancesList}
-              onRetryInstances={() => void refreshInstances()}
-              onDismissOutage={dismissOutage}
-              retryingInstances={refreshing}
               mobileOpen={mobileRailOpen}
               reloadingKeys={reloadingKeys}
               archivingKeys={archivingKeys}
