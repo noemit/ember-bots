@@ -20,9 +20,8 @@ export const identityShape = (requestedStyle: BlobStyle, identity: Pick<AvatarId
   const style = effectiveBlobStyle(requestedStyle);
   const allShapes = shapesFor(style);
   const shapes = style === 'mosaic' ? mosaicSeedShapes(identity.shapeSeed) : allShapes;
-  // A named archetype is style-local. If a saved override came from a different style,
-  // fall back to this identity's deterministic seeded geometry rather than interpreting a
-  // coincidentally equal name or retaining the old renderer's shape.
+  // Preserve a named archetype when this style supports it; otherwise use this identity's
+  // deterministic seeded geometry instead of carrying an incompatible shape across renderers.
   if (allShapes.some(shape => shape.name === identity.shapeName)) return identity.shapeName!;
   const seed = hashString(`${style}:${identity.shapeSeed}`);
   const rng = mulberry32(seed);
