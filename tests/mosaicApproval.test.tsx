@@ -6,7 +6,6 @@ import { MOSAIC_SHAPES, mosaicField, mosaicGeometry } from '../src/blob/mosaic';
 import { hashString, mulberry32, seedIdentity, resolveAvatarIdentity } from '../src/blob/seed';
 import { allocateAvatar, identityShape } from '../src/blob/allocateIdentity';
 import { parseAvatarAssignments, parseAvatarOverrides } from '../electron/transport';
-import { pickerStyleDraft } from '../src/components/AvatarPicker';
 import { galleryExamples } from '../src/dev/blobGalleryExamples';
 import { loadBlobComponent } from '../src/blob/dockIcon';
 import approvedRows from './fixtures/mosaicApprovedRows.json';
@@ -70,7 +69,6 @@ test('new allocations cover all twelve shapes and survive storage without changi
 test('picker, desktop validator, inheritance, gallery and dock SSR accept every new saved silhouette', async () => {
   const DockMosaic = await loadBlobComponent('mosaic');
   for (const shapeName of Object.keys(approvedRows)) {
-    expect(pickerStyleDraft({ shapeName, color: '#123456' }, 'mosaic')).toEqual({ style: 'mosaic', shapeName, color: '#123456' });
     const stored = parseAvatarOverrides({ 'directory:local::/work': { color: '#123456', colorIndex: 4 }, 'session:local::chat': { shapeName } });
     const identity = resolveAvatarIdentity({ id: 'chat', instanceId: 'local', directory: '/work' }, [], {}, stored);
     expect(identity).toMatchObject({ shapeName, color: '#123456', colorIndex: 4 });

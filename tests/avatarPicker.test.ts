@@ -7,6 +7,6 @@ import { LAVA_SHAPES } from '../src/blob/lava';
 
 const shapes = { buddy: BUDDY_SHAPES, crystal: CRYSTAL_SHAPES, mosaic: MOSAIC_SHAPES, lava: LAVA_SHAPES };
 
-test('appearance shape catalogues are available for every supported global style', () => {
+test('each supported global style has its own named shape catalogue', () => {
   for (const style of ACTIVE_BLOB_STYLES) expect(shapes[style].length).toBeGreaterThan(0);
 });
