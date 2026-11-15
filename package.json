@@ -44,7 +44,8 @@
     "check:kiln": "bun run --cwd packages/kiln check",
     "kiln:start": "bun run --cwd packages/kiln start",
     "kiln:dev": "bun run --cwd packages/kiln dev",
-    "dist:mac:local": "bun run build && electron-builder --mac --publish never"
+    "dist:mac:local": "bun run build && electron-builder --mac --publish never",
+    "release:assets": "node scripts/release-assets.mjs"
   },
   "build": {
     "appId": "dev.ember.app",
@@ -74,7 +75,8 @@
           "from": "build/harness/kiln",
           "to": "kiln"
         }
-      ]
+      ],
+      "artifactName": "Ember-macos-${arch}.${ext}"
     },
     "win": {
       "icon": "build/icon.ico",
@@ -88,7 +90,7 @@
           "to": "kiln.exe"
         }
       ],
-      "artifactName": "Ember-${version}-windows-${arch}-setup.${ext}",
+      "artifactName": "Ember-windows-${arch}.${ext}",
       "verifyUpdateCodeSignature": true
     },
     "linux": {
@@ -103,7 +105,8 @@
           "from": "build/harness/kiln",
           "to": "kiln"
         }
-      ]
+      ],
+      "artifactName": "Ember-linux-${arch}.${ext}"
     },
     "afterSign": "build/notarize.js",
     "publish": [
@@ -114,7 +117,11 @@
         "channel": "latest",
         "releaseType": "release"
       }
-    ]
+    ],
+    "nsis": {
+      "artifactName": "Ember-windows-${arch}-setup.${ext}"
+    },
+    "beforePack": "scripts/before-pack.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "3.14.11",

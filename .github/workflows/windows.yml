@@ -29,21 +29,21 @@ jobs:
       - name: Verify the packaged application with a fresh profile
         run: bunx playwright test --config playwright.packaged.config.ts
         env:
+          EMBER_EXPECT_MANUAL_PACKAGE: '1'
           EMBER_PACKAGED_EXECUTABLE: release/win-unpacked/Ember.exe
-      - name: Create checksums
+      - name: Stage manual Windows downloads (never advertise unsigned updates)
         shell: pwsh
         run: |
-          Get-ChildItem release/*-windows-*-setup.exe, release/tinder-cli.exe | ForEach-Object {
-            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$hash  $($_.Name)"
-          } | Set-Content release/SHA256SUMS-windows.txt
+          New-Item -ItemType Directory -Force release-manual
+          Copy-Item release/Ember-windows-x64-setup.exe, release/Ember-windows-x64.zip, release/tinder-windows-x64.exe release-manual/
+          Get-ChildItem release/Ember-windows-x64*.blockmap | Copy-Item -Destination release-manual/
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          node scripts/release-assets.mjs checksums release-manual windows $version manual
       - uses: actions/upload-artifact@v4
         with:
           name: ember-windows-x64
           path: |
-            release/*-windows-*-setup.exe
-            release/tinder-cli.exe
-            release/SHA256SUMS-windows.txt
+            release-manual/*
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: failure()

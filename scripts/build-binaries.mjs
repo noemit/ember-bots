@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import process from 'node:process';
 import console from 'node:console';
+import { binaryName } from './artifact-names.mjs';
 
 /**
  * Build a standalone harness binary and prove its codemode sandbox actually runs.
@@ -45,7 +46,7 @@ const name = kind === 'kiln' ? 'kiln' : 'tinder-cli';
 // The default name follows the *target*, not the host: packaging for Windows from Linux used to
 // produce a Linux `kiln`, so the Windows build silently shipped with no bundled harness at all.
 const windowsTarget = (target ?? '').includes('windows') || (target === undefined && process.platform === 'win32');
-const binary = resolve(directory, outName ?? `${name}${windowsTarget ? '.exe' : ''}`);
+const binary = resolve(directory, outName ?? binaryName(kind, target, process.platform, process.arch));
 mkdirSync(directory, { recursive: true });
 
 const buildArgs = ['build', '--compile', entry, 'packages/kiln/src/codemode-worker.ts', '--outfile', binary];

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-for (const [script, artifact] of [['build:harness', 'build/harness/kiln'], ['dist:cli', 'release/tinder-cli']] as const) {
+for (const [script, artifact] of [['build:harness', 'build/harness/kiln'], ['dist:cli', `release/tinder-${process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'}-${process.arch}${process.platform === 'win32' ? '.exe' : ''}`]] as const) {
   test(`${script} embeds a working, timeout-isolated codemode sandbox`, async () => {
     const folder = await mkdtemp(join(tmpdir(), 'ember-codemode-'));
     const name = process.platform === 'win32' ? 'standalone.exe' : 'standalone';

@@ -154,6 +154,13 @@ their existing names; archive references in the implementation notes below descr
 
 ## Packaging
 
+- `RELEASES.md` is the canonical next-release download contract. Build fixed, architecture-correct
+  filenames before metadata hashing; never rename or replace published assets. All nine downloads
+  and audited manifests are required before explicit Latest promotion. Unsigned Windows is only
+  owner-approved manual distribution, without `latest.yml` or a stable updater marker. Existing
+  release tags/builds keep their original names; this work does not authorize publication.
+
+
 - `scripts/build-binaries.mjs` builds Kiln and standalone Tinder with platform-correct executable
   names. Windows resources must contain `kiln.exe`; the launcher resolves that exact name.
 - `models.ts` registers `registerBunOAuthFlows()` before creating providers. Keep this registration:

@@ -25,6 +25,13 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
   const app = await electron.launch({ executablePath: resolve(executable!), env });
   let pid: number | undefined;
   try {
+    if (process.env.EMBER_EXPECT_MANUAL_PACKAGE === '1') {
+      const metadata = await app.evaluate(async ({ app }) => {
+        const { readFileSync } = await import('node:fs');
+        return JSON.parse(readFileSync(app.getAppPath() + '/package.json', 'utf8'));
+      });
+      expect(metadata.emberUpdateChannel).toBeUndefined();
+    }
     const window = await app.firstWindow();
     await expect(window.getByTestId('onboarding')).toBeVisible();
     await expect(window.getByRole('heading', { name: 'Setting up Ember Bots' })).toBeVisible();

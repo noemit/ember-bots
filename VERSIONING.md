@@ -20,6 +20,8 @@ required by that batch, rather than counting commits or individual features.
 
 ## Release workflow
 
+[RELEASES.md](RELEASES.md) is the canonical fixed-filename, permanent-link and Latest promotion contract.
+
 Each desktop release requires explicit owner authorization. Follow the signing, updater metadata,
 bootstrap and upload gates for every offered platform in
 [Desktop updates and release gates](docs/updating.md). Preparing configuration alone does not

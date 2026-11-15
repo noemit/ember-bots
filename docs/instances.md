@@ -72,7 +72,7 @@ unbound credential), re-enter it in this editor or explicitly choose keyless acc
 For a headless machine, download the matching Tinder executable from
 [GitHub Releases](https://github.com/noemit/ember-bots/releases/latest). The compiled executable
 includes Kiln and needs neither Bun nor the desktop app. macOS ARM64 and Linux x64 downloads are
-published; Windows workflow artifacts include `tinder-cli.exe`.
+published; future Windows workflow artifacts use `tinder-windows-x64.exe` (see [release contract](../RELEASES.md)); older tags retain their original names.
 
 On macOS or Linux, make the downloaded file executable and rename it to `tinder` if you want the
 commands below to match exactly. Keep it in a permanent location before setting up a service:

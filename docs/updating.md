@@ -1,8 +1,8 @@
 # Desktop updates and release gates
 
 **Release control:** updater configuration is not publication authorization. Each release requires
-explicit owner approval and the gates below for every platform it offers. A platform without verified
-release artifacts must be omitted and disclosed, not replaced with an unsigned build.
+explicit owner approval and the gates below for every platform it offers. The next-contract Latest release requires all advertised downloads; missing platforms block
+promotion. See the canonical [release contract](../RELEASES.md) for names and manual Windows policy.
 See [Versioning](../VERSIONING.md) for the separate release authorization and version rules.
 
 ## Supported packages
@@ -39,8 +39,10 @@ Use `bun run dist:mac` and `bun run dist:win` for release candidates. Both reque
 `EMBER_RELEASE=1`, making the existing notarization hook reject missing notarization credentials.
 All three release distribution scripts also inject `emberUpdateChannel=stable`; verify that marker
 in the final packaged `package.json` before release. Signing alone does not enable the updater.
-Do not remove these flags, disable signature checks, use ad-hoc signing, or distribute a local/CI
-unsigned build as a release. `dist`, `dist:mac:local` and direct builder invocations are development
+Do not remove these flags, disable signature checks, use ad-hoc signing, or advertise a local/CI
+unsigned build as an automatic-update release. Owner-approved unsigned Windows manual distribution
+is a separate path: disclose it, omit latest.yml and the stable updater marker, and keep signature
+verification enabled. `dist`, `dist:mac:local` and direct builder invocations are development
 paths, not release signing gates. The existing Windows native-test workflow is intentionally
 unchanged: its unsigned test artifacts are not release-ready and its upload list is not the updater
 publication checklist.
@@ -104,11 +106,13 @@ Stage these files, keeping their generated filenames and bytes:
 
 | Platform | Upload set |
 | --- | --- |
-| macOS | `Ember-<version>-<arch>.dmg`, `Ember-<version>-<arch>-mac.zip` (or the builder-emitted architecture naming), **every generated `.blockmap`** for those artifacts, `latest-mac.yml`, existing macOS Tinder binary, `SHA256SUMS-macos.txt` |
-| Windows | `Ember-<version>-windows-<arch>-setup.exe`, its `.exe.blockmap`, `latest.yml`, existing portable ZIP if offered, existing Windows Tinder binary, `SHA256SUMS-windows.txt` |
-| Linux | `Ember-<version>.AppImage` (or the builder-emitted architecture naming), `latest-linux.yml`, existing `.tar.gz`, existing Linux Tinder binary, `SHA256SUMS-linux.txt` |
+| macOS | Contract DMG and ZIP, every generated `.blockmap`, `latest-mac.yml`, Tinder, `SHA256SUMS-macos.txt` |
+| Windows | Contract setup EXE and portable ZIP, every generated `.blockmap`, Tinder, `SHA256SUMS-windows.txt`; `latest.yml` **only for signed updater releases** |
+| Linux | Contract AppImage and tar.gz, `latest-linux.yml`, Tinder, `SHA256SUMS-linux.txt` |
 
-Use actual output filenames, not the examples above as a rename recipe. Build ZIP and DMG together:
+Exact filenames and permanent URLs live in [RELEASES.md](../RELEASES.md).
+
+Builder emits the final contract filenames; never rename them. Build ZIP and DMG together:
 macOS metadata prefers ZIP for its legacy `path`/`sha512`, and its `files` list can also contain the
 DMG. Mac ZIP and DMG and Windows NSIS produce external `.blockmap` files when enabled by the builder;
 upload all emitted maps. Linux AppImage uses an **embedded** block map (`blockMapSize` in YAML), not
@@ -134,7 +138,8 @@ block release. Do not hand-edit hashes to fit a renamed or modified artifact.
 Upload and audit the full set on an authorized **draft** release first; do not expose a public stable
 release with partial metadata. Check its tag equals the packaged version, the GitHub release is neither
 prerelease nor missing assets, and the final asset index/checksum manifests remain intact before
-publishing. Avoid replacing bytes on an already published version; correct a release with a new version.
+publishing. Never replace bytes on an already published version; correct a release with a new patch.
+Use the audited promotion command in [RELEASES.md](../RELEASES.md), not an unaudited Latest toggle.
 This document does not authorize any of those publication steps.
 
 ## Evidence and outstanding gates
@@ -146,6 +151,15 @@ using this GitHub publish config, built an unsigned **private, non-distributable
 The combined AppImage/tar probe exceeded the local time limit; AppImage-only completed. This is
 metadata evidence, not a production Ember/native smoke test. Mac/Windows output behavior above is
 also checked against the pinned builder source; native signed packages were not produced here.
+
+The fixed-filename contract was additionally checked with a real private Linux x64 Ember build
+at the unchanged development version 1.23.0, **without** the stable updater marker or publication.
+Normal packaging emitted `Ember-linux-x64.AppImage`; its generated YAML URL, SHA-512, byte size and
+embedded map size passed the new validator. Builder normally expands AppImage’s architecture macro
+to `x86_64`, so the pre-pack hook selects the final `x64` name before generation. An initial combined
+AppImage/tar build timed out; a separate tar retry with `compression=store` completed as
+`Ember-linux-x64.tar.gz` and passed `tar -tzf`. This confirms naming/archive integrity, not a native
+GUI/update smoke test or production release. The original 1.23.0 assets remain untouched.
 
 A second private Linux fixture passed installed AppImage **900.0.1→900.0.2** using the current compiled
 `UpdateController`, the real electron-updater AppImage installer, a loopback-only generic HTTP feed,
@@ -162,9 +176,40 @@ Before publishing a release:
 - Run `bun run check` and all relevant native/packaged regressions on their actual platforms.
 - Verify final signed/notarized macOS DMG **and ZIP**, metadata, blockmaps, hashes and architecture.
   Keep the accepted deferred Mac A→B test recorded until the next update actually exercises it.
-- If offering Windows artifacts, establish the real Windows signing identity, verify embedded publisher
+- If offering Windows automatic updates, establish the real Windows signing identity, verify embedded publisher
   allowlist and signatures, and pass signed NSIS A→B, relaunch and mismatched-publisher rejection checks.
 - Exercise AppImage A→B from a writable location on Linux, and confirm tar installs stay manual.
 - Audit the complete staged upload set/index and each YAML reference/hash, including all architectures.
 - Obtain explicit owner approval for publication. No bump, tag, workflow edit or public upload
   is authorized merely by implementing this configuration.
+
+## Next-contract macOS commands
+
+After the owner authorizes and tags the next release (example `v1.23.1`), with the signing and
+notarization prerequisites above already configured privately:
+
+```sh
+git fetch --tags
+git checkout v1.23.1
+bun install --frozen-lockfile
+bun run dist:mac
+bun run dist:cli
+hdiutil attach release/Ember-macos-arm64.dmg -mountpoint /tmp/ember-release-mount
+codesign --verify --deep --strict /tmp/ember-release-mount/Ember.app
+spctl -a -vvv -t exec /tmp/ember-release-mount/Ember.app
+xcrun stapler validate /tmp/ember-release-mount/Ember.app
+file /tmp/ember-release-mount/Ember.app/Contents/Resources/kiln
+hdiutil detach /tmp/ember-release-mount
+ZIP_CHECK=$(mktemp -d)
+ditto -x -k release/Ember-macos-arm64.zip "$ZIP_CHECK"
+codesign --verify --deep --strict "$ZIP_CHECK/Ember.app"
+spctl -a -vvv -t exec "$ZIP_CHECK/Ember.app"
+xcrun stapler validate "$ZIP_CHECK/Ember.app"
+file "$ZIP_CHECK/Ember.app/Contents/Resources/kiln"
+node scripts/release-assets.mjs checksums release macos 1.23.1 manual
+```
+
+Confirm both `file` results are Mach-O arm64 and the packaged stable marker is present. Upload only
+the contract files, generated maps, channel YAML and checksum manifest to the authorized draft.
+Do not upload unpacked apps or the whole `release/` directory. Do not use these commands to rebuild
+or alter the existing 1.23.0 release. Keep existing tag builds on their original scripts and names.

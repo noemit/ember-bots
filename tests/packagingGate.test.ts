@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
+// @ts-expect-error -- shared Node build helper is JavaScript.
+import { binaryName } from '../scripts/artifact-names.mjs';
 
 // Execute the real script with only its OS boundaries replaced. No production skip switch.
 const script = readFileSync(resolve('scripts/build-binaries.mjs'), 'utf8').replace(/^import .*;\n/gm, '');
@@ -12,7 +14,8 @@ function run(kind: string, build: Outcome, check: Outcome, platform = 'linux', e
   let error: unknown;
   try {
     runInNewContext(script, {
-      process: { argv: ['node', 'build-binaries.mjs', kind, ...extra], platform, env: { SECRET: 'must-not-inherit' } },
+      binaryName,
+      process: { argv: ['node', 'build-binaries.mjs', kind, ...extra], platform, arch: 'x64', env: { SECRET: 'must-not-inherit' } },
       mkdirSync() {}, mkdtempSync: () => '/isolated', tmpdir: () => '/tmp',
       rmSync: (path: string) => removed.push(path), join, resolve, console: { log() {} },
       spawnSync(command: string, args: string[], options: Record<string, unknown>) {

@@ -10,7 +10,7 @@ import type {} from '../src/types';
 
 const load = createRequire(resolve('package.json'));
 const binary = resolve('build/harness', process.platform === 'win32' ? 'kiln.exe' : 'kiln');
-const tinder = resolve('release', process.platform === 'win32' ? 'tinder-cli.exe' : 'tinder-cli');
+const tinder = resolve('release', ['tinder', process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', process.arch].join('-') + (process.platform === 'win32' ? '.exe' : ''));
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const freePort = (): Promise<number> => new Promise((resolve, reject) => {
   const server = createServer();
