@@ -3,6 +3,7 @@ import { _electron as electron, expect, test } from '@playwright/test';
 import { mkdtemp, mkdir, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
+import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
 
 // Runs the app produced by electron-builder, including its own bundled Kiln.
 // Never substitutes a checkout binary: a wrong resource filename must fail this check.
@@ -19,7 +20,7 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
   const workspaceRoot = join(profile, 'workspace');
   await mkdir(join(workspaceRoot, 'Existing project'), { recursive: true });
   const workspace = await realpath(workspaceRoot);
-  const env = { ...process.env, EMBER_DATA_DIR: profile, OPENCHAMBER_DATA_DIR: join(profile, 'openchamber') };
+  const env = { ...isolatedNativeEnvironment(profile), EMBER_DATA_DIR: profile, OPENCHAMBER_DATA_DIR: join(profile, 'openchamber') };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.EMBER_BUNDLED_HARNESS;
   const app = await electron.launch({ executablePath: resolve(executable!), env });
@@ -33,6 +34,7 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
       expect(metadata.emberUpdateChannel).toBeUndefined();
     }
     const window = await app.firstWindow();
+    await window.setViewportSize({ width: 1600, height: 1000 });
     await expect(window.getByTestId('onboarding')).toBeVisible();
     await expect(window.getByRole('heading', { name: 'Setting up Ember Bots' })).toBeVisible();
     const headingRow = window.getByRole('heading', { name: 'Setting up Ember Bots' }).locator('..');
@@ -69,12 +71,12 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await window.getByRole('button', { name: 'Choose workspace', exact: true }).click();
     const picker = window.getByRole('dialog', { name: 'Choose your workspace', exact: true });
     await expect(picker).toBeVisible();
-    await picker.getByRole('button', { name: 'Enter a folder path…', exact: true }).click();
-    await picker.getByRole('textbox', { name: 'Folder path' }).fill(workspace);
-    await picker.getByRole('button', { name: 'Open', exact: true }).click();
+    await picker.getByRole('button', { name: 'Enter a path…', exact: true }).click();
+    await picker.getByRole('textbox', { name: 'Existing folder path' }).fill(workspace);
+    await picker.getByRole('button', { name: 'Open path', exact: true }).click();
 
     // The subfolder that already exists is offered as a destination.
-    const existing = picker.getByRole('option', { name: /Existing project/ });
+    const existing = picker.getByRole('button', { name: `Open folder ${join(workspace, 'Existing project')}`, exact: true });
     await expect(existing).toBeVisible();
 
     // Cancelling a new folder leaves the disk untouched.
@@ -83,20 +85,21 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(await stat(join(workspace, 'Cancelled')).catch(() => null)).toBeNull();
 
-    // Creating one that already exists is refused, with a message that says what to do instead.
+    // A known duplicate is rejected before submission, with a recovery rather than an overwrite.
     await picker.getByRole('button', { name: /^New folder…$/ }).click();
     await picker.getByRole('textbox', { name: 'New folder name' }).fill('Existing project');
-    await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
+    await expect(picker.getByRole('button', { name: 'Create folder', exact: true })).toBeDisabled();
     const refusal = picker.getByRole('alert');
     await expect(refusal).toBeVisible();
-    await expect(refusal).toContainText('could not create this folder');
-    await expect(refusal).toContainText('Try another name');
+    await expect(refusal).toContainText(/already exists/i);
+    await expect(refusal).toContainText(/cancel.*open|another name/i);
+    expect((await stat(join(workspace, 'Existing project'))).isDirectory()).toBe(true);
 
     // A new name works, navigates into it, and is persisted as the workspace.
     await picker.getByRole('textbox', { name: 'New folder name' }).fill('New workspace');
     await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
-    await expect(picker.getByText('No subfolders here. You can use this folder.', { exact: true })).toBeVisible();
-    await picker.getByRole('button', { name: 'Use this workspace', exact: true }).click();
+    await expect(picker.getByText(/No subfolders here/)).toBeVisible();
+    await picker.getByRole('button', { name: 'Choose this workspace', exact: true }).click();
     await expect(picker).toHaveCount(0);
     const created = join(workspace, 'New workspace');
     expect((await stat(created)).isDirectory()).toBe(true);
@@ -117,7 +120,7 @@ test('the packaged app starts its bundled Kiln in a fresh profile', async () => 
     await window.evaluate(() => window.ember.setSettings({ theme: 'graphite' }));
     await window.reload();
     await window.getByRole('button', { name: /First bot/ }).click();
-    await expect(window.getByRole('button', { name: 'Choose workspace', exact: true })).toHaveText(basename(created));
+    await expect(window.getByRole('button', { name: 'Choose workspace', exact: true })).toContainText(basename(created));
     await expect(window.getByTestId('onboarding').getByText(created, { exact: true })).toBeVisible();
     expect(isAbsolute(created)).toBe(true);
     // Nothing was lost and nothing was restarted: the workspace is still the answer, and the button

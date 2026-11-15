@@ -1,4 +1,5 @@
 import { isolatedNativeEnvironment } from './fixtures/nativeEnvironment';
+import { initializeFirstRunSettings } from '../electron/settingsFile';
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -24,11 +25,10 @@ const freePort = (): Promise<number> => new Promise((resolve, reject) => {
 const launch = async (home: string, override = binary): Promise<ElectronApplication> => {
   const profile = join(home, 'profile');
   await mkdir(profile, { recursive: true });
-  try {
-    await writeFile(join(profile, 'settings.json'), JSON.stringify({ piEndpoints: [] }), { flag: 'wx' });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-  }
+  // Seed a genuinely fresh profile through production initialization. A bare settings file
+  // without the first-run marker describes an older installation, whose healthy Kiln correctly
+  // skips onboarding. Existing profiles still retain their original setup/dismissal state.
+  initializeFirstRunSettings(join(profile, 'settings.json'), join(profile, 'hearth.sqlite'));
   const env = { ...isolatedNativeEnvironment(home), HOME: home, EMBER_DATA_DIR: profile,
     EMBER_BUNDLED_HARNESS: override, OPENCHAMBER_DATA_DIR: join(home, 'openchamber'),
     HEARTH_AUTORELOAD: '0' };
@@ -40,7 +40,12 @@ app.setPath('userData', ${JSON.stringify(join(home, 'chromium'))});
 app.setPath('sessionData', ${JSON.stringify(join(home, 'chromium'))});
 require(${JSON.stringify(resolve('dist-electron/main.js'))});
 `);
-  return electron.launch({ executablePath: load('electron') as string, args: [bootstrap], env });
+  const app = await electron.launch({ executablePath: load('electron') as string, args: [bootstrap], env });
+  const window = await app.firstWindow();
+  // Electron pages do not inherit Playwright's configured browser viewport. Keep this desktop
+  // layout check independent of a headless window manager tiling two native test windows.
+  await window.setViewportSize({ width: 1280, height: 1000 });
+  return app;
 };
 
 const local = async (app: ElectronApplication) => {
@@ -85,6 +90,7 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     await otherWindow.reload();
     await expect(otherWindow.getByTestId('onboarding')).toBeVisible();
     await otherWindow.getByRole('button', { name: /Ember and Kiln/ }).click();
+    await otherWindow.screenshot({ path: test.info().outputPath('onboarding-introduction.png') });
     const diagram = otherWindow.getByRole('figure', { name: /Ember.*included Kiln.*other computers/ });
     await expect(diagram).toBeVisible();
     for (const host of ['Container', 'Mac Studio', 'Old PC running Omarchy']) await expect(diagram.getByText(host, { exact: true })).toBeVisible();
@@ -98,7 +104,7 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     expect(textSizes.every(size => size >= 16)).toBe(true);
     const introTextSizes = await otherWindow.getByTestId('onboarding').locator('p').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
     expect(introTextSizes.every(size => size >= 16)).toBe(true);
-    const emberWeight = await otherWindow.locator('strong').filter({ hasText: /^Ember$/ }).evaluate(node => parseInt(getComputedStyle(node).fontWeight));
+    const emberWeight = await otherWindow.locator('strong').filter({ hasText: /^Ember\b/ }).evaluate(node => parseInt(getComputedStyle(node).fontWeight));
     expect(emberWeight).toBeGreaterThanOrEqual(600);
     const surface = await otherWindow.getByTestId('onboarding-surface').evaluate(node => {
       const bounds = node.getBoundingClientRect();
@@ -111,15 +117,19 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     await otherWindow.screenshot({ path: test.info().outputPath('onboarding-diagram.png') });
     await otherWindow.getByRole('button', { name: /Where to run Kiln/ }).click();
     await expect(otherWindow.getByText('Connected to this computer', { exact: true })).toBeVisible();
-    const tailscale = otherWindow.locator('details').filter({ has: otherWindow.locator('summary', { hasText: 'Connect over Tailscale' }) });
-    expect(await tailscale.getAttribute('open')).toBeNull();
-    await tailscale.locator('summary').click();
-    await expect(tailscale.getByRole('button', { name: 'Copy setup prompt' })).toBeVisible();
-    await tailscale.getByRole('button', { name: 'Copy setup prompt' }).click();
-    await expect(tailscale.getByRole('status')).toHaveText('Copied');
+    // Connection setup now uses reviewed URL/token entry; sharing is deliberate on the host,
+    // not a generic Tailscale shell prompt copied from first-run setup.
+    await expect(otherWindow.getByText(/included Kiln can be shared deliberately from Settings/)).toBeVisible();
+    await expect(otherWindow.getByRole('group', { name: 'Where will Kiln run?' })).toBeVisible();
     await otherWindow.screenshot({ path: test.info().outputPath('onboarding-where.png') });
     await otherWindow.getByRole('button', { name: /First bot/ }).click();
-    await otherWindow.getByTestId('onboarding-next').click();
+    // This offline profile has no provider/default model: setup must not claim to be finished.
+    await expect(otherWindow.getByTestId('onboarding-next')).toBeDisabled();
+    await expect(otherWindow.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
+    // Independently exercise the post-setup draft/lifecycle contract, without adding a real key
+    // or pretending that the providerless onboarding flow was completed through the UI.
+    await otherWindow.evaluate(() => window.ember.setSettings({ onboardingDismissedAt: Date.now() }));
+    await otherWindow.reload();
     await expect(otherWindow.getByTestId('onboarding')).toHaveCount(0);
     await expect(otherWindow.getByRole('textbox', { name: 'Message your bot', exact: true })).toBeVisible();
     await expect(otherWindow.getByLabel('New bot instance')).toBeVisible();
