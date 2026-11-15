@@ -132,6 +132,8 @@ describe('a stop that kept its queue', () => {
     });
     expect(abortReceiptOf(true, { ok: true })).toEqual({ ok: true, parked: 0, parkedText: [] });
     expect(abortReceiptOf(false, null)).toEqual({ ok: false, parked: 0, parkedText: [] });
+    expect(abortReceiptOf(true, { continuing: true, parked: 1 })).toMatchObject({ continuing: true, parked: 1 });
+    expect(abortReceiptOf(true, { continuing: 'yes' }).continuing).toBeUndefined();
     expect(abortReceiptOf(true, { parked: 'two', parkedText: 'fix it' })).toEqual({
       ok: true,
       parked: 0,

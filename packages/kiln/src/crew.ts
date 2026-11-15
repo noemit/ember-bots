@@ -1,3 +1,4 @@
+import { resumeStopQueueHandoff } from './stopQueueHandoff';
 /**
  * Durable worker settlement and archive lifecycle. New background threads keep outcomes in
  * SessionsDoc and emit content-free completion references; threadSupervisor owns subscriptions
@@ -353,6 +354,8 @@ export const tick = async (
   let actions = 0;
   const now = Date.now();
   for (const record of await allConversations(storage, context)) {
+    // An abort may take time to wind down. Durable recovery must not hold up other crews.
+    void resumeStopQueueHandoff(harness, record.id, context).catch(error => console.error('[kiln] stop/queue handoff failed:', error));
     try { actions += await resumeQuestions(harness, record.id, context); }
     catch (error) { console.error("[hearth] question continuation failed:", error); }
     const snapshot = await harness.snapshot(SessionsDoc, record.id, context);

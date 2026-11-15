@@ -1761,8 +1761,13 @@ const piRequest = async (
       emit(conversation.id, 'message_end');
     }
     emit(conversation.id, 'run_end');
+    if (body.continueQueue === true && kept.length && conversation.kind !== 'worker') {
+      const next = conversation.inbox.shift()!;
+      startRun(conversation, next.content, next.id);
+    }
     return ok({
       ok: true,
+      ...(body.continueQueue === true && kept.length && conversation.kind !== 'worker' ? { continuing: true } : {}),
       ...(kept.length > 0
         ? { parked: kept.length, parkedText: kept.map((item) => textOf(item.content).slice(0, 80)) }
         : {}),

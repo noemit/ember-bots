@@ -103,6 +103,7 @@ export const UNCONFIRMED_SEND_MS = 25_000;
 /** What a stop reported about the messages it did not throw away. */
 export type AbortReceipt = {
   ok: boolean;
+  continuing?: boolean;
   /** How many unsent messages the host kept. */
   parked: number;
   /** A one-line preview of each kept message, in the host's own words. */
@@ -118,7 +119,7 @@ export const abortReceiptOf = (ok: boolean, data: unknown): AbortReceipt => {
   const parkedText = Array.isArray(body?.parkedText)
     ? body.parkedText.filter((entry): entry is string => typeof entry === 'string')
     : [];
-  return { ok, parked: Math.max(0, parked), parkedText };
+  return { ok, parked: Math.max(0, parked), parkedText, ...(body?.continuing === true ? { continuing: true } : {}) };
 };
 
 /**

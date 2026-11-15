@@ -77,10 +77,11 @@ test('an attachment that is not an image is refused with a reason that names it'
 test('aborting a Hearth conversation POSTs the abort route and reads what it kept', async () => {
   const previous = window.ember;
   let aborted = '';
+  let stopOptions: unknown;
   (globalThis as { window?: unknown }).window = {
     ember: {
-      piRequest: async (_endpointId: string, path: string, init?: { method?: string }) => {
-        if (init?.method === 'POST' && path.endsWith('/abort')) aborted = path;
+      piRequest: async (_endpointId: string, path: string, init?: { method?: string; body?: unknown }) => {
+        if (init?.method === 'POST' && path.endsWith('/abort')) { aborted = path; stopOptions = init.body; }
         return { ok: true, status: 200, data: { ok: true, parked: 1, parkedText: ['Memory*'] } };
       },
     },
@@ -93,6 +94,7 @@ test('aborting a Hearth conversation POSTs the abort route and reads what it kep
     parkedText: ['Memory*'],
   });
   expect(aborted).toBe('/conversations/7/abort');
+  expect(stopOptions).toEqual({ continueQueue: true });
   window.ember = previous;
 });
 

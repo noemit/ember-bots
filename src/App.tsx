@@ -4596,7 +4596,7 @@ export default function App() {
       if (aborted.parked > 0) {
         const kept = aborted.parked === 1 ? '1 unsent message' : `${aborted.parked} unsent messages`;
         setActionNotice({
-          message: `Stopped. The host kept ${kept} — ${aborted.parked === 1 ? 'it is' : 'they are'} still in the queue, waiting for a turn to run.`,
+          message: aborted.continuing ? 'Stopping the current reply. Waiting messages continue once it has stopped.' : `Stopped. The host kept ${kept} — ${aborted.parked === 1 ? 'it is' : 'they are'} still in the queue, waiting for a turn to run.`,
         });
       }
       // A stop can end a steer's wait without placing it, or keep it. Either way the bubbles that

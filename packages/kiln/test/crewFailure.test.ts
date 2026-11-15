@@ -375,6 +375,49 @@ describe("a stop keeps the queue instead of swallowing it", () => {
       .map((entry) => String((entry.model as any)?.[0]?.content ?? ""));
   };
 
+  for (const mode of ['followUp', 'steer'] as const) {
+    test(`desktop Stop ends the current reply and starts the waiting ${mode} exactly once`, async () => {
+      faux.setResponses([toolCall('slowecho', { text: 'busy' }), fauxAssistantMessage([fauxText('Answered the next human message')])]);
+      const conversation = await body(await api('/conversations', { method: 'POST', body: JSON.stringify({ model }) }));
+      await api(`/conversations/${conversation.id}/submit`, { method: 'POST', body: JSON.stringify({ type: 'input', content: 'Stop this old reply' }) });
+      await waitBusy(conversation.id);
+      const queued = await body(await api(`/conversations/${conversation.id}/submit`, {
+        method: 'POST', body: JSON.stringify({ type: 'input', content: 'Run the next message', whenBusy: mode }),
+      }));
+      expect(queued.status).toBe('queued');
+      const stopped = await body(await api(`/conversations/${conversation.id}/abort`, { method: 'POST', body: JSON.stringify({ continueQueue: true }) }));
+      expect(stopped.continuing).toBe(true);
+      const target = (await harness.conversation(conversation.id, context))!;
+      const deadline = Date.now() + 5000;
+      while (!(await userTexts(conversation.id)).includes('Run the next message') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+      await target.waitForIdle(context);
+      expect((await userTexts(conversation.id)).filter(text => text === 'Run the next message')).toHaveLength(1);
+      const history = (await target.entries({}, 100, undefined, context)).items;
+      expect(JSON.stringify(history)).toContain('Answered the next human message');
+      const queue = await body(await api('/queue'));
+      expect(queue.sessions.find((session: any) => Number(session.sessionId) === conversation.id)?.items ?? []).toHaveLength(0);
+    }, 15000);
+  }
+
+  test('a new input accepted while Stop winds down is not lost or sent twice', async () => {
+    faux.setResponses([toolCall('slowecho', { text: 'busy' }), fauxAssistantMessage([fauxText('First waiting answer')]), fauxAssistantMessage([fauxText('Late waiting answer')])]);
+    const conversation = await body(await api('/conversations', { method: 'POST', body: JSON.stringify({ model }) }));
+    await api(`/conversations/${conversation.id}/submit`, { method: 'POST', body: JSON.stringify({ type: 'input', content: 'Old reply' }) });
+    await waitBusy(conversation.id);
+    await api(`/conversations/${conversation.id}/submit`, { method: 'POST', body: JSON.stringify({ type: 'input', content: 'First waiting message', whenBusy: 'followUp' }) });
+    const stop = api(`/conversations/${conversation.id}/abort`, { method: 'POST', body: JSON.stringify({ continueQueue: true }) });
+    const late = api(`/conversations/${conversation.id}/submit`, { method: 'POST', body: JSON.stringify({ type: 'input', content: 'Typed while stopping', whenBusy: 'followUp', requestId: 'late-human-message' }) });
+    const [stopped, sent] = await Promise.all([stop, late]);
+    expect(stopped.status).toBe(200); expect(sent.status).toBe(201);
+    const deadline = Date.now() + 5000;
+    while (!(await userTexts(conversation.id)).includes('Typed while stopping') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    const target = (await harness.conversation(conversation.id, context))!;
+    await target.waitForIdle(context);
+    const texts = await userTexts(conversation.id);
+    expect(texts.filter(text => text === 'First waiting message')).toHaveLength(1);
+    expect(texts.filter(text => text === 'Typed while stopping')).toHaveLength(1);
+  }, 15000);
+
   test("abort keeps queued messages queued, in order, and says how many", async () => {
     faux.setResponses([toolCall("slowecho", { text: "busy" }), fauxAssistantMessage([fauxText("after")])]);
     const conversation = await body(

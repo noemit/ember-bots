@@ -1,3 +1,4 @@
+import { StopQueueDoc, prepareStopQueueHandoff, resumeStopQueueHandoff } from './stopQueueHandoff';
 import type { OllamaSettings } from "./ollama-settings";
 import type { CustomProviders } from "./custom-providers";
 import { alignmentProviders, importCredentials, importApiKeys, mergePeers, portablePeer, shareApiKeys, type ShareTarget, type AlignmentConfig } from "./alignment";
@@ -2210,8 +2211,12 @@ const server = Bun.serve<{
           // draft); `ReturnType` takes the last, which returns an id.
           let submission: Submission;
           try {
-            const submissionId = await harness.commit(async tx => {
+            const finishHandoff = new Error('Finish the pending stop before admitting an idle input');
+            const admit = () => harness.commit(async tx => {
               const prior = toPlace.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, toPlace.requestId);
+              const stopQueue = await tx.doc(StopQueueDoc, conversationId);
+              if (draft.type === "input" && !prior && stopQueue.pending && !(await tx.doc(LiveDoc, conversationId)).run &&
+                  (await tx.doc(MetaDoc, conversationId)).stoppedAt === stopQueue.pending.stoppedAt) throw finishHandoff;
               if (draft.type === "input" && !prior) {
                 const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, await tx.doc(MetaDoc, conversationId));
                 if (assignment && (explicitSettled(assignment.entry) || (assignment.entry.taskLifecycle === "explicit" &&
@@ -2219,8 +2224,27 @@ const server = Bun.serve<{
                   await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
                 }
               }
-              return conversation.submit(tx, toPlace);
+              const submissionId = await conversation.submit(tx, toPlace);
+              if (draft.type === "input" && !prior && stopQueue.pending) {
+                const queued = (await tx.doc(InboxDoc, conversationId)).items.find(item => item.id === submissionId);
+                // Admissions while abort winds down must survive that abort too. Record their
+                // canonical id in the same commit, not from a later snapshot that can miss them.
+                if (queued && queued.mode !== 'write' && !queued.entry && !stopQueue.pending.items.some(item => item.id === String(submissionId))) {
+                  stopQueue.pending.items.push({ id: String(submissionId), mode: queued.mode, content: queued.content });
+                }
+              }
+              return submissionId;
             }, context);
+            let submissionId: SubmissionId;
+            try { submissionId = await admit(); }
+            catch (error) {
+              if (error !== finishHandoff) throw error;
+              // Never wait inside a commit: the handoff needs the session line to place the
+              // older queued input first. A concurrent second stop is a visible busy refusal.
+              await resumeStopQueueHandoff(harness, conversationId, context);
+              try { submissionId = await admit(); }
+              catch (retryError) { if (retryError === finishHandoff) throw new ConversationBusy(conversationId); throw retryError; }
+            }
             submission = (await harness.submission(submissionId, context))!;
           } catch (error) {
             if (!(error instanceof ConversationBusy)) throw error;
@@ -2230,7 +2254,7 @@ const server = Bun.serve<{
             const meta = await tx.doc(MetaDoc, conversationId);
             if (meta.stoppedAt || restartingFailure) {
               for (const q of Object.values((await tx.doc(QuestionsDoc, conversationId)).items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
-              delete meta.stoppedAt;
+              if (!(await tx.doc(StopQueueDoc, conversationId)).pending) delete meta.stoppedAt;
             }
           }, context);
           // The full status set, not just the happy two: `queued` (waiting behind a turn),
@@ -2241,6 +2265,7 @@ const server = Bun.serve<{
         }
 
         if (action === "abort" && request.method === "POST") {
+          const continueQueue = (await readBody(request)).continueQueue === true;
           // Stop must feel instant. `conversation.abort()` resolves only once the conversation is
           // idle, which can be dragged out by a step that hasn't reached an abort point yet; the
           // client should not wait on that. Kick off the abort (its marking commit runs at once)
@@ -2257,11 +2282,16 @@ const server = Bun.serve<{
           // only once would drop that message. Every parked item keeps its own `mode`, so a steer
           // is still a steer and a follow-up still a follow-up.
           const inboxBefore = await harness.snapshot(InboxDoc, conversationId, context);
-          const first = parkedInputs(inboxBefore?.items ?? []);
+          const prepared = await harness.commit(async tx => {
+            await markWorkerStopped(tx, conversationId);
+            return prepareStopQueueHandoff(tx, conversationId, randomUUID(), continueQueue);
+          }, context);
+          const first = prepared ?? parkedInputs(inboxBefore?.items ?? []);
           const seen = new Set(first.map((item) => item.id));
-          const stop = conversation.abort(context);
-          await harness.commit((tx) => markWorkerStopped(tx, conversationId), context);
-          const requeue = stop.then(async () => {
+          // The desktop opts into a durable reply-to-next-message handoff. API/worker full stops
+          // retain the existing park-only contract. Recovery and this callback share single flight.
+          let continued = 0;
+          const requeue = prepared !== undefined ? resumeStopQueueHandoff(harness, conversationId, context).then(count => { continued = count; return first; }) : conversation.abort(context).then(async () => {
             const latest = await harness.snapshot(InboxDoc, conversationId, context);
             const late = parkedInputs(latest?.items ?? []).filter((item) => !seen.has(item.id));
             const parked = [...first, ...late];
@@ -2288,6 +2318,7 @@ const server = Bun.serve<{
           const parked = settled.done ? settled.parked : first;
           return json({
             ok: true,
+            ...(prepared !== undefined && (settled.done ? continued > 0 : parked.length > 0) ? { continuing: true } : {}),
             ...(note.length > 0 ? { cleared: note } : {}),
             // Tell the client what the stop kept, so it can say so rather than implying the queue
             // was empty. Absent when nothing was queued, which keeps the old response shape.

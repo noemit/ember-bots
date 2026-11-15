@@ -1232,7 +1232,7 @@ function ChatView({
   // follow-up is waiting. Counting it as one would keep the composer in queue mode after the turn
   // it was steering has finished, and offer to "send the next queued message" one already running.
   const queuedFollowUps = queueItems.filter((item) => item.mode !== 'steer');
-  const shouldQueue = Boolean(session && (busy || queuedFollowUps.length > 0));
+  const shouldQueue = Boolean(session && !yeet && (busy || queuedFollowUps.length > 0));
   // The host has not said whether this session is busy. The composer still sends — a message that
   // arrives during a turn waits its turn rather than being lost — but nothing here may claim to know
   // which one it is, so the labels stay neutral and the tooltip says why.

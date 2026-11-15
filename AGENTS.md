@@ -269,7 +269,12 @@ their existing names; archive references in the implementation notes below descr
   `queued` steer whose turn is over is decided by evidence, not a timer — the stop's own receipt
   (`POST /abort` returns `{parked, parkedText}`) and the inbox say whether the host still holds it,
   and only a message the host does *not* hold becomes "Stopped before this was sent." A stop that
-  kept messages refreshes the queue at once, because re-parked items carry fresh ids. The workspace is
+  kept messages refreshes the queue at once, because re-parked items carry fresh ids. Desktop Stop opts into
+  `POST /abort` with `continueQueue: true`: after the current reply fully stops, durable
+  `StopQueueDoc` recovery advances already-submitted human messages in FIFO order. Pending steers
+  become normal turns because the stopped reply has no tool boundary left. Worker cancellation,
+  hidden chats, held Questions answers and API stops without that flag never gain automatic
+  continuation. New inputs accepted during the handoff join its durable snapshot, not a later poll. The workspace is
   `openSessions` (ordered keys) plus `activeSession`; `selected` is derived from `activeSession`, and
   a per-key `transcripts` map backs every open column. `visibleColumns` (in `src/lib/workspace.ts`)
   decides what renders: **one column, the active session**, or — with the `splitView` setting on —

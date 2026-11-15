@@ -921,11 +921,11 @@ export const piCreateSession = async (
 export const piAbortSession = async (
   endpointId: string,
   conversationId: string
-): Promise<{ ok: boolean; parked: number; parkedText: string[] }> => {
+): Promise<{ ok: boolean; parked: number; parkedText: string[]; continuing?: boolean }> => {
   const response = await request<{ parked?: unknown; parkedText?: unknown }>(
     endpointId,
     `/conversations/${encodeURIComponent(conversationId)}/abort`,
-    { method: 'POST', body: {} }
+    { method: 'POST', body: { continueQueue: true } }
   );
   return abortReceiptOf(response.ok, response.data);
 };
