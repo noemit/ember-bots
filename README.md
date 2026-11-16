@@ -18,18 +18,18 @@ unsent: the person decides when to send them. Published releases may show an ear
 ## Downloads & quick install
 
 Get the desktop app from [GitHub Releases](https://github.com/noemit/ember-bots/releases/latest).
-The latest published release checked for this README is **v1.22.0**; the source tree contains newer
-work. [Build from source](#run-from-source) to try the current development version.
+The latest published release is **[v1.24.0](https://github.com/noemit/ember-bots/releases/tag/v1.24.0)**,
+including Kiln **1.12.0**. [Build from source](#run-from-source) to try newer development work.
 
 | Platform | Download |
 | --- | --- |
-| macOS, Apple Silicon | [Ember DMG](https://github.com/noemit/ember-bots/releases/latest) — open it and move Ember to Applications |
-| Linux, x64 | [AppImage or tar archive](https://github.com/noemit/ember-bots/releases/latest) |
-| Windows, x64 | [Ember setup](https://github.com/noemit/ember-bots/releases/latest) — run the installer |
+| macOS, Apple Silicon | [Ember DMG](https://github.com/noemit/ember-bots/releases/latest/download/Ember-macos-arm64.dmg) — open it and move Ember to Applications; [ZIP](https://github.com/noemit/ember-bots/releases/latest/download/Ember-macos-arm64.zip) also available |
+| Linux, x64 | [AppImage](https://github.com/noemit/ember-bots/releases/latest/download/Ember-linux-x64.AppImage) or [tar archive](https://github.com/noemit/ember-bots/releases/latest/download/Ember-linux-x64.tar.gz) |
+| Windows, x64 | [Ember setup](https://github.com/noemit/ember-bots/releases/latest/download/Ember-windows-x64-setup.exe) — run the installer; [ZIP](https://github.com/noemit/ember-bots/releases/latest/download/Ember-windows-x64.zip) also available |
 
 On Linux, give the downloaded AppImage execute permission in its file properties, then launch it.
 
-**Windows signing warning:** Windows builds are currently unsigned. Microsoft Defender SmartScreen
+**Windows signing warning:** Windows downloads are unsigned and use manual updates only. Microsoft Defender SmartScreen
 may show “Windows protected your PC” or an unknown publisher. If you downloaded the installer from
 the release page and trust this build, choose **More info → Run anyway** when offered.
 Your organisation’s policy or Smart App Control may block installation without that option.

@@ -43,9 +43,14 @@ so development/test packages cannot discover or install production updates.
 
 A current installation without updater code cannot discover its first updater-enabled build.
 **Bootstrap manually**: download that build from the Releases page, quit Ember, replace/install it,
-and reopen. Preserve the user's data directory. Do not promise an update notification in an older
-build. macOS signed A→B installation is unavailable for this change: the owner has accepted deferring
-that live check until the **next** update. Record it as unverified, not as a passed test.
+and reopen. Preserve the user's data directory. Do not promise an update notification in a build
+without updater support.
+
+Live signed macOS upgrade installation is a separate check from signing, notarization and fresh
+startup. For 1.24.0 the owner explicitly approved publication with that live check deferred; it
+remains unverified, not a known failure or a passed test. An updater-enabled older Mac installation
+can exercise it against the public release now. A newer release needs its own test or explicit
+deferral; it must not inherit a previous release's waiver. See the [release record](releases/1.24.0.md).
 
 ## Signing is mandatory for release
 

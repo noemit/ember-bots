@@ -1,8 +1,8 @@
 # Release contract
 
-This is the website/download contract for the **next authorized release**, planned as version
-`1.24.0`, tag `v1.24.0`, title **Ember 1.24.0**. It does not authorize a release or change 1.23.0,
-its tags, filenames or in-flight Windows uploads. The included Kiln candidate is `1.12.0`. See [the preparation checklist](docs/releases/1.24.0.md).
+This is the fixed website/download contract introduced by **Ember 1.24.0**, tag `v1.24.0`,
+with Kiln `1.12.0`, published and promoted to Latest on 2026-11-16. See [the release record](docs/releases/1.24.0.md).
+It does not authorize another release or changes to existing published tags, filenames or bytes.
 Subsequent versions follow [Versioning](VERSIONING.md).
 
 Stable release page: https://github.com/noemit/ember-bots/releases/latest
@@ -10,9 +10,9 @@ Stable release page: https://github.com/noemit/ember-bots/releases/latest
 ## Permanent downloads
 
 All links use `https://github.com/noemit/ember-bots/releases/latest/download/` plus the exact filename.
-**Do not activate these website links until the first compliant release is published.** They are a
-future contract, not a claim that these assets are available today. The website lives separately;
-changing this repository does not deploy it.
+The first compliant release, 1.24.0, is now public with all nine downloads and audited manifests.
+The website lives separately; changing this repository does not deploy it. Website deployment
+still needs its own authorization.
 
 | Platform | Primary download | Secondary download |
 | --- | --- | --- |
