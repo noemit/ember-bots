@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { InboxDoc, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { MetaDoc } from "../src/meta";
+import { AutoAcceptDoc } from "../src/approvals";
 import {
   createScheduledTask,
   deleteScheduledTask,
@@ -190,31 +191,179 @@ describe("scheduler loop", () => {
 });
 
 describe("scheduler conversations and zones", () => {
-  test("a task reuses the conversation it created, and names it", async () => {
-    faux.setResponses([fauxAssistantMessage([fauxText("scheduled answer")])]);
+  test("manual and automatic runs start fresh top-level sessions, preserve configuration and history", async () => {
+    const seen: string[] = [];
+    const freshAnswer = (label: string) => (input: { messages: readonly unknown[] }) => {
+      seen.push(JSON.stringify(input.messages));
+      return fauxAssistantMessage(label);
+    };
+    faux.setResponses([freshAnswer("FIRST_PRIVATE_ANSWER"), freshAnswer("SECOND_PRIVATE_ANSWER"), freshAnswer("THIRD_PRIVATE_ANSWER")]);
+    const model = faux.getModel();
     const created = await createScheduledTask(harness, {
-      name: "Reused conversation",
-      prompt: "hello once",
-      schedule: { kind: "daily", time: "23:59" },
-      enabled: true,
-      cwd: home,
+      name: "Fresh brief", prompt: "Self-contained scheduled prompt",
+      schedule: { kind: "once", at: Date.now() - 10_000 }, enabled: true,
+      cwd: home, model: { provider: model.provider, modelId: model.id }, thinkingLevel: "off",
     });
-    const first = await runScheduledTaskNow(harness, created.id, context);
-    expect(first?.status).toBe("ok");
-    const afterFirst = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id);
-    // The conversation the run created is recorded as the task's own, not only as "the last session".
-    expect(afterFirst?.conversationId).toBe(first?.sessionId);
-    expect(afterFirst?.lastSessionId).toBe(first?.sessionId);
-    const meta = await harness.snapshot(MetaDoc, afterFirst?.conversationId as ConversationId, context);
-    expect(meta?.title).toBe("Reused conversation");
+    const stored = async () => (await listScheduledTasks(harness, context)).tasks.find((entry) => entry.id === created.id)!;
+    expect(await tick(harness, context)).toBe(1);
+    const first = (await stored()).lastSessionId!;
     await harness.waitForIdle(context);
-
-    // A second run lands in the same conversation rather than starting another one.
-    faux.setResponses([fauxAssistantMessage([fauxText("scheduled answer again")])]);
-    const second = await runScheduledTaskNow(harness, created.id, context);
-    expect(second?.sessionId).toBe(first?.sessionId);
+    const firstConversation = (await harness.conversation(first as ConversationId, context))!;
+    const firstEntries = (await firstConversation.entries({}, 100, undefined, context)).items;
+    await updateScheduledTask(harness, created.id, { schedule: { kind: "once", at: Date.now() - 1000 } });
+    expect(await tick(harness, context)).toBe(1);
+    const second = (await stored()).lastSessionId!;
     await harness.waitForIdle(context);
+    // Manual runs use precisely the same fresh-session path, including paused plans.
+    await updateScheduledTask(harness, created.id, { enabled: false });
+    const third = await runScheduledTaskNow(harness, created.id, context);
+    await harness.waitForIdle(context);
+    expect(new Set([first, second, third?.sessionId]).size).toBe(3);
+    expect((await stored()).runSessionIds).toEqual([first, second, third!.sessionId!]);
+    expect((await stored()).conversationId).toBeUndefined();
+    expect((await stored()).pendingRun).toBeUndefined();
+    expect(seen).toHaveLength(3);
+    for (const input of seen) {
+      expect(input).toContain("Self-contained scheduled prompt");
+      expect(input).not.toContain("FIRST_PRIVATE_ANSWER");
+      expect(input).not.toContain("SECOND_PRIVATE_ANSWER");
+    }
+    for (const id of [first, second, third!.sessionId!]) {
+      const conversation = (await harness.conversation(id as ConversationId, context))!;
+      const agent = await conversation.agent(context);
+      expect(agent.cwd).toBe(home);
+      expect(agent.model).toEqual({ provider: model.provider, modelId: model.id });
+      expect(agent.thinkingLevel).toBe("off");
+      expect((await harness.snapshot(AutoAcceptDoc, id as ConversationId, context))?.enabled).toBe(true);
+      expect((await harness.snapshot(MetaDoc, id as ConversationId, context))?.title).toBe("Fresh brief");
+      await harness.commit(async (tx) => {
+        const record = await tx.conversation(id as ConversationId);
+        expect(record?.parent).toBeUndefined();
+        expect(record?.owner).toBeUndefined();
+      }, context);
+    }
+    expect((await firstConversation.entries({}, 100, undefined, context)).items).toEqual(firstEntries);
+    await deleteScheduledTask(harness, created.id, context);
   }, 20_000);
+
+  test("legacy targets remain readable history, including archived sessions, and are not reused", async () => {
+    const legacy = await harness.createConversation({ ownership: { kind: "ownerless" } }, context);
+    await legacy.submit({ type: "write", entry: { kind: "legacy-note", model: [{ role: "user", content: "DO_NOT_INHERIT", timestamp: 1 }] } }, context);
+    await harness.commit(async (tx) => { (await tx.doc(MetaDoc, legacy.id)).archived = 123; }, context);
+    const before = (await legacy.entries({}, 100, undefined, context)).items;
+    const created = await createScheduledTask(harness, {
+      model: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+      name: "Legacy plan", prompt: "New independent input", enabled: false,
+      schedule: { kind: "daily", time: "09:00", timezone: "Europe/Berlin" },
+      conversationId: legacy.id, lastSessionId: legacy.id, cwd: home,
+    });
+    let input = "";
+    faux.setResponses([(context) => { input = JSON.stringify(context.messages); return fauxAssistantMessage("fresh"); }]);
+    const outcome = await runScheduledTaskNow(harness, created.id, context);
+    await harness.waitForIdle(context);
+    expect(outcome?.status).toBe("ok");
+    expect(outcome?.sessionId).not.toBe(legacy.id);
+    expect(input).toContain("New independent input");
+    expect(input).not.toContain("DO_NOT_INHERIT");
+    const stored = (await listScheduledTasks(harness, context)).tasks.find((entry) => entry.id === created.id)!;
+    expect(stored.runSessionIds).toEqual([legacy.id, outcome!.sessionId!]);
+    expect(stored.schedule).toEqual(created.schedule);
+    expect((await legacy.entries({}, 100, undefined, context)).items).toEqual(before);
+    expect((await harness.snapshot(MetaDoc, legacy.id, context))?.archived).toBe(123);
+    await deleteScheduledTask(harness, created.id, context);
+  });
+
+  test("racing manual and automatic calls admit one run; busy automatic runs defer without queueing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    faux.setResponses([async () => { await gate; return fauxAssistantMessage("done"); }, fauxAssistantMessage("caught up")]);
+    const created = await createScheduledTask(harness, {
+      model: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+      name: "Racing", prompt: "One at a time", enabled: true, cwd: home,
+      schedule: { kind: "once", at: Date.now() - 10_000 },
+    });
+    try {
+      const results = await Promise.all([tick(harness, context), runScheduledTaskNow(harness, created.id, context), runScheduledTaskNow(harness, created.id, context)]);
+      expect(Number(results[0]) + results.slice(1).filter((result) => typeof result === "object" && result?.status === "ok").length).toBe(1);
+      const first = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id)!;
+      expect(first.runSessionIds).toHaveLength(1);
+      // Make another occurrence due while the first is running.
+      await updateScheduledTask(harness, created.id, { schedule: { kind: "once", at: Date.now() - 1 }, lastRunAt: 0 });
+      expect(await tick(harness, context)).toBe(0);
+      const refused = await runScheduledTaskNow(harness, created.id, context);
+      expect(refused?.refused).toBe(true);
+      const busy = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id)!;
+      expect(busy.lastRunAt).toBe(0);
+      expect(busy.runSessionIds).toHaveLength(1);
+      expect((await harness.snapshot(InboxDoc, first.lastSessionId as ConversationId, context))?.items).toHaveLength(0);
+      release();
+      await harness.waitForIdle(context);
+      expect(await tick(harness, context)).toBe(1);
+      await harness.waitForIdle(context);
+      const after = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id)!;
+      expect(after.runSessionIds).toHaveLength(2);
+      expect(after.lastSessionId).not.toBe(first.lastSessionId);
+      expect(await tick(harness, context)).toBe(0);
+    } finally { release(); await harness.waitForIdle(context); await deleteScheduledTask(harness, created.id, context); }
+  });
+
+  test("a crash after creation recovers the reserved run once, even with racing recovery ticks", async () => {
+    faux.setResponses([fauxAssistantMessage("recovered")]);
+    const created = await createScheduledTask(harness, {
+      model: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+      name: "Recovery", prompt: "Recover one run", enabled: false, cwd: home,
+      schedule: { kind: "daily", time: "09:00", timezone: "UTC" },
+    });
+    // Fault at the exact durable boundary: creation committed, but the caller never got its ID.
+    const creator = { ...harness, createConversation: async (...args: Parameters<Harness["createConversation"]>) => {
+      await harness.createConversation(...args);
+      throw new Error("simulated crash after creation");
+    } } as Harness;
+    const interrupted = await runScheduledTaskNow(harness, created.id, context, creator);
+    expect(interrupted?.status).toBe("error");
+    // Reopen the actual SQLite store: recovery is durable, not an in-memory reservation.
+    await harness.close(context);
+    const models = createModels();
+    models.setProvider(faux.provider);
+    harness = await Harness.open(await openNodeSqliteStorage(join(home, "hearth.sqlite")), {
+      models, registry: createRegistry(), env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? home }),
+    }, context);
+    harness.resume();
+    const pending = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id)!;
+    expect(pending.pendingRun).toBeDefined();
+    const id = pending.pendingRun!.sessionId;
+    const manual = await runScheduledTaskNow(harness, created.id, context);
+    expect(manual?.refused).toBe(true);
+    await Promise.all([tick(harness, context), tick(harness, context)]);
+    await harness.waitForIdle(context);
+    const stored = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id)!;
+    expect(stored.runSessionIds).toEqual([id]);
+    expect(stored.lastSessionId).toBe(id);
+    expect(stored.pendingRun).toBeUndefined();
+    const conversation = (await harness.conversation(id as ConversationId, context))!;
+    expect((await conversation.entries({}, 100, undefined, context)).items.filter((entry) => entry.kind === "pi.user")).toHaveLength(1);
+    expect(await tick(harness, context)).toBe(0);
+    await deleteScheduledTask(harness, created.id, context);
+  });
+
+  test("stopping a run leaves the next manual run fresh rather than reviving the stopped transcript", async () => {
+    const created = await createScheduledTask(harness, {
+      model: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+      name: "Stop", prompt: "Run independently", enabled: false, cwd: home,
+      schedule: { kind: "daily", time: "09:00" },
+    });
+    faux.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
+    const first = await runScheduledTaskNow(harness, created.id, context);
+    const previous = (await harness.conversation(first!.sessionId as ConversationId, context))!;
+    await previous.abort(context);
+    await previous.waitForIdle(context);
+    const before = (await previous.entries({}, 100, undefined, context)).items;
+    const second = await runScheduledTaskNow(harness, created.id, context);
+    expect(second?.sessionId).not.toBe(first?.sessionId);
+    await harness.waitForIdle(context);
+    expect((await previous.entries({}, 100, undefined, context)).items).toEqual(before);
+    await deleteScheduledTask(harness, created.id, context);
+  });
 
   test("an unknown timezone is refused when it is typed, not when it is due", () => {
     // `Intl.DateTimeFormat` throws on this zone, so storing it would make every later tick throw.

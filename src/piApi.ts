@@ -1186,6 +1186,8 @@ export type PiScheduledTask = {
   enabled: boolean;
   schedule: { kind: string; time?: string; weekdays?: number[]; at?: number; timezone?: string };
   conversationId?: number;
+  /** Every run, including conversations migrated from older schedulers. */
+  runSessionIds?: number[];
   cwd?: string;
   model?: { provider: string; modelId: string };
   thinkingLevel?: string;

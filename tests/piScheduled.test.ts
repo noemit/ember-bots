@@ -1,8 +1,14 @@
 import { expect, test } from 'bun:test';
 import { loadScheduledIdentityData, runScheduledTask, updateScheduledTaskModel } from '../src/api';
-import { rememberPiInstances } from '../src/piApi';
+import { rememberPiInstances, type PiScheduledTask } from '../src/piApi';
+import { mergeScheduledSessionBindings } from '../src/lib/scheduledBindings';
+import { buildScheduledRuns, scheduledReadSessions, unreadScheduledRunsByTask } from '../src/lib/scheduledView';
+import { staleScheduledRuns } from '../src/lib/bulkArchive';
+import type { Session } from '../src/types';
 
 const calls: Array<{ method: string; path: string }> = [];
+
+let taskOverrides: Partial<PiScheduledTask> = {};
 
 const tasksPayload = () => ({
   timezone: 'UTC',
@@ -20,6 +26,7 @@ const tasksPayload = () => ({
       lastRunAt: 2,
       lastStatus: 'ok',
       lastSessionId: 51,
+      ...taskOverrides,
     },
   ],
 });
@@ -68,4 +75,76 @@ test('updateScheduledTaskModel patches the task model', async () => {
   });
   expect(result.ok).toBe(true);
   expect(calls.map((entry) => `${entry.method} ${entry.path}`)).toContain('PATCH /scheduled-tasks/task_1');
+});
+
+
+test('an offline desktop discovers every fresh run and migrated legacy conversation', async () => {
+  taskOverrides = { runSessionIds: [48, 49, 50, 51, 49], conversationId: 47, lastStatus: 'error', lastError: 'latest failed' };
+  try {
+    const data = await loadScheduledIdentityData('pi:test', []);
+    const task = data.tasks[0];
+    expect(task.state.runSessionIds).toEqual(['48', '49', '50', '51', '47']);
+    expect(task.state.lastSessionId).toBe('51');
+    expect(Object.keys(data.bindings).sort()).toEqual([47, 48, 49, 50, 51].map(id => 'pi:test::' + id));
+    // Only 47 was observed before going offline. Missed runs must not depend on desktop polling.
+    const bindings = mergeScheduledSessionBindings({ 'pi:test::47': task.key }, data.bindings);
+    const day = 86_400_000;
+    const sessions: Session[] = [47, 48, 49, 50, 51].map(id => ({
+      id: String(id), instanceId: 'pi:test', title: 'Run ' + id, updated: id,
+      ...(id === 48 ? { archived: 100 } : {}),
+    }));
+    const unreadKeys = new Set(['pi:test::49']);
+    const runs = buildScheduledRuns({ tasks: data.tasks, sessions, bindings, unreadKeys });
+    expect(runs).toHaveLength(5);
+    // History retains real session records, including hidden runs, for the existing Open action.
+    expect(runs.find(run => run.key === 'pi:test::48')?.session).toBe(sessions[1]);
+    expect(runs.filter(run => run.unseen).map(run => run.key)).toEqual(['pi:test::49']);
+    expect(unreadScheduledRunsByTask(runs)[task.key]?.id).toBe('49');
+    // Latest status/time are not incorrectly assigned to earlier fresh conversations.
+    expect(runs.find(run => run.key === 'pi:test::50')?.at).toBe(50);
+    expect(runs.find(run => run.key === 'pi:test::50')?.status).toBe('succeeded');
+    expect(runs.find(run => run.key === 'pi:test::50')?.error).toBeUndefined();
+    expect(runs.find(run => run.key === 'pi:test::51')?.status).toBe('failed');
+    expect(runs.find(run => run.key === 'pi:test::51')?.at).toBe(2);
+    expect(scheduledReadSessions(sessions, bindings)[1].archived).toBe(100);
+    const targets = staleScheduledRuns(sessions, bindings,
+      { 'pi:test::47': 'idle', 'pi:test::49': 'unread', 'pi:test::50': 'idle', 'pi:test::51': 'busy' },
+      new Set(['pi:test::47']), day * 3, new Set(['pi:test::47', 'pi:test::50', 'pi:test::51']));
+    expect(targets.map(session => session.id)).toEqual(['50']);
+  } finally {
+    taskOverrides = {};
+  }
+});
+
+test('legacy hosts retain both reused and latest conversations without a run ledger', async () => {
+  taskOverrides = { conversationId: 40, lastSessionId: 51 };
+  try {
+    const data = await loadScheduledIdentityData('pi:test', []);
+    expect(Object.keys(data.bindings).sort()).toEqual(['pi:test::40', 'pi:test::51']);
+    expect(data.tasks[0].state.lastSessionId).toBe('51');
+  } finally {
+    taskOverrides = {};
+  }
+});
+
+test('binding refresh retains more than 2000 runs and other hosts across later polls', () => {
+  const ledger = Object.fromEntries(Array.from({ length: 2100 }, (_, i) => ['pi:test::' + (i + 1), 'task']));
+  const bindings = mergeScheduledSessionBindings({ 'other::1': 'other-task' }, ledger);
+  const refreshed = mergeScheduledSessionBindings(bindings, { 'pi:test::2100': 'new-task' });
+  expect(Object.keys(refreshed)).toHaveLength(2101);
+  expect(refreshed['pi:test::1']).toBe('task');
+  expect(refreshed['other::1']).toBe('other-task');
+  expect(refreshed['pi:test::2100']).toBe('new-task');
+});
+
+
+test('a legacy reused conversation is bound without inventing a latest run', async () => {
+  taskOverrides = { conversationId: 40, lastSessionId: undefined, runSessionIds: [] };
+  try {
+    const data = await loadScheduledIdentityData('pi:test', []);
+    expect(Object.keys(data.bindings)).toEqual(['pi:test::40']);
+    expect(data.tasks[0].state.lastSessionId).toBeUndefined();
+  } finally {
+    taskOverrides = {};
+  }
 });

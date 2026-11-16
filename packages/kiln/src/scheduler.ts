@@ -1,6 +1,6 @@
 /**
  * The Hearth scheduler: due-times in a session-scoped document, a tick loop that submits due
- * tasks to their target conversations, and a small wire surface (`/scheduled-tasks`).
+ * tasks to fresh independent conversations, and a small wire surface (`/scheduled-tasks`).
  *
  * Durability: the schedule lives in a session doc, so it survives restarts; a run's submit
  * carries a `requestId` derived from the task id and the scheduled instant, and `requestId` is
@@ -32,9 +32,9 @@ export type ScheduledTask = {
   prompt: string;
   schedule: ScheduleSpec;
   enabled: boolean;
-  /** Target conversation; created on first run when absent, then reused. */
+  /** Legacy target, retained for history and busy checks only; never submitted to again. */
   conversationId?: number;
-  /** Creation parameters used the first time the task needs its conversation. */
+  /** Creation parameters applied independently to every fresh run. */
   cwd?: string;
   model?: { provider: string; modelId: string };
   thinkingLevel?: string;
@@ -42,6 +42,10 @@ export type ScheduledTask = {
   /** The scheduled instant that last ran (not "now"), so cadence stays stable. */
   lastRunAt?: number;
   lastSessionId?: number;
+  /** All run conversations, including legacy targets; never a transcript/context source. */
+  runSessionIds?: number[];
+  /** Persisted before submission so crash recovery retries in the SAME fresh run, not another. */
+  pendingRun?: { occurrence: number; sessionId: number };
   lastStatus?: "ok" | "error";
   lastError?: string;
 };
@@ -156,109 +160,139 @@ export type RunOutcome = {
   refused?: boolean;
 };
 
-/** Submit one task's prompt to its conversation (creating it on first use). */
-/**
- * The slice of a harness running a task needs: its own conversations, reads and commits.
- *
- * A tool's `api` is this slice plus task plumbing, minus `createConversation` — which is why `run`
- * refuses from the tool rather than crashing mid-submit (see `schedule.ts`).
- */
+/** The scheduler needs independent creation as well as document reads and commits. */
 export type TaskRunner = Pick<Harness, "createConversation" | "conversation" | "snapshot" | "commit">;
 
+class RunRefused extends Error {}
+
+/**
+ * Admit a new run atomically with its conversation binding. A restart may resume a pending
+ * admission in that run only. Earlier completed conversations are history, never context.
+ */
 export const runTask = async (
   harness: TaskRunner,
   task: ScheduledTask,
   occurrence: number,
   context: Context = BACKGROUND_CONTEXT,
-  creator: TaskRunner = harness
+  creator: TaskRunner = harness,
+  manual = false
 ): Promise<RunOutcome> => {
+  let conversationId: ConversationId | undefined;
+  let runOccurrence = occurrence;
   try {
-    let conversationId = task.conversationId as ConversationId | undefined;
-    if (conversationId && !(await harness.conversation(conversationId, context))) conversationId = undefined;
-    if (!conversationId) {
+    // Only automatic recovery reuses an unfinished admission, never a previous run.
+    if (!manual && task.pendingRun) {
+      conversationId = task.pendingRun.sessionId as ConversationId;
+      runOccurrence = task.pendingRun.occurrence;
+    } else {
       const change: AgentChange = {
         ...(task.cwd ? { cwd: task.cwd } : {}),
-        ...(task.model ? { model: { provider: task.model.provider, modelId: task.model.modelId } } : {}),
+        ...(task.model ? { model: task.model } : {}),
         ...(task.thinkingLevel
           ? { thinkingLevel: task.thinkingLevel as NonNullable<AgentChange["thinkingLevel"]> }
           : {}),
       };
-      const conversation = await creator.createConversation(
-        { ownership: { kind: "ownerless" }, ...(Object.keys(change).length > 0 ? { agent: change } : {}) },
-        context
-      );
-      conversationId = conversation.id;
-      task.conversationId = conversationId;
-      task.lastSessionId = conversationId;
-      // Title the conversation after its task, so the human sees "Nightly brief" in the list rather
-      // than an untitled session they have to open to identify.
-      await harness.commit(async (tx) => {
-        (await tx.doc(MetaDoc, conversationId as ConversationId)).title = task.name;
+      const conversation = await creator.createConversation({
+        ownership: { kind: "ownerless" },
+        ...(Object.keys(change).length > 0 ? { agent: change } : {}),
+        // Creation and reservation share a commit: a racing manual call/tick cannot start
+        // another run, and a crash cannot leave a submitted but unrecorded conversation.
+        init: async (tx, id) => {
+          const doc = await tx.doc(SchedulerDoc);
+          const stored = doc.tasks.find((entry) => entry.id === task.id);
+          if (!stored) throw new RunRefused("Kiln no longer has this scheduled task. Refresh Scheduled to see the current plans.");
+          if (stored.pendingRun || (!manual && (!stored.enabled || occurrence <= (stored.lastRunAt ?? 0)))) {
+            throw new RunRefused("Kiln is already starting this task. Wait for that run before trying again.");
+          }
+          const previous = stored.lastSessionId ?? stored.conversationId;
+          if (previous !== undefined && (await tx.doc(LiveDoc, previous as ConversationId)).run) {
+            throw new RunRefused("Kiln is still running this task. Wait for it to finish or stop its session before running again.");
+          }
+          stored.runSessionIds = [...new Set([
+            ...(stored.runSessionIds ?? []),
+            ...(stored.conversationId === undefined ? [] : [stored.conversationId]),
+            ...(stored.lastSessionId === undefined ? [] : [stored.lastSessionId]),
+            id,
+          ])];
+          stored.pendingRun = { occurrence, sessionId: id };
+          (await tx.doc(MetaDoc, id)).title = task.name;
+        },
       }, context);
+      conversationId = conversation.id;
     }
     const conversation = await harness.conversation(conversationId, context);
-    if (!conversation) throw new Error("target conversation disappeared");
-    // A scheduled run has nobody watching to approve a tool call, so its conversation must
-    // auto-accept. Without this, every task parks on its first bash/write and sits in
-    // needsInput forever, while the run still reports ok (the submit itself succeeded).
+    if (!conversation) throw new Error("Kiln's new scheduled session is no longer available. Run the task again from Scheduled.");
+    // Nobody is watching to approve tools. Fresh sessions retain the scheduler's YOLO policy.
     await setAutoAccept(harness, conversationId, true, context);
-    // requestId is idempotent across restarts: the same scheduled instant never double-submits.
-    await conversation.submit(
-      { type: "input", content: task.prompt, requestId: `${task.id}:${occurrence}` },
-      context
-    );
+    await harness.commit(async (tx) => {
+      const doc = await tx.doc(SchedulerDoc);
+      const stored = doc.tasks.find((entry) => entry.id === task.id);
+      // A racing recovery already settled it, or the human removed the plan. Never
+      // re-place a stopped old submission when a stale tick finally catches up.
+      if (!stored || stored.pendingRun?.sessionId !== conversationId) return;
+      await conversation.submit(tx, {
+        type: "input", content: task.prompt, requestId: `${task.id}:${runOccurrence}`,
+      });
+      stored.lastRunAt = runOccurrence;
+      stored.lastSessionId = conversationId;
+      stored.lastStatus = "ok";
+      delete stored.lastError;
+      delete stored.pendingRun;
+    }, context);
     return { status: "ok", sessionId: conversationId };
   } catch (error) {
-    return { status: "error", error: error instanceof Error ? error.message : String(error) };
+    return {
+      status: "error",
+      ...(conversationId === undefined ? {} : { sessionId: conversationId }),
+      ...(error instanceof RunRefused ? { refused: true } : {}),
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 };
 
-/** Run every due task once and persist the outcome. Returns how many ran. */
+const recordOutcome = async (
+  harness: TaskRunner, id: string, occurrence: number, outcome: RunOutcome, context: Context
+): Promise<void> => {
+  if (outcome.refused) return;
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(SchedulerDoc);
+    const task = doc.tasks.find((entry) => entry.id === id);
+    if (!task) return;
+    // A racing recovery may already have recorded this admission. Never overwrite a later run.
+    if (outcome.sessionId !== undefined && task.pendingRun?.sessionId !== outcome.sessionId) return;
+    // Creation may have committed before its caller saw an error. Keep that durable
+    // admission for recovery rather than abandoning it and starting another session.
+    if (outcome.sessionId === undefined && task.pendingRun) return;
+    task.lastRunAt = task.pendingRun?.occurrence ?? occurrence;
+    task.lastStatus = outcome.status;
+    if (outcome.sessionId !== undefined) task.lastSessionId = outcome.sessionId;
+    if (outcome.error) task.lastError = outcome.error;
+    else delete task.lastError;
+    delete task.pendingRun;
+  }, context);
+};
+
+/** Run due tasks once. Busy tasks defer without consuming their occurrence; missed runs coalesce. */
 export const tick = async (harness: Harness, context: Context = BACKGROUND_CONTEXT): Promise<number> => {
   const snapshot = await harness.snapshot(SchedulerDoc, context);
   if (!snapshot || snapshot.tasks.length === 0) return 0;
   const now = Date.now();
-  const results: Array<{ id: string; occurrence: number; outcome: RunOutcome }> = [];
+  let ran = 0;
   for (const task of snapshot.tasks) {
-    // One task's bad schedule (an unknown timezone, say) must never stop the loop for the rest: the
-    // formatter throws a `RangeError` on a zone this machine does not know, and that used to escape
-    // `tick` and leave every later due task unrun until the next tick — forever.
-    let due = false;
+    let occurrence: number | undefined;
     try {
-      due = isDue(task, now);
+      if (task.pendingRun) occurrence = task.pendingRun.occurrence;
+      else if (isDue(task, now)) occurrence = mostRecentOccurrence(task.schedule, now);
     } catch (error) {
-      console.error(
-        `[hearth] scheduled task ${task.id} has an unusable schedule:`,
-        error instanceof Error ? error.message : error
-      );
+      console.error(`[hearth] scheduled task ${task.id} has an unusable schedule:`, error instanceof Error ? error.message : error);
       continue;
     }
-    if (!due) continue;
-    const occurrence = mostRecentOccurrence(task.schedule, now);
     if (occurrence === undefined) continue;
     const outcome = await runTask(harness, task, occurrence, context);
-    results.push({ id: task.id, occurrence, outcome });
+    await recordOutcome(harness, task.id, occurrence, outcome, context);
+    if (!outcome.refused) ran += 1;
   }
-  if (results.length === 0) return 0;
-  await harness.commit(async (tx) => {
-    const doc = await tx.doc(SchedulerDoc);
-    for (const result of results) {
-      const task = doc.tasks.find((entry) => entry.id === result.id);
-      if (!task) continue;
-      task.lastRunAt = result.occurrence;
-      task.lastStatus = result.outcome.status;
-      if (result.outcome.sessionId !== undefined) {
-        // The conversation is recorded as the task's *own*, not just as the last one it touched: a
-        // restart (or a schedule that stops carrying it) has to bring the task back to the same
-        // session, or every run would start a fresh one and lose its history.
-        task.conversationId ??= result.outcome.sessionId;
-        task.lastSessionId = result.outcome.sessionId;
-      }
-      if (result.outcome.error) task.lastError = result.outcome.error;
-      else delete task.lastError;
-    }
-  }, context);
-  return results.length;
+  return ran;
 };
 
 export type Scheduler = { stop(): void; runOnce(): Promise<number> };
@@ -439,14 +473,9 @@ export const deleteScheduledTask = async (
 };
 
 /**
- * Run a task immediately (the wire's "run now").
- *
- * Deliberately *not* idempotent per instant: each call asks for a fresh run, so a caller that
- * retries gets a fresh run. What it must not do is stack runs on top of one another. A manual
- * `run` while the target conversation is still working would queue a second copy of the whole
- * prompt behind the first, and a caller testing its own task (or a double-clicked button) then
- * fires the pipeline repeatedly while each submit still reports `ok`. Refuse instead, and leave
- * `lastRunAt` alone so the refusal does not consume a real occurrence.
+ * Run now starts a fresh independent session, even on a paused plan. Busy/in-admission tasks
+ * refuse rather than queue or overlap. A successful manual attempt consumes cadence through
+ * now (the existing Run now policy); a refusal does not alter timing or the previous outcome.
  */
 export const runScheduledTaskNow = async (
   harness: TaskRunner,
@@ -457,31 +486,8 @@ export const runScheduledTaskNow = async (
   const state = await listScheduledTasks(harness, context);
   const task = state.tasks.find((entry) => entry.id === id);
   if (!task) return undefined;
-  if (task.conversationId !== undefined) {
-    const live = await harness.snapshot(LiveDoc, task.conversationId as ConversationId, context);
-    if (live?.run) {
-      return {
-        status: "error",
-        refused: true,
-        sessionId: task.conversationId,
-        error: `conversation ${task.conversationId} is still running; wait for it to finish before running again`,
-      };
-    }
-  }
   const occurrence = Date.now();
-  const outcome = await runTask(harness as Harness, task, occurrence, context, creator);
-  await harness.commit(async (tx) => {
-    const doc = await tx.doc(SchedulerDoc);
-    const stored = doc.tasks.find((entry) => entry.id === id);
-    if (!stored) return;
-    stored.lastRunAt = occurrence;
-    stored.lastStatus = outcome.status;
-    if (outcome.sessionId !== undefined) {
-      stored.conversationId ??= outcome.sessionId;
-      stored.lastSessionId = outcome.sessionId;
-    }
-    if (outcome.error) stored.lastError = outcome.error;
-    else delete stored.lastError;
-  }, context);
+  const outcome = await runTask(harness, task, occurrence, context, creator, true);
+  await recordOutcome(harness, id, occurrence, outcome, context);
   return outcome;
 };

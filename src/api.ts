@@ -469,6 +469,7 @@ export const loadAllProjects = async (
 };
 
 export type ScheduledTaskState = {
+  runSessionIds?: string[];
   lastSessionId?: string;
   lastStatus?: string;
   lastError?: string;
@@ -565,6 +566,11 @@ const mapPiScheduledTask = (
     enabled: task.enabled !== false,
     model,
     state: {
+      // Older hosts expose only the reused conversation or latest run. Retain both alongside
+      // the full ledger so a desktop that missed intermediate runs can still recognise them.
+      runSessionIds: [...new Set([
+        ...(task.runSessionIds ?? []), task.conversationId, task.lastSessionId,
+      ].filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0))].map(String),
       lastSessionId: task.lastSessionId !== undefined ? String(task.lastSessionId) : undefined,
       lastStatus: task.lastStatus,
       lastError: task.lastError,
@@ -584,8 +590,8 @@ const loadPiScheduledIdentityData = async (
   const tasks = (data?.tasks ?? []).map((task) => mapPiScheduledTask(instanceId, task, projects));
   tasks.forEach((task) => {
     taskNames[task.key] = task.name;
-    if (task.state.lastSessionId) {
-      bindings[sessionKey({ instanceId, sessionId: task.state.lastSessionId })] = task.key;
+    for (const id of new Set([...(task.state.runSessionIds ?? []), task.state.lastSessionId])) {
+      if (id) bindings[sessionKey({ instanceId, sessionId: id })] = task.key;
     }
   });
   return { bindings, taskNames, tasks };
@@ -615,8 +621,8 @@ export const loadScheduledIdentityData = async (
   const tasks = results.flat();
   tasks.forEach((task) => {
     taskNames[task.key] = task.name;
-    if (task.state.lastSessionId) {
-      bindings[sessionKey({ instanceId, sessionId: task.state.lastSessionId })] = task.key;
+    for (const id of new Set([...(task.state.runSessionIds ?? []), task.state.lastSessionId])) {
+      if (id) bindings[sessionKey({ instanceId, sessionId: id })] = task.key;
     }
   });
   return { bindings, taskNames, tasks };

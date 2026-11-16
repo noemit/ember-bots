@@ -179,7 +179,9 @@ describe("schedule: tasks belong to one conversation's document", () => {
     expect(created.text).toContain('Scheduled "Morning deploy check"');
     expect(created.text).toContain("daily 09:00 Europe/Berlin");
     expect(created.text).toContain("Next run: Mon 9 Nov, 09:00 (Europe/Berlin)");
-    expect(created.text).toContain("first run creates the session it will keep using");
+    expect(created.text).toMatch(/every run.*fresh.*session/i);
+    expect(created.text).toMatch(/without.*context/i);
+    expect(created.text).not.toMatch(/keep using|reuse/i);
 
     const listed = await api.list();
     expect(listed).toContain("Morning deploy check");
@@ -311,7 +313,7 @@ describe("schedule: run now", () => {
     const ran = await handlers().run({ task: "Later check" });
     expect(ran.isError).toBeUndefined();
     expect(ran.text).toContain('Ran "Later check" now');
-    expect(ran.text).toContain("submitted to conversation");
+    expect(ran.text).toContain("submitted to fresh conversation");
 
     // And the scheduler fires it on its own once the instant arrives: move it into the past by
     // making a daily task whose time has just gone by, then tick.
@@ -374,15 +376,16 @@ describe("schedule: the model-facing tool", () => {
     const result = await ScheduleTool.execute({ action: "run", task: "Manual only" } as never, toolApi, context);
     const text = (result.output as Array<{ text: string }>)[0].text;
     expect(result.isError).toBe(true);
-    expect(text).toContain("has no session yet");
-    expect(text).toContain("when it next comes due");
+    expect(text).toContain("needs a fresh session");
+    expect(text).toContain("Run now in Scheduled");
   });
 
   test("the section is short and says where a run's prompt goes", () => {
     const rendered = Schedule.sections[0].render({} as never, context) as string;
     expect(rendered.length).toBeLessThan(700);
     expect(rendered).toContain("wall-clock");
-    expect(rendered).toContain("the task's own session");
+    expect(rendered).toContain("fresh top-level session");
+    expect(rendered).toContain("without prior chat context");
   expect(rendered).toContain("belong to this Hearth");
     expect(rendered).toContain("next run");
   });

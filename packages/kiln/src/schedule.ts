@@ -41,8 +41,8 @@ export { type ScheduleSpec };
  *   refused at creation, where the person who typed it can still be told.
  * - **A bounded list.** Eight tasks per Hearth is enough for anyone's real cadence and keeps the
  *   tool's answer short enough to read: the cap is enforced on create and said out loud.
- * - **Runs get their own session.** A task stores a prompt, not a transcript slot: the first run
- *   creates the conversation it will keep using, so somebody's working chat is never interrupted by
+ * - **Runs get their own session.** A task stores a prompt, not a transcript slot: every run
+ *   creates a fresh independent conversation without earlier runs’ transcript, so somebody's working chat is never interrupted by
  *   a scheduled prompt. The answer says which session ran.
  */
 export type ScheduleToolName = "list" | "create" | "update" | "remove" | "run";
@@ -288,7 +288,7 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
 
   /**
    * `run` needs one capability the document reader does not have: creating the target conversation
-   * on first use. A tool's `api` creates *tasks*, not conversations, so when pidu-rable offers no
+   * for every run. A tool's `api` creates *tasks*, not conversations, so when pidu-rable offers no
    * factory the run is refused in words rather than crashing halfway through. The full harness
    * (tests, and any future host path) supplies `createConversation` directly.
    */
@@ -311,7 +311,7 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
       const shown = matching.slice(0, 10);
       const rows = shown.map((task) => describeTask(task, current, zone())).join("\n");
       const more = matching.length > shown.length ? `\n(${matching.length - shown.length} more — narrow the filter.)` : "";
-      return `${shown.length} of ${tasks.length} scheduled task${tasks.length === 1 ? "" : "s"} on this Hearth:\n${rows}${more}\nTimes are wall-clock in the zone shown; a run submits the task's prompt to its own session, not to the chat that created it.`;
+      return `${shown.length} of ${tasks.length} scheduled task${tasks.length === 1 ? "" : "s"} on this Hearth:\n${rows}${more}\nTimes are wall-clock in the zone shown; every run starts a fresh top-level session, without earlier runs’ transcript or the chat that created it.`;
     },
 
     create: async (args) => {
@@ -353,7 +353,7 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
         text:
           `Scheduled "${created.name}" (${created.id}): ${describeSchedule(created.schedule, zone())}. ` +
           `Next run: ${describeNextRun(created.schedule, next, zone())}. ` +
-          "Its first run creates the session it will keep using, so this chat is not interrupted.",
+          "Every run starts a fresh top-level session without earlier chat context, so this chat is not interrupted.",
       };
     },
 
@@ -432,7 +432,7 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
         // A tool's api creates tasks, not conversations. Refusing in words beats a crash part-way
         // through a submit, and the schedule itself is untouched.
         return {
-          text: `${lookup.task.name} has no session yet, and this tool cannot create one; it will run when it next comes due.`,
+          text: `${lookup.task.name} needs a fresh session for each run, and this tool cannot create one. Use Run now in Scheduled, or wait until it next comes due.`,
           isError: true,
         };
       }
@@ -440,14 +440,14 @@ export const createScheduleHandlers = (store: ScheduleStore, now: () => number =
       if (!outcome) return { text: `Scheduled task ${lookup.task.id} disappeared before it could run.`, isError: true };
       if (outcome.refused) {
         return {
-          text: `"${lookup.task.name}" did not run: its session is still working. Wait for it to finish, then run it again.`,
+          text: `"${lookup.task.name}" did not run: Kiln is already starting or running it. Wait for that run to finish, or stop its session, then run it again.`,
           isError: true,
         };
       }
       if (outcome.status === "error") {
         return { text: `"${lookup.task.name}" was due but could not be submitted: ${(outcome.error ?? "unknown error").slice(0, 300)}`, isError: true };
       }
-      return { text: `Ran "${lookup.task.name}" now; its prompt was submitted to conversation ${outcome.sessionId}.` };
+      return { text: `Ran "${lookup.task.name}" now; its prompt was submitted to fresh conversation ${outcome.sessionId}.` };
     },
   };
 };
@@ -480,7 +480,7 @@ export const ScheduleTool = defineTool({
     }),
     task: opt(str({ description: "update/remove/run: the task's id, or its name when that name is unique here." })),
     name: opt(str({ description: "create: a short title. update: a new title. Must be unique on this Hearth." })),
-    prompt: opt(str({ description: "create/update: what the run should do. It is submitted to the task's own session, where nobody is watching — write it so it still makes sense later." })),
+    prompt: opt(str({ description: "create/update: what the run should do. Every run starts a fresh session without prior chat context, where nobody is watching — write it so it still makes sense later." })),
     schedule: opt(
       obj({
         kind: oneOf(["daily", "weekly", "once"] as const, { description: "daily: every day at `time`. weekly: on `weekdays` at `time`. once: at the epoch-ms instant `at`." }),
@@ -553,7 +553,7 @@ export const scheduleSection = section(
     "Use the schedule tool when someone wants something to happen on a clock (every morning, on weekdays, once next " +
     "Tuesday) rather than in this turn: list, create, update, remove or run a scheduled task. Tasks belong to this Hearth, " +
     "not to one chat, and the Scheduled view shows the same list. Times are wall-clock in the task's timezone, and a run " +
-    "submits the stored prompt to the task's own session — so write the prompt so it still makes sense when nobody is " +
+    "starts a fresh top-level session without prior chat context — so write a self-contained prompt for when nobody is " +
     "watching. After creating or changing a schedule, tell the person the next run in plain words and check it is what they meant.",
   { tag: false }
 );

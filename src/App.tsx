@@ -1,3 +1,4 @@
+import { mergeScheduledSessionBindings } from './lib/scheduledBindings';
 import { annotationNotePatch } from './lib/annotationNote';
 import { confirmAnnotations, type AnnotationGuard } from './lib/annotationNavigation';
 import { InstanceOutageToasts } from './components/InstanceOutageToasts';
@@ -2517,9 +2518,7 @@ export default function App() {
         );
         return next;
       });
-      const merged: Record<string, string> = Object.fromEntries(
-        Object.entries({ ...scheduledBindingsRef.current, ...discovered }).slice(-2000)
-      );
+      const merged = mergeScheduledSessionBindings(scheduledBindingsRef.current, discovered);
       if (!sameStringRecord(merged, scheduledBindingsRef.current)) {
         scheduledBindingsRef.current = merged;
         handleSettings({ scheduledSessionBindings: merged });

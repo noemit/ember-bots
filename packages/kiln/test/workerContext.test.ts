@@ -14,7 +14,6 @@ import { resumeThreads } from '../src/threadSupervisor';
 import { WorkerContext, WorkerContextDoc } from '../src/workerContext';
 import { currentContextOf } from '../src/currentContext';
 import { tick as crewTick } from '../src/crew';
-import { runTask, type ScheduledTask } from '../src/scheduler';
 
 const context = BACKGROUND_CONTEXT;
 const setup = async (storage: Storage = new MemoryStorage()) => {
@@ -197,8 +196,8 @@ describe('worker current-context advisory', () => {
     } finally { await f.harness.close(context); }
   });
 
-  for (const mode of ['direct', 'scheduled'] as const) {
-    test(`${mode} input invalidates old advisory without rearming; replay and queued input survive`, async () => {
+  {
+    test('direct input invalidates old advisory without rearming; replay and queued input survive', async () => {
       const f = await setup();
       let release!: () => void;
       const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -209,14 +208,9 @@ describe('worker current-context advisory', () => {
         const before = (await f.state())!.items.worker!.contextAdvisory!;
         f.faux.setResponses([async () => { await gate; return fauxAssistantMessage('New bounded assignment complete'); },
           fauxAssistantMessage('Queued direction complete')]);
-        const task: ScheduledTask = { id: 'reused-worker', name: 'New scheduled bounded task', prompt: 'New bounded assignment',
-          schedule: { kind: 'once', at: 123 }, enabled: true, createdAt: 1, conversationId: f.worker.id };
-        const submit = async () => {
-          if (mode === 'scheduled') expect((await runTask(f.harness, task, 123, context)).status).toBe('ok');
-          else await f.worker.submit({ type: 'input', content: 'New bounded assignment', requestId: 'direct-reuse' }, context);
-        };
+        const submit = () => f.worker.submit({ type: 'input', content: 'New bounded assignment', requestId: 'direct-reuse' }, context);
         await submit();
-        const requestId = mode === 'scheduled' ? `${task.id}:123` : 'direct-reuse';
+        const requestId = 'direct-reuse';
         const admitted = await f.storage.submissionByRequest(f.worker.id, requestId, context);
         await submit(); // idempotent retry is not another assignment or another inbox item
         expect((await f.storage.submissionByRequest(f.worker.id, requestId, context))?.id).toBe(admitted?.id);

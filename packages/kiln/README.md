@@ -123,10 +123,17 @@ title, its brief's first line supplies one. Identity survives follow-up work and
 **Schedules (`schedule` tool):** a conversation can keep its own wall-clock tasks — daily, weekly or
 a single future instant — with `schedule({ action: "create" | "list" | "update" | "remove" | "run" })`.
 The tasks live in Hearth's scheduler document (`src/scheduler.ts`), so they survive restarts, and a
-run submits the stored prompt to that task's own session. Schedules are validated by the same
+run starts a fresh, independent top-level session with only the stored prompt, never earlier runs’ transcript.
+Previous sessions remain linked in Scheduled, including runs made while Ember was closed. Run now
+also starts fresh; it refuses while the previous run is working. Automatic runs defer while busy
+without consuming the occurrence, then catch up once (missed occurrences coalesce). Run now keeps
+the existing timing policy: an admitted manual run consumes cadence through now; refusal does not.
+Each session uses the task’s cwd/model/thinking settings and the host’s configured tools, with
+auto-approval enabled for unattended work. Stopping one session does not cancel future scheduled
+occurrences; pause or remove the plan for that. Schedules are validated by the same
 `parseSchedule` the HTTP wire uses, so a task made by an agent and one made in Ember's Scheduled
 view are the same object; an unknown timezone or a past one-off instant is refused with the field
-named. A conversation holds at most eight tasks and cannot use a name twice. The prompt section is
+named. A Hearth holds at most eight tasks and cannot use a name twice. The prompt section is
 short and asks the model to say the next run back in plain words.
 
 **Model lookup:** call `session({ action: "models", query: "luna" })` directly — no codemode
