@@ -29,7 +29,7 @@ export const quoteTextRuns = (element: Element, source: string): QuoteTextRun[] 
 };
 
 export const quoteRangeSupported = (element: Element, range: Range): boolean =>
-  ![...element.querySelectorAll('code, pre, img, input, button, [data-quote-unsupported]')].some(node => range.intersectsNode(node));
+  ![...element.querySelectorAll('pre, code:not(:has([data-quote-start])), img, input, button, [data-quote-unsupported]')].some(node => range.intersectsNode(node));
 
 /** Normalized boundaries must belong to an exact renderer text run. */
 export const quoteBoundary = (runs: QuoteTextRun[], container: Node, offset: number): number | null => {

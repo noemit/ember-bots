@@ -299,7 +299,7 @@ const fixtureA = makeConversation({
         assistantMessage(
           [
             ...thinking('A checklist regression, most likely in the progress math.'),
-            ...text('Found a regression: the step counter shows **3/2** on the last step.'),
+            ...text(fixtureParam === 'annotation-markdown' ? '# Selection review\n\nStart with **bold words**, *gentle emphasis*, and `inline code` before continuing across a deliberately long paragraph that wraps onto another visual line in a narrow conversation column.\n\nNext paragraph keeps [the linked words](https://example.com) and the same source.\n\n- First list item with `same` code\n- Second list item ends here.\n\nUnsafe boundary:\n\n```text\nnot supported\n```\n\nAfter the code block.' : 'Found a regression: the step counter shows **3/2** on the last step.'),
           ],
           'stop',
           minutes(38)

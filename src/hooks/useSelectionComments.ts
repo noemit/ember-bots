@@ -26,13 +26,14 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
   const [focusEditor, setFocusEditor] = React.useState(false);
   const retained = React.useRef(hasDraft);
   retained.current = hasDraft;
-  const dismiss = React.useCallback(() => {
+  const hideEditor = React.useCallback((clearSelection: boolean) => {
     editing.current = false;
     focusRequested.current = false;
     setFocusEditor(false);
     setPosition(null);
-    window.getSelection()?.removeAllRanges();
+    if (clearSelection) window.getSelection()?.removeAllRanges();
   }, []);
+  const dismiss = React.useCallback(() => hideEditor(true), [hideEditor]);
   const clearDraft = React.useCallback(() => {
     setAnchor(null); setQuote(''); setReason(null); dismiss();
   }, [dismiss]);
@@ -77,12 +78,12 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
       setAnchor(result.ok ? result.anchor : null);
       setQuote(result.ok ? result.anchor.quote : selection.toString().trim());
       setReason(result.ok ? null : result.reason === 'multi-message'
-        ? 'Select text within one message and one text block to annotate it.'
-        : 'Ember cannot link this selection to an exact passage. Select a shorter passage in one plain-text block.');
+        ? 'Select text within one message to annotate it.'
+        : 'Ember cannot link this selection to an exact passage. Try selecting text without images, code blocks or other controls.');
       setPosition({ left: Math.max(8, Math.min(rect.left - hostRect.left, hostRect.width - 368)), top: rect.bottom - hostRect.top + 180 < hostRect.height ? rect.bottom - hostRect.top + 8 : Math.max(8, rect.top - hostRect.top - 180) });
       editing.current = true;
       // Native mouse selection stays selected until the person chooses the input. Only the
-      // explicit keyboard shortcut focuses the editor to the editor automatically.
+      // explicit keyboard shortcut focuses the editor automatically.
       setFocusEditor(focus);
     };
     const schedule = () => { window.clearTimeout(timer); timer = window.setTimeout(() => capture(), 120); };
@@ -93,7 +94,12 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
       focusRequested.current = true;
       capture();
     };
-    const pointer = (event: PointerEvent) => { pointerHeld.current = event.button === 0 && Boolean(event.target instanceof Node && regionRef.current?.contains(event.target)); };
+    const pointer = (event: PointerEvent) => {
+      pointerHeld.current = event.button === 0 && Boolean(event.target instanceof Node && regionRef.current?.contains(event.target));
+      // An empty editor can yield to a new native drag without clearing its range.
+      // A written draft still belongs to the save/discard guard on click below.
+      if (pointerHeld.current && editing.current && !retained.current) hideEditor(false);
+    };
     const outside = (event: MouseEvent) => {
       if (!(event.target instanceof Element) || event.target.closest('[data-annotation-composer], [data-annotation-decision]')) return;
       if (editing.current) onDismissRequest();
@@ -107,7 +113,7 @@ export function useSelectionComments({ regionRef, hostRef, enabled, sessionKey, 
     document.addEventListener('pointerdown', pointer);
     document.addEventListener('click', outside);
     return () => { window.clearTimeout(timer); document.removeEventListener('pointerup', release); document.removeEventListener('pointercancel', cancel); document.removeEventListener('selectionchange', schedule); document.removeEventListener('keydown', shortcut); document.removeEventListener('pointerdown', pointer); document.removeEventListener('click', outside); };
-  }, [enabled, sessionKey, messages, regionRef, hostRef, dismiss, focusCurrent, onDismissRequest]);
+  }, [enabled, sessionKey, messages, regionRef, hostRef, hideEditor, focusCurrent, onDismissRequest]);
 
   return { position, visible: Boolean(position), focusEditor, anchor, quote, reason, dismiss, clearDraft };
 }
