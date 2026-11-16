@@ -71,21 +71,38 @@ export function audit(dir, version, windows) {
   for (const name of readdirSync(dir)) assert(allowed.has(name), `Unexpected release asset ${name}; review the contract before publishing.`);
 }
 
+// Download counts and temporary draft URLs change when the audit reads the release. Compare
+// upload identity/content instead; replacements, renamed files and changed bytes still refuse.
+const assetSnapshot = assets => {
+  assert(Array.isArray(assets), 'GitHub did not return this release’s downloads. Refresh the Releases page and try again.');
+  return JSON.stringify(assets.map(({ id, name, label, size, digest, state, updated_at }) =>
+    ({ id, name, label, size, digest, state, updated_at })).sort((a, b) => a.id - b.id));
+};
+
 // Download the actual draft assets, audit, then explicitly promote. Never uploads/replaces assets.
 export function promote(version, windows, gh = (...args) => execFileSync('gh', args, { encoding: 'utf8' })) {
   validateVersion(version);
   const repo = 'noemit/ember-bots';
   const tag = `v${version}`;
-  const get = () => JSON.parse(gh('api', `repos/${repo}/releases/tags/${tag}`));
+  // GitHub's by-tag REST endpoint does not return drafts. Locate the authenticated draft in
+  // the paginated release list, then pin both snapshots and the final mutation to its numeric id.
+  const pages = JSON.parse(gh('api', `repos/${repo}/releases`, '--paginate', '--slurp'));
+  assert(Array.isArray(pages) && pages.every(Array.isArray), 'GitHub did not return the release list. Check the Releases page and try again.');
+  const matches = pages.flat().filter(release => release?.tag_name === tag);
+  assert(matches.length === 1, `GitHub did not identify exactly one release for ${tag}. Review the Releases page before trying again.`);
+  const id = matches[0].id;
+  assert(Number.isSafeInteger(id) && id > 0, 'GitHub did not identify this release safely. Refresh the Releases page and try again.');
+  const get = () => JSON.parse(gh('api', `repos/${repo}/releases/${id}`));
   const release = get();
-  assert(release.draft && !release.prerelease && release.name === `Ember ${version}`, 'Promotion requires a non-prerelease draft titled Ember <version>. Published assets are immutable.');
+  assert(release.id === id && release.tag_name === tag && release.draft && !release.prerelease && release.name === `Ember ${version}`, 'Promotion requires a non-prerelease draft titled Ember <version>. Published assets are immutable.');
+  const beforeAssets = assetSnapshot(release.assets);
   const dir = mkdtempSync(join(tmpdir(), 'ember-release-audit-'));
   try {
     gh('release', 'download', tag, '--repo', repo, '--dir', dir);
     audit(dir, version, windows);
     // Refuse a concurrently replaced upload set; GitHub asset IDs/digests change on replacement.
     const again = get();
-    assert(again.draft && !again.prerelease && again.name === release.name && JSON.stringify(again.assets) === JSON.stringify(release.assets), 'Draft changed during audit; audit again before promotion.');
+    assert(again.id === id && again.tag_name === tag && again.draft && !again.prerelease && again.name === release.name && again.body === release.body && assetSnapshot(again.assets) === beforeAssets, 'Draft changed during audit; audit again before promotion.');
     gh('api', '--method', 'PATCH', `repos/${repo}/releases/${release.id}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

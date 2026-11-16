@@ -81,9 +81,10 @@ test('published releases and pre-contract versions cannot be promoted', () => {
   const calls: string[][] = [];
   expect(() => promote('1.23.1', 'manual', (...args: string[]) => {
     calls.push(args);
-    return JSON.stringify({ draft: false, prerelease: false, name: 'Ember 1.23.1' });
+    const release = { id: 123, tag_name: 'v1.23.1', draft: false, prerelease: false, name: 'Ember 1.23.1' };
+    return JSON.stringify(args[1].endsWith('/releases') ? [[release]] : release);
   })).toThrow('immutable');
-  expect(calls).toHaveLength(1);
+  expect(calls).toHaveLength(2);
 });
 
 test('fixed filenames are allowed across versions, and updater rejects cached old bytes', async () => {
@@ -121,23 +122,72 @@ test('AppImage hook resolves actual target arch before hashing, not builder x86_
   expect(() => beforePack({ electronPlatformName: 'linux', arch: Arch.arm64, targets: [shared] })).toThrow('separately');
 });
 
-test('promotion audits downloaded assets before explicitly setting Latest, never uploads', () => {
+test('promotion audits assets before setting Latest, tolerates read counters/order, never uploads', () => {
   const dir = fixture();
   const calls: string[][] = [];
-  const release = { id: 123, draft: true, prerelease: false, name: 'Ember 1.23.1', assets: [{ id: 456 }] };
+  const release = { id: 123, tag_name: 'v1.23.1', draft: true, prerelease: false, name: 'Ember 1.23.1', assets: [{ id: 456 }, { id: 457 }] };
+  let snapshots = 0;
   try {
     const gh = (...args: string[]) => {
       calls.push(args);
-      if (args[0] === 'api' && args[1] !== '--method') return JSON.stringify(release);
+      if (args[0] === 'api' && args[1].endsWith('/releases')) return JSON.stringify([[{ id: 1, tag_name: 'v1.23.0' }], [release]]);
+      if (args[0] === 'api' && args[1] !== '--method') {
+        expect(args[1]).toBe('repos/noemit/ember-bots/releases/123');
+        snapshots++;
+        const assets = release.assets.map(asset => ({ ...asset, download_count: snapshots }));
+        if (snapshots % 2 === 0) assets.reverse();
+        return JSON.stringify({ ...release, assets });
+      }
       if (args[0] === 'release') cpSync(dir, args[args.indexOf('--dir') + 1], { recursive: true });
       return '{}';
     };
     promote('1.23.1', 'manual', gh);
     expect(calls.at(-1)).toEqual(['api', '--method', 'PATCH', 'repos/noemit/ember-bots/releases/123', '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true']);
     expect(calls.some(args => args.includes('upload'))).toBe(false);
+    expect(calls[0]).toEqual(['api', 'repos/noemit/ember-bots/releases', '--paginate', '--slurp']);
+    expect(calls.some(args => args.some(value => value.includes('/releases/tags/')))).toBe(false);
     rmSync(join(dir, 'Ember-macos-arm64.zip.blockmap'));
     calls.length = 0;
     expect(() => promote('1.23.1', 'manual', gh)).toThrow('blockmap');
     expect(calls.some(args => args.includes('PATCH'))).toBe(false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('draft lookup refuses ambiguous or unsafe release identities with recovery guidance', () => {
+  for (const pages of [null, {}, [], [[]], [[{ id: 1, tag_name: 'v1.23.0' }]],
+    [[{ id: 1, tag_name: 'v1.23.1' }, { id: 2, tag_name: 'v1.23.1' }]],
+    [[{ id: '../other', tag_name: 'v1.23.1' }]]]) {
+    const calls: string[][] = [];
+    let failure: unknown;
+    try {
+      promote('1.23.1', 'manual', (...args: string[]) => {
+        calls.push(args);
+        return JSON.stringify(pages);
+      });
+    } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toMatch(/GitHub/);
+    expect((failure as Error).message).toMatch(/check|review|refresh/i);
+    expect(calls).toHaveLength(1);
+    expect(calls.some(args => args.includes('PATCH'))).toBe(false);
+  }
+});
+
+test('promotion refuses a changed release identity or asset set after downloading', () => {
+  const dir = fixture();
+  const release = { id: 123, tag_name: 'v1.23.1', draft: true, prerelease: false, name: 'Ember 1.23.1', assets: [{ id: 456 }] };
+  try {
+    for (const change of [{ id: 124 }, { tag_name: 'v1.23.2' }, { assets: [{ id: 789 }] }, { assets: [{ id: 456, digest: 'different-bytes' }] }, { body: 'unreviewed notes' }, { draft: false }, { prerelease: true }]) {
+      const calls: string[][] = [];
+      let snapshots = 0;
+      expect(() => promote('1.23.1', 'manual', (...args: string[]) => {
+        calls.push(args);
+        if (args[0] === 'api' && args[1].endsWith('/releases')) return JSON.stringify([[release]]);
+        if (args[0] === 'api' && args[1] !== '--method') return JSON.stringify(++snapshots === 1 ? release : { ...release, ...change });
+        if (args[0] === 'release') cpSync(dir, args[args.indexOf('--dir') + 1], { recursive: true });
+        return '{}';
+      })).toThrow('changed');
+      expect(calls.some(args => args.includes('PATCH'))).toBe(false);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
