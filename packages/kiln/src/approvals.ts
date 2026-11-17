@@ -10,6 +10,7 @@ import {
   type JsonObject,
   type ToolExecutionApi,
   type ToolRegistration,
+  type Wrap,
 } from "@earendil-works/pi-durable";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 import { createViewTool } from "./view";
@@ -62,14 +63,28 @@ export const AutoAcceptDoc = defineDoc<{ enabled: boolean; allowed: string[] }>(
 const POLL_MS = 200;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Mutating `schedule` actions (`create`, `update`, `remove`, `run`) need approval; read-only `list` does not. */
+export const requiresScheduleApproval = (args: unknown): boolean =>
+  (args as { action?: unknown } | null | undefined)?.action !== "list";
+
+/** Direct agent messaging (`send`) needs approval; read-only `directory` and local `pin`/`unpin` do not. */
+export const requiresAgentsApproval = (args: unknown): boolean =>
+  (args as { action?: unknown } | null | undefined)?.action === "send";
+
 /**
  * The gate: park the request durably, then wait for the human (or auto-accept) to answer.
  * Parking is idempotent per tool task id, so a crash rerun resumes the same wait instead of
  * duplicating the request, and the decision — a document — survives restarts.
  */
-const gateTool = (tool: ToolRegistration): ToolRegistration => ({
+export const gateTool = (
+  tool: ToolRegistration,
+  requiresApproval?: (args: unknown) => boolean
+): ToolRegistration => ({
   ...tool,
   execute: async (args, api: ToolExecutionApi, context: Context) => {
+    if (requiresApproval && !requiresApproval(args)) {
+      return tool.execute(args, api, context);
+    }
     const key = String(api.taskId);
     const binding = tool.name === "bash" ? bindingForCall(args, api) : undefined;
     // A fresh read at admission, never a cached rule list. Forks/workers start with an empty doc.
@@ -168,16 +183,31 @@ const gateTool = (tool: ToolRegistration): ToolRegistration => ({
   },
 });
 
-const gate = (tool: ToolRegistration) => wrapTool(withAbortRace(tool), gateTool);
+const gate = (tool: ToolRegistration, requiresApproval?: (args: unknown) => boolean): Wrap =>
+  wrapTool(tool, (installed) => gateTool(withAbortRace(installed), requiresApproval));
+
+const gateByName = (name: string, requiresApproval?: (args: unknown) => boolean): Wrap => ({
+  tool: name,
+  wrap: (installed: ToolRegistration) => gateTool(withAbortRace(installed), requiresApproval),
+});
 
 /**
- * Gate every coding tool behind approval. Wraps match by tool name, wherever they come from.
+ * Gate coding tools, mutating `schedule` actions, and `agents` `send` behind approval. Wraps match
+ * by tool name, wherever they come from (including nested `codemode` calls).
  * Each tool is first made abort-interruptible (`withAbortRace`): a step that ignores the run's
  * cancellation can no longer pin `POST /abort`, so stopping is immediate.
  */
 export const Approvals = defineExtension({
   name: "approvals",
-  wraps: [gate(createReadTool()), gate(createViewTool()), gate(createWriteTool()), gate(createEditTool()), gate(createBashTool())],
+  wraps: [
+    gate(createReadTool()),
+    gate(createViewTool()),
+    gate(createWriteTool()),
+    gate(createEditTool()),
+    gate(createBashTool()),
+    gateByName("schedule", requiresScheduleApproval),
+    gateByName("agents", requiresAgentsApproval),
+  ],
 });
 
 // ---- Wire helpers -------------------------------------------------------------------

@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   applyLiveToolOutput,
   liveToolOutputs,
+  permissionDescription,
+  permissionDetail,
   piApprovalToPermissionRequest,
   piConversationToSession,
   piEntriesToMessages,
@@ -451,6 +453,73 @@ describe('models, approvals, questions, inbox', () => {
     expect(question.id).toBe('13:78');
     expect(question.questions[0].question).toBe('Which licence?');
     expect(question.questions[0].options.map((option) => option.label)).toEqual(['MIT', 'CC-BY']);
+  });
+
+  test('schedule, agents, and MCP approvals map with human-readable descriptions and details, never undefined', () => {
+    const scheduleCreate = piApprovalToPermissionRequest('hearth', {
+      conversationId: '12',
+      key: '81',
+      tool: 'schedule',
+      arguments: {
+        action: 'create',
+        name: 'Morning deploy check',
+        schedule: { kind: 'daily', time: '09:00', timezone: 'Europe/Berlin' },
+        cwd: '/workspace/app',
+        prompt: 'Check deploy health and report regressions.',
+      },
+    });
+    expect(permissionDescription(scheduleCreate)).toMatch(/unattended/i);
+    expect(permissionDescription(scheduleCreate)).toMatch(/YOLO/i);
+    expect(permissionDescription(scheduleCreate)).not.toMatch(/undefined|null|!/);
+    const scheduleText = permissionDetail(scheduleCreate);
+    expect(scheduleText).toContain('create');
+    expect(scheduleText).toContain('Morning deploy check');
+    expect(scheduleText).toContain('daily 09:00 Europe/Berlin');
+    expect(scheduleText).toContain('/workspace/app');
+    expect(scheduleText).toContain('Check deploy health and report regressions.');
+    expect(scheduleText).not.toMatch(/undefined|null/);
+
+    const agentSend = piApprovalToPermissionRequest('hearth', {
+      conversationId: '12',
+      key: '82',
+      tool: 'agents',
+      arguments: {
+        action: 'send',
+        name: 'Tower/Archivist',
+        followUp: true,
+        message: 'Re-index the schema docs.',
+      },
+    });
+    expect(permissionDescription(agentSend)).toMatch(/bot|session/i);
+    expect(permissionDescription(agentSend)).toMatch(/YOLO/i);
+    expect(permissionDescription(agentSend)).not.toMatch(/undefined|null|!/);
+    const agentText = permissionDetail(agentSend);
+    expect(agentText).toContain('send');
+    expect(agentText).toContain('Tower/Archivist');
+    expect(agentText).toContain('Re-index the schema docs.');
+    expect(agentText).not.toMatch(/undefined|null/);
+
+    const mcpCall = piApprovalToPermissionRequest('hearth', {
+      conversationId: '12',
+      key: '83',
+      tool: 'github__create_issue',
+      arguments: { repo: 'org/ember', title: 'Audit finding', assignee: undefined },
+    });
+    expect(permissionDescription(mcpCall)).toContain('create_issue');
+    expect(permissionDescription(mcpCall)).toContain('github');
+    expect(permissionDetail(mcpCall)).toContain('org/ember');
+    expect(permissionDetail(mcpCall)).not.toMatch(/undefined|null/);
+
+    // Sparse or malformed inputs never throw or leak "undefined" / "NaN".
+    for (const sparse of [
+      { conversationId: '12', key: '84', tool: 'schedule', arguments: { action: 'delete', schedule: { kind: 'once', at: Number.NaN } } },
+      { conversationId: '12', key: '85', tool: 'agents', arguments: undefined },
+      { conversationId: '12', key: '86', tool: 'faux__ping', arguments: {} },
+    ]) {
+      const mapped = piApprovalToPermissionRequest('hearth', sparse);
+      expect(permissionDescription(mapped)).not.toMatch(/undefined|null|NaN|!/);
+      expect(permissionDetail(mapped)).not.toMatch(/undefined|null|NaN/);
+    }
   });
 
   test('an attached image maps onto a file part, and an image-only turn survives', () => {

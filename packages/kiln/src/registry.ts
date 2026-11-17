@@ -62,6 +62,9 @@ export const hearthRegistry = (
   registry.install(CodingTools);
   // `view`: show an image file to a vision-capable model (pi-durable's `read` refuses images).
   registry.install(View);
+  // `Approvals` wraps `read`/`view`/`write`/`edit`/`bash` plus mutating `schedule` actions and
+  // `agents` `send`, matching by tool name across all installed extensions (including nested
+  // `codemode` calls).
   registry.install(Approvals);
   // After `Approvals`: reports what a shell command left running, outside the gate.
   registry.install(Leftovers);

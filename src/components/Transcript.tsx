@@ -63,7 +63,7 @@ import {
 import { isMessageRead } from '../lib/readState';
 import { readReceiptDismissIn } from '../lib/readReceiptTimer';
 import { showUnreadNotifications } from '../lib/sessionUnread';
-import { entryOrdinal } from '../lib/piMapping';
+import { entryOrdinal, permissionDescription, permissionDetail } from '../lib/piMapping';
 import { copyText } from '@/lib/clipboard';
 import { useStableCallback } from '@/lib/useStableCallback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -279,25 +279,6 @@ const visibleBlocks = (
       (block.type !== 'reasoning' || reasoningDisplay !== 'hidden') &&
       (block.type !== 'ask' || showQuestions)
   );
-
-const metaString = (metadata: Record<string, unknown>, keys: string[]): string => {
-  for (const key of keys) {
-    const value = metadata[key];
-    if (typeof value === 'string' && value) return value;
-  }
-  return '';
-};
-
-/** The one thing worth showing for a permission: the command, the file, or the URL. */
-const permissionDetail = (request: PermissionRequest): string => {
-  const tool = request.permission.toLowerCase();
-  const { metadata } = request;
-  if (tool === 'bash' || tool === 'shell') return metaString(metadata, ['command', 'cmd', 'script']);
-  if (tool === 'webfetch' || tool === 'fetch') return metaString(metadata, ['url', 'uri']);
-  const path = metaString(metadata, ['filePath', 'file_path', 'path', 'filename']);
-  if (path) return path;
-  return request.patterns.join('\n');
-};
 
 /** A tool's input as a one-liner when it's a command, otherwise compact JSON. */
 const describeInput = (input: Record<string, unknown>): string => {
@@ -914,7 +895,7 @@ const MessageError = ({ error }: { error: string }) => {
   );
 };
 
-const PermissionCard = ({
+export const PermissionCard = ({
   request,
   onReply,
 }: {
@@ -926,7 +907,8 @@ const PermissionCard = ({
   const similarTrigger = React.useRef<HTMLButtonElement>(null);
   const [remembered, setRemembered] = React.useState(false);
   const detail = permissionDetail(request) || approvalCommand(request);
-  const description = metaString(request.metadata, ['description']);
+  const description = permissionDescription(request);
+  const canRememberSimilar = isPiInstance(request.instanceId) && request.permission.trim().toLowerCase() === 'bash';
 
   const reply = async (value: PermissionReply) => {
     setBusy(value);
@@ -962,7 +944,7 @@ const PermissionCard = ({
               {busy === 'once' ? <Loader2 className="animate-spin" /> : <Check />}
               Allow once
             </Button>
-            {isPiInstance(request.instanceId) ? <Button ref={similarTrigger} size="xs" variant="outline" disabled={busy !== null} onClick={() => setSimilarOpen(true)}>Allow similar…</Button> : null}
+            {canRememberSimilar ? <Button ref={similarTrigger} size="xs" variant="outline" disabled={busy !== null} onClick={() => setSimilarOpen(true)}>Allow similar…</Button> : null}
             <Button size="xs" variant="outline" disabled={busy !== null} onClick={() => void reply('reject')}>
               {busy === 'reject' ? <Loader2 className="animate-spin" /> : null}
               Deny

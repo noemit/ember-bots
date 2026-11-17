@@ -1144,20 +1144,215 @@ export type PiApproval = {
   arguments?: Record<string, unknown>;
 };
 
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+const BUILTIN_PERMISSIONS = new Set([
+  'bash',
+  'shell',
+  'read',
+  'view',
+  'write',
+  'edit',
+  'webfetch',
+  'fetch',
+  'glob',
+  'grep',
+]);
+
+const nonEmptyString = (value: unknown): string =>
+  typeof value === 'string' ? value.trim() : '';
+
+const metaString = (metadata: Record<string, unknown>, keys: readonly string[]): string => {
+  const args = asRecord(metadata.arguments);
+  for (const key of keys) {
+    const direct = metadata[key];
+    if (typeof direct === 'string' && direct.trim()) return direct;
+    const nested = args?.[key];
+    if (typeof nested === 'string' && nested.trim()) return nested;
+  }
+  return '';
+};
+
+const cleanJsonPreview = (record: Record<string, unknown> | undefined): string => {
+  if (!record) return '';
+  const entries = Object.entries(record).filter(([, value]) => value !== undefined && value !== null);
+  if (entries.length === 0) return '';
+  try {
+    return (
+      JSON.stringify(
+        Object.fromEntries(entries),
+        (_key, value: unknown) => {
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            return Object.fromEntries(
+              Object.entries(value as Record<string, unknown>).filter(
+                ([, nested]) => nested !== undefined && nested !== null
+              )
+            );
+          }
+          return value;
+        },
+        2
+      ) ?? ''
+    );
+  } catch {
+    return '';
+  }
+};
+
+const formatScheduleSpec = (raw: unknown): string => {
+  const spec = asRecord(raw);
+  if (!spec) return '';
+  const kind = nonEmptyString(spec.kind);
+  const zone = nonEmptyString(spec.timezone);
+  if (kind === 'once') {
+    if (typeof spec.at === 'number' && Number.isFinite(spec.at)) {
+      const date = new Date(spec.at);
+      if (Number.isFinite(date.getTime())) {
+        return `once ${date.toISOString().replace('T', ' ').slice(0, 16)} UTC`;
+      }
+    }
+    return 'once';
+  }
+  if (kind === 'daily') {
+    const time = nonEmptyString(spec.time);
+    return ['daily', time, zone || (time ? '(host timezone)' : '')].filter(Boolean).join(' ');
+  }
+  if (kind === 'weekly') {
+    const days = Array.isArray(spec.weekdays)
+      ? [...new Set(
+          spec.weekdays.filter(
+            (day): day is number =>
+              typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 6
+          )
+        )]
+          .sort((a, b) => a - b)
+          .map((day) => WEEKDAY_LABELS[day])
+          .join(',')
+      : '';
+    const time = nonEmptyString(spec.time);
+    return ['weekly', days, time, zone || (time ? '(host timezone)' : '')].filter(Boolean).join(' ');
+  }
+  return cleanJsonPreview(spec);
+};
+
+const mcpToolParts = (permission: string): { server: string; tool: string } | null => {
+  const index = permission.indexOf('__');
+  if (index <= 0 || index + 2 >= permission.length) return null;
+  return { server: permission.slice(0, index), tool: permission.slice(index + 2) };
+};
+
+/** Calm, plain-language explanation of what approving a non-trivial tool call grants. */
+export const permissionDescription = (request: PermissionRequest): string => {
+  const metadata = asRecord(request.metadata);
+  const explicit = nonEmptyString(metadata?.description);
+  if (explicit) return explicit;
+  const rawPermission = nonEmptyString(request.permission);
+  const tool = rawPermission.toLowerCase();
+  const args = asRecord(metadata?.arguments) ?? metadata ?? {};
+  if (tool === 'schedule') {
+    const action = nonEmptyString(args.action).toLowerCase();
+    if (action === 'remove' || action === 'delete') {
+      return 'Removes this scheduled plan from Kiln so future unattended YOLO runs stop.';
+    }
+    return 'Scheduled plans run unattended in YOLO mode — each run starts a fresh session where tools execute without asking for approval.';
+  }
+  if (tool === 'agents') {
+    return 'Sends a message to another bot session. If that session has YOLO mode on, it can run tools without asking here first.';
+  }
+  const mcp = mcpToolParts(rawPermission);
+  if (mcp) {
+    return `Calls "${mcp.tool}" on external MCP server "${mcp.server}".`;
+  }
+  if (tool && !BUILTIN_PERMISSIONS.has(tool)) {
+    return `Runs external tool "${rawPermission}".`;
+  }
+  return '';
+};
+
+/** The concrete payload worth inspecting before approving: command, path, schedule, recipient, or MCP inputs. */
+export const permissionDetail = (request: PermissionRequest): string => {
+  const rawPermission = nonEmptyString(request.permission);
+  const tool = rawPermission.toLowerCase();
+  const metadata = asRecord(request.metadata) ?? {};
+  const args = asRecord(metadata.arguments) ?? metadata;
+  const patterns = request.patterns.filter(Boolean).join('\n');
+
+  if (tool === 'schedule') {
+    const lines: string[] = [];
+    const action = nonEmptyString(args.action);
+    if (action) lines.push(`Action: ${action}`);
+    const task = nonEmptyString(args.task);
+    const name = nonEmptyString(args.name);
+    if (task && name && task !== name) lines.push(`Task: ${task} → ${name}`);
+    else if (name || task) lines.push(`Task: ${name || task}`);
+    const schedule = formatScheduleSpec(args.schedule);
+    if (schedule) lines.push(`Schedule: ${schedule}`);
+    const cwd = nonEmptyString(args.cwd);
+    if (cwd) lines.push(`cwd: ${cwd}`);
+    const model = asRecord(args.model);
+    const provider = nonEmptyString(model?.provider);
+    const modelId = nonEmptyString(model?.modelId);
+    if (provider && modelId) lines.push(`Model: ${provider}/${modelId}`);
+    if (typeof args.enabled === 'boolean') lines.push(`Status: ${args.enabled ? 'enabled' : 'paused'}`);
+    const prompt = nonEmptyString(args.prompt);
+    if (prompt) lines.push(`Prompt:\n${prompt}`);
+    return lines.join('\n') || patterns;
+  }
+
+  if (tool === 'agents') {
+    const lines: string[] = [];
+    const action = nonEmptyString(args.action);
+    if (action) lines.push(`Action: ${action}`);
+    const target = nonEmptyString(args.name);
+    if (target) lines.push(`To: ${target}`);
+    if (args.followUp === true) lines.push('Delivery: queue after current turn');
+    const message = nonEmptyString(args.message);
+    if (message) lines.push(`Message:\n${message}`);
+    return lines.join('\n') || patterns;
+  }
+
+  if (tool === 'bash' || tool === 'shell') {
+    return metaString(metadata, ['command', 'cmd', 'script']) || patterns;
+  }
+  if (tool === 'webfetch' || tool === 'fetch') {
+    return metaString(metadata, ['url', 'uri']) || patterns;
+  }
+  if (tool === 'read' || tool === 'view' || tool === 'write' || tool === 'edit') {
+    return metaString(metadata, ['filePath', 'file_path', 'path', 'filename']) || patterns;
+  }
+
+  for (const key of ['filePath', 'file_path', 'path', 'filename']) {
+    const direct = metadata[key];
+    if (typeof direct === 'string' && direct.trim()) return direct;
+  }
+  if (patterns) return patterns;
+  const preview = cleanJsonPreview(asRecord(metadata.arguments));
+  if (preview) return preview;
+  const mcp = mcpToolParts(rawPermission);
+  return mcp ? `${mcp.server} / ${mcp.tool}` : '';
+};
+
 export const piApprovalToPermissionRequest = (
   endpointId: string,
   approval: PiApproval
-): PermissionRequest => ({
-  id: `${approval.conversationId}:${approval.key}`,
-  instanceId: endpointId,
-  sessionId: String(approval.conversationId),
-  permission: approval.tool,
-  patterns: [],
-  metadata: {
-    message: `The bot wants to run ${approval.tool}`,
-    arguments: approval.arguments ?? {},
-  },
-});
+): PermissionRequest => {
+  const tool = nonEmptyString(approval.tool) || 'tool';
+  const args = asRecord(approval.arguments) ?? {};
+  const request: PermissionRequest = {
+    id: `${approval.conversationId}:${approval.key}`,
+    instanceId: endpointId,
+    sessionId: String(approval.conversationId),
+    permission: tool,
+    patterns: [],
+    metadata: {
+      message: `The bot wants to run ${tool}`,
+      arguments: args,
+    },
+  };
+  const description = permissionDescription(request);
+  if (description) request.metadata.description = description;
+  return request;
+};
 
 export type PiQuestion = {
   conversationId: string; key: string; question: string; options?: string[];

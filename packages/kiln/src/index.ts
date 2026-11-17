@@ -128,10 +128,11 @@ export const runKiln = async (): Promise<void> => {
   }
   const mcpConfigPath = join(config.home, "mcp.json");
   const mcp = await buildMcpTools(readMcpConfig(mcpConfigPath), mcpConfigPath);
-  // MCP servers (Playwright first) register their tools into the same registry. The loaded config
-  // path and servers also go into the prompt, so an agent can't misattribute where its tools came from.
-  // The registry is built after them so `codemode` knows their namespaces (a script sees
-  // `tools.github_search(...)`, grouped under `github`) from the first request on.
+  // MCP servers (Playwright first) register their tools into the same registry, wrapped through
+  // `withAbortRace` + `gateTool` so non-YOLO conversations approve external server calls too.
+  // The loaded config path and servers also go into the prompt, so an agent can't misattribute where
+  // its tools came from. The registry is built after them so `codemode` knows their namespaces (a
+  // script sees `tools.github_search(...)`, grouped under `github`) from the first request on.
   const registry = hearthRegistry(config.home, { namespaces: mcpNamespaces(mcp.summary) });
   if (mcp.tools.length > 0) {
     registry.install({ name: "mcp", tools: mcp.tools, sections: [mcpSection(mcp.summary)] });

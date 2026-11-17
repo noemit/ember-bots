@@ -2,6 +2,10 @@ import { expect, test } from 'bun:test';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import { createModels } from '@earendil-works/pi-ai/models';
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
+import { createRegistry, Harness, MemoryStorage } from '@earendil-works/pi-durable';
+import { AutoAcceptDoc, pendingApprovals, replyApproval, setAutoAccept } from '../src/approvals';
 import {
   actionNameOf,
   buildMcpTools,
@@ -9,12 +13,22 @@ import {
   isReadOnlyMcpTool,
   mcpContentToHearth,
   mcpNamespaces,
+  mcpSection,
   readMcpConfig,
 } from '../src/mcp';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = join(here, 'fixtures', 'faux-mcp.ts');
 const browserFixture = join(here, 'fixtures', 'faux-browser.ts');
+
+const autoAcceptApi = {
+  taskId: 1,
+  callId: 'c1',
+  conversationId: 1,
+  output: () => {},
+  snapshot: async (doc: unknown) => (doc === AutoAcceptDoc ? { enabled: true, allowed: [] } : undefined),
+  commit: async () => {},
+} as never;
 
 test('readMcpConfig tolerates a missing or malformed file', () => {
   expect(readMcpConfig(join(here, 'does-not-exist.json'))).toEqual({ mcpServers: {} });
@@ -33,7 +47,7 @@ test('buildMcpTools spawns a server, registers its tools, and calls one', async 
     });
     const tool = tools[0];
     // 1.4.0 results carry `output`, and MCP tools are callable from a codemode script.
-    const result = await tool.execute({ text: 'hi' }, {} as never, BACKGROUND_CONTEXT);
+    const result = await tool.execute({ text: 'hi' }, autoAcceptApi, BACKGROUND_CONTEXT);
     expect(result.output).toEqual([{ type: 'text', text: 'echo: hi' }]);
     expect(tool.callers).toEqual(['model', 'tools']);
     // No readOnlyHint and no config override: an MCP call may change the world, so no rerun.
@@ -111,7 +125,7 @@ test('buildMcpTools collapses a server into one action-dispatch tool', async () 
     expect(tools[0].callers).toEqual(['model', 'tools']);
     // Clicking is not a read: the dispatcher must not rerun after a restart.
     expect(tools[0].replay).toBe('unsafe');
-    const api = { output: () => {} } as never;
+    const api = autoAcceptApi;
     // Flattened inputs, nested `parameters`, and image pass-through.
     expect((await tools[0].execute({ action: 'navigate', url: 'https://example.com' }, api, BACKGROUND_CONTEXT)).output).toEqual([
       { type: 'text', text: 'navigated to https://example.com' },
@@ -149,3 +163,76 @@ test('a read-only collapsed server is replay-safe', async () => {
     close();
   }
 }, 20_000);
+
+test('non-YOLO MCP tool calls park in ApprovalsDoc until approved, and YOLO calls run immediately', async () => {
+  const mcp = await buildMcpTools(
+    {
+      mcpServers: {
+        faux: { command: 'bun', args: ['run', fixture] },
+        playwright: { command: 'bun', args: ['run', browserFixture], tool: 'browser' },
+      },
+    },
+    '/tmp/mcp.json'
+  );
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall('faux__echo', { text: 'gated-echo' })], { stopReason: 'toolUse' }),
+    fauxAssistantMessage([fauxText('Echo ran after approval.')]),
+    fauxAssistantMessage([fauxToolCall('browser', { action: 'navigate', url: 'https://example.com' })], { stopReason: 'toolUse' }),
+    fauxAssistantMessage([fauxText('Browser rejected.')]),
+    fauxAssistantMessage([fauxToolCall('faux__echo', { text: 'yolo-echo' })], { stopReason: 'toolUse' }),
+    fauxAssistantMessage([fauxText('YOLO ran.')]),
+  ]);
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const registry = createRegistry();
+  registry.install({ name: 'mcp', tools: mcp.tools, sections: [mcpSection(mcp.summary)] });
+  const harness = await Harness.open(new MemoryStorage(), { models, registry }, BACKGROUND_CONTEXT);
+  try {
+    const conv = await harness.root(BACKGROUND_CONTEXT, { agent: { model: { provider: 'faux', modelId: 'faux-1' } } });
+
+    // 1. Direct MCP tool (`faux__echo`) parks while AutoAcceptDoc.enabled is false.
+    const first = await conv.submit({ type: 'input', content: 'echo it' }, BACKGROUND_CONTEXT);
+    let pending = await pendingApprovals(harness, [conv.id]);
+    for (let i = 0; i < 100 && pending.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      pending = await pendingApprovals(harness, [conv.id]);
+    }
+    expect(pending).toHaveLength(1);
+    expect(pending[0].tool).toBe('faux__echo');
+    expect(pending[0].arguments).toEqual({ text: 'gated-echo' });
+
+    expect(await replyApproval(harness, conv.id, pending[0].key, 'once')).toBe(true);
+    expect((await first.wait(BACKGROUND_CONTEXT)).status).toBe('done');
+    const firstEntries = JSON.stringify((await conv.entries({}, 20, undefined, BACKGROUND_CONTEXT)).items);
+    expect(firstEntries).toContain('echo: gated-echo');
+
+    // 2. Collapsed MCP tool (`browser`) also parks; rejecting blocks execution.
+    const second = await conv.submit({ type: 'input', content: 'open site' }, BACKGROUND_CONTEXT);
+    pending = await pendingApprovals(harness, [conv.id]);
+    for (let i = 0; i < 100 && pending.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      pending = await pendingApprovals(harness, [conv.id]);
+    }
+    expect(pending).toHaveLength(1);
+    expect(pending[0].tool).toBe('browser');
+    expect(pending[0].arguments).toEqual({ action: 'navigate', url: 'https://example.com' });
+
+    expect(await replyApproval(harness, conv.id, pending[0].key, 'reject')).toBe(true);
+    expect((await second.wait(BACKGROUND_CONTEXT)).status).toBe('done');
+    const secondEntries = JSON.stringify((await conv.entries({}, 20, undefined, BACKGROUND_CONTEXT)).items);
+    expect(secondEntries).not.toContain('navigated to https://example.com');
+    expect(secondEntries).toContain('The user rejected this tool call.');
+
+    // 3. Enabling YOLO (`AutoAcceptDoc.enabled = true`) runs MCP tools without parking.
+    await setAutoAccept(harness, conv.id, true, BACKGROUND_CONTEXT);
+    const third = await conv.submit({ type: 'input', content: 'yolo echo' }, BACKGROUND_CONTEXT);
+    expect((await third.wait(BACKGROUND_CONTEXT)).status).toBe('done');
+    expect(await pendingApprovals(harness, [conv.id])).toHaveLength(0);
+    const thirdEntries = JSON.stringify((await conv.entries({}, 20, undefined, BACKGROUND_CONTEXT)).items);
+    expect(thirdEntries).toContain('echo: yolo-echo');
+  } finally {
+    await harness.close(BACKGROUND_CONTEXT);
+    mcp.close();
+  }
+}, 30_000);

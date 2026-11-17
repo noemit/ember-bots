@@ -17,7 +17,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
-import { Approvals } from "../src/approvals";
+import { Approvals, setAutoAccept } from "../src/approvals";
 import { AskTool } from "../src/ask";
 import { hearthConfig } from "../src/config";
 import { FileCredentialStore } from "../src/credentials";
@@ -1397,6 +1397,7 @@ describe("hearth wire", () => {
       );
     const leader = await make("Crew leader");
     const worker = await make("Researcher #1");
+    await setAutoAccept(stack.harness, leader.id, true, context);
     await stack.harness.commit(async (tx) => {
       // A crew doc entry is all a leader needs: the directory path is untouched.
       (await tx.doc(SessionsDoc, leader.id)).items.researcher = {
@@ -2352,6 +2353,7 @@ describe("hearth wire", () => {
         body: JSON.stringify({ title: "Wire operator", model: { provider: "faux", modelId: "faux-1" } }),
       })
     );
+    await setAutoAccept(stack.harness, operator.id, true, context);
 
     const toolText = async (id: number): Promise<string> => {
       const snapshot = await body(await api(`/conversations/${id}`));

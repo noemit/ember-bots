@@ -30,6 +30,7 @@ import { defineTool, section, type ToolRegistration } from "@earendil-works/pi-d
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { lit, obj, oneOf, opt, str, type Schema } from "@earendil-works/pi-schema";
+import { gateTool } from "./approvals";
 import { base64LengthLimit } from "./images";
 import { withAbortRace } from "./interrupt";
 import { MAX_IMAGE_BYTES, detectImageMimeType } from "./view";
@@ -463,7 +464,7 @@ export const buildMcpTools = async (
       if (settings.tool) {
         // One action-dispatch tool instead of one tool per MCP tool (e.g. Playwright's 25 → `browser`).
         const collapsed = buildCollapsedTool(settings.tool, listed, client, settings);
-        tools.push(withAbortRace(collapsed.tool));
+        tools.push(gateTool(withAbortRace(collapsed.tool)));
         servers.push({ name: server, toolCount: 1, command, tool: settings.tool, actions: collapsed.actionCount });
         console.log(
           `[hearth] mcp server ${server}: ${collapsed.actionCount} action(s) exposed as \`${settings.tool}\` (from ${configPath || "mcp.json"})`
@@ -472,24 +473,26 @@ export const buildMcpTools = async (
         let count = 0;
         for (const tool of listed) {
           tools.push(
-            withAbortRace(
-              defineTool({
-                name: `${server}__${tool.name}`,
-                description: tool.description ?? `${server} MCP tool: ${tool.name}`,
-                // An MCP server ships its own JSON Schema; pi-schema's `Schema` is exactly that shape.
-                parameters: (tool.inputSchema ?? obj({}, { open: true })) as Schema,
-                replay: isReadOnlyMcpTool(settings, tool) ? "safe" : "unsafe",
-                // Callable from a `codemode` script: `tools.<server>__<tool>(args)`.
-                callers: ["model", "tools"],
-                execute: async (args: Record<string, unknown>) => {
-                  const result = await client.callTool(tool.name, args ?? {});
-                  const output = mcpContentToHearth(result.content);
-                  return {
-                    output: output.length > 0 ? output : [{ type: "text" as const, text: "(no output)" }],
-                    ...(result.isError ? { isError: true } : {}),
-                  };
-                },
-              })
+            gateTool(
+              withAbortRace(
+                defineTool({
+                  name: `${server}__${tool.name}`,
+                  description: tool.description ?? `${server} MCP tool: ${tool.name}`,
+                  // An MCP server ships its own JSON Schema; pi-schema's `Schema` is exactly that shape.
+                  parameters: (tool.inputSchema ?? obj({}, { open: true })) as Schema,
+                  replay: isReadOnlyMcpTool(settings, tool) ? "safe" : "unsafe",
+                  // Callable from a `codemode` script: `tools.<server>__<tool>(args)`.
+                  callers: ["model", "tools"],
+                  execute: async (args: Record<string, unknown>) => {
+                    const result = await client.callTool(tool.name, args ?? {});
+                    const output = mcpContentToHearth(result.content);
+                    return {
+                      output: output.length > 0 ? output : [{ type: "text" as const, text: "(no output)" }],
+                      ...(result.isError ? { isError: true } : {}),
+                    };
+                  },
+                })
+              )
             )
           );
           count += 1;
