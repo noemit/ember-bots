@@ -3,6 +3,13 @@ import MosaicRainbow from './MosaicRainbow';
 import MosaicActivity from './MosaicActivity';
 import { seedIdentity, hashString } from './seed';
 import { mosaicBaseHex, mosaicField, mosaicGeometry, mosaicSurfaces } from './mosaic';
+import {
+  MOSAIC_CACHE_LIMIT,
+  createLruCache,
+  normalizeAnimationScope,
+  registerFrozenTiles,
+} from './mosaicCache';
+import type { ActivityCell } from './mosaicActivityPlan';
 import { getThemeRevision, subscribeTheme } from '../themes';
 import { usePupilTracking } from './usePupilTracking';
 import { MoodBadge } from './overlays';
@@ -12,7 +19,34 @@ import './blob-mosaic.css';
 
 type Props = { seed: string; identity?: AvatarIdentity; size?: number; mood?: BallMood; state?: BallState; interactive?: boolean };
 
-export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', interactive = true }: Props) {
+type MosaicArt = ReturnType<typeof mosaicGeometry> & {
+  tiles: readonly (ActivityCell & { band: number })[];
+  motionSeed: string;
+  eyeDelay: number;
+};
+
+const mosaicArtCache = createLruCache<string, MosaicArt>(MOSAIC_CACHE_LIMIT);
+
+function getOrCreateMosaicArt(resolved: AvatarIdentity, themeRevision: number): MosaicArt {
+  const baseHex = mosaicBaseHex(resolved);
+  const surfaces = mosaicSurfaces(themeRevision);
+  const key = `${resolved.shapeSeed.length}:${resolved.shapeSeed}:${resolved.shapeName ?? ''}:${baseHex}:${surfaces.join(',')}:${resolved.motionSeed.length}:${resolved.motionSeed}`;
+  const cached = mosaicArtCache.get(key);
+  if (cached) return cached;
+  const geometry = mosaicGeometry(resolved);
+  const field = mosaicField(baseHex, geometry.cells, resolved.colorSeed, surfaces);
+  const tiles = registerFrozenTiles(geometry.cells.map((cell, i) => ({ ...cell, fill: field.colors[i] })));
+  const art: MosaicArt = {
+    ...geometry,
+    tiles,
+    motionSeed: resolved.motionSeed,
+    eyeDelay: -(hashString(`mosaic-eyes:${resolved.motionSeed}`) % 10800) / 1000,
+  };
+  return mosaicArtCache.set(key, art);
+}
+
+function MosaicBlobImpl({ seed, identity, size = 30, mood = 'idle', interactive = true }: Props) {
+  const instanceId = normalizeAnimationScope(React.useId());
   const wrapper = React.useRef<HTMLDivElement>(null);
   const left = React.useRef<SVGGElement>(null);
   const right = React.useRef<SVGGElement>(null);
@@ -21,12 +55,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
   const art = React.useMemo(() => {
     // Historical face/accessory data is retained on disk, but never selects a body or renders.
     const resolved = identity ?? seedIdentity(seed);
-    const geometry = mosaicGeometry(resolved);
-    const field = mosaicField(mosaicBaseHex(resolved), geometry.cells, resolved.colorSeed, mosaicSurfaces(themeRevision));
-    return { ...geometry,
-      tiles: geometry.cells.map((cell, i) => ({ ...cell, fill: field.colors[i] })),
-      motionSeed: resolved.motionSeed,
-      eyeDelay: -(hashString(`mosaic-eyes:${resolved.motionSeed}`) % 10800) / 1000 };
+    return getOrCreateMosaicArt(resolved, themeRevision);
   }, [identity, seed, themeRevision]);
   // A two-cell white has only two legal pupil positions. No interpolation off the grid.
   const snapGaze = React.useCallback((x: number): [number, number] =>
@@ -39,8 +68,8 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
       <svg viewBox="0 0 100 100" width={size} height={size}>
         <g data-mosaic-grid transform="translate(8 1) scale(7)" shapeRendering="crispEdges">
           {art.tiles.map(({ x, y, fill }) => <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={fill} />)}
-          {mood === 'thinking' || mood === 'busy' ? <MosaicActivity mood={mood} cells={art.tiles} seed={art.motionSeed} /> : null}
-          {mood === 'thinking' ? <MosaicRainbow cells={art.tiles} seed={art.motionSeed} /> : null}
+          {mood === 'thinking' || mood === 'busy' ? <MosaicActivity instanceId={instanceId} mood={mood} cells={art.tiles} seed={art.motionSeed} /> : null}
+          {mood === 'thinking' ? <MosaicRainbow instanceId={instanceId} cells={art.tiles} seed={art.motionSeed} /> : null}
           <g className="mosaic-eyes">{(mood === 'error' ? art.errorEyes : art.eyes).map(({ x, y }, index) => <g key={x}>
             <g className="mosaic-eye-open">
               <rect data-mosaic-eye x={x} y={y} width={mood === 'error' ? 3 : 2} height={mood === 'error' ? 3 : 1} fill="#fffdf5" />
@@ -60,3 +89,25 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
     </svg>
   </div>;
 }
+
+function sameMosaicIdentity(a?: AvatarIdentity, b?: AvatarIdentity): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.shapeSeed === b.shapeSeed
+    && a.shapeName === b.shapeName
+    && a.colorSeed === b.colorSeed
+    && a.colorIndex === b.colorIndex
+    && a.color === b.color
+    && a.motionSeed === b.motionSeed;
+}
+
+function areMosaicPropsEqual(prev: Props, next: Props): boolean {
+  return prev.seed === next.seed
+    && (prev.size ?? 30) === (next.size ?? 30)
+    && (prev.mood ?? 'idle') === (next.mood ?? 'idle')
+    && (prev.interactive ?? true) === (next.interactive ?? true)
+    && sameMosaicIdentity(prev.identity, next.identity);
+}
+
+const MosaicBlob = React.memo(MosaicBlobImpl, areMosaicPropsEqual);
+export default MosaicBlob;
