@@ -6,13 +6,13 @@ import { seedIdentity } from '../src/blob/seed';
 import { activityKeyframes, mosaicActivityPlan, mosaicPerimeter } from '../src/blob/mosaicActivityPlan';
 
 test('all shapes keep irregular clusters on the perimeter grid and inside the canvas', () => {
-  for (const shape of MOSAIC_SHAPES) for (const mood of ['thinking', 'busy'] as const) {
+  for (const shape of MOSAIC_SHAPES) for (const mood of ['busy'] as const) {
     const cells = mosaicGeometry({ ...seedIdentity('activity'), shapeName: shape.name }).cells.map(cell => ({ ...cell, fill: '#123456' }));
     const perimeter = mosaicPerimeter(cells);
     const plan = mosaicActivityPlan(cells, shape.name, mood);
     expect(plan).toEqual(mosaicActivityPlan(cells, shape.name, mood));
     expect(plan).not.toEqual(mosaicActivityPlan(cells, shape.name + '-other', mood));
-    expect(plan.tracks).toHaveLength(mood === 'thinking' ? 3 : 2);
+    expect(plan.tracks).toHaveLength(2);
     expect(plan.duration).toBeGreaterThan(60);
     expect(plan.duration).toBeLessThan(110);
     for (const events of plan.tracks) {
@@ -51,7 +51,7 @@ test('activity styles and DOM are bounded and absent at rest; repeated identitie
   }
   const markup = renderToStaticMarkup(<><MosaicBlob seed="same" mood="thinking" /><MosaicBlob seed="same" mood="thinking" /></>);
   const names = [...markup.matchAll(/@keyframes ([^{]+)/g)].map(match => match[1]);
-  expect(names).toHaveLength(18);
-  expect(new Set(names).size).toBe(18);
+  expect(names).toHaveLength(4);
+  expect(new Set(names).size).toBe(4);
   expect(markup.length).toBeLessThan(100_000);
 });

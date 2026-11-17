@@ -7,7 +7,7 @@ import { seedIdentity } from '../src/blob/seed';
 import { activityKeyframes, mosaicActivityPlan } from '../src/blob/mosaicActivityPlan';
 import { mosaicRainbowPlan } from '../src/blob/mosaicRainbowPlan';
 
-test('thinking increases perimeter density with spatial and temporal ink diversity, without changing working ink', () => {
+test('thinking keeps spatial and temporal ink diversity, without changing working ink', () => {
   for (const shape of MOSAIC_SHAPES) {
     const cells = mosaicGeometry({ ...seedIdentity('ink'), shapeName: shape.name }).cells.map(cell => ({ ...cell, fill: '#123456' }));
     const thinking = mosaicActivityPlan(cells, shape.name, 'thinking');
@@ -17,10 +17,9 @@ test('thinking increases perimeter density with spatial and temporal ink diversi
     expect(Math.max(...ink)).toBe(1);
     expect(new Set(ink).size).toBe(8);
     expect(thinking.tracks.flat().some(event => new Set(event.cells.map(cell => cell.opacity)).size > 1)).toBe(true);
-    const density = (tracks: typeof thinking.tracks) => tracks.flat().reduce((sum, event) => sum + (event.until - event.at) * event.cells.length, 0);
-    // Former thinking had one sparse track, usually under one visible pixel on average.
-    expect(density(thinking.tracks) / thinking.duration).toBeGreaterThan(2);
-    expect(thinking.tracks.length * 3).toBeLessThanOrEqual(9);
+    expect(thinking.tracks).toHaveLength(1);
+    expect(thinking.slots).toBe(2);
+    expect(thinking.tracks[0].length / thinking.duration).toBeGreaterThan(3);
     for (const track of busy.tracks) {
       expect(track.every(event => event.cells.every(cell => cell.opacity === undefined))).toBe(true);
       expect(activityKeyframes(track, 0, busy.duration)).toContain('opacity:1;');

@@ -1,8 +1,9 @@
 import { hashString, mulberry32 } from './seed';
+import { mosaicThinkingPlan } from './mosaicThinkingPlan';
 
 export type ActivityCell = { x: number; y: number; fill: string; opacity?: number };
 export type ActivityEvent = { at: number; until: number; cells: ActivityCell[] };
-export type MosaicActivityPlan = { duration: number; delay: number; tracks: ActivityEvent[][] };
+export type MosaicActivityPlan = { duration: number; delay: number; tracks: ActivityEvent[][]; slots: number };
 const key = (x: number, y: number) => `${x}:${y}`;
 const adjacent = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
 
@@ -22,11 +23,12 @@ export function mosaicPerimeter(cells: readonly ActivityCell[]): ActivityCell[] 
 /** Long, seeded event tracks vary location, cluster size, hold and rest independently. CSS owns
  * the clock: there are no animation timers, frame callbacks or React updates during playback. */
 export function mosaicActivityPlan(cells: readonly ActivityCell[], seed: string, mood: 'busy' | 'thinking'): MosaicActivityPlan {
+  if (mood === 'thinking') return mosaicThinkingPlan(cells, seed);
   const random = mulberry32(hashString(`mosaic-perimeter:${seed}:${mood}`));
   const perimeter = mosaicPerimeter(cells);
   const duration = 79 + Math.floor(random() * 28);
   const delay = -random() * duration;
-  const tracks = Array.from({ length: mood === 'thinking' ? 3 : 2 }, () => {
+  const tracks = Array.from({ length: 2 }, () => {
     const events: ActivityEvent[] = [];
     if (!perimeter.length) return events;
     let at = random() * 3, previous = -1;
@@ -39,15 +41,13 @@ export function mosaicActivityPlan(cells: readonly ActivityCell[], seed: string,
       const cluster = [origin];
       const count = 1 + Math.floor(random() * 3);
       while (cluster.length < count && neighbours.length) cluster.push(neighbours.splice(Math.floor(random() * neighbours.length), 1)[0]);
-      // Only thinking varies pigment density; working retains its original opaque beats.
-      const pigments = mood === 'thinking' ? cluster.map(cell => ({ ...cell, opacity: .3 + Math.floor(random() * 8) / 10 })) : cluster;
-      const until = at + (mood === 'thinking' ? .4 + random() * 1.1 : .22 + random() * .65);
-      events.push({ at, until, cells: pigments });
-      at = until + (mood === 'thinking' ? .3 + random() * 1.2 : .45 + random() * 1.7);
+      const until = at + (.22 + random() * .65);
+      events.push({ at, until, cells: cluster });
+      at = until + (.45 + random() * 1.7);
     }
     return events;
   });
-  return { duration, delay, tracks };
+  return { duration, delay, tracks, slots: 3 };
 }
 
 export function activityKeyframes(events: ActivityEvent[], slot: number, duration: number): string {
