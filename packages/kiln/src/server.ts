@@ -1691,26 +1691,24 @@ const server = Bun.serve<{
         }
         if (request.method === "PUT") {
           const body = await readBody(request);
-          const rawPeers = Array.isArray(body.peers) ? body.peers : null;
-          if (!rawPeers) return badRequest("peers must be an array");
-          const peers: PeerEndpoint[] = [];
-          for (const item of rawPeers) {
-            if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-            const rec = item as Record<string, unknown>;
-            const id = string(rec.id, 120)?.trim();
-            const label = string(rec.label, 120)?.trim();
-            const peerUrl = string(rec.url, 500)?.trim();
-            const peerToken = string(rec.token, 500)?.trim();
-            if (!id || !label || !peerUrl || !peerToken) continue;
-            peers.push({ id, label, url: peerUrl, token: peerToken });
+          if (!Array.isArray(body.peers) || body.peers.length > 100) {
+            return badRequest("Kiln could not update peer connections. Choose up to 100 connections and try again.");
           }
+          const validated = body.peers.map(portablePeer);
+          if (validated.some((peer) => !peer)) {
+            return badRequest(
+              "Kiln could not save those peer connections. Use private-network or HTTPS addresses reachable from another computer, with a connection token, then try again."
+            );
+          }
+          const peers = validated as PeerEndpoint[];
+          let stored: PeerEndpoint[] = [];
           await harness.commit(async (tx) => {
             const doc = await tx.doc(AgentsDoc);
-            doc.peers = body.merge === true ? mergePeers(doc.peers ?? [], peers) : peers;
-            peers.splice(0, peers.length, ...doc.peers);
+            stored = body.merge === true ? mergePeers(doc.peers ?? [], peers) : mergePeers([], peers);
+            doc.peers = stored;
           }, context);
-          writePeersMirror(config.home, peers);
-          return json({ ok: true, count: peers.length });
+          writePeersMirror(config.home, stored);
+          return json({ ok: true, count: stored.length });
         }
         return noRoute(request.method, path, routeMethods(path));
       }

@@ -2636,6 +2636,40 @@ test('alignment previews contain no secrets and imports are fill-only and merge 
     await api('/directory/peers', { method: 'PUT', body: JSON.stringify({ merge: true, peers: [{ ...destination, id: 'other', url: 'http://100.64.0.26:3002' }] }) });
     const merged = await body(await api('/directory/peers'));
     expect(merged.peers.some((p: { id: string }) => p.id === destination.id)).toBe(true);
+
+    // PUT /directory/peers rejects non-arrays and loopback/link-local/wildcard/plain-HTTP URLs, and accepts tokens up to 4096 chars.
+    const notArray = await api('/directory/peers', { method: 'PUT', body: JSON.stringify({ peers: 'invalid' }) });
+    expect(notArray.status).toBe(400);
+    const notArrayError = String((await body(notArray)).error);
+    expect(notArrayError).toContain('Kiln');
+    expect(notArrayError).not.toContain('!');
+
+    for (const invalidUrl of ['http://127.0.0.1:3002', 'http://localhost:3002', 'http://169.254.169.254', 'https://169.254.169.254', 'http://0.0.0.0:3002', 'http://example.com:3002']) {
+      const rejected = await api('/directory/peers', {
+        method: 'PUT',
+        body: JSON.stringify({ peers: [{ id: 'bad', label: 'Bad', url: invalidUrl, token: 'secret' }] }),
+      });
+      expect(rejected.status).toBe(400);
+      const errText = String((await body(rejected)).error);
+      expect(errText).toContain('Kiln');
+      expect(errText).toMatch(/private-network|HTTPS/i);
+      expect(errText).not.toContain('!');
+    }
+
+    const longToken = 'k'.repeat(4096);
+    const savedLong = await api('/directory/peers', {
+      method: 'PUT',
+      body: JSON.stringify({ peers: [{ id: 'long-token-peer', label: 'Long token peer', url: 'https://long-token.example', token: longToken }] }),
+    });
+    expect(savedLong.status).toBe(200);
+    const storedLong = await body(await api('/alignment/connections', { method: 'POST', body: '{}' }));
+    expect(storedLong.peers.find((p: { id: string }) => p.id === 'long-token-peer')?.token).toBe(longToken);
+
+    const oversizedToken = await api('/directory/peers', {
+      method: 'PUT',
+      body: JSON.stringify({ peers: [{ id: 'too-long', label: 'Too long', url: 'https://long-token.example', token: 'k'.repeat(4097) }] }),
+    });
+    expect(oversizedToken.status).toBe(400);
   } finally {
     await api(`/providers/${sourceId}`, { method: 'DELETE' });
     await api('/directory/peers', { method: 'PUT', body: JSON.stringify({ peers: [] }) });

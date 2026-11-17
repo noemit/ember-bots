@@ -159,12 +159,31 @@ test('proxies piRequest, eventStatus, and activity endpoints', async () => {
     expect(piData.ok).toBe(true);
     expect(f.writes).toContain('pi:pi:test:/conversations');
 
-    // Metadata and every credential route remain desktop-only, including encoded paths.
-    for (const path of ['/alignment', '/alignment/connections', '/alignment/share', '/alignment/import', '/alignment%2Fshare']) {
-      const alignment = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path, init: { method: path === '/alignment' ? 'GET' : 'POST' } }, cookie);
-      expect(alignment.status).toBe(403);
+    // Metadata and every credential/peer route remain desktop-only, including encoded and double-slash paths.
+    for (const path of [
+      '/alignment',
+      '/alignment/connections',
+      '/alignment/share',
+      '/alignment/import',
+      '/alignment%2Fshare',
+      '//alignment/share',
+      '/directory/peers',
+      '/directory/peers/',
+      '/directory%2Fpeers',
+      '/%64irectory/peers',
+      '//directory/peers',
+    ]) {
+      const blocked = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path, init: { method: path.includes('peers') ? 'PUT' : path === '/alignment' ? 'GET' : 'POST' } }, cookie);
+      expect(blocked.status).toBe(403);
+      const blockedBody = (await blocked.json()) as { error?: string };
+      expect(blockedBody.error).toContain('desktop app');
+      expect(blockedBody.error).not.toContain('!');
       expect(f.writes).not.toContain(`pi:pi:test:${path}`);
     }
+    const peersGet = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/directory/peers', init: { method: 'GET' } }, cookie);
+    expect(peersGet.status).toBe(403);
+    expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/directory', init: { method: 'GET' } }, cookie)).status).toBe(200);
+    expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/directories', init: { method: 'GET' } }, cookie)).status).toBe(200);
 
     // Host configuration commands and draft credential probes have no remote HTTP surface.
     for (const path of ['/remote/kiln-sharing', '/remote/pi/test', '/remote/local-harness-token']) {

@@ -17,12 +17,16 @@ import {
   agentsMirrorPath,
   createAgentsMdSection,
   createAgentsTool,
+  fetchPeerDirectory,
   formatForeignAgentMessage,
   listAgents,
   mergeDirectory,
+  peersMirrorPath,
   readAgentsMirror,
+  readPeersMirror,
   registerAgent,
   renderKnownAgents,
+  sendToPeer,
   staleAgentNames,
   writeAgentsMirror,
   type AgentEntry,
@@ -448,13 +452,15 @@ describe('agents tool crew messaging', () => {
           {
             id: 'pi:tower',
             label: 'Tower',
-            url: `http://127.0.0.1:${peerServer.port}`,
+            url: 'http://100.64.0.42:3002',
             token: 'peer-secret-token',
           },
         ];
       }, context);
 
-      const tool = createAgentsTool(directory);
+      const routeToPeerServer: typeof fetch = ((input, init) =>
+        fetch(String(input).replace('http://100.64.0.42:3002', `http://127.0.0.1:${peerServer.port}`), init)) as typeof fetch;
+      const tool = createAgentsTool(directory, routeToPeerServer);
       const api = {
         taskId: 99,
         conversationId: sender.id,
@@ -486,4 +492,104 @@ describe('agents tool crew messaging', () => {
       }
     }
   }, 20_000);
+
+  test('peer directory and send reject loopback/link-local/plain-HTTP hosts and never follow HTTP redirects', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'hearth-agents-ssrf-'));
+    let outboundCalls = 0;
+    const forbidSend: typeof fetch = (async () => {
+      outboundCalls += 1;
+      return Response.json({ agents: [] });
+    }) as unknown as typeof fetch;
+
+    for (const badUrl of [
+      'http://127.0.0.1:3002',
+      'http://localhost:3002',
+      'http://[::1]:3002',
+      'http://0.0.0.0:3002',
+      'http://169.254.169.254/latest/meta-data',
+      'https://169.254.169.254/latest/meta-data',
+      'https://[fe80::1]:3002',
+      'http://example.com:3002',
+    ]) {
+      const peer = { id: 'pi:bad', label: 'Bad', url: badUrl, token: 'secret-bearer-token' };
+      const dirResult = await fetchPeerDirectory(peer, forbidSend);
+      expect(dirResult).toEqual({ ok: false, reason: 'invalid' });
+      const sendResult = await sendToPeer(
+        peer,
+        {
+          name: 'Archivist',
+          message: 'hello',
+          followUp: false,
+          senderHost: 'remote',
+          senderName: 'Caller',
+          requestId: 'req-1',
+        },
+        forbidSend
+      );
+      expect(sendResult.ok).toBe(false);
+    }
+    expect(outboundCalls).toBe(0);
+
+    // Mirror reads also strip non-portable entries while keeping valid private/HTTPS peers.
+    writeFileSync(
+      peersMirrorPath(directory),
+      JSON.stringify({
+        peers: [
+          { id: 'pi:local', label: 'Local', url: 'http://127.0.0.1:3002', token: 'local-token' },
+          { id: 'pi:meta', label: 'Meta', url: 'http://169.254.169.254', token: 'meta-token' },
+          { id: 'pi:tower', label: 'Tower', url: 'http://100.64.0.9:3002/', token: 't'.repeat(2048) },
+        ],
+      })
+    );
+    expect(readPeersMirror(directory)).toEqual([
+      { id: 'pi:tower', label: 'Tower', url: 'http://100.64.0.9:3002', token: 't'.repeat(2048) },
+    ]);
+
+    // Real HTTP redirect refusal: Authorization: Bearer must never follow a 302 to a target listener.
+    let targetHits = 0;
+    const targetServer = Bun.serve({
+      port: 0,
+      fetch() {
+        targetHits += 1;
+        return Response.json({ agents: [{ name: 'Leaked', host: 'local', conversationId: 1, busy: false, needsInput: false, pinned: true }] });
+      },
+    });
+    const redirector = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.redirect(`http://127.0.0.1:${targetServer.port}/directory`, 302);
+      },
+    });
+    try {
+      const seenRedirects: Array<RequestInit['redirect']> = [];
+      const routeToRedirector: typeof fetch = ((input, init) => {
+        seenRedirects.push(init?.redirect);
+        return fetch(String(input).replace('https://tower.example', `http://127.0.0.1:${redirector.port}`), init);
+      }) as typeof fetch;
+      const validPeer = { id: 'pi:tower', label: 'Tower', url: 'https://tower.example', token: 'secret-bearer-token' };
+
+      const dirRedirect = await fetchPeerDirectory(validPeer, routeToRedirector);
+      expect(dirRedirect).toEqual({ ok: false, reason: 'unreachable' });
+
+      const sendRedirect = await sendToPeer(
+        validPeer,
+        {
+          name: 'Archivist',
+          message: 'hello',
+          followUp: false,
+          senderHost: 'remote',
+          senderName: 'Caller',
+          requestId: 'req-2',
+        },
+        routeToRedirector
+      );
+      expect(sendRedirect.ok).toBe(false);
+      expect(seenRedirects).toEqual(['error', 'error']);
+      expect(targetHits).toBe(0);
+    } finally {
+      redirector.stop(true);
+      targetServer.stop(true);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

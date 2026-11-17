@@ -215,4 +215,45 @@ describe('every socket a client opens is one the watch set asked for', () => {
       server.stop(true);
     }
   });
+
+  test('syncEndpoints never silently broadcasts bearer tokens or peer lists across configured hosts', async () => {
+    const requestsA: Array<{ method: string; pathname: string; body: string }> = [];
+    const requestsB: Array<{ method: string; pathname: string; body: string }> = [];
+    const makeHost = (sink: Array<{ method: string; pathname: string; body: string }>) =>
+      Bun.serve({
+        port: 0,
+        async fetch(request, srv) {
+          const { pathname } = new URL(request.url);
+          if (pathname.endsWith('/events') || pathname.endsWith('/tasks/stream')) {
+            if (!srv.upgrade(request, { data: {} })) return new Response('no upgrade', { status: 426 });
+            return undefined as unknown as Response;
+          }
+          sink.push({ method: request.method, pathname, body: await request.text() });
+          if (pathname === '/conversations') return Response.json({ conversations: [] });
+          return new Response('not found', { status: 404 });
+        },
+        websocket: { open() {}, close() {}, message() {} },
+      });
+
+    const hostA = makeHost(requestsA);
+    const hostB = makeHost(requestsB);
+    const client = new PiClient(() => {});
+    const tokenA = 'local-secret-bearer-token-alpha';
+    const tokenB = 'remote-secret-bearer-token-bravo';
+    try {
+      await client.syncEndpoints([
+        { id: 'pi:local', label: 'This computer', url: `http://127.0.0.1:${hostA.port}`, token: tokenA },
+        { id: 'pi:tower', label: 'Tower', url: `http://127.0.0.1:${hostB.port}`, token: tokenB },
+      ]);
+      await Bun.sleep(100);
+      expect(requestsA.some((r) => r.pathname.startsWith('/directory/peers'))).toBe(false);
+      expect(requestsB.some((r) => r.pathname.startsWith('/directory/peers'))).toBe(false);
+      expect(JSON.stringify(requestsA)).not.toContain(tokenB);
+      expect(JSON.stringify(requestsB)).not.toContain(tokenA);
+    } finally {
+      client.closeAll();
+      hostA.stop(true);
+      hostB.stop(true);
+    }
+  });
 });

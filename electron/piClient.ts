@@ -312,9 +312,6 @@ export class PiClient {
       }
     }
     await Promise.all([...wanted.keys()].map((id) => this.refreshConversationWatches(id)));
-    if (wanted.size > 1) {
-      void this.pushPeerLists([...wanted.values()]);
-    }
     // A conversation created after this sync would otherwise have no event stream until the
     // next instance probe (60s). Refresh the watch set on a short timer so new conversations
     // start streaming promptly.
@@ -324,29 +321,6 @@ export class PiClient {
       }, 15_000);
       this.watchTimer.unref?.();
     }
-  }
-
-  /**
-   * Push the peer list into each configured endpoint (`PUT /directory/peers`) so `agents directory`
-   * and `agents send` federate host-to-host even when Ember is closed afterwards.
-   */
-  private async pushPeerLists(endpoints: readonly PiEndpoint[]): Promise<void> {
-    await Promise.all(
-      endpoints.map(async (target) => {
-        const peers = endpoints
-          .filter((other) => other.id !== target.id && other.url !== target.url && !other.access)
-          .map((other) => ({
-            id: other.id,
-            label: other.label || other.id,
-            url: other.url,
-            token: other.token,
-          }));
-        await this.request(target.id, '/directory/peers', {
-          method: 'PUT',
-          body: { peers, merge: true },
-        }).catch(() => null);
-      })
-    );
   }
 
   private dropEndpoint(id: string): void {

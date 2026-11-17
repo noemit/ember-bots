@@ -15,6 +15,7 @@ import {
   type ToolExecutionResult,
   type Tx,
 } from "@earendil-works/pi-durable";
+import { portablePeer } from "./alignment";
 import { ApprovalsDoc } from "./approvals";
 import { QuestionsDoc } from "./ask";
 import { MetaDoc } from "./meta";
@@ -337,14 +338,10 @@ export const readPeersMirror = (home: string): PeerEndpoint[] => {
   try {
     const parsed = JSON.parse(readFileSync(peersMirrorPath(home), "utf8")) as { peers?: unknown };
     if (!Array.isArray(parsed?.peers)) return [];
-    return parsed.peers.filter(
-      (item): item is PeerEndpoint =>
-        Boolean(item) &&
-        typeof item === "object" &&
-        typeof (item as PeerEndpoint).label === "string" &&
-        typeof (item as PeerEndpoint).url === "string" &&
-        typeof (item as PeerEndpoint).token === "string"
-    );
+    return parsed.peers.flatMap((item) => {
+      const peer = portablePeer(item);
+      return peer ? [peer] : [];
+    });
   } catch {
     return [];
   }
@@ -541,10 +538,91 @@ const titleMatchedConversations = async (
 };
 
 /**
+ * Fetch one peer's `/directory` after verifying it is a portable private-network or HTTPS peer.
+ * Rejects redirects and loopback/link-local/wildcard targets before sending the bearer token.
+ */
+export const fetchPeerDirectory = async (
+  peer: PeerEndpoint,
+  send: typeof fetch = fetch
+): Promise<{ ok: true; peer: PeerEndpoint; agents: DirectoryEntry[] } | { ok: false; reason: "invalid" | "unreachable" }> => {
+  const safe = portablePeer(peer);
+  if (!safe) return { ok: false, reason: "invalid" };
+  try {
+    const response = await send(`${safe.url}/directory`, {
+      headers: { authorization: `Bearer ${safe.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!response.ok) return { ok: false, reason: "unreachable" };
+    const body = (await response.json().catch(() => null)) as { agents?: DirectoryEntry[] } | null;
+    const agents = (Array.isArray(body?.agents) ? body.agents : []).map((agent) => ({
+      ...agent,
+      host: safe.label,
+    }));
+    return { ok: true, peer: safe, agents };
+  } catch {
+    return { ok: false, reason: "unreachable" };
+  }
+};
+
+export type PeerSendInput = {
+  name: string;
+  message: string;
+  followUp: boolean;
+  senderHost: string;
+  senderName: string;
+  requestId: string;
+};
+
+/**
+ * Deliver a message to one peer's `/directory/send` after verifying `portablePeer(peer)`.
+ * Rejects redirects and non-portable hosts before sending the bearer token.
+ */
+export const sendToPeer = async (
+  peer: PeerEndpoint,
+  input: PeerSendInput,
+  send: typeof fetch = fetch
+): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const safe = portablePeer(peer);
+  if (!safe) {
+    return {
+      ok: false,
+      error: `${peer.label || peer.id || "That peer"} does not have a portable private-network or HTTPS address. Re-align the connection in Ember and try again.`,
+    };
+  }
+  try {
+    const response = await send(`${safe.url}/directory/send`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${safe.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(input),
+      redirect: "error",
+      signal: AbortSignal.timeout(6_000),
+    });
+    if (!response.ok) {
+      const errBody = (await response.json().catch(() => null)) as { error?: string } | null;
+      return {
+        ok: false,
+        error: errBody?.error ?? `${safe.label} refused the message to ${input.name} (${response.status}).`,
+      };
+    }
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      error: `${safe.label} didn't answer while sending to ${input.name} — try again once it is back.`,
+    };
+  }
+};
+
+/**
  * Query configured peer hosts (`state.peers` or `<home>/peers.json`) for their `/directory`.
  */
 const queryPeerDirectories = async (
-  peers: readonly PeerEndpoint[]
+  peers: readonly PeerEndpoint[],
+  send: typeof fetch = fetch
 ): Promise<{
   entries: DirectoryEntry[];
   silentPeers: string[];
@@ -553,22 +631,12 @@ const queryPeerDirectories = async (
   const silentPeers: string[] = [];
   await Promise.all(
     peers.map(async (peer) => {
-      try {
-        const response = await fetch(`${peer.url.replace(/\/+$/, "")}/directory`, {
-          headers: { authorization: `Bearer ${peer.token}` },
-          signal: AbortSignal.timeout(4_000),
-        });
-        if (!response.ok) {
-          silentPeers.push(peer.label);
-          return;
-        }
-        const body = (await response.json().catch(() => null)) as { agents?: DirectoryEntry[] } | null;
-        for (const agent of Array.isArray(body?.agents) ? body.agents : []) {
-          entries.push({ ...agent, host: peer.label });
-        }
-      } catch {
-        silentPeers.push(peer.label);
+      const result = await fetchPeerDirectory(peer, send);
+      if (!result.ok) {
+        if (result.reason === "unreachable") silentPeers.push(peer.label);
+        return;
       }
+      entries.push(...result.agents);
     })
   );
   return { entries, silentPeers };
@@ -592,7 +660,7 @@ export const formatForeignAgentMessage = (senderHost: string, senderName: string
  * title, and finally configured peer hosts (`state.peers` / `peers.json`). A worker of another
  * crew is refused: only explicit creator or supervisory membership authorizes sends.
  */
-export const createAgentsTool = (home: string) =>
+export const createAgentsTool = (home: string, send: typeof fetch = fetch) =>
   defineTool({
     name: "agents",
     description:
@@ -659,7 +727,7 @@ export const createAgentsTool = (home: string) =>
         if (peers.length === 0) {
           return reply(formatDirectory(localMerged));
         }
-        const remote = await queryPeerDirectories(peers);
+        const remote = await queryPeerDirectories(peers, send);
         const combined = [...localMerged, ...remote.entries];
         const note =
           remote.silentPeers.length > 0
@@ -807,26 +875,18 @@ export const createAgentsTool = (home: string) =>
         const silentPeers: string[] = [];
         await Promise.all(
           candidatePeers.map(async (peer) => {
-            try {
-              const response = await fetch(`${peer.url.replace(/\/+$/, "")}/directory`, {
-                headers: { authorization: `Bearer ${peer.token}` },
-                signal: AbortSignal.timeout(4_000),
-              });
-              if (!response.ok) {
-                silentPeers.push(peer.label);
-                return;
+            const result = await fetchPeerDirectory(peer, send);
+            if (!result.ok) {
+              if (result.reason === "unreachable") silentPeers.push(peer.label);
+              return;
+            }
+            for (const entry of result.agents) {
+              if (
+                entry.name.toLowerCase() === wantedAgent.toLowerCase() ||
+                (entry.title && entry.title.toLowerCase() === wantedAgent.toLowerCase())
+              ) {
+                remoteMatches.push({ peer: result.peer, agent: entry });
               }
-              const body = (await response.json().catch(() => null)) as { agents?: DirectoryEntry[] } | null;
-              for (const entry of Array.isArray(body?.agents) ? body.agents : []) {
-                if (
-                  entry.name.toLowerCase() === wantedAgent.toLowerCase() ||
-                  (entry.title && entry.title.toLowerCase() === wantedAgent.toLowerCase())
-                ) {
-                  remoteMatches.push({ peer, agent: entry });
-                }
-              }
-            } catch {
-              silentPeers.push(peer.label);
             }
           })
         );
@@ -839,34 +899,21 @@ export const createAgentsTool = (home: string) =>
         if (remoteMatches.length === 1) {
           const { peer, agent } = remoteMatches[0];
           const senderTitle = senderMeta?.title?.trim() || `conversation-${api.conversationId}`;
-          try {
-            const response = await fetch(`${peer.url.replace(/\/+$/, "")}/directory/send`, {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${peer.token}`,
-                "content-type": "application/json",
-              },
-              body: JSON.stringify({
-                name: agent.name,
-                message,
-                followUp: followUp === true,
-                senderHost: "remote",
-                senderName: senderTitle,
-                requestId: agentMessageRequestId(api.conversationId, `${peer.id}/${agent.name}`, api.taskId),
-              }),
-              signal: AbortSignal.timeout(6_000),
-            });
-            if (!response.ok) {
-              const errBody = (await response.json().catch(() => null)) as { error?: string } | null;
-              return reply(
-                errBody?.error ?? `${peer.label} refused the message to ${agent.name} (${response.status}).`
-              );
-            }
-            await chargeBudget();
-            return reply(`Sent to ${peer.label}/${agent.name}.`, agent.conversationId);
-          } catch {
-            return reply(`${peer.label} didn't answer while sending to ${agent.name} — try again once it is back.`);
-          }
+          const delivered = await sendToPeer(
+            peer,
+            {
+              name: agent.name,
+              message,
+              followUp: followUp === true,
+              senderHost: "remote",
+              senderName: senderTitle,
+              requestId: agentMessageRequestId(api.conversationId, `${peer.id}/${agent.name}`, api.taskId),
+            },
+            send
+          );
+          if (!delivered.ok) return reply(delivered.error);
+          await chargeBudget();
+          return reply(`Sent to ${peer.label}/${agent.name}.`, agent.conversationId);
         }
         if (silentPeers.length > 0) {
           return reply(
@@ -884,8 +931,8 @@ export const createAgentsTool = (home: string) =>
   });
 
 /** The `agents` tool + passive `known_agents` section, installed as one extension. */
-export const agentsExtension = (home: string): Extension => ({
+export const agentsExtension = (home: string, send: typeof fetch = fetch): Extension => ({
   name: "agents",
-  tools: [createAgentsTool(home)],
+  tools: [createAgentsTool(home, send)],
   sections: [knownAgentsSection(home)],
 });

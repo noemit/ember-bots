@@ -432,7 +432,25 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
         const endpointId = typeof value.endpointId === 'string' ? value.endpointId : '';
         const path = typeof value.path === 'string' ? value.path : '';
         if (!endpointId || !path.startsWith('/')) return json(response, 400, { error: 'Invalid request' });
-        if (new URL(path, 'http://localhost').pathname.startsWith('/alignment')) return json(response, 403, { error: 'Align instances from the desktop app, where connection credentials stay private.' });
+        let rawPathname: string;
+        let decodedPath: string;
+        try {
+          rawPathname = new URL(`http://localhost${path}`).pathname.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+          decodedPath = decodeURIComponent(rawPathname).replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+        } catch {
+          return json(response, 400, { error: 'Invalid request' });
+        }
+        if (rawPathname.startsWith('/alignment') || decodedPath.startsWith('/alignment')) {
+          return json(response, 403, { error: 'Align instances from the desktop app, where connection credentials stay private.' });
+        }
+        if (
+          rawPathname === '/directory/peers' ||
+          rawPathname.startsWith('/directory/peers/') ||
+          decodedPath === '/directory/peers' ||
+          decodedPath.startsWith('/directory/peers/')
+        ) {
+          return json(response, 403, { error: 'Manage peer connections from the desktop app, where connection credentials stay private.' });
+        }
         const init = value.init && typeof value.init === 'object' ? (value.init as { method?: string; body?: unknown }) : undefined;
         return json(response, 200, await handlers.piRequest(endpointId, path, init));
       }

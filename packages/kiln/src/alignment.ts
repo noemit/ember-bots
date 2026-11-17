@@ -5,7 +5,7 @@ import { hasEnvCredential, normalizeProviderId, PROVIDER_ENV_VARS } from './cred
 
 /** Connections portable between machines; loopback and wildcard listeners are never identities. */
 export const portablePeer = (value: unknown): PeerEndpoint | null => {
-  if (!value || typeof value !== 'object') return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const p = value as Record<string, unknown>;
   if (![p.id, p.label, p.url, p.token].every(v => typeof v === 'string' && v.trim().length > 0)) return null;
   if (String(p.id).length > 120 || String(p.label).length > 120 || String(p.url).length > 500 || String(p.token).length > 4096) return null;
@@ -16,10 +16,11 @@ export const portablePeer = (value: unknown): PeerEndpoint | null => {
     if (host === 'localhost' || host.endsWith('.localhost') || host.startsWith('127.') || ['0.0.0.0', '[::]', '[::1]'].includes(host)) return null;
     // API keys may travel over HTTPS or a private network, never plain public HTTP.
     const literal = host.startsWith('[') ? host.slice(1, -1) : host;
-    // Mapped loopback/wildcard literals are not portable identities either.
+    // Mapped loopback/wildcard and link-local literals are not portable identities either.
     if (literal.startsWith('::ffff:')) return null;
     const ip = isIP(literal);
     const parts = host.split('.').map(Number);
+    if ((ip === 4 && (parts[0] === 0 || (parts[0] === 169 && parts[1] === 254))) || (ip === 6 && /^fe[89ab]/.test(literal))) return null;
     const privateHost = (ip === 4 && (parts[0] === 10 || (parts[0] === 192 && parts[1] === 168) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127))) || (ip === 6 && /^f[cd]/.test(literal)) || (ip === 0 && host.endsWith('.ts.net'));
     if (u.protocol === 'http:' && !privateHost) return null;
     return { id: String(p.id).trim(), label: String(p.label).trim(), url: u.toString().replace(/\/+$/, ''), token: String(p.token).trim() };
@@ -28,7 +29,7 @@ export const portablePeer = (value: unknown): PeerEndpoint | null => {
 
 /** Existing URLs and credentials win. Distinct peers cannot silently reuse another peer's id. */
 export const mergePeers = (existing: readonly PeerEndpoint[], incoming: readonly PeerEndpoint[]): PeerEndpoint[] => {
-  const result = [...existing];
+  const result = existing.map(p => ({ id: p.id, label: p.label, url: p.url, token: p.token }));
   for (const peer of incoming) {
     if (result.some(p => p.url.replace(/\/+$/, '') === peer.url.replace(/\/+$/, ''))) continue;
     let id = peer.id;

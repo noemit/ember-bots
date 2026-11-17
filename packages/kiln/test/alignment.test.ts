@@ -6,8 +6,10 @@ import { importApiKeys, mergePeers, portablePeer, shareApiKeys, storedApiKeys } 
 import { FileCredentialStore } from '../src/credentials';
 const peer = (url: string, token = 'private-token') => ({ id: 'one', label: 'One', url, token });
 test('portable peer validation rejects ambiguous addresses and public plaintext', () => {
-  for (const url of ['http://localhost:3002', 'http://127.1:3002', 'http://[::1]:3002', 'http://example.com', 'http://10.attacker.example', 'http://192.168.attacker.example', 'http://100.64.attacker.example', 'https://user:pass@example.com', 'file:///tmp/foo']) expect(portablePeer(peer(url))).toBeNull();
+  for (const url of ['http://localhost:3002', 'http://127.1:3002', 'http://[::1]:3002', 'http://0.0.0.0:3002', 'https://0.0.0.1:3002', 'http://169.254.169.254', 'https://169.254.169.254', 'https://[fe80::1]:3002', 'http://example.com', 'http://10.attacker.example', 'http://192.168.attacker.example', 'http://100.64.attacker.example', 'https://user:pass@example.com', 'file:///tmp/foo']) expect(portablePeer(peer(url))).toBeNull();
   expect(portablePeer(peer('http://100.64.0.2:3002'))).not.toBeNull();
+  expect(portablePeer(peer('https://tower.example', 't'.repeat(4096)))?.token).toHaveLength(4096);
+  expect(portablePeer(peer('https://tower.example', 't'.repeat(4097)))).toBeNull();
 });
 test('peer merge is idempotent and preserves existing URLs and tokens', () => {
   const old = peer('http://100.64.0.1:3002');
