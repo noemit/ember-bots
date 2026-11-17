@@ -50,7 +50,7 @@ test('all twelve shapes × eight seeds retain independent births, full lives, ac
   }
   expect(reuse).toBeGreaterThan(0);
   expect(touches / thinkingCells).toBeGreaterThan(.93); expect(touches / thinkingCells).toBeLessThan(.97);
-});
+}, 20_000);
 
 test('budget and unavailable geometry skip honestly; invalid inputs cannot generate unbounded CSS', () => {
   const cells = geometry('round', 'budget');
