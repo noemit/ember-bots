@@ -35,7 +35,7 @@ test('muting a chat keeps its read history intact and survives reload', async ({
   await row.click();
   const marks = await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks));
   await row.click({ button: 'right' });
-  await page.getByRole('menuitem', { name: "New Messages: Don't Notify" }).click();
+  await page.getByRole('menuitem', { name: "Mute session" }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.mutedSessions))).toContain('pi:hearth::10');
   expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
   const chat = page.locator('main[data-session-key="pi:hearth::10"]');
@@ -43,7 +43,7 @@ test('muting a chat keeps its read history intact and survives reload', async ({
   await expect(chat.getByRole('button', { name: 'Mark this message as read', exact: true })).toHaveCount(0);
   await page.reload();
   await row.click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'New Messages: Notify', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Unmute session', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.mutedSessions))).not.toContain('pi:hearth::10');
   expect(await page.evaluate(() => window.ember.getSettings().then(s => s.readMarks))).toEqual(marks);
   await row.click();

@@ -120,9 +120,9 @@ type Props = {
   onMarkAllRead?: (session: Session) => void;
   /** Session keys with unread messages, derived from explicit read marks. */
   unreadKeys?: Set<string>;
-  /** Session keys set to "New Messages: Don't Notify". */
+  /** Session keys whose notification indicators are muted. */
   quietKeys?: Set<string>;
-  /** Toggle "New Messages: Don't Notify" vs "Notify" for a session. */
+  /** Mute or unmute notification indicators for a session. */
   onQuietChange?: (session: Session, quiet: boolean) => void;
   onNewAgent: (instanceId: string, directory?: string) => void;
   /** Agent groups, already parsed; the rail draws them above projects. */

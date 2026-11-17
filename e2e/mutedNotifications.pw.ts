@@ -7,7 +7,7 @@ const savedMutes = (page: Page) => page.evaluate(() => window.ember.getSettings(
 
 async function toggle(page: Page, muted: boolean) {
   await column(page).getByRole('button', { name: 'View options', exact: true }).click();
-  await page.getByRole('menuitem', { name: muted ? /New messages: Don't notify/ : /New messages: Notify/ }).click();
+  await page.getByRole('menuitem', { name: muted ? /Mute session/ : /Unmute session/ }).click();
   await page.keyboard.press('Escape');
   await expect.poll(() => savedMutes(page)).toEqual(expect.arrayContaining(muted ? [key] : []));
   if (!muted) await expect.poll(() => savedMutes(page)).not.toContain(key);
@@ -110,9 +110,9 @@ test('a mute/unmute during queued preference writes never acknowledges output or
     };
   });
   await column(page).getByRole('button', { name: 'View options', exact: true }).click();
-  await page.getByRole('menuitem', { name: /New messages: Don't notify/ }).click();
-  await expect(page.getByRole('menuitem', { name: /New messages: Notify/ })).toBeVisible();
-  await page.getByRole('menuitem', { name: /New messages: Notify/ }).click();
+  await page.getByRole('menuitem', { name: /Mute session/ }).click();
+  await expect(page.getByRole('menuitem', { name: /Unmute session/ })).toBeVisible();
+  await page.getByRole('menuitem', { name: /Unmute session/ }).click();
   await page.keyboard.press('Escape');
   await page.evaluate(() => (window as Window & { releaseMuteSave: () => void }).releaseMuteSave());
   await expect.poll(() => page.evaluate(() => (window as Window & { muteSaveCompletions: boolean[] }).muteSaveCompletions)).toEqual([true, false]);
@@ -128,7 +128,7 @@ test('a muted scheduled run stays muted through Hide and Undo without clearing i
   const run = page.locator('main[data-session-key="pi:hearth::11"]');
   const before = await marks(page);
   await run.getByRole('button', { name: 'View options', exact: true }).click();
-  await page.getByRole('menuitem', { name: /New messages: Don't notify/ }).click();
+  await page.getByRole('menuitem', { name: /Mute session/ }).click();
   await page.keyboard.press('Escape');
   await expect.poll(() => savedMutes(page)).toContain('pi:hearth::11');
   await expect(page.getByTestId('scheduled-count')).toHaveCount(0);
@@ -139,4 +139,33 @@ test('a muted scheduled run stays muted through Hide and Undo without clearing i
   await expect.poll(() => savedMutes(page)).toContain('pi:hearth::11');
   await expect(page.getByTestId('scheduled-count')).toHaveCount(0);
   expect(await marks(page)).toEqual(before);
+});
+
+test('sidebar and view menu share Mute actions, with read and decision safeguards in the explanation', async ({ page }) => {
+  await page.goto('/?noDock');
+  const row = page.locator('aside').getByRole('button', { name: /Habit onboarding QA/ });
+  await row.click();
+  const before = await marks(page);
+  await row.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Snooze session', exact: true })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Mute session', exact: true }).click();
+  await column(page).getByRole('button', { name: 'View options', exact: true }).click();
+  const action = page.getByRole('menuitem', { name: /^Unmute session/ });
+  await expect(action).toContainText('Muted.');
+  await expect(action).toContainText(/read marks.*unchanged/i);
+  await expect(action).toContainText(/questions.*approvals.*visible/i);
+  await expect(page.getByRole('menuitem', { name: /notify|quiet/i })).toHaveCount(0);
+  await page.screenshot({ path: '/tmp/ember-mute-menu.png' });
+  await action.click();
+  const mute = page.getByRole('menuitem', { name: /^Mute session/ });
+  await expect(mute).toContainText(/notification indicators/i);
+  await expect(mute).toContainText(/read marks.*unchanged/i);
+  await expect(mute).toContainText(/questions.*approvals.*visible/i);
+  await page.keyboard.press('Escape');
+  await row.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Mute session', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Snooze session', exact: true })).toBeVisible();
+  await page.screenshot({ path: '/tmp/ember-mute-sidebar.png' });
+  expect(await marks(page)).toEqual(before);
+  expect(await page.evaluate(() => window.ember.getSettings().then(s => s.snoozedSessions))).toEqual([]);
 });

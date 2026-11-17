@@ -241,7 +241,7 @@ type Props = {
    * host has no such route, in which case the notice is not drawn at all.
    */
   onStopProcesses?: (session: Session, pids: number[], options: { force?: boolean }) => Promise<StopProcessesResult>;
-  /** This session's read mark: which messages are read, and whether it is a quiet session. */
+  /** This session's read mark: which messages are read. Muting is a separate preference. */
   readMark?: SessionReadMark;
   /** Mark one message read (the dot beside it). Omitted where marking is not offered. */
   onMarkMessageRead?: (session: Session, message: ChatMessage) => void;

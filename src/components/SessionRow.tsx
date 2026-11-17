@@ -66,9 +66,9 @@ export type SessionRowProps = {
   /** Rail placement only: never changes reading, notifications or host state. */
   snoozed?: boolean;
   onSnooze?: (session: Session, snoozed: boolean) => void;
-  /** True when the session is set to "New Messages: Don't Notify" (`readMark.quiet`). */
+  /** True when notification indicators are muted (`settings.mutedSessions`). */
   quiet?: boolean;
-  /** Toggle "New Messages: Don't Notify" vs "Notify" for this session. */
+  /** Mute or unmute notification indicators for this session. */
   onQuietChange?: (session: Session, quiet: boolean) => void;
 };
 
@@ -135,7 +135,7 @@ export const SessionContextMenuContent = ({
           {onQuietChange ? (
             <ContextMenuItem onSelect={() => onQuietChange(session, !quiet)}>
               {quiet ? <Bell /> : <BellOff />}
-              {quiet ? 'New Messages: Notify' : "New Messages: Don't Notify"}
+              {quiet ? 'Unmute session' : 'Mute session'}
             </ContextMenuItem>
           ) : null}
           <ContextMenuSeparator />

@@ -53,9 +53,9 @@ type Props = {
   onMarkAllRead?: (session: Session) => void;
   /** Session keys Home says have unread messages; enables that menu item. */
   unreadKeys?: Set<string>;
-  /** Session keys set to "New Messages: Don't Notify". */
+  /** Session keys whose notification indicators are muted. */
   quietKeys?: Set<string>;
-  /** Toggle "New Messages: Don't Notify" vs "Notify" for a session. */
+  /** Mute or unmute notification indicators for a session. */
   onQuietChange?: (session: Session, quiet: boolean) => void;
   /** Width the blob strip may use: wider when the rail is expanded, so the blobs spread out. */
   stripWidth?: number;

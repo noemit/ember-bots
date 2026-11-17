@@ -144,15 +144,15 @@ export default function ViewMenu({
                   event.preventDefault();
                   onQuietChange(!quiet);
                 }}
-                className="items-start gap-2 py-1.5"
+                className="items-start gap-2 py-1.5 whitespace-normal"
               >
                 {quiet ? <Bell /> : <BellOff />}
                 <span className="flex min-w-0 flex-col gap-0.5">
-                  <span>{quiet ? 'New messages: Notify' : "New messages: Don't notify"}</span>
+                  <span>{quiet ? 'Unmute session' : 'Mute session'}</span>
                   <span className="text-[11px] text-muted-foreground">
                     {quiet
-                      ? 'Unread messages appear in the rail.'
-                      : 'Unread messages stay unread; this session stops raising notification indicators.'}
+                      ? 'Muted. Unmute to show unread notification indicators again. Read marks stay unchanged; pending questions and approvals stay visible.'
+                      : 'Hide unread notification indicators. Read marks stay unchanged; pending questions and approvals stay visible.'}
                   </span>
                 </span>
               </DropdownMenuItem>

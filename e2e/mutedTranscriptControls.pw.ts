@@ -4,7 +4,7 @@ const readButtons = (chat: Locator) => chat.getByRole('button', { name: /^(Mark 
 const marks = (page: Page) => page.evaluate(() => window.ember.getSettings().then(s => s.readMarks));
 async function mute(page: Page, chat: Locator, value: boolean) {
   await chat.getByRole('button', { name: 'View options', exact: true }).click();
-  await page.getByRole('menuitem', { name: value ? /New messages: Don't notify/ : /New messages: Notify/ }).click();
+  await page.getByRole('menuitem', { name: value ? /Mute session/ : /Unmute session/ }).click();
   await page.keyboard.press('Escape');
 }
 
