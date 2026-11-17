@@ -19,7 +19,7 @@ export type SessionStatusKind = 'working' | 'stalled' | 'waiting-crew' | 'needs-
 
 export type SessionStatus = {
   kind: SessionStatusKind;
-  /** One line, already pluralised, ending in an ellipsis because the state is still open. */
+  /** One line, already pluralised, describing the current activity. */
   text: string;
 };
 
@@ -140,7 +140,7 @@ export const deriveSessionStatus = (input: SessionStatusInput): SessionStatus | 
     }
     return {
       kind: 'waiting-crew',
-      text: `Waiting on ${waiting.length} ${plural}…`,
+      text: `Tackling ${waiting.length} ${waiting.length === 1 ? 'task' : 'tasks'}.`,
     };
   }
 

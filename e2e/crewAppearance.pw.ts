@@ -12,7 +12,7 @@ test('every style shows crew work without taking over the leader’s idle compos
   }));
   expect(reply.ok).toBe(true);
   await expect(identity).toHaveAttribute('data-mood', 'busy');
-  await expect(leader.locator('[data-session-status]')).toHaveText('Waiting on 1 worker…');
+  await expect(leader.locator('[data-session-status]')).toHaveText('Tackling 1 task.');
   // Scribble is preserved as a stored preference, but no longer offered as a production style.
   for (const style of ['Buddy', 'Crystal', 'Mosaic', 'Lava']) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();

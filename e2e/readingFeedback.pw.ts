@@ -137,7 +137,7 @@ for (const scene of [{ name: 'light', theme: 'stone', width: 1600 }, { name: 'da
     await page.setViewportSize({ width: scene.width, height: 900 });
     const column = page.locator('main[data-session-key="pi:hearth::16"]');
     const status = column.locator('[data-session-status]');
-    await expect(status).toHaveText('Waiting on 2 workers…');
+    await expect(status).toHaveText('Tackling 2 tasks.');
     expect(await status.evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12);
     const inset = await column.evaluate(el => {
       const status = el.querySelector('[data-session-status]')!;

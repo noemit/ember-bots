@@ -64,6 +64,6 @@ describe('crew appearance without changing turn state', () => {
     expect(crewAppearanceMood(leader, moodFrom(input.state, undefined, false), crews, states)).toBe('busy');
     expect(states['host::leader']).toBe('idle');
     expect(deriveSessionStatus(input)).toEqual(before);
-    expect(before).toEqual({ kind: 'waiting-crew', text: 'Waiting on 1 worker…' });
+    expect(before).toEqual({ kind: 'waiting-crew', text: 'Tackling 1 task.' });
   });
 });

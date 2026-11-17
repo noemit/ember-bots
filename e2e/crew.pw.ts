@@ -39,13 +39,16 @@ test('the rail hides crew workers; the leader shows its crew strip', async ({ pa
   await expect(column.getByText('needs input')).toBeVisible();
 });
 
-test('an idle leader says it is waiting on its crew; an idle chat says nothing', async ({ page }) => {
+test('an available leader is tackling tasks with a green dot; an idle chat says nothing', async ({ page }, testInfo) => {
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   const leader = page.locator('main[data-session-key="pi:hearth::16"]');
   const status = leader.locator('[data-session-status]');
   // Idle here, busy below: the one state that used to look finished but was not.
-  await expect(status).toHaveText('Waiting on 2 workers…');
+  await expect(status).toHaveText('Tackling 2 tasks.');
   await expect(status).toHaveAttribute('aria-live', 'polite');
+  await expect(status.locator('span').first()).toHaveClass(/bg-success/);
+  await expect(status.locator('span').first()).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await page.screenshot({ path: testInfo.outputPath('tackling-tasks-green-status.png') });
   // The status never takes the composer away: another thought can be sent at any time.
   await expect(leader.locator('textarea')).toBeEnabled();
 

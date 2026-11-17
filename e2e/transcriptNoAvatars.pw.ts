@@ -60,7 +60,7 @@ for (const showAvatars of [true, false]) {
     await page.locator('aside').getByRole('button', { name: /Crew: auth refactor/ }).first().click();
     const leader = page.locator('main[data-session-key="pi:hearth::16"]');
     const status = leader.locator('[data-session-status]');
-    await expect(status).toHaveText('Waiting on 2 workers…');
+    await expect(status).toHaveText('Tackling 2 tasks.');
     await expect(status).toHaveCSS('font-size', '12px');
     const prose = leader.locator('[role="article"][aria-label^="assistant"] p').first();
     await expect(prose).toHaveCSS('font-size', '20px');

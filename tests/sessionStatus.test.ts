@@ -34,7 +34,7 @@ describe('deriveSessionStatus', () => {
   test('an idle leader waits on one worker, singular', () => {
     expect(
       deriveSessionStatus({ state: 'idle', workers: [worker('w1')], workerStateFor: states('active') })
-    ).toEqual({ kind: 'waiting-crew', text: 'Waiting on 1 worker…' });
+    ).toEqual({ kind: 'waiting-crew', text: 'Tackling 1 task.' });
   });
 
   test('an idle leader waits on two workers, plural', () => {
@@ -44,7 +44,7 @@ describe('deriveSessionStatus', () => {
         workers: [worker('w1'), worker('w2')],
         workerStateFor: states('active'),
       })
-    ).toEqual({ kind: 'waiting-crew', text: 'Waiting on 2 workers…' });
+    ).toEqual({ kind: 'waiting-crew', text: 'Tackling 2 tasks.' });
   });
 
   test('an idle leader with no workers renders nothing', () => {
@@ -64,7 +64,7 @@ describe('deriveSessionStatus', () => {
       workers: [worker('w1', { needsInput: true })],
       workerStateFor: states('idle'),
     });
-    expect(status).toEqual({ kind: 'waiting-crew', text: 'Waiting on 1 worker…' });
+    expect(status).toEqual({ kind: 'waiting-crew', text: 'Tackling 1 task.' });
     expect(status?.kind).not.toBe('working');
   });
 
@@ -217,6 +217,6 @@ describe('a status the host has not answered for', () => {
     // A known working worker keeps the ordinary wording.
     expect(
       deriveSessionStatus({ state: 'idle', workers: [worker('w1')], workerStateFor: states('active') })?.text
-    ).toBe('Waiting on 1 worker…');
+    ).toBe('Tackling 1 task.');
   });
 });

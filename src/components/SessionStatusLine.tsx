@@ -26,7 +26,7 @@ export default function SessionStatusLine({ status, className }: Props) {
         className
       )}
     >
-      <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-muted-foreground/45" />
+      <span aria-hidden="true" className={cn('size-1.5 flex-none rounded-full', status.kind === 'waiting-crew' ? 'bg-success' : 'bg-muted-foreground/45')} />
       <span>{status.text}</span>
     </div>
   );
