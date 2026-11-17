@@ -50,6 +50,7 @@ import {
 } from './blob/seed';
 import { moodFrom } from './blob/mood';
 import { crewAppearanceMood } from './lib/crewMood';
+import { useCrewAppearance } from './hooks/useCrewAppearance';
 import {
   abortSession,
   createClientMessageId,
@@ -1410,22 +1411,28 @@ export default function App() {
     [scheduledRuns]
   );
 
-  const moods = React.useMemo(() => {
+  const crewAppearance = React.useMemo(() => {
     const map: Record<string, BallMood> = {};
+    const crewKeys = new Set<string>();
     Object.entries(sessionsByInstance).forEach(([, list]) =>
       list.forEach((session) => {
         const key = sessionKey(session);
         // Crew activity changes the blob only, never the leader's send/queue/stop state.
-        map[key] = crewAppearanceMood(session, moodFrom(
+        const ownMood = moodFrom(
           states[key] ?? 'unknown',
           promptKinds[key],
           thinkingKeys.has(key),
           unreadKeys.has(key)
-        ), crewWorkers, states);
+        );
+        map[key] = crewAppearanceMood(session, ownMood, crewWorkers, states);
+        // Hidden workers and archived chats need no UI cadence of their own. A worker
+        // opened for inspection can still show its legacy descendants' activity.
+        if (map[key] !== ownMood && ((!workerKeys.has(key) && !session.archived) || key === threadModalKey || key === selectedKey)) crewKeys.add(key);
       })
     );
-    return map;
-  }, [sessionsByInstance, states, promptKinds, thinkingKeys, unreadKeys, crewWorkers]);
+    return { baseMoods: map, crewKeys };
+  }, [sessionsByInstance, states, promptKinds, thinkingKeys, unreadKeys, crewWorkers, workerKeys, threadModalKey, selectedKey]);
+  const moods = useCrewAppearance(crewAppearance.baseMoods, crewAppearance.crewKeys);
   // A retry belongs to the session it failed on; the banner text may still apply.
   React.useEffect(() => {
     clearActionErrorRetry();

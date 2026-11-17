@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { moodFrom } from '../src/blob/mood';
 import { crewByLeader } from '../src/lib/crew';
-import { crewAppearanceMood } from '../src/lib/crewMood';
+import { crewAppearanceMood, crewActivityPhase, shouldAlternateCrew } from '../src/lib/crewMood';
 import { deriveSessionStatus } from '../src/lib/sessionStatus';
 import { sessionKey, type BallMood, type BallState, type Session } from '../src/types';
 
@@ -65,5 +65,35 @@ describe('crew appearance without changing turn state', () => {
     expect(states['host::leader']).toBe('idle');
     expect(deriveSessionStatus(input)).toEqual(before);
     expect(before).toEqual({ kind: 'waiting-crew', text: 'Tackling 1 task.' });
+  });
+});
+
+describe('crew cadence policy', () => {
+  test('seeded independent moderate phases stay deterministic across reads', () => {
+    const a = Array.from({ length: 60 }, (_, i) => crewActivityPhase('host::leader', i));
+    expect(new Set(a)).toEqual(new Set(['busy', 'thinking']));
+    expect(a).toEqual(Array.from({ length: 60 }, (_, i) => crewActivityPhase('host::leader', i)));
+    expect(a).not.toEqual(Array.from({ length: 60 }, (_, i) => crewActivityPhase('other::leader', i)));
+    const changes = a.flatMap((mood, i) => i && mood !== a[i - 1] ? [i] : []);
+    for (let i = 1; i < changes.length; i++) {
+      expect(changes[i] - changes[i - 1]).toBeGreaterThanOrEqual(6);
+      expect(changes[i] - changes[i - 1]).toBeLessThanOrEqual(10);
+    }
+  });
+
+  test('no cadence without active work, visibility, and normal motion', () => {
+    for (const active of [true, false]) for (const visible of [true, false]) for (const reduced of [true, false]) {
+      expect(shouldAlternateCrew(active, visible, reduced)).toBe(active && visible && !reduced);
+    }
+  });
+
+  test('settled explicit assignments never animate from a stale active turn', () => {
+    for (const status of ['waiting', 'blocked', 'incomplete', 'handoff-needed', 'done', 'stopped', 'failed'] as const) {
+      const settled = crewByLeader([leader, { ...worker, task: { id: 'task:1', title: 'Task', status } }]);
+      expect(crewAppearanceMood(leader, 'unread', settled, statesFor('active'))).toBe('unread');
+    }
+    const working = crewByLeader([leader, { ...worker, task: { id: 'task:1', title: 'Task', status: 'working' } }]);
+    expect(crewAppearanceMood(leader, 'idle', working, statesFor('active'))).toBe('busy');
+    expect(crewAppearanceMood(leader, 'idle', working, {})).toBe('idle');
   });
 });
