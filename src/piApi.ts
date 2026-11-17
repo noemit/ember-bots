@@ -1015,8 +1015,9 @@ export const piAskSideQuestion = async (
 /**
  * Human promotion: fork an idle worker into a named, ownerless `peer` and
  * register the name locally. Hearth answers 201 with the new peer's conversation summary, or
- * 409 when the worker is busy / 400 when it is not a worker or the local name is taken — every
- * failure maps to `null` so the dialog can say the promotion didn't happen.
+ * 409 when the worker is busy / 400 when it is not a worker or the local name is taken — non-2xx
+ * responses throw `SessionCreateError` carrying the status and host reason so `PromoteWorkerDialog`
+ * stays open and shows calm, actor-named inline guidance.
  */
 export const piPromoteSession = async (
   endpointId: string,
@@ -1035,7 +1036,14 @@ export const piPromoteSession = async (
       },
     }
   );
-  if (!response.ok || !response.data || typeof response.data.id !== 'number') return null;
+  if (!response.ok) {
+    const message = (response.data as unknown as { error?: unknown } | null)?.error;
+    throw new SessionCreateError(
+      response.status,
+      typeof message === 'string' ? message : undefined
+    );
+  }
+  if (!response.data || typeof response.data.id !== 'number') return null;
   return piConversationToSession(endpointId, response.data, Date.now());
 };
 

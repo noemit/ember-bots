@@ -114,6 +114,7 @@ import {
   type PendingCreate,
 } from './lib/pendingCreate';
 import { newSessionFailureText, sessionCreateFailureOf } from './lib/newSessionFailure';
+import { promoteFailureText } from './lib/promoteFailure';
 import { applyLiveToolOutput, entryOrdinal, newestEntryId, settleToolResults } from '@/lib/piMapping';
 import type { LiveToolOutput, ToolResultSettlement } from '@/lib/piMapping';
 import { copyText } from '@/lib/clipboard';
@@ -488,6 +489,23 @@ export default function App() {
   const [archiveConfirmKey, setArchiveConfirmKey] = React.useState<string | null>(null);
   /** The crew worker the Promote-to-peer dialog is open for; null when closed. */
   const [promoteTarget, setPromoteTarget] = React.useState<Session | null>(null);
+  const [promoteSubmitting, setPromoteSubmitting] = React.useState(false);
+  const [promoteError, setPromoteError] = React.useState<string | null>(null);
+  const promoteAttemptRef = React.useRef(0);
+
+  const openPromoteDialog = React.useCallback((worker: Session) => {
+    promoteAttemptRef.current += 1;
+    setPromoteSubmitting(false);
+    setPromoteError(null);
+    setPromoteTarget(worker);
+  }, []);
+
+  const closePromoteDialog = React.useCallback(() => {
+    promoteAttemptRef.current += 1;
+    setPromoteSubmitting(false);
+    setPromoteError(null);
+    setPromoteTarget(null);
+  }, []);
   /** The image lightbox: a message's gallery and the open index, or null when closed. */
   const [imageViewer, setImageViewer] = React.useState<{ images: ViewerImage[]; index: number } | null>(
     null
@@ -4801,24 +4819,52 @@ export default function App() {
   };
 
   /**
-   * Promote a crew worker to an addressable peer (Hearth forks it). The response is the new peer
-   * session: insert it, mark the worker `promotedTo` so its strip row becomes a peer link before
-   * the next poll, then open the peer. Failure keeps the dialog closed and offers a retry.
+   * Promote a crew worker to an addressable peer (Hearth forks it). The dialog stays open while
+   * the request is in flight so a refusal or network hiccup can explain what happened inline without
+   * discarding the person's typed name or description. On success, close the dialog, insert the new
+   * peer, mark the worker `promotedTo`, and open the peer.
    */
   const handlePromoteWorker = async (
     worker: Session,
     input: { name: string; description?: string; pinned: boolean }
   ) => {
+    if (promoteSubmitting) return;
+    const attempt = ++promoteAttemptRef.current;
+    const instanceLabel =
+      instances.find((entry) => entry.id === worker.instanceId)?.label ?? 'Kiln';
     showActionError(null);
-    const peer = await promoteSession(worker, {
-      name: input.name,
-      description: input.description,
-      pinned: input.pinned,
-    }).catch(() => null);
-    if (!peer) {
-      showActionError('Couldn’t make this bot persistent.', () => void handlePromoteWorker(worker, input));
+    setPromoteError(null);
+    setPromoteSubmitting(true);
+    let peer: Session | null = null;
+    try {
+      peer = await promoteSession(worker, {
+        name: input.name,
+        description: input.description,
+        pinned: input.pinned,
+      });
+    } catch (err) {
+      if (promoteAttemptRef.current !== attempt) return;
+      setPromoteSubmitting(false);
+      setPromoteError(
+        promoteFailureText({
+          failure: sessionCreateFailureOf(err),
+          instanceLabel,
+          name: input.name,
+        })
+      );
       return;
     }
+    if (promoteAttemptRef.current !== attempt) return;
+    if (!peer) {
+      setPromoteSubmitting(false);
+      setPromoteError(
+        `Couldn’t make this bot persistent. ${instanceLabel} didn’t return the new bot — try Make persistent again.`
+      );
+      return;
+    }
+    setPromoteSubmitting(false);
+    setPromoteError(null);
+    setPromoteTarget(null);
     saveNewAvatarAssignment(peer);
     const now = Date.now();
     setSessionsByInstance((prev) => ({
@@ -5440,7 +5486,7 @@ export default function App() {
           onPromote={
             !session.promotedTo &&
             (isWorker(session) || [...crewWorkers.values()].some((workers) => workers.some((worker) => sessionKey(worker) === key)))
-              ? () => setPromoteTarget(session)
+              ? () => openPromoteDialog(session)
               : undefined
           }
           workerPeer={(worker) =>
@@ -5883,6 +5929,7 @@ export default function App() {
 
           {promoteTarget ? (
             <PromoteWorkerDialog
+              key={sessionKey(promoteTarget)}
               worker={promoteTarget}
               busy={
                 // Use Kiln's run state: a descendant's question can overlay a running
@@ -5890,11 +5937,14 @@ export default function App() {
                 statesAnswered.has(promoteTarget.instanceId) &&
                 statesByInstance[promoteTarget.instanceId]?.[sessionKey(promoteTarget)] === 'active'
               }
-              onCancel={() => setPromoteTarget(null)}
+              submitting={promoteSubmitting}
+              error={promoteError}
+              instanceLabel={
+                instances.find((entry) => entry.id === promoteTarget.instanceId)?.label
+              }
+              onCancel={closePromoteDialog}
               onConfirm={(input) => {
-                const worker = promoteTarget;
-                setPromoteTarget(null);
-                void handlePromoteWorker(worker, input);
+                void handlePromoteWorker(promoteTarget, input);
               }}
             />
           ) : null}

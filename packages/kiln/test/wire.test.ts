@@ -8,6 +8,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import type { Models } from "@earendil-works/pi-ai";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import {
+  AgentDoc,
   createRegistry,
   Harness,
   defineExtension,
@@ -23,7 +24,7 @@ import { hearthConfig } from "../src/config";
 import { FileCredentialStore } from "../src/credentials";
 import { startHearthServer, type HearthServer } from "../src/server";
 import { withAbortRace } from "../src/interrupt";
-import { Sessions, SessionsDoc } from "../src/sessions";
+import { Sessions, SessionsDoc, WORKER_INSTRUCTIONS } from "../src/sessions";
 import { MetaDoc } from "../src/meta";
 import { AgentsDoc, agentsExtension, readAgentsMirror, registerAgent } from "../src/agents";
 import { tick } from "../src/crew";
@@ -2609,6 +2610,106 @@ describe("hearth wire", () => {
     });
     expect(duplicate.status).toBe(400);
     expect((await body(duplicate)).error).toContain("already registered");
+  }, 30_000);
+
+  test("promoting a session-spawned worker reclaims its default title, clears WORKER_INSTRUCTIONS, and retires unpinned aliases on rename", async () => {
+    const leader = await body(
+      await api("/conversations", {
+        method: "POST",
+        body: JSON.stringify({ cwd: home, title: "Spawn promote leader", model: { provider: "faux", modelId: "faux-1" } }),
+      })
+    );
+
+    const spawnAndSettle = async (name: string, brief: string) => {
+      faux.setResponses([
+        fauxAssistantMessage([fauxToolCall("session", { action: "spawn", name, brief })], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxText(`Spawned ${name}.`)]),
+        fauxAssistantMessage([fauxText(`Finished ${name}.`)]),
+      ]);
+      await api(`/conversations/${leader.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({ type: "input", content: `Spawn ${name}` }),
+      });
+      let spawned: any;
+      for (let attempt = 0; attempt < 250; attempt += 1) {
+        const list = await body(await api("/conversations"));
+        const leaderEntry = list.conversations.find((entry: any) => entry.id === leader.id);
+        const candidate = list.conversations.find(
+          (entry: any) => entry.kind === "worker" && entry.lead?.conversationId === leader.id && entry.title === brief
+        );
+        if (candidate && !candidate.busy && !leaderEntry?.busy) {
+          const snapshot = await body(await api(`/conversations/${candidate.id}`));
+          if (snapshot.entries.some((entry: any) => entry.kind === "pi.assistant")) {
+            spawned = candidate;
+            break;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(spawned).toBeDefined();
+      return spawned;
+    };
+
+    // 1. Default-title promotion reclaims the worker's own auto-registration and clears WORKER_INSTRUCTIONS.
+    const defaultWorker = await spawnAndSettle("default-title-wk", "Audit concurrency gates");
+    expect((await stack.harness.snapshot(AgentsDoc, context))?.entries["Audit concurrency gates"]?.conversationId).toBe(
+      defaultWorker.id
+    );
+    expect((await stack.harness.snapshot(AgentDoc, defaultWorker.id, context))?.instructions).toContain(
+      WORKER_INSTRUCTIONS
+    );
+
+    const promotedDefault = await api(`/conversations/${defaultWorker.id}/promote`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: defaultWorker.title,
+        description: "Standing concurrency auditor",
+        pinned: true,
+      }),
+    });
+    expect(promotedDefault.status).toBe(201);
+    const defaultPeer = await body(promotedDefault);
+    expect(defaultPeer.id).not.toBe(defaultWorker.id);
+    expect(defaultPeer.kind).toBe("peer");
+    expect(defaultPeer.title).toBe("Audit concurrency gates");
+
+    const entriesAfterDefault = (await stack.harness.snapshot(AgentsDoc, context))?.entries ?? {};
+    expect(entriesAfterDefault["Audit concurrency gates"]?.conversationId).toBe(defaultPeer.id);
+    expect(entriesAfterDefault["Audit concurrency gates"]?.description).toBe("Standing concurrency auditor");
+    expect(readAgentsMirror(home)?.["Audit concurrency gates"]?.conversationId).toBe(defaultPeer.id);
+
+    // Promoted peer starts without standing WORKER_INSTRUCTIONS; hidden worker history retains its own.
+    expect((await stack.harness.snapshot(AgentDoc, defaultPeer.id, context))?.instructions).toBeUndefined();
+    expect((await stack.harness.snapshot(AgentDoc, defaultWorker.id, context))?.instructions).toContain(
+      WORKER_INSTRUCTIONS
+    );
+
+    // 2. Promoting under a different name removes the unpinned spawn alias, and preserves custom instructions.
+    const renamedWorker = await spawnAndSettle("renamed-wk", "Inspect queue handoff");
+    expect((await stack.harness.snapshot(AgentsDoc, context))?.entries["Inspect queue handoff"]?.conversationId).toBe(
+      renamedWorker.id
+    );
+    await api(`/conversations/${renamedWorker.id}/configure`, {
+      method: "POST",
+      body: JSON.stringify({ instructions: "Keep every invariant explicit." }),
+    });
+
+    const promotedRenamed = await api(`/conversations/${renamedWorker.id}/promote`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Queue guardian",
+        description: "Watches queue handoff",
+        pinned: true,
+      }),
+    });
+    expect(promotedRenamed.status).toBe(201);
+    const renamedPeer = await body(promotedRenamed);
+    const entriesAfterRename = (await stack.harness.snapshot(AgentsDoc, context))?.entries ?? {};
+    expect(entriesAfterRename["Queue guardian"]?.conversationId).toBe(renamedPeer.id);
+    expect(entriesAfterRename["Inspect queue handoff"]).toBeUndefined();
+    expect((await stack.harness.snapshot(AgentDoc, renamedPeer.id, context))?.instructions).toBe(
+      "Keep every invariant explicit."
+    );
   }, 30_000);
 });
 

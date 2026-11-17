@@ -359,8 +359,8 @@ export const askSideQuestion = async (
 /**
  * Promote a crew worker to an addressable **peer** (`POST /conversations/:id/promote`, Hearth
  * only). Hearth forks the worker into a new ownerless conversation, registers the name, and keeps
- * the old worker as hidden history. Returns the new peer session, or null when it could not be
- * created (busy, a duplicate name, or an instance that doesn't support it).
+ * the old worker as hidden history. Throws `SessionCreateError` on a host refusal or transport
+ * failure, or returns `null` when the instance does not support promotion.
  */
 export const promoteSession = async (
   session: Session,

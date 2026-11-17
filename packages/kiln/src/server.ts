@@ -13,6 +13,7 @@ import type { Context } from "@earendil-works/chord";
 import type { Credential, CredentialStore, Message, Models } from "@earendil-works/pi-ai";
 import {
   AgentDoc,
+  configure,
   ConversationBusy,
   InboxDoc,
   LiveDoc,
@@ -45,8 +46,8 @@ import {
   formatForeignAgentMessage,
   listAgents,
   mergeDirectory,
+  promoteAgent,
   pruneStaleAgents,
-  registerAgent,
   staleAgentNames,
   writeAgentsMirror,
   writePeersMirror,
@@ -55,6 +56,7 @@ import {
 } from "./agents";
 import {
   explicitSettled,
+  isSpawnedWorkerInstructions,
   workerAssignment,
   rearmWorker,
   type TaskCompletion,
@@ -2548,9 +2550,14 @@ const server = Bun.serve<{
           if (!name) return badRequest("name is required");
           const description = string(body.description, 2_000)?.trim();
           const pinned = body.pinned === false ? false : true;
-          // Reject a duplicate before forking; `registerAgent` re-checks inside the commit so a
-          // race cannot produce two names for one local registry.
-          if (Object.hasOwn((await harness.snapshot(AgentsDoc, context))?.entries ?? {}, name)) {
+          const workerNumericId = Number(conversationId);
+          // Reject a duplicate before forking unless the entry is this worker's own spawn
+          // registration; `promoteAgent` re-checks inside the commit so races stay serialized.
+          const existingEntries = (await harness.snapshot(AgentsDoc, context))?.entries ?? {};
+          if (
+            Object.hasOwn(existingEntries, name) &&
+            existingEntries[name]?.conversationId !== workerNumericId
+          ) {
             return badRequest(`bot name already registered: ${name}`);
           }
           const newest = (await conversation.entries({}, 1, undefined, context)).items[0];
@@ -2558,17 +2565,33 @@ const server = Bun.serve<{
           let forkId: ConversationId;
           try {
             forkId = await harness.commit(async (tx) => {
+              const agents = await tx.doc(AgentsDoc);
+              if (
+                Object.hasOwn(agents.entries, name) &&
+                agents.entries[name]?.conversationId !== workerNumericId
+              ) {
+                throw new DuplicateAgentError(name);
+              }
               const worker = await tx.doc(MetaDoc, conversationId);
+              const workerAgent = await tx.doc(AgentDoc, conversationId);
               const fork = await tx.forkConversation(conversationId, newest.id, {
                 ownership: { kind: "ownerless" },
               });
+              const nextInstructions =
+                workerAgent.instructions && !isSpawnedWorkerInstructions(workerAgent.instructions)
+                  ? workerAgent.instructions
+                  : null;
+              const forkAgent = await tx.doc(AgentDoc, fork.id);
+              if ((forkAgent.instructions ?? null) !== nextInstructions) {
+                await configure(tx, fork.id, { instructions: nextInstructions });
+              }
               const forkMeta = await tx.doc(MetaDoc, fork.id);
               forkMeta.kind = "peer";
               if (worker.lead) forkMeta.lead = worker.lead;
               forkMeta.delegates = true;
               forkMeta.title = name;
               const now = Date.now();
-              await registerAgent(tx, name, {
+              await promoteAgent(tx, workerNumericId, name, {
                 conversationId: fork.id as number,
                 host: "local",
                 ...(description ? { description } : {}),

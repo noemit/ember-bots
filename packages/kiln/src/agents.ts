@@ -148,6 +148,34 @@ export const registerAgent = async (tx: Tx, name: string, entry: AgentEntry): Pr
 };
 
 /**
+ * Register a promoted peer's local name while retiring the source worker's unpinned auto-registration.
+ *
+ * `session spawn` registers every worker under its title so running threads appear in the directory.
+ * Promoting that worker with its default title reclaims the entry for the new peer fork, and
+ * promoting it under another name removes any unpinned alias still pointing at the hidden worker.
+ */
+export const promoteAgent = async (
+  tx: Tx,
+  workerConversationId: number,
+  name: string,
+  entry: AgentEntry
+): Promise<AgentEntry> => {
+  const doc = await tx.doc(AgentsDoc);
+  if (Object.hasOwn(doc.entries, name) && doc.entries[name]?.conversationId !== workerConversationId) {
+    throw new DuplicateAgentError(name);
+  }
+  if (doc.entries[name]?.conversationId === workerConversationId) {
+    delete doc.entries[name];
+  }
+  for (const [alias, existing] of Object.entries(doc.entries)) {
+    if (existing.conversationId === workerConversationId && !existing.pinned) {
+      delete doc.entries[alias];
+    }
+  }
+  return registerAgent(tx, name, entry);
+};
+
+/**
  * Register a conversation under a free name, or under the next free variant of it.
  *
  * The automatic path: a spawned worker is registered the moment it exists, so the directory lists
