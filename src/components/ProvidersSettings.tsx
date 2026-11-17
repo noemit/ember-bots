@@ -57,10 +57,29 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
  * `$HEARTH_HOME/auth.json` and is never sent back or rendered. Subscription sign-in runs on that
  * same host; this panel shows the browser link and polls for confirmed credential storage.
  */
-export default function ProvidersSettings({ inventory = false, endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange, onProviderCatalog }: Props) {
-  const [endpointId, setEndpointId] = React.useState(initialEndpointId ?? endpoints[0]?.id ?? '');
-  const activeEndpoint = React.useRef(endpointId);
-  activeEndpoint.current = endpointId;
+export default function ProvidersSettings(props: Props) {
+  const { endpoints, initialEndpointId } = props;
+  const [selection, setSelection] = React.useState({ initialEndpointId, id: initialEndpointId ?? endpoints[0]?.id ?? '' });
+  // Resolve changed deep links during render: an old host's controls must never paint under a new scope.
+  const chosen = selection.initialEndpointId === initialEndpointId ? selection.id : initialEndpointId;
+  const endpointId = endpoints.find(endpoint => endpoint.id === chosen)?.id ?? endpoints[0]?.id ?? '';
+  return <HostProvidersSettings {...props} key={endpointId} endpointId={endpointId}
+    onEndpointChange={id => setSelection({ initialEndpointId, id })} />;
+}
+
+/** A host transition remounts every credential draft, action and dialog together. */
+function HostProvidersSettings({ inventory = false, endpoints, instances, onProviderChange, instanceDefaults = {}, onDefaultChange, onProviderCatalog, endpointId, onEndpointChange }: Props & { endpointId: string; onEndpointChange: (id: string) => void }) {
+  const mounted = React.useRef(true);
+  const reads = React.useRef(0);
+  const defaultReads = React.useRef(0);
+  const credentialField = React.useRef<HTMLInputElement>(null);
+  const focusChosenCredential = React.useRef(false);
+  React.useLayoutEffect(() => {
+    mounted.current = true;
+    const providerReads = reads;
+    const modelReads = defaultReads;
+    return () => { mounted.current = false; providerReads.current++; modelReads.current++; };
+  }, []);
   const [providers, setProviders] = React.useState<PiProviderInfo[] | null>(null);
   const [defaultModel, setDefaultModel] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -75,28 +94,22 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
   const [removing, setRemoving] = React.useState<string | null>(null);
   const [signIn, setSignIn] = React.useState<PiProviderInfo | null>(null);
 
-  React.useEffect(() => {
-    if (initialEndpointId) setEndpointId(initialEndpointId);
-  }, [initialEndpointId]);
-  React.useEffect(() => {
-    if (!endpoints.some(endpoint => endpoint.id === endpointId)) setEndpointId(endpoints[0]?.id ?? '');
-  }, [endpointId, endpoints]);
-
   // Stable identity, so the signing dialog's effects don't restart on every parent render.
   const notifyChanged = useStableCallback((id: string) => onProviderChange?.(id));
 
   const notifyCatalog = useStableCallback((id: string, providers: PiProviderInfo[]) => onProviderCatalog?.(id, providers));
 
   const load = React.useCallback(async (id: string) => {
-    if (activeEndpoint.current !== id) return;
+    if (!mounted.current) return;
     if (!id) {
       setProviders(null);
       return;
     }
+    const version = ++reads.current;
     setLoading(true);
     setError(null);
     const catalog = await piLoadProviders(id);
-    if (activeEndpoint.current !== id) return;
+    if (!mounted.current || reads.current !== version) return;
     if (!catalog) {
       setProviders(null);
       setDefaultModel(null);
@@ -116,10 +129,11 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
   }, [endpointId, load]);
 
   const confirmDefault = async (id: string, providerName: string) => {
-    if (activeEndpoint.current !== id) return;
+    if (!mounted.current) return;
+    const version = ++defaultReads.current;
     setConfirmation({ endpointId: id, providerName, catalog: null });
     const catalog = await piLoadModels(id).catch(() => null);
-    if (activeEndpoint.current !== id) return;
+    if (!mounted.current || defaultReads.current !== version) return;
     setConfirmation((current) => current?.endpointId === id ? { ...current, catalog } : current);
   };
 
@@ -130,7 +144,7 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
     setError(null);
     const id = endpointId;
     const result = await piSetProviderKey(id, provider.id, key);
-    if (activeEndpoint.current !== id) return;
+    if (!mounted.current) return;
     setBusy(null);
     if (!result.ok) {
       setError(`${provider.name}: ${result.error ?? 'could not save the key'}`);
@@ -142,6 +156,7 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
       return next;
     });
     await load(endpointId);
+    if (!mounted.current) return;
     notifyChanged(endpointId);
     await confirmDefault(endpointId, provider.name);
   };
@@ -151,14 +166,14 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
     setError(null);
     const id = endpointId;
     const result = await piRemoveProvider(id, provider.id);
-    if (activeEndpoint.current !== id) return;
+    if (!mounted.current) return;
     setBusy(null);
     if (!result.ok) {
       setError(`${provider.name}: ${result.error ?? 'could not remove the credential'}`);
       return;
     }
     await load(endpointId);
-    notifyChanged(endpointId);
+    if (mounted.current) notifyChanged(endpointId);
   };
 
   if (endpoints.length === 0) {
@@ -182,7 +197,7 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2 border-b pb-5">
         <span className="text-xs text-muted-foreground">Providers on</span>
-        <Select value={endpointId} onValueChange={(id) => { setEndpointId(id); setConfirmation(null); setChoosingDefault(false); setManaging(null); setRemoving(null); setAdding(false); setDrafts({}); setSignIn(null); }}>
+        <Select value={endpointId} onValueChange={onEndpointChange}>
           <SelectTrigger size="sm" className="min-w-0 flex-1 text-xs" aria-label="Computer for providers">
             <SelectValue placeholder="Select a host" />
           </SelectTrigger>
@@ -250,7 +265,7 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
 
       {inventory ? <div className="flex items-center justify-between gap-3 border-t pt-5">
         <div><h3 className="text-base font-semibold">Your providers</h3><p className="mt-1 text-xs text-muted-foreground">{providers?.filter(provider => provider.credential).length ?? 0} with saved credentials</p></div>
-        <Button onClick={() => setAdding(true)}>Add provider</Button>
+        <Button disabled={loading || !providers} onClick={() => { focusChosenCredential.current = false; setAdding(true); }}>Add provider</Button>
       </div> : null}
       {inventory && providers && !providers.some(provider => provider.credential) ? <p className="rounded-lg border p-5 text-sm text-muted-foreground">No saved provider credentials on this computer yet. Choose Add provider to connect one.</p> : null}
       {providers?.filter(provider => !provider.custom && provider.id !== 'ollama' && (!inventory || !!provider.credential || managing === provider.id)).map((provider) => {
@@ -305,6 +320,7 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
             ) : null}
             <div className="mt-2 flex items-center gap-2">
               <SecretInput
+                ref={credentialField}
                 autoFocus={inventory}
                 value={draft}
                 onChange={(event) => setDrafts((prev) => ({ ...prev, [provider.id]: event.target.value }))}
@@ -335,10 +351,16 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
       })}
 
       {inventory ? <Dialog open={adding} onOpenChange={setAdding}>
-        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[560px]">
+        <DialogContent onCloseAutoFocus={event => {
+          if (!focusChosenCredential.current) return;
+          focusChosenCredential.current = false;
+          event.preventDefault();
+          credentialField.current?.focus({ preventScroll: true });
+          credentialField.current?.scrollIntoView({ block: 'nearest' });
+        }} className="max-h-[85dvh] overflow-y-auto sm:max-w-[560px]">
           <DialogHeader><DialogTitle>Add provider</DialogTitle><DialogDescription>Choose a provider to connect on {endpoints.find(endpoint => endpoint.id === endpointId)?.label}. Adding access never changes the default model by itself.</DialogDescription></DialogHeader>
           <div className="flex flex-col gap-2">
-            {providers?.filter(provider => !provider.custom && provider.id !== 'ollama').map(provider => <Button key={provider.id} variant="outline" className="min-h-11 justify-between" onClick={() => { setAdding(false); setManaging(provider.id); }}>
+            {providers?.filter(provider => !provider.custom && provider.id !== 'ollama').map(provider => <Button key={provider.id} variant="outline" className="min-h-11 justify-between" onClick={() => { focusChosenCredential.current = true; setAdding(false); setManaging(provider.id); }}>
               {provider.name}<span className="text-xs text-muted-foreground">{provider.credential ? 'Manage saved access' : 'Connect'}</span>
             </Button>)}
             <p className="mt-3 text-xs text-muted-foreground">For a local model or an OpenAI-compatible server, use Ollama or Custom providers below the inventory.</p>
@@ -348,12 +370,14 @@ export default function ProvidersSettings({ inventory = false, endpoints, instan
       <details className="rounded-lg border p-3"><summary className="cursor-pointer py-2 text-sm font-medium">Local models · Ollama</summary>
       <OllamaSetup key={'ollama-' + endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async connected => {
         await load(endpointId);
+        if (!mounted.current) return;
         notifyChanged(endpointId);
         if (connected) await confirmDefault(endpointId, 'Ollama');
       }} />
       </details>
       <CustomProviders key={endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async (name) => {
         await load(endpointId);
+        if (!mounted.current) return;
         notifyChanged(endpointId);
         if (name) await confirmDefault(endpointId, name);
       }} />

@@ -11,7 +11,9 @@ for keyboard navigation, a desktop sidebar and a two-column mobile category list
 - **Providers:** saved credential inventory and primary Add provider, API keys, subscription
   sign-in, explicit keep/change default-model decision, removal confirmation, Custom/OpenAI-compatible
   definitions and Ollama. Credential badges report storage, not health. Ollama's existing setup is
-  under a Local models disclosure. Sharing stays a secondary reviewed flow, with its existing
+  under a Local models disclosure. Sharing stays a secondary reviewed flow. The existing dense comparison matrix and review
+  panel are intentionally preserved; this is NOT the approved staged source → destination → providers
+  → review wizard. A guided wrapper remains a design gap for root review. Security remains its existing
   fill-only, exact custom binding, source-peer reachability and experimental OAuth consent policies.
   Model experience clearing/retention remains here because it describes model use.
 - **Computers and Containers:** connection creation/test/edit/removal and Access credentials,

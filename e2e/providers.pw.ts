@@ -80,3 +80,58 @@ test('both keys can be present at once, each with its own status', async ({ page
   await findModel(picker, 'Qwen3-32B');
   await findModel(picker, 'Claude Sonnet 5.5');
 });
+
+test('switching computers during a pending save clears scoped controls and ignores the old response', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?noDock');
+  await page.waitForFunction(() => Boolean(window.ember?.piRequest));
+  await page.evaluate(() => {
+    const original = window.ember.piRequest!;
+    const probe = { release: undefined as (() => void) | undefined, pending: false };
+    Object.assign(window, { providerHostProbe: probe });
+    window.ember.piRequest = async (id, path, init) => {
+      if (path === '/providers') return { ok: true, status: 200, data: {
+        providers: [{ id: 'shared', name: 'Shared Provider', credential: 'api_key' }],
+        default: { provider: 'shared', modelId: id === 'pi:hearth' ? 'Model A' : 'Model B' },
+      } as never };
+      if (path === '/providers/shared' && init?.method === 'POST') {
+        probe.pending = true;
+        await new Promise<void>(resolve => { probe.release = resolve; });
+        return { ok: true, status: 200, data: {} as never };
+      }
+      return original(id, path, init);
+    };
+  });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Computers and Containers', exact: true }).click();
+  const connection = page.getByRole('region', { name: 'Add instance', exact: true });
+  await connection.getByRole('button', { name: 'On another computer', exact: true }).click();
+  await connection.getByLabel('Instance name', { exact: true }).fill('Computer B');
+  await connection.getByLabel('Kiln URL', { exact: true }).fill('https://computer-b.example.test');
+  await connection.getByLabel('Bearer token', { exact: true }).fill('synthetic-only');
+  await connection.getByRole('button', { name: 'Add instance', exact: true }).click();
+  await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+  const chooser = page.getByRole('dialog', { name: 'Add provider', exact: true });
+  await chooser.getByRole('button', { name: /Shared Provider/ }).focus();
+  await page.keyboard.press('Enter');
+  const field = page.getByRole('textbox', { name: 'API key for Shared Provider', exact: true });
+  await expect(field).toBeFocused();
+  await expect(field).toBeInViewport();
+  await page.keyboard.type('synthetic-key-for-A');
+  await field.locator('..').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { providerHostProbe: { pending: boolean } }).providerHostProbe.pending)).toBe(true);
+  await page.getByRole('combobox', { name: 'Computer for providers', exact: true }).click();
+  await page.getByRole('option', { name: /^Computer B/ }).click();
+  await expect(field).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Confirm instance default' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Manage Shared Provider', exact: true }).click();
+  await expect(field).toHaveValue('');
+  await field.fill('synthetic-key-for-B');
+  await expect(field.locator('..').getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await page.evaluate(() => (window as unknown as { providerHostProbe: { release: () => void } }).providerHostProbe.release());
+  await expect(field).toHaveValue('synthetic-key-for-B');
+  await expect(field.locator('..').getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(page.getByRole('region', { name: 'Confirm instance default' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toContainText('Model B');
+});
