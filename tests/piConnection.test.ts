@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { PiClient } from '../electron/piClient';
-import { connectionFailure, connectionMessage, piConnectionHeaders, testPiEndpoint } from '../electron/piConnection';
+import { canonicalizePiPath, connectionFailure, connectionMessage, piConnectionHeaders, resolvePiUrl, testPiEndpoint } from '../electron/piConnection';
 
 const draft = { label: 'Fixture Kiln', url: 'https://fixture.invalid', token: 'kiln-secret', access: { clientId: 'access-id', clientSecret: 'access-secret' } };
 const originalFetch = globalThis.fetch;
@@ -48,6 +48,62 @@ describe('separate transport credentials', () => {
     expect((await testPiEndpoint({ ...draft, url: 'http://127.0.0.1' })).outcome).toBe('tls-error');
     expect((await testPiEndpoint({ ...draft, access: { clientId: 'id', clientSecret: '' } })).outcome).toBe('auth-rejected');
     expect(requests).toBe(0);
+  });
+
+  test('canonical Pi paths and subpath endpoint.url confinement never escape base.pathname with Bearer or CF-Access headers', async () => {
+    const subpathDraft = { ...draft, url: 'https://fixture.invalid/kiln' };
+    const seen: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const href = String(input);
+      const parsed = new URL(href);
+      expect(parsed.origin).toBe('https://fixture.invalid');
+      expect(parsed.pathname === '/kiln' || parsed.pathname.startsWith('/kiln/')).toBe(true);
+      seen.push(href);
+      return Response.json(href.endsWith('/health') ? { ok: true, service: 'hearth', version: '1.0.0' } : { conversations: [] });
+    }) as typeof fetch;
+
+    expect((await testPiEndpoint(subpathDraft)).outcome).toBe('ready');
+    const client = new PiClient(() => {}, () => ({ ...subpathDraft, id: 'pi:subpath' }));
+    expect((await client.request('pi:subpath', '/conversations//12?limit=5')).ok).toBe(true);
+    expect((await client.request('pi:subpath', '/approvals/12/approval%2Fkey/preview', { method: 'POST', body: {} })).ok).toBe(true);
+    expect(seen).toEqual([
+      'https://fixture.invalid/kiln/health',
+      'https://fixture.invalid/kiln/conversations?limit=1',
+      'https://fixture.invalid/kiln/conversations/12?limit=5',
+      'https://fixture.invalid/kiln/approvals/12/approval%2Fkey/preview',
+    ]);
+
+    const countBeforeEscapes = seen.length;
+    for (const escapePath of [
+      '',
+      'conversations',
+      '//fixture.invalid/admin',
+      '//evil.invalid/kiln/conversations',
+      '/\\admin',
+      '/conversations\\admin',
+      '/%2e%2e/admin',
+      '/%2E%2e/admin',
+      '/../admin',
+      '/%2e%2e/kiln-admin',
+      '/conversations/../../admin',
+      '/conversations/%2e%2e/%2e%2e/admin',
+      '/conversations%2f..%2f..%2fadmin',
+      '/conversations/%2e',
+      '/conversations/.',
+      '/conversations#fragment',
+      '/conversations\x00',
+      '/conversations\x7f',
+      '/conversations%00',
+      '/%ZZ',
+      '/conversations/%E0%A4%A',
+      '/conversations?cursor=%ZZ',
+    ]) {
+      expect(canonicalizePiPath(escapePath)).toBeNull();
+      expect(resolvePiUrl(subpathDraft.url, escapePath)).toBeNull();
+      const rejected = await client.request('pi:subpath', escapePath);
+      expect(rejected).toEqual({ ok: false, status: 400, data: { error: 'Invalid request path' } });
+    }
+    expect(seen.length).toBe(countBeforeEscapes);
   });
 });
 

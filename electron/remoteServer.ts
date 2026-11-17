@@ -7,6 +7,7 @@ import { brotliCompress, gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import type { ApiMethod } from './transport';
 import type { ModelStatsStore } from './modelStats';
+import { canonicalizePiPath, desktopOnlyPiRouteError } from './piPath';
 import { isTrustedHttpsProxy, parseRemoteProxyOrigin, remoteBindAddress } from './remoteProxy';
 
 const REMOTE_PORT = 57821;
@@ -430,29 +431,14 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
         if (!input || typeof input !== 'object') return json(response, 400, { error: 'Invalid request' });
         const value = input as Record<string, unknown>;
         const endpointId = typeof value.endpointId === 'string' ? value.endpointId : '';
-        const path = typeof value.path === 'string' ? value.path : '';
-        if (!endpointId || !path.startsWith('/')) return json(response, 400, { error: 'Invalid request' });
-        let rawPathname: string;
-        let decodedPath: string;
-        try {
-          rawPathname = new URL(`http://localhost${path}`).pathname.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
-          decodedPath = decodeURIComponent(rawPathname).replace(/\/+/g, '/').replace(/\/$/, '') || '/';
-        } catch {
-          return json(response, 400, { error: 'Invalid request' });
-        }
-        if (rawPathname.startsWith('/alignment') || decodedPath.startsWith('/alignment')) {
-          return json(response, 403, { error: 'Align instances from the desktop app, where connection credentials stay private.' });
-        }
-        if (
-          rawPathname === '/directory/peers' ||
-          rawPathname.startsWith('/directory/peers/') ||
-          decodedPath === '/directory/peers' ||
-          decodedPath.startsWith('/directory/peers/')
-        ) {
-          return json(response, 403, { error: 'Manage peer connections from the desktop app, where connection credentials stay private.' });
-        }
+        const rawPath = typeof value.path === 'string' ? value.path : '';
+        if (!endpointId || !rawPath.startsWith('/')) return json(response, 400, { error: 'Invalid request' });
+        const desktopOnlyError = desktopOnlyPiRouteError(rawPath);
+        if (desktopOnlyError) return json(response, 403, { error: desktopOnlyError });
+        const canonical = canonicalizePiPath(rawPath);
+        if (!canonical) return json(response, 400, { error: 'Invalid request' });
         const init = value.init && typeof value.init === 'object' ? (value.init as { method?: string; body?: unknown }) : undefined;
-        return json(response, 200, await handlers.piRequest(endpointId, path, init));
+        return json(response, 200, await handlers.piRequest(endpointId, canonical.path, init));
       }
       if (url.pathname === '/remote/events/status' && request.method === 'GET') {
         return json(response, 200, handlers.eventStatus());

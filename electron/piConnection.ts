@@ -1,5 +1,8 @@
 import type { PiEndpoint } from './transport';
 import { readConnectionJson } from './connectionJson';
+import { canonicalizePiPath, desktopOnlyPiRouteError, resolvePiUrl, type CanonicalPiPath } from './piPath';
+
+export { canonicalizePiPath, desktopOnlyPiRouteError, resolvePiUrl, type CanonicalPiPath };
 
 export type PiConnectionDraft = Pick<PiEndpoint, 'label' | 'url' | 'token'> & {
   access?: { clientId: string; clientSecret: string };
@@ -88,7 +91,9 @@ export const testPiEndpoint = async (
     const deadline = Date.now() + timeout;
     const signal = AbortSignal.timeout(timeout);
     const read = async (path: string): Promise<{ outcome?: PiConnectionOutcome; authLayer?: PiConnectionTest['authLayer']; body?: unknown }> => {
-      const response = await request(`${endpoint.url.replace(/\/+$/, '')}${path}`, { headers, redirect: 'manual', signal });
+      const targetUrl = resolvePiUrl(endpoint.url, path);
+      if (!targetUrl) return { outcome: 'wrong-service' };
+      const response = await request(targetUrl.toString(), { headers, redirect: 'manual', signal });
       const location = response.headers.get('location') ?? '';
       if (response.headers.has('cf-access-domain') || /\/cdn-cgi\/access\/|cloudflareaccess\.com/i.test(location)) {
         void response.body?.cancel().catch(() => {});

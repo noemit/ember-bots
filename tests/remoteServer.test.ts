@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createRemoteServer } from '../electron/remoteServer';
 import { hashRemotePassword, verifyRemotePassword } from '../electron/remoteAuth';
+import { PiClient } from '../electron/piClient';
 
 const fixture = async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ember-remote-auth-'));
@@ -159,40 +160,95 @@ test('proxies piRequest, eventStatus, and activity endpoints', async () => {
     expect(piData.ok).toBe(true);
     expect(f.writes).toContain('pi:pi:test:/conversations');
 
-    // Metadata and every credential/peer route remain desktop-only, including encoded and double-slash paths.
+    // Metadata and every credential/peer route remain desktop-only, including encoded, backslash, dot-segment, and double-slash paths.
     for (const path of [
       '/alignment',
+      '/alignment/',
       '/alignment/connections',
       '/alignment/share',
       '/alignment/import',
       '/alignment%2Fshare',
+      '/%61lignment/share',
       '//alignment/share',
+      '///alignment//share',
+      '/\\alignment/connections',
+      '/%5calignment/connections',
+      '/%2e%2e/alignment/share',
+      '/%2e/alignment/share',
+      '/alignment/../alignment/share',
+      '/conversations/../alignment/share',
+      '/conversations/%2e%2e/alignment/share',
+      '/conversations%2f%2e%2e%2falignment/share',
       '/directory/peers',
       '/directory/peers/',
       '/directory%2Fpeers',
       '/%64irectory/peers',
       '//directory/peers',
+      '/\\directory/peers',
+      '/%2e%2e/directory/peers',
+      '/directory/../directory/peers',
+      '/conversations/%2e%2e/directory/peers',
     ]) {
       const blocked = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path, init: { method: path.includes('peers') ? 'PUT' : path === '/alignment' ? 'GET' : 'POST' } }, cookie);
       expect(blocked.status).toBe(403);
       const blockedBody = (await blocked.json()) as { error?: string };
       expect(blockedBody.error).toContain('desktop app');
       expect(blockedBody.error).not.toContain('!');
-      expect(f.writes).not.toContain(`pi:pi:test:${path}`);
+      expect(f.writes.some((entry) => entry.startsWith('pi:') && entry !== 'pi:pi:test:/conversations')).toBe(false);
     }
     const peersGet = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/directory/peers', init: { method: 'GET' } }, cookie);
     expect(peersGet.status).toBe(403);
     expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/directory', init: { method: 'GET' } }, cookie)).status).toBe(200);
     expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/directories', init: { method: 'GET' } }, cookie)).status).toBe(200);
 
+    // Consecutive slashes normalize to the canonical pathname while preserving encoded segment characters.
+    expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/conversations//12?limit=8', init: { method: 'GET' } }, cookie)).status).toBe(200);
+    expect(f.writes).toContain('pi:pi:test:/conversations/12?limit=8');
+    expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: '/approvals/12/approval%2Fkey/preview', init: { method: 'POST' } }, cookie)).status).toBe(200);
+    expect(f.writes).toContain('pi:pi:test:/approvals/12/approval%2Fkey/preview');
+
     // Host configuration commands and draft credential probes have no remote HTTP surface.
     for (const path of ['/remote/kiln-sharing', '/remote/pi/test', '/remote/local-harness-token']) {
       expect((await f.request(path, 'POST', { action: 'enable' }, cookie)).status).toBe(405);
     }
 
-    // Invalid pi request validation
+    // Invalid pi request validation: empty, missing slash, //, backslashes, control chars, #, dot segments, malformed %.
     expect((await f.request('/remote/pi', 'POST', { endpointId: '', path: '/foo' }, cookie)).status).toBe(400);
-    expect((await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: 'no-slash' }, cookie)).status).toBe(400);
+    const writesBeforeInvalid = f.writes.length;
+    for (const badPath of [
+      '',
+      'no-slash',
+      '//conversations',
+      '//evil.example/conversations',
+      '/\\conversations',
+      '/conversations\\12',
+      '/conversations%5c12',
+      '/conversations\x00',
+      '/conversations\r\n',
+      '/conversations\x7f',
+      '/conversations%00',
+      '/conversations#frag',
+      '/conversations?limit=1#frag',
+      '/.',
+      '/..',
+      '/conversations/./entries',
+      '/conversations/../models',
+      '/alignment/../conversations',
+      '/%2e',
+      '/%2e%2e',
+      '/%2e%2e/admin',
+      '/%2E%2e/admin',
+      '/conversations/%2e%2e/models',
+      '/conversations%2f%2e%2e%2fmodels',
+      '/%ZZ',
+      '/conversations/%E0%A4%A',
+      '/alignment/%ZZ',
+      '/conversations?cursor=%ZZ',
+    ]) {
+      const invalid = await f.request('/remote/pi', 'POST', { endpointId: 'pi:test', path: badPath }, cookie);
+      expect(invalid.status).toBe(400);
+    }
+    expect(f.writes.length).toBe(writesBeforeInvalid);
 
     const actList = await f.request('/remote/activity/list', 'POST', { limit: 10 }, cookie);
     expect(actList.status).toBe(200);
@@ -223,4 +279,78 @@ test('authenticated remote browsers have no host update or installer routes', as
     expect(bridge).not.toContain('updateAction');
     expect(f.writes).toEqual([]);
   } finally { await f.close(); }
+});
+
+test('/remote/pi and PiClient evaluate the same canonical pathname and confine subpath endpoints', async () => {
+  const upstreamSeen: Array<{ pathname: string; search: string; auth: string | null }> = [];
+  const upstream = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      upstreamSeen.push({
+        pathname: url.pathname,
+        search: url.search,
+        auth: request.headers.get('authorization'),
+      });
+      return Response.json({ ok: true, pathname: url.pathname, search: url.search });
+    },
+  });
+  const directory = await mkdtemp(join(tmpdir(), 'ember-remote-pi-subpath-'));
+  const password = randomBytes(24).toString('hex');
+  const hash = await hashRemotePassword(password);
+  const client = new PiClient(() => {}, (id) =>
+    id === 'pi:subpath'
+      ? { id: 'pi:subpath', label: 'Subpath Kiln', url: `http://127.0.0.1:${upstream.port}/kiln/`, token: 'subpath-bearer-secret' }
+      : undefined
+  );
+  const server = createRemoteServer(directory, {
+    modelStats: { list: async () => [], observe: async () => [], clear: async () => {} },
+    listInstances: async () => [],
+    getSettings: () => ({ theme: 'stone' }),
+    setSettings: async (patch) => patch,
+    request: async () => ({ ok: true, status: 200, data: {} }),
+    piRequest: (endpointId, reqPath, init) => client.request(endpointId, reqPath, init),
+    verifyPassword: (value) => verifyRemotePassword(value, hash),
+    subscribeEvents: () => () => {},
+    eventStatus: () => ({}),
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('No test port');
+  const remoteUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const login = await fetch(`${remoteUrl}/remote/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const cookie = login.headers.get('set-cookie')!.split(';')[0];
+    const postPi = (path: string) =>
+      fetch(`${remoteUrl}/remote/pi`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ endpointId: 'pi:subpath', path, init: { method: 'GET' } }),
+      });
+
+    for (const blockedPath of ['//alignment/share', '/\\alignment/connections', '/%2e%2e/alignment/share', '/alignment/../alignment/share']) {
+      expect((await postPi(blockedPath)).status).toBe(403);
+    }
+    for (const escapePath of ['/%2e%2e/admin', '/../admin', '//127.0.0.1/admin', '/\\admin', '/conversations/%ZZ']) {
+      expect((await postPi(escapePath)).status).toBe(400);
+    }
+    expect(upstreamSeen).toHaveLength(0);
+
+    const allowed = await postPi('/conversations//42?limit=1');
+    expect(allowed.status).toBe(200);
+    expect(upstreamSeen).toEqual([
+      { pathname: '/kiln/conversations/42', search: '?limit=1', auth: 'Bearer subpath-bearer-secret' },
+    ]);
+  } finally {
+    client.closeAll();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    upstream.stop(true);
+    await rm(directory, { recursive: true });
+  }
 });

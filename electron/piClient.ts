@@ -12,7 +12,7 @@
  */
 import type { PiEndpoint } from './transport';
 import { WebSocket } from 'undici';
-import { connectionFailure, connectionMessage, piConnectionHeaders, testPiEndpoint } from './piConnection';
+import { canonicalizePiPath, connectionFailure, connectionMessage, piConnectionHeaders, resolvePiUrl, testPiEndpoint } from './piConnection';
 import { describePiEvent } from './eventStream';
 import {
   freshBackoff,
@@ -367,7 +367,8 @@ export class PiClient {
     if (!['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
       return { ok: false, status: 400, data: { error: 'Invalid request method' } };
     }
-    if (!path.startsWith('/') || path.includes('..')) {
+    const canonical = canonicalizePiPath(path);
+    if (!canonical) {
       return { ok: false, status: 400, data: { error: 'Invalid request path' } };
     }
     let body: string | undefined;
@@ -378,10 +379,15 @@ export class PiClient {
       }
     }
     try {
-      const response = await fetch(`${endpoint.url.replace(/\/+$/, '')}${path}`, {
+      const headers = piConnectionHeaders(endpoint);
+      const targetUrl = resolvePiUrl(endpoint.url, canonical.path);
+      if (!targetUrl) {
+        return { ok: false, status: 400, data: { error: 'Invalid request path' } };
+      }
+      const response = await fetch(targetUrl.toString(), {
         method,
         headers: {
-          ...piConnectionHeaders(endpoint),
+          ...headers,
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         body,
@@ -454,7 +460,9 @@ export class PiClient {
     if (!endpoint) return;
     const key = `events:${endpointId}:${conversationId}`;
     if (this.conversations.has(key)) return;
-    this.conversations.set(key, this.subscribe(endpointId, `${endpoint.url.replace(/\/+$/, '')}/conversations/${conversationId}/events`, (message) => {
+    const targetUrl = resolvePiUrl(endpoint.url, `/conversations/${conversationId}/events`);
+    if (!targetUrl) return;
+    this.conversations.set(key, this.subscribe(endpointId, targetUrl.toString(), (message) => {
       this.forwardEvents(endpointId, String(conversationId), message);
     }));
   }
@@ -465,9 +473,11 @@ export class PiClient {
     if (!endpoint) return;
     const key = `tasks:${endpointId}`;
     if (this.tasks.has(key)) return;
+    const targetUrl = resolvePiUrl(endpoint.url, '/tasks/stream');
+    if (!targetUrl) return;
     this.tasks.set(
       key,
-      this.subscribe(endpointId, `${endpoint.url.replace(/\/+$/, '')}/tasks/stream`, () => {
+      this.subscribe(endpointId, targetUrl.toString(), () => {
         this.broadcast({ instanceId: endpointId, type: 'pi:tasks' });
       })
     );
