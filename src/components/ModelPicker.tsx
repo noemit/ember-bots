@@ -11,6 +11,7 @@ import type { ModelOption } from '../types';
 import ModelScorecard from './ModelScorecard';
 import { refreshModelStats } from '@/lib/modelStats';
 import { canonicalVariant, resolveComposerModel } from '@/lib/modelSelection';
+import { useStableCallback } from '@/lib/useStableCallback';
 
 type Props = {
   open: boolean;
@@ -47,7 +48,31 @@ type Props = {
   instanceLabel?: string;
 };
 
-type Group = { id: string; title: string; models: ModelOption[] };
+export type Group = { id: string; title: string; models: ModelOption[] };
+
+export type NavigableItem = {
+  key: string;
+  expandProviderId: string | null;
+};
+
+export type PickerState = {
+  query: string;
+  hovered: string | null;
+  expandedProviders: Set<string>;
+  selectedKey: string;
+  selectedVariant: string;
+};
+
+export type PickerContext = {
+  models: readonly ModelOption[];
+  recentModels: readonly string[];
+  byKey: ReadonlyMap<string, ModelOption>;
+  defaultModelId: string | null;
+  instanceDefaultModelId: string | null;
+  collapseProviders: boolean;
+  requireConcreteModel: boolean;
+  preserveVariantOnModelChange: boolean;
+};
 
 const formatTokens = (value: number): string =>
   value >= 1_000_000 ? `${(value / 1_000_000).toFixed(value % 1_000_000 ? 1 : 0)}M` : `${Math.round(value / 1000)}k`;
@@ -58,31 +83,246 @@ const matches = (model: ModelOption, needle: string): boolean =>
   [model.details.name, model.modelID, model.details.providerName, model.providerID, model.details.family]
     .some((field) => field?.toLowerCase().includes(needle));
 
-const Row = React.memo(function Row({
+/**
+ * Auto-expand all providers when there are at most two, or the provider group containing the
+ * active/default model when there are more, falling back to the first alphabetical provider so
+ * opening the picker never greets the person with a wall of closed accordions.
+ */
+export const initialExpandedProviders = (
+  models: readonly ModelOption[],
+  value: string,
+  defaultModelId?: string | null,
+  instanceDefaultModelId?: string | null,
+): Set<string> => {
+  const providers = [...new Set(models.map((model) => model.providerID))];
+  if (providers.length <= 2) return new Set(providers);
+  const targetKey = value && value !== DEFAULT_MODEL ? value : defaultModelId ?? instanceDefaultModelId ?? null;
+  if (targetKey) {
+    const matched = models.find((model) => modelRefKey(model) === targetKey)?.providerID;
+    if (matched) return new Set([matched]);
+    const prefix = targetKey.split('/')[0];
+    if (prefix && providers.includes(prefix)) return new Set([prefix]);
+  }
+  const firstSorted = [...models]
+    .sort((a, b) => a.details.providerName.localeCompare(b.details.providerName))[0]?.providerID;
+  return firstSorted ? new Set([firstSorted]) : new Set();
+};
+
+export const buildModelGroups = (
+  models: readonly ModelOption[],
+  recentModels: readonly string[],
+  byKey: ReadonlyMap<string, ModelOption>,
+  query: string,
+): Group[] => {
+  const needle = query.trim().toLowerCase();
+  const visible = needle ? models.filter((model) => matches(model, needle)) : models;
+  const visibleSet = needle ? new Set(visible) : null;
+  const recent = recentModels
+    .map((key) => byKey.get(key))
+    .filter((model): model is ModelOption => model !== undefined && (!visibleSet || visibleSet.has(model)));
+  const byProvider = new Map<string, Group>();
+  visible.forEach((model) => {
+    const group = byProvider.get(model.providerID) ?? {
+      id: model.providerID,
+      title: model.details.providerName,
+      models: [],
+    };
+    group.models.push(model);
+    byProvider.set(model.providerID, group);
+  });
+  const providers = [...byProvider.values()].sort((a, b) => a.title.localeCompare(b.title));
+  return recent.length ? [{ id: 'recent', title: 'Recent', models: recent }, ...providers] : providers;
+};
+
+export const narrowedQuerySelection = (groups: readonly Group[], selectedKey: string): string | null => {
+  if (groups.length === 0) return null;
+  if (
+    selectedKey &&
+    selectedKey !== DEFAULT_MODEL &&
+    groups.some((group) => group.models.some((model) => modelRefKey(model) === selectedKey))
+  ) {
+    return selectedKey;
+  }
+  const first = groups[0]?.models[0];
+  return first ? modelRefKey(first) : null;
+};
+
+export const buildNavigableItems = (
+  groups: readonly Group[],
+  includeDefault: boolean,
+): NavigableItem[] => {
+  const items: NavigableItem[] = [];
+  const seen = new Set<string>();
+  if (includeDefault) {
+    items.push({ key: DEFAULT_MODEL, expandProviderId: null });
+    seen.add(DEFAULT_MODEL);
+  }
+  for (const group of groups) {
+    const expandProviderId = group.id === 'recent' ? null : group.id;
+    for (const model of group.models) {
+      const key = modelRefKey(model);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ key, expandProviderId });
+    }
+  }
+  return items;
+};
+
+export const stepModelSelection = (
+  items: readonly NavigableItem[],
+  currentKey: string,
+  delta: 1 | -1,
+): NavigableItem | null => {
+  if (items.length === 0) return null;
+  const currentIndex = items.findIndex((item) => item.key === currentKey);
+  if (currentIndex === -1) {
+    return delta > 0 ? items[0] : items[items.length - 1];
+  }
+  const nextIndex = (currentIndex + delta + items.length) % items.length;
+  return items[nextIndex];
+};
+
+export const createInitialPickerState = (
+  value: string,
+  variant: string,
+  context: Pick<PickerContext, 'models' | 'defaultModelId' | 'instanceDefaultModelId'>,
+): PickerState => ({
+  query: '',
+  hovered: null,
+  expandedProviders: initialExpandedProviders(
+    context.models,
+    value,
+    context.defaultModelId,
+    context.instanceDefaultModelId,
+  ),
+  selectedKey: value,
+  selectedVariant: variant,
+});
+
+export const pickModelInState = (
+  state: PickerState,
+  key: string,
+  context: Pick<PickerContext, 'byKey' | 'defaultModelId' | 'preserveVariantOnModelChange'>,
+): PickerState => {
+  const defaultModel = context.defaultModelId ? context.byKey.get(context.defaultModelId) ?? null : null;
+  const nextModel = key === DEFAULT_MODEL ? defaultModel : context.byKey.get(key) ?? null;
+  const nextVariant = key !== state.selectedKey && !context.preserveVariantOnModelChange
+    ? canonicalVariant(nextModel?.details.variants, state.selectedVariant) ?? ''
+    : state.selectedVariant;
+  const nextHovered = key === DEFAULT_MODEL ? null : key;
+  if (
+    state.selectedKey === key &&
+    state.selectedVariant === nextVariant &&
+    state.hovered === nextHovered
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    selectedKey: key,
+    selectedVariant: nextVariant,
+    hovered: nextHovered,
+  };
+};
+
+export const updateQueryInState = (
+  state: PickerState,
+  nextQuery: string,
+  context: Pick<PickerContext, 'models' | 'recentModels' | 'byKey' | 'defaultModelId' | 'preserveVariantOnModelChange'>,
+): PickerState => {
+  const withQuery = { ...state, query: nextQuery };
+  if (!nextQuery.trim()) return withQuery;
+  const nextGroups = buildModelGroups(context.models, context.recentModels, context.byKey, nextQuery);
+  const narrowed = narrowedQuerySelection(nextGroups, state.selectedKey);
+  if (!narrowed) return { ...withQuery, hovered: null };
+  return pickModelInState(withQuery, narrowed, context);
+};
+
+export const stepSelectionInState = (
+  state: PickerState,
+  delta: 1 | -1,
+  context: PickerContext,
+): { state: PickerState; targetKey: string | null } => {
+  const groups = buildModelGroups(context.models, context.recentModels, context.byKey, state.query);
+  const defaultModel = context.defaultModelId ? context.byKey.get(context.defaultModelId) ?? null : null;
+  const includeDefault = !state.query && !(context.requireConcreteModel && !defaultModel);
+  const items = buildNavigableItems(groups, includeDefault);
+  const next = stepModelSelection(items, state.selectedKey, delta);
+  if (!next) return { state, targetKey: null };
+  let nextState = pickModelInState(state, next.key, context);
+  if (
+    context.collapseProviders &&
+    next.expandProviderId &&
+    !state.query.trim() &&
+    !nextState.expandedProviders.has(next.expandProviderId)
+  ) {
+    const expanded = new Set(nextState.expandedProviders);
+    expanded.add(next.expandProviderId);
+    nextState = { ...nextState, expandedProviders: expanded };
+  }
+  return { state: nextState, targetKey: next.key };
+};
+
+export const resolveModelCommit = (
+  state: PickerState,
+  key: string,
+  context: PickerContext,
+): { state: PickerState; commit: { key: string; variant: string } | null } => {
+  if (!key) return { state, commit: null };
+  const nextState = pickModelInState(state, key, context);
+  const defaultModel = context.defaultModelId ? context.byKey.get(context.defaultModelId) ?? null : null;
+  const targetModel = key === DEFAULT_MODEL ? defaultModel : context.byKey.get(key) ?? null;
+  const error = context.requireConcreteModel && key === DEFAULT_MODEL && !defaultModel
+    ? 'The instance default model is unavailable. Choose an available model.'
+    : resolveComposerModel(key, nextState.selectedVariant, context.models as ModelOption[], context.defaultModelId).error;
+  if (error) return { state: nextState, commit: null };
+  const committedVariant = canonicalVariant(targetModel?.details.variants ?? [], nextState.selectedVariant) ?? nextState.selectedVariant;
+  return {
+    state: nextState,
+    commit: { key, variant: committedVariant },
+  };
+};
+
+export const Row = React.memo(function Row({
   model,
   selected,
   active,
   onHover,
   onPick,
+  onCommit,
 }: {
   model: ModelOption;
   selected: boolean;
   active: boolean;
-  onHover: () => void;
-  onPick: () => void;
+  onHover: (key: string) => void;
+  onPick: (key: string) => void;
+  onCommit: (key: string) => void;
 }) {
+  const key = modelRefKey(model);
   return (
     <div
       data-active={active}
-      data-model-key={modelRefKey(model)}
-      onMouseEnter={onHover}
+      data-model-key={key}
+      onMouseEnter={() => onHover(key)}
+      onDoubleClick={() => onCommit(key)}
       className={cn(
         'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px]',
         active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
       )}
     >
-      <button type="button" onFocus={onHover} onClick={onPick}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <button
+        type="button"
+        onFocus={() => onHover(key)}
+        onClick={() => onPick(key)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            onCommit(key);
+          }
+        }}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <span className="min-w-0 flex-1 truncate" title={model.details.name}>{model.details.name}</span>
         {model.details.status && model.details.status !== 'active' ? (
           <span className="flex-none rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -189,6 +429,299 @@ const Details = ({ model, instanceId, directory, isDefault, onSetDefault }: {
   );
 };
 
+export type ModelPickerBodyProps = {
+  state: PickerState;
+  models: ModelOption[];
+  groups: Group[];
+  byKey: ReadonlyMap<string, ModelOption>;
+  defaultModelId: string | null;
+  instanceDefaultModelId: string | null;
+  instanceId?: string;
+  directory?: string;
+  instanceLabel?: string;
+  collapseProviders: boolean;
+  requireConcreteModel: boolean;
+  refreshing: boolean;
+  searchRef?: React.Ref<HTMLInputElement>;
+  listRef?: React.Ref<HTMLDivElement>;
+  onQueryChange: (query: string) => void;
+  onSearchKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  onListKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onToggleProvider: (providerId: string) => void;
+  onRowHover: (key: string) => void;
+  onRowPick: (key: string) => void;
+  onRowCommit: (key: string) => void;
+  onVariantChange: (variant: string) => void;
+  onSetInstanceDefault?: (model: ModelOption) => void;
+  onAddProviders?: () => void;
+  onRefresh?: () => void;
+  onCancel: () => void;
+  onApply: () => void;
+};
+
+export function ModelPickerBody({
+  state,
+  models,
+  groups,
+  byKey,
+  defaultModelId,
+  instanceDefaultModelId,
+  instanceId,
+  directory,
+  instanceLabel,
+  collapseProviders,
+  requireConcreteModel,
+  refreshing,
+  searchRef,
+  listRef,
+  onQueryChange,
+  onSearchKeyDown,
+  onListKeyDown,
+  onToggleProvider,
+  onRowHover,
+  onRowPick,
+  onRowCommit,
+  onVariantChange,
+  onSetInstanceDefault,
+  onAddProviders,
+  onRefresh,
+  onCancel,
+  onApply,
+}: ModelPickerBodyProps) {
+  const { query, hovered, expandedProviders, selectedKey, selectedVariant } = state;
+  const defaultModel = defaultModelId ? byKey.get(defaultModelId) ?? null : null;
+  const defaultLabel = defaultModel
+    ? `${defaultModel.details.providerName} / ${defaultModel.details.name} (Server default)`
+    : 'Server default';
+  const selectedModel = selectedKey === DEFAULT_MODEL ? defaultModel : byKey.get(selectedKey) ?? null;
+  const variantOptions = selectedModel?.details.variants ?? [];
+  // A saved variant can differ from the catalogue only by case ('High' vs 'high'), and a saved
+  // 'default' means the model default; show and store the advertised spelling.
+  const canonicalSelected = canonicalVariant(variantOptions, selectedVariant) ?? selectedVariant;
+  const selectionError = requireConcreteModel && selectedKey === DEFAULT_MODEL && !defaultModel
+    ? 'The instance default model is unavailable. Choose an available model.'
+    : resolveComposerModel(selectedKey, selectedVariant, models, defaultModelId).error;
+  // Keep the inspected model when the pointer leaves the list for its details action.
+  const activeKey = hovered === DEFAULT_MODEL ? defaultModelId
+    : hovered && byKey.has(hovered) ? hovered : selectedKey !== DEFAULT_MODEL ? selectedKey : defaultModelId;
+  const activeModel = activeKey ? byKey.get(activeKey) ?? null : null;
+  const total = groups.reduce((sum, group) => sum + (group.id === 'recent' ? 0 : group.models.length), 0);
+
+  return (
+    <>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 w-full flex-none flex-col sm:w-[360px] sm:border-r">
+          <div className="relative border-b p-2.5">
+            <Search className="pointer-events-none absolute top-1/2 left-5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchRef}
+              type="search"
+              value={query}
+              placeholder={`Search ${models.length} models…`}
+              aria-label="Search models"
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={onSearchKeyDown}
+              className="h-9 pl-8 pr-7 text-base shadow-none sm:h-8 sm:text-xs [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query ? (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Clear search"
+                onClick={() => onQueryChange('')}
+                className="absolute top-1/2 right-4 -translate-y-1/2"
+              >
+                <X />
+              </Button>
+            ) : null}
+          </div>
+
+          <div
+            ref={listRef}
+            onKeyDown={onListKeyDown}
+            className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-1.5"
+          >
+            {!query ? (
+              <button
+                type="button"
+                data-default-model="true"
+                onMouseEnter={() => onRowHover(DEFAULT_MODEL)}
+                onFocus={() => onRowHover(DEFAULT_MODEL)}
+                onClick={() => onRowPick(DEFAULT_MODEL)}
+                onDoubleClick={() => onRowCommit(DEFAULT_MODEL)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+                    event.preventDefault();
+                    onRowCommit(DEFAULT_MODEL);
+                  }
+                }}
+                className={cn(
+                  'mb-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px]',
+                  selectedKey === DEFAULT_MODEL ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                )}
+              >
+                <Sparkles className="size-3.5 flex-none" />
+                <span className="flex-1 truncate">{defaultLabel}</span>
+                {selectedKey === DEFAULT_MODEL ? <Check className="size-3.5 flex-none text-highlight" /> : null}
+              </button>
+            ) : null}
+
+            {groups.map((group) => {
+              const collapsible = collapseProviders && group.id !== 'recent' && !query.trim();
+              const expanded = !collapsible || expandedProviders.has(group.id);
+              return (
+                <div key={group.id} className="mb-2">
+                  {collapsible ? (
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() => onToggleProvider(group.id)}
+                      className="sticky top-0 z-10 flex w-full items-center bg-popover px-2.5 pt-1.5 pb-1 text-left text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                    >
+                      <ChevronRight className={cn('mr-1 size-3 transition-transform', expanded && 'rotate-90')} />
+                      {group.title}
+                      <span className="ml-auto tabular-nums opacity-70">{group.models.length}</span>
+                    </button>
+                  ) : (
+                    <div className="sticky top-0 z-10 bg-popover px-2.5 pt-1.5 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {group.title}
+                      <span className="ml-1.5 tabular-nums opacity-70">{group.models.length}</span>
+                    </div>
+                  )}
+                  {expanded ? group.models.map((model) => {
+                    const key = modelRefKey(model);
+                    return (
+                      <Row
+                        key={`${group.id}:${key}`}
+                        model={model}
+                        selected={key === selectedKey}
+                        active={key === activeKey}
+                        onHover={onRowHover}
+                        onPick={onRowPick}
+                        onCommit={onRowCommit}
+                      />
+                    );
+                  }) : null}
+                </div>
+              );
+            })}
+
+            {groups.length === 0 ? (
+              <div className="px-3 py-10 text-center text-[12px] text-muted-foreground">
+                {models.length === 0 ? (
+                  <span className="flex flex-col items-center gap-2.5">
+                    {/* A host with no providers cannot offer a model, and no amount of refreshing
+                        changes that: name the machine and put the one control that fixes it here,
+                        instead of leaving a dead end. */}
+                    <span>
+                      {instanceLabel || 'This host'} has no model providers yet, so there are no
+                      models to pick. Adding one takes a key or an account sign-in.
+                    </span>
+                    {onAddProviders ? (
+                      <Button type="button" size="xs" onClick={onAddProviders}>
+                        New provider
+                      </Button>
+                    ) : null}
+                  </span>
+                ) : (
+                  'No models match your search.'
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          {activeModel ? <div className="max-h-64 overflow-auto border-t p-3 sm:hidden"><ModelScorecard model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} /></div> : null}
+          <div className="flex-none border-t px-3 py-1.5 text-[10.5px] text-muted-foreground">
+            {total} models from {groups.filter((group) => group.id !== 'recent').length} connected providers
+          </div>
+        </div>
+
+        <div role="region" aria-label="Model details" className="hidden min-w-0 flex-1 overflow-y-auto p-5 sm:block">
+          {activeModel ? (
+            <Details model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} isDefault={activeKey === instanceDefaultModelId} onSetDefault={onSetInstanceDefault} />
+          ) : (
+            <div className="flex h-full flex-col justify-center gap-2 text-center text-muted-foreground">
+              <Sparkles className="mx-auto size-5" />
+              <p className="text-[13px] font-medium text-foreground">{selectedKey !== DEFAULT_MODEL ? 'Selected model unavailable' : defaultLabel}</p>
+              <p className="text-[12px]">
+                {selectedKey !== DEFAULT_MODEL ? selectedKey : defaultModel
+                  ? 'The instance uses this configured model unless you choose another.'
+                  : 'The instance picks its configured default. Hover a model on the left to see what it offers.'}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+      {activeModel && (onSetInstanceDefault || activeKey === instanceDefaultModelId) ? (
+        <div role="region" aria-label="Model default" className="flex flex-none items-center justify-between gap-3 border-t px-3 py-2 sm:hidden">
+          <span className="min-w-0 flex-1 truncate text-xs font-medium">{activeModel.details.name}</span>
+          <InstanceDefaultAction model={activeModel} isDefault={activeKey === instanceDefaultModelId} onSetDefault={onSetInstanceDefault} />
+        </div>
+      ) : null}
+      {selectionError ? <p role="status" className="border-t px-3 py-2 text-xs text-destructive">{selectionError}</p> : null}
+      <div className="flex flex-none flex-wrap items-center gap-2 border-t p-2.5">
+        <span className="text-[11px] font-medium text-muted-foreground">Reasoning</span>
+        <Select
+          value={canonicalSelected || '__default'}
+          disabled={variantOptions.length === 0 && !selectedVariant}
+          onValueChange={(next) => onVariantChange(next === '__default' ? '' : next)}
+        >
+          <SelectTrigger size="sm" aria-label="Reasoning level" className="h-7 min-w-32 text-xs capitalize">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__default">Default</SelectItem>
+            {canonicalVariant(variantOptions, selectedVariant) === undefined ? <SelectItem value={selectedVariant} disabled>{selectedVariant} (unavailable)</SelectItem> : null}
+            {variantOptions.map((option) => (
+              <SelectItem key={option} value={option} className="capitalize">
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="min-w-0 flex-1" />
+        {/*
+          Adding a provider belongs here, next to Refresh, because this is the moment the need
+          appears: you opened the picker for a model its host does not have yet. It used to exist
+          only in the empty state, so a host with *some* models pointed at a screen you could only
+          reach by leaving the composer entirely.
+        */}
+        {onAddProviders ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Add a model provider to this instance"
+            title="Add a provider — where a key is pasted or an account signed in"
+            onClick={onAddProviders}
+          >
+            <Plus />
+            New provider
+          </Button>
+        ) : null}
+        {onRefresh ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={refreshing}
+            aria-label={refreshing ? 'Refreshing models' : 'Refresh the model list'}
+            title="Re-fetch this instance's model catalogue"
+            onClick={onRefresh}
+          >
+            {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={onApply} disabled={Boolean(selectionError)}>
+          Done
+        </Button>
+      </div>
+    </>
+  );
+}
+
 export default function ModelPicker({
   open,
   instanceId,
@@ -209,79 +742,212 @@ export default function ModelPicker({
   onAddProviders,
   instanceLabel,
 }: Props) {
-  const [query, setQuery] = React.useState('');
-  const [hovered, setHovered] = React.useState<string | null>(null);
-  const [expandedProviders, setExpandedProviders] = React.useState<Set<string>>(() => new Set());
-  const [selectedKey, setSelectedKey] = React.useState(value);
-  const [selectedVariant, setSelectedVariant] = React.useState(variant);
+  const byKey = React.useMemo(() => new Map(models.map((model) => [modelRefKey(model), model])), [models]);
+  const [state, setState] = React.useState<PickerState>(() =>
+    createInitialPickerState(value, variant, { models, defaultModelId, instanceDefaultModelId })
+  );
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
   const [refreshing, setRefreshing] = React.useState(false);
   const searchRef = React.useRef<HTMLInputElement>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const manualToggleRef = React.useRef(false);
+  const pendingNavRef = React.useRef<{ key: string; focus: boolean } | null>(null);
+  const catalogRef = React.useRef({ models, defaultModelId, instanceDefaultModelId });
+  catalogRef.current = { models, defaultModelId, instanceDefaultModelId };
+
+  const applyState = React.useCallback((next: PickerState) => {
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
+  const context = React.useMemo<PickerContext>(() => ({
+    models,
+    recentModels,
+    byKey,
+    defaultModelId,
+    instanceDefaultModelId,
+    collapseProviders,
+    requireConcreteModel,
+    preserveVariantOnModelChange,
+  }), [
+    models,
+    recentModels,
+    byKey,
+    defaultModelId,
+    instanceDefaultModelId,
+    collapseProviders,
+    requireConcreteModel,
+    preserveVariantOnModelChange,
+  ]);
 
   React.useEffect(() => {
     if (open) {
       void refreshModelStats();
-      setQuery('');
-      setHovered(null);
-      setExpandedProviders(new Set());
-      setSelectedKey(value);
-      setSelectedVariant(variant);
+      manualToggleRef.current = false;
+      applyState(
+        createInitialPickerState(value, variant, {
+          models: catalogRef.current.models,
+          defaultModelId: catalogRef.current.defaultModelId,
+          instanceDefaultModelId: catalogRef.current.instanceDefaultModelId,
+        })
+      );
       // Radix moves focus after mount; wait a tick so ours wins.
       window.setTimeout(() => searchRef.current?.focus(), 30);
     }
-  }, [open, value, variant]);
+  }, [applyState, open, value, variant]);
 
-  const byKey = React.useMemo(() => new Map(models.map((model) => [modelRefKey(model), model])), [models]);
-  const defaultModel = defaultModelId ? byKey.get(defaultModelId) ?? null : null;
-  const defaultLabel = defaultModel
-    ? `${defaultModel.details.providerName} / ${defaultModel.details.name} (Server default)`
-    : 'Server default';
+  React.useEffect(() => {
+    if (open && models.length > 0 && !manualToggleRef.current) {
+      const current = stateRef.current;
+      if (current.expandedProviders.size === 0) {
+        applyState({
+          ...current,
+          expandedProviders: initialExpandedProviders(models, value, defaultModelId, instanceDefaultModelId),
+        });
+      }
+    }
+  }, [applyState, open, models, value, defaultModelId, instanceDefaultModelId]);
 
-  const groups = React.useMemo<Group[]>(() => {
-    const needle = query.trim().toLowerCase();
-    const visible = needle ? models.filter((model) => matches(model, needle)) : models;
-    const recent = recentModels
-      .map((key) => byKey.get(key))
-      .filter((model): model is ModelOption => Boolean(model) && visible.includes(model as ModelOption));
-    const byProvider = new Map<string, Group>();
-    visible.forEach((model) => {
-      const group = byProvider.get(model.providerID) ?? {
-        id: model.providerID,
-        title: model.details.providerName,
-        models: [],
-      };
-      group.models.push(model);
-      byProvider.set(model.providerID, group);
-    });
-    const providers = [...byProvider.values()].sort((a, b) => a.title.localeCompare(b.title));
-    return recent.length ? [{ id: 'recent', title: 'Recent', models: recent }, ...providers] : providers;
-  }, [models, recentModels, byKey, query]);
+  React.useEffect(() => {
+    const pending = pendingNavRef.current;
+    if (!pending) return;
+    pendingNavRef.current = null;
+    const container = listRef.current;
+    if (!container) return;
+    let rowElement: HTMLElement | null = null;
+    if (pending.key === DEFAULT_MODEL) {
+      rowElement = container.querySelector<HTMLElement>('[data-default-model="true"]');
+    } else {
+      for (const candidate of container.querySelectorAll<HTMLElement>('[data-model-key]')) {
+        if (candidate.getAttribute('data-model-key') === pending.key) {
+          rowElement = candidate;
+          break;
+        }
+      }
+    }
+    rowElement?.scrollIntoView?.({ block: 'nearest' });
+    if (pending.focus) {
+      const focusTarget = rowElement?.tagName === 'BUTTON'
+        ? rowElement
+        : rowElement?.querySelector<HTMLElement>('button') ?? rowElement;
+      focusTarget?.focus();
+    }
+  });
 
-  const selectedModel = selectedKey === DEFAULT_MODEL ? defaultModel : byKey.get(selectedKey) ?? null;
-  const variantOptions = selectedModel?.details.variants ?? [];
-  // A saved variant can differ from the catalogue only by case ('High' vs 'high'), and a saved
-  // 'default' means the model default; show and store the advertised spelling.
-  const canonicalSelected = canonicalVariant(variantOptions, selectedVariant) ?? selectedVariant;
-  const selectionError = requireConcreteModel && selectedKey === DEFAULT_MODEL && !defaultModel
-    ? 'The instance default model is unavailable. Choose an available model.'
-    : resolveComposerModel(selectedKey, selectedVariant, models, defaultModelId).error;
-  // Keep the inspected model when the pointer leaves the list for its details action.
-  const activeKey = hovered === DEFAULT_MODEL ? defaultModelId
-    : hovered && byKey.has(hovered) ? hovered : selectedKey !== DEFAULT_MODEL ? selectedKey : defaultModelId;
-  const activeModel = activeKey ? byKey.get(activeKey) ?? null : null;
-  const total = groups.reduce((sum, group) => sum + (group.id === 'recent' ? 0 : group.models.length), 0);
+  const groups = React.useMemo(
+    () => buildModelGroups(models, recentModels, byKey, state.query),
+    [models, recentModels, byKey, state.query]
+  );
 
-  const pick = (key: string) => {
-    const nextModel = key === DEFAULT_MODEL ? defaultModel : byKey.get(key) ?? null;
-    setSelectedKey(key);
-    if (key !== selectedKey && !preserveVariantOnModelChange) setSelectedVariant((current) => canonicalVariant(nextModel?.details.variants, current) ?? '');
-    setHovered(key === DEFAULT_MODEL ? null : key);
-  };
+  const handleRowHover = React.useCallback((key: string) => {
+    const current = stateRef.current;
+    if (current.hovered === key) return;
+    applyState({ ...current, hovered: key });
+  }, [applyState]);
 
-  const apply = () => {
-    if (selectionError) return;
-    onSelect(selectedKey, canonicalSelected);
+  const handleRowPick = useStableCallback((key: string) => {
+    applyState(pickModelInState(stateRef.current, key, context));
+  });
+
+  const commitKey = useStableCallback((key: string) => {
+    const result = resolveModelCommit(stateRef.current, key, context);
+    applyState(result.state);
+    if (!result.commit) return;
+    onSelect(result.commit.key, result.commit.variant);
     onOpenChange(false);
-  };
+  });
+
+  const handleQueryChange = useStableCallback((nextQuery: string) => {
+    applyState(updateQueryInState(stateRef.current, nextQuery, context));
+  });
+
+  const stepSelection = useStableCallback((delta: 1 | -1, moveDomFocus: boolean) => {
+    const stepped = stepSelectionInState(stateRef.current, delta, context);
+    if (stepped.targetKey) {
+      pendingNavRef.current = { key: stepped.targetKey, focus: moveDomFocus };
+    }
+    applyState(stepped.state);
+  });
+
+  const handleSearchKeyDown = useStableCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      stepSelection(1, false);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      stepSelection(-1, false);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const current = stateRef.current;
+      if (current.query.trim()) {
+        const currentGroups = buildModelGroups(models, recentModels, byKey, current.query);
+        if (currentGroups.length === 0) return;
+      }
+      commitKey(current.selectedKey);
+    }
+  });
+
+  const handleListKeyDown = useStableCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      stepSelection(1, true);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      stepSelection(-1, true);
+    }
+  });
+
+  const handleToggleProvider = React.useCallback((providerId: string) => {
+    manualToggleRef.current = true;
+    const current = stateRef.current;
+    const next = new Set(current.expandedProviders);
+    if (next.has(providerId)) next.delete(providerId);
+    else next.add(providerId);
+    applyState({ ...current, expandedProviders: next });
+  }, [applyState]);
+
+  const handleVariantChange = React.useCallback((nextVariant: string) => {
+    const current = stateRef.current;
+    if (current.selectedVariant === nextVariant) return;
+    applyState({ ...current, selectedVariant: nextVariant });
+  }, [applyState]);
+
+  const handleAddProviders = React.useMemo(() => {
+    if (!onAddProviders) return undefined;
+    return () => {
+      // Close first: the picker is a dialog, and the Providers screen behind it is the
+      // thing the person asked for. Leaving both open reads as nothing having happened.
+      onOpenChange(false);
+      onAddProviders();
+    };
+  }, [onAddProviders, onOpenChange]);
+
+  const handleRefresh = React.useMemo(() => {
+    if (!onRefresh) return undefined;
+    return () => {
+      setRefreshing(true);
+      void Promise.resolve(onRefresh())
+        .catch(() => {})
+        .finally(() => setRefreshing(false));
+    };
+  }, [onRefresh]);
+
+  const handleCancel = React.useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  const handleApply = useStableCallback(() => {
+    commitKey(stateRef.current.selectedKey);
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -290,9 +956,9 @@ export default function ModelPicker({
         showCloseButton={false}
         // First Escape clears the search, the next one closes — like a native combobox.
         onEscapeKeyDown={(event) => {
-          if (query) {
+          if (state.query) {
             event.preventDefault();
-            setQuery('');
+            handleQueryChange('');
           }
         }}
       >
@@ -300,224 +966,35 @@ export default function ModelPicker({
         <DialogDescription className="sr-only">
           Pick the model and reasoning effort for this session, or leave them on their defaults.
         </DialogDescription>
-
-        <div className="flex min-h-0 flex-1">
-          <div className="flex min-h-0 w-full flex-none flex-col sm:w-[360px] sm:border-r">
-            <div className="relative border-b p-2.5">
-              <Search className="pointer-events-none absolute top-1/2 left-5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchRef}
-                type="search"
-                value={query}
-                placeholder={`Search ${models.length} models…`}
-                aria-label="Search models"
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-9 pl-8 pr-7 text-base shadow-none sm:h-8 sm:text-xs [&::-webkit-search-cancel-button]:hidden"
-              />
-              {query ? (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Clear search"
-                  onClick={() => setQuery('')}
-                  className="absolute top-1/2 right-4 -translate-y-1/2"
-                >
-                  <X />
-                </Button>
-              ) : null}
-            </div>
-
-            <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-1.5">
-              {!query ? (
-                <button
-                  type="button"
-                  onMouseEnter={() => setHovered(DEFAULT_MODEL)}
-                  onFocus={() => setHovered(DEFAULT_MODEL)}
-                  onClick={() => pick(DEFAULT_MODEL)}
-                  className={cn(
-                    'mb-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px]',
-                    selectedKey === DEFAULT_MODEL ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                  )}
-                >
-                  <Sparkles className="size-3.5 flex-none" />
-                  <span className="flex-1 truncate">{defaultLabel}</span>
-                  {selectedKey === DEFAULT_MODEL ? <Check className="size-3.5 flex-none text-highlight" /> : null}
-                </button>
-              ) : null}
-
-              {groups.map((group) => {
-                const collapsible = collapseProviders && group.id !== 'recent' && !query.trim();
-                const expanded = !collapsible || expandedProviders.has(group.id);
-                return (
-                  <div key={group.id} className="mb-2">
-                    {collapsible ? (
-                      <button
-                        type="button"
-                        aria-expanded={expanded}
-                        onClick={() => setExpandedProviders((current) => {
-                          const next = new Set(current);
-                          if (next.has(group.id)) next.delete(group.id);
-                          else next.add(group.id);
-                          return next;
-                        })}
-                        className="sticky top-0 z-10 flex w-full items-center bg-popover px-2.5 pt-1.5 pb-1 text-left text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
-                      >
-                        <ChevronRight className={cn('mr-1 size-3 transition-transform', expanded && 'rotate-90')} />
-                        {group.title}
-                        <span className="ml-auto tabular-nums opacity-70">{group.models.length}</span>
-                      </button>
-                    ) : (
-                      <div className="sticky top-0 z-10 bg-popover px-2.5 pt-1.5 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {group.title}
-                        <span className="ml-1.5 tabular-nums opacity-70">{group.models.length}</span>
-                      </div>
-                    )}
-                    {expanded ? group.models.map((model) => {
-                      const key = modelRefKey(model);
-                      return (
-                        <Row
-                          key={`${group.id}:${key}`}
-                          model={model}
-                          selected={key === selectedKey}
-                          active={key === activeKey}
-                          onHover={() => setHovered(key)}
-                          onPick={() => pick(key)}
-                        />
-                      );
-                    }) : null}
-                  </div>
-                );
-              })}
-
-              {groups.length === 0 ? (
-                <div className="px-3 py-10 text-center text-[12px] text-muted-foreground">
-                  {models.length === 0 ? (
-                    <span className="flex flex-col items-center gap-2.5">
-                      {/* A host with no providers cannot offer a model, and no amount of refreshing
-                          changes that: name the machine and put the one control that fixes it here,
-                          instead of leaving a dead end. */}
-                      <span>
-                        {instanceLabel || 'This host'} has no model providers yet, so there are no
-                        models to pick. Adding one takes a key or an account sign-in.
-                      </span>
-                      {onAddProviders ? (
-                        <Button
-                          type="button"
-                          size="xs"
-                          onClick={() => {
-                            onOpenChange(false);
-                            onAddProviders();
-                          }}
-                        >
-                          New provider
-                        </Button>
-                      ) : null}
-                    </span>
-                  ) : (
-                    'No models match your search.'
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            {activeModel ? <div className="max-h-64 overflow-auto border-t p-3 sm:hidden"><ModelScorecard model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} /></div> : null}
-            <div className="flex-none border-t px-3 py-1.5 text-[10.5px] text-muted-foreground">
-              {total} models from {groups.filter((group) => group.id !== 'recent').length} connected providers
-            </div>
-          </div>
-
-          <div role="region" aria-label="Model details" className="hidden min-w-0 flex-1 overflow-y-auto p-5 sm:block">
-            {activeModel ? (
-              <Details model={{ ...activeModel, variant: activeKey === selectedKey ? selectedVariant : undefined }} instanceId={instanceId} directory={directory} isDefault={activeKey === instanceDefaultModelId} onSetDefault={onSetInstanceDefault} />
-            ) : (
-              <div className="flex h-full flex-col justify-center gap-2 text-center text-muted-foreground">
-                <Sparkles className="mx-auto size-5" />
-                <p className="text-[13px] font-medium text-foreground">{selectedKey !== DEFAULT_MODEL ? 'Selected model unavailable' : defaultLabel}</p>
-                <p className="text-[12px]">
-                  {selectedKey !== DEFAULT_MODEL ? selectedKey : defaultModel
-                    ? 'The instance uses this configured model unless you choose another.'
-                    : 'The instance picks its configured default. Hover a model on the left to see what it offers.'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-        {activeModel && (onSetInstanceDefault || activeKey === instanceDefaultModelId) ? (
-          <div role="region" aria-label="Model default" className="flex flex-none items-center justify-between gap-3 border-t px-3 py-2 sm:hidden">
-            <span className="min-w-0 flex-1 truncate text-xs font-medium">{activeModel.details.name}</span>
-            <InstanceDefaultAction model={activeModel} isDefault={activeKey === instanceDefaultModelId} onSetDefault={onSetInstanceDefault} />
-          </div>
-        ) : null}
-        {selectionError ? <p role="status" className="border-t px-3 py-2 text-xs text-destructive">{selectionError}</p> : null}
-        <div className="flex flex-none flex-wrap items-center gap-2 border-t p-2.5">
-          <span className="text-[11px] font-medium text-muted-foreground">Reasoning</span>
-          <Select
-            value={canonicalSelected || '__default'}
-            disabled={variantOptions.length === 0 && !selectedVariant}
-            onValueChange={(next) => setSelectedVariant(next === '__default' ? '' : next)}
-          >
-            <SelectTrigger size="sm" aria-label="Reasoning level" className="h-7 min-w-32 text-xs capitalize">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__default">Default</SelectItem>
-              {canonicalVariant(variantOptions, selectedVariant) === undefined ? <SelectItem value={selectedVariant} disabled>{selectedVariant} (unavailable)</SelectItem> : null}
-              {variantOptions.map((option) => (
-                <SelectItem key={option} value={option} className="capitalize">
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="min-w-0 flex-1" />
-          {/*
-            Adding a provider belongs here, next to Refresh, because this is the moment the need
-            appears: you opened the picker for a model its host does not have yet. It used to exist
-            only in the empty state, so a host with *some* models pointed at a screen you could only
-            reach by leaving the composer entirely.
-          */}
-          {onAddProviders ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Add a model provider to this instance"
-              title="Add a provider — where a key is pasted or an account signed in"
-              onClick={() => {
-                // Close first: the picker is a dialog, and the Providers screen behind it is the
-                // thing the person asked for. Leaving both open reads as nothing having happened.
-                onOpenChange(false);
-                onAddProviders();
-              }}
-            >
-              <Plus />
-              New provider
-            </Button>
-          ) : null}
-          {onRefresh ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={refreshing}
-              aria-label={refreshing ? 'Refreshing models' : 'Refresh the model list'}
-              title="Re-fetch this instance's model catalogue"
-              onClick={() => {
-                setRefreshing(true);
-                void Promise.resolve(onRefresh())
-                  .catch(() => {})
-                  .finally(() => setRefreshing(false));
-              }}
-            >
-              {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-              {refreshing ? 'Refreshing…' : 'Refresh'}
-            </Button>
-          ) : null}
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={apply} disabled={Boolean(selectionError)}>
-            Done
-          </Button>
-        </div>
+        <ModelPickerBody
+          state={state}
+          models={models}
+          groups={groups}
+          byKey={byKey}
+          defaultModelId={defaultModelId}
+          instanceDefaultModelId={instanceDefaultModelId}
+          instanceId={instanceId}
+          directory={directory}
+          instanceLabel={instanceLabel}
+          collapseProviders={collapseProviders}
+          requireConcreteModel={requireConcreteModel}
+          refreshing={refreshing}
+          searchRef={searchRef}
+          listRef={listRef}
+          onQueryChange={handleQueryChange}
+          onSearchKeyDown={handleSearchKeyDown}
+          onListKeyDown={handleListKeyDown}
+          onToggleProvider={handleToggleProvider}
+          onRowHover={handleRowHover}
+          onRowPick={handleRowPick}
+          onRowCommit={commitKey}
+          onVariantChange={handleVariantChange}
+          onSetInstanceDefault={onSetInstanceDefault}
+          onAddProviders={handleAddProviders}
+          onRefresh={handleRefresh}
+          onCancel={handleCancel}
+          onApply={handleApply}
+        />
       </DialogContent>
     </Dialog>
   );

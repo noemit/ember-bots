@@ -346,7 +346,8 @@ test('the default sentinel exposes server default Details before any provider is
   const picker = page.getByRole('dialog', { name: 'Choose a model' });
   const providers = picker.locator('button[aria-expanded]');
   await expect.poll(() => providers.count()).toBeGreaterThan(0);
-  await expect(picker.locator('button[aria-expanded="true"]')).toHaveCount(0);
+  await expect(picker.locator('button[aria-expanded="true"]')).toHaveCount(1);
+  await expect(picker.locator('button[aria-expanded="true"]')).toContainText('Anthropic');
   const details = picker.getByRole('region', { name: 'Model details', exact: true });
   await expect(details).toContainText('Claude Sonnet');
   await expect(details.getByText('Instance Default', { exact: true })).toBeVisible();
