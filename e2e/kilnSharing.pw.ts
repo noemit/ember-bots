@@ -45,6 +45,7 @@ test('safe one-click sharing keeps main’s explicit enable and separate credent
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
+  await page.getByRole('tab', { name: 'Remote access', exact: true }).click();
   const area = page.getByRole('region', { name: 'Share this Kiln' });
   await expect(area).toContainText('included Kiln stops when you quit Ember');
   await expect(area).toContainText('57821');
@@ -69,6 +70,7 @@ test('unsupported platform cannot offer mutation controls and keeps recovery and
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
+  await page.getByRole('tab', { name: 'Remote access', exact: true }).click();
   const area = page.getByRole('region', { name: 'Share this Kiln' });
   await area.getByRole('button', { name: 'Check sharing', exact: true }).click();
   await expect(area).toContainText('will not use unsafe CLI writes');

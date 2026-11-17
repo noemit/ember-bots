@@ -8,6 +8,8 @@ import { Check, ChevronRight, KeyRound, ShieldCheck, SlidersHorizontal } from 'l
 import Blob from '../blob/Blob';
 import ModelPicker from './ModelPicker';
 import EndpointsSettings from './EndpointsSettings';
+import KilnSharing from './KilnSharing';
+import { SETTINGS_SECTIONS, settingsSection, type SettingsView } from '../lib/settingsNavigation';
 import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
 import { ModelExperienceSettings } from './ModelScorecard';
@@ -61,7 +63,7 @@ import { RemoteHttpsSetup } from './RemoteHttpsSetup';
 
 type Props = {
   open: boolean;
-  view: 'general' | 'instances' | 'providers';
+  view: SettingsView;
   settings: EmberSettings;
   instances: Instance[];
   projectsByInstance: Record<string, Project[]>;
@@ -70,7 +72,7 @@ type Props = {
   recentModelsByInstance: Record<string, string[]>;
   onChange: (patch: EmberSettingsPatch) => void;
   onOpenChange: (open: boolean) => void;
-  onViewChange: (view: 'general' | 'instances' | 'providers') => void;
+  onViewChange: (view: SettingsView) => void;
   /** Reprobe instances after the endpoint list changes, so a new Hearth attaches promptly. */
   onRefreshInstances?: () => void;
   /**
@@ -523,6 +525,7 @@ export default function SettingsPanel({
     };
   }, []);
 
+  const returnFocus = React.useRef<HTMLElement | null>(null);
   const [remotePassword, setRemotePassword] = React.useState('');
 
   const saveRemotePassword = (event: React.FormEvent<HTMLFormElement>) => {
@@ -534,28 +537,93 @@ export default function SettingsPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-1rem)] w-[520px] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-h-[86vh] sm:max-w-[520px]">
+      <DialogContent onOpenAutoFocus={() => { returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
+        onCloseAutoFocus={event => {
+          event.preventDefault();
+          const previous = returnFocus.current;
+          if (previous?.isConnected && previous !== document.body) previous.focus();
+          else document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')?.focus();
+        }} className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-h-[86vh] sm:max-w-[1080px] h-[min(900px,94dvh)]">
         <DialogHeader className="border-b px-5 py-4 text-left">
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Applies to this window across every instance.
+          <DialogDescription className="sr-only">
+            Connections and providers belong to each computer. Appearance and conversation preferences apply across this Ember.
           </DialogDescription>
         </DialogHeader>
 
         <Tabs
-          value={view}
-          onValueChange={(value) => onViewChange(value as 'general' | 'instances' | 'providers')}
-          className="flex min-h-0 flex-col"
+          value={settingsSection(view)}
+          orientation="vertical"
+          onValueChange={(value) => onViewChange(settingsSection(value))}
+          className="settings-layout min-h-0 gap-0"
         >
-          <TabsList className="mx-4 mt-4 mb-0 w-auto self-start">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="instances">Instances</TabsTrigger>
-            <TabsTrigger value="providers">Providers</TabsTrigger>
-          </TabsList>
+          <aside className="settings-sidebar border-b bg-muted/20 p-3 sm:border-r sm:border-b-0 sm:p-4">
+            <TabsList aria-label="Settings sections" className="settings-categories h-auto w-full items-stretch justify-start gap-1 rounded-none bg-transparent p-0">
+              {SETTINGS_SECTIONS.map(section => <TabsTrigger key={section.id} value={section.id}
+                className="min-h-11 flex-none justify-start whitespace-normal rounded-md px-3 py-2 text-left text-sm data-[state=active]:bg-muted data-[state=active]:shadow-none">
+                {section.label}
+              </TabsTrigger>)}
+            </TabsList>
+            <p className="mt-6 hidden text-xs text-muted-foreground sm:block">Ember {appVersion ?? 'version unavailable'}<br />Settings save as you change them.</p>
+          </aside>
 
-          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5">
-            <TabsContent value="general" className="mt-0 flex flex-col gap-5">
+          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-5 sm:px-9 sm:py-7">
+            <header className="mb-6">
+              <h2 className="text-2xl font-semibold tracking-tight">{SETTINGS_SECTIONS.find(section => section.id === settingsSection(view))?.label}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{SETTINGS_SECTIONS.find(section => section.id === settingsSection(view))?.description}</p>
+            </header>
+            <TabsContent value="providers" className="mt-0 flex flex-col gap-4">
+                  <ProvidersSettings
+                    inventory
+                    endpoints={settings.piEndpoints}
+                    instances={instances}
+                    onProviderChange={onRefreshModels}
+                    instanceDefaults={settings.instanceDefaults}
+                    onDefaultChange={(id, model) => onChange({ instanceDefaults: { ...settings.instanceDefaults, [id]: { ...settings.instanceDefaults[id], model, variant: model?.variant } } })}
+                    {...(providerEndpointId ? { initialEndpointId: providerEndpointId } : {})}
+                  />
               <ModelExperienceSettings />
+            </TabsContent>
+            <TabsContent value="computers" className="mt-0 flex flex-col gap-4">
+              <Card>
+                <CardHeader className="p-3 pb-0">
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Connections
+                  </CardTitle>
+                  <CardDescription>
+                    Each Kiln keeps its own conversations. Connect another computer or container. Share this Kiln from Remote access.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-2">
+                  <EndpointsSettings
+                    endpoints={settings.piEndpoints}
+                    instances={instances}
+                    onChange={onChange}
+                    onRefreshInstances={onRefreshInstances}
+                  />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="p-3 pb-0">
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Defaults for new conversations
+                  </CardTitle>
+                  <CardDescription>
+                    Choose a model, project browsing folder, optional default project and approval mode for each computer or container. Existing chats keep their choices.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 pt-2">
+                  <InstanceDefaultsSettings
+                    instances={instances}
+                    projectsByInstance={projectsByInstance}
+                    projectUsageByInstance={projectUsageByInstance}
+                    modelsByInstance={modelsByInstance}
+                    recentModelsByInstance={recentModelsByInstance}
+                    settings={settings}
+                    onChange={onChange}
+                  />
+                </CardContent>
+              </Card>
               {window.ember.capabilities?.desktopUpdates === true ? <Card>
                 <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ember updates</CardTitle></CardHeader>
                 <CardContent className="space-y-3 p-3">
@@ -570,6 +638,165 @@ export default function SettingsPanel({
                   <DesktopUpdates placement="settings" />
                 </CardContent>
               </Card> : null}
+              <section aria-label="Kiln updates" className="rounded-lg border p-5 text-sm">
+                <h3 className="font-medium">Kiln updates</h3>
+                <p className="mt-2 text-muted-foreground">Ember cannot update a remote Kiln from here. Update an Ember-bundled Kiln through the Ember app on its computer. For a standalone Kiln, ask its owner to update Tinder; for a container, update its deployment. A connection does not give this Ember ownership of that process.</p>
+              </section>
+            </TabsContent>
+
+            <TabsContent value="appearance" className="mt-0 flex flex-col gap-5">
+              <Card>
+                <CardHeader className="p-3 pb-0">
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Theme
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3 p-3">
+                  {THEME_GROUPS.map((group) => (
+                    <div key={group.id} className="flex flex-col gap-1.5">
+                      <span className="text-[11px] text-muted-foreground">{group.name}</span>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {THEMES.filter((theme) => theme.group === group.id).map((theme) => {
+                          const selected = theme.id === settings.theme;
+                          const { palette } = theme;
+                          return (
+                            <motion.button
+                              key={theme.id}
+                              type="button"
+                              whileTap={{ scale: 0.97 }}
+                              aria-pressed={selected}
+                              onClick={() => onChange({ theme: theme.id })}
+                              className={cn(
+                                'relative flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors hover:bg-muted',
+                                selected ? 'border-highlight' : 'border-border'
+                              )}
+                            >
+                              <span
+                                className="relative flex size-8 flex-none items-end justify-end rounded-md border border-black/10 p-1"
+                                style={{ background: palette.bg }}
+                              >
+                                <span
+                                  className="absolute inset-x-1 top-1 h-2.5 rounded-sm"
+                                  style={{ background: palette.elev }}
+                                />
+                                <span className="size-1.5 rounded-full" style={{ background: palette.highlight }} />
+                              </span>
+                              <span className="min-w-0 truncate font-medium">{theme.name}</span>
+                              {selected && (
+                                <Check className="absolute top-1.5 right-1.5 size-3 text-highlight" />
+                              )}
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Text size</CardTitle></CardHeader>
+                <CardContent className="flex flex-col gap-3 p-3">
+                  {/* Three sizes with three homes, because one setting could not serve them: the
+                      chrome, the conversation and what you type are read at different distances.
+                      Each row states what it changes, so nobody has to guess what "Medium" means. */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium">Interface</span>
+                      <SizeChoices
+                        label="Interface text size"
+                        value={settings.interfaceSize ?? 'medium'}
+                        onChange={(size) => onChange({ interfaceSize: size })}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Sidebar, headers, menus and Settings.</span>
+                    <p data-testid="text-size-preview-interface" className="text-[11px] text-muted-foreground" style={{ zoom: INTERFACE_SCALE[settings.interfaceSize ?? 'medium'] }}>
+                      <span className="font-medium text-foreground">Rail · Header · Settings</span> — this sheet scales with the rest.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium">Chat</span>
+                      <SizeChoices
+                        label="Chat text size"
+                        value={nearestChatSize(settings.conversationFontSize)}
+                        onChange={(size) => onChange({ conversationFontSize: CHAT_PX[size] })}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Messages in the conversation.</span>
+                    <p data-testid="text-size-preview-chat" className="text-muted-foreground" style={{ fontSize: CHAT_PX[nearestChatSize(settings.conversationFontSize)], lineHeight: 1.8 }}>
+                      Messages appear at this size.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium">Composer</span>
+                      <SizeChoices
+                        label="Composer text size"
+                        value={composerSizeOf(settings.composerSize)}
+                        onChange={(size) => onChange({ composerSize: size })}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">What you type before sending.</span>
+                    <p data-testid="text-size-preview-composer" className="text-muted-foreground" style={{ fontSize: COMPOSER_PX[composerSizeOf(settings.composerSize)], lineHeight: 1.8 }}>
+                      Message your bot…
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="p-3 pb-0">
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Chat avatars
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-3">
+                  <fieldset className="mb-4">
+                    <legend className="text-xs font-medium">Avatar size</legend>
+                    <p className="mt-1 mb-2 text-[11px] text-muted-foreground">Spot conversations in the sidebar and composer.</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {AVATAR_SIZES.map(option => <button key={option.id} type="button" aria-label={`${option.label} avatars`}
+                        aria-pressed={settings.blobSize === option.id} onClick={() => onChange({ blobSize: option.id })}
+                        className={cn('flex min-w-0 flex-col items-center justify-end gap-1 rounded-lg border p-2 hover:bg-muted', settings.blobSize === option.id && 'border-highlight bg-muted/50')}>
+                        <Blob style={effectiveBlobStyle(settings.blobStyle)} seed="avatar-size-preview" size={avatarPixels(40, option.id)} />
+                        <span className="text-xs">{option.label}</span>
+                      </button>)}
+                    </div>
+                  </fieldset>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {BLOB_STYLES.map((option) => {
+                      const selected = option.id === effectiveBlobStyle(settings.blobStyle);
+                      return (
+                        <motion.button
+                          key={option.id}
+                          type="button"
+                          whileTap={{ scale: 0.97 }}
+                          aria-pressed={selected}
+                          onClick={() => onChange({ blobStyle: option.id })}
+                          className={cn(
+                            'relative flex flex-col items-center gap-2.5 rounded-lg border bg-muted/50 px-3 py-3 text-center transition-colors hover:bg-muted',
+                            selected && 'border-highlight'
+                          )}
+                        >
+                          <div className="flex -space-x-1.5">
+                            <Blob style={option.id} seed="settings one" size={30} />
+                            <Blob style={option.id} seed="settings two" size={30} />
+                          </div>
+                          <div className="flex min-w-0 flex-col">
+                            <span className="font-medium">{option.name}</span>
+                            <span className="text-[11px] text-muted-foreground">{option.hint}</span>
+                          </div>
+                          {selected && (
+                            <Check className="absolute top-2 right-2 size-3.5 text-highlight" />
+                          )}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="conversations" className="mt-0 flex flex-col gap-5">
               <Card>
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -579,7 +806,7 @@ export default function SettingsPanel({
                 <CardContent className="flex flex-col gap-3 p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="font-medium">Show sessions active in the</span>
+                      <span className="font-medium">Show recent sessions</span>
                       <span className="text-[11px] text-muted-foreground">
                         Quieter sessions drop out of the list until they're active again.
                       </span>
@@ -638,7 +865,15 @@ export default function SettingsPanel({
                   </div>
                 </CardContent>
               </Card>
+              <section aria-label="Unread replies" className="rounded-lg border p-5">
+                <h3 className="font-medium">Unread replies</h3>
+                <p className="mt-2 text-sm text-muted-foreground">You decide when a reply is read. Opening a chat, copying or replying never marks it read. Use New unread messages to jump, then Mark as read or Mark all as read when you’re ready. Undo restores the previous marks.</p>
+                <p className="mt-2 text-sm text-muted-foreground">Mute a conversation from its menu to quiet its unread indicators. Questions and approvals remain visible.</p>
+              </section>
+              {/* Context & compaction: ContextCompactionSettings is integrated here by the compaction-settings task. */}
+            </TabsContent>
 
+            <TabsContent value="remote" className="mt-0 flex flex-col gap-5">
               <Card>
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -707,165 +942,7 @@ export default function SettingsPanel({
                   ) : null}
                 </CardContent>
               </Card>
-
-              <Card>
-                <CardHeader className="p-3 pb-0">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Session avatars
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3">
-                  <fieldset className="mb-4">
-                    <legend className="text-xs font-medium">Avatar size</legend>
-                    <p className="mt-1 mb-2 text-[11px] text-muted-foreground">In the rail and beside your message. Standard keeps the current size.</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {AVATAR_SIZES.map(option => <button key={option.id} type="button" aria-label={`${option.label} avatars`}
-                        aria-pressed={settings.blobSize === option.id} onClick={() => onChange({ blobSize: option.id })}
-                        className={cn('flex min-w-0 flex-col items-center justify-end gap-1 rounded-lg border p-2 hover:bg-muted', settings.blobSize === option.id && 'border-highlight bg-muted/50')}>
-                        <Blob style={effectiveBlobStyle(settings.blobStyle)} seed="avatar-size-preview" size={avatarPixels(40, option.id)} />
-                        <span className="text-xs">{option.label}</span>
-                      </button>)}
-                    </div>
-                  </fieldset>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {BLOB_STYLES.map((option) => {
-                      const selected = option.id === effectiveBlobStyle(settings.blobStyle);
-                      return (
-                        <motion.button
-                          key={option.id}
-                          type="button"
-                          whileTap={{ scale: 0.97 }}
-                          aria-pressed={selected}
-                          onClick={() => onChange({ blobStyle: option.id })}
-                          className={cn(
-                            'relative flex flex-col items-center gap-2.5 rounded-lg border bg-muted/50 px-3 py-3 text-center transition-colors hover:bg-muted',
-                            selected && 'border-highlight'
-                          )}
-                        >
-                          <div className="flex -space-x-1.5">
-                            <Blob style={option.id} seed="settings one" size={30} />
-                            <Blob style={option.id} seed="settings two" size={30} />
-                          </div>
-                          <div className="flex min-w-0 flex-col">
-                            <span className="font-medium">{option.name}</span>
-                            <span className="text-[11px] text-muted-foreground">{option.hint}</span>
-                          </div>
-                          {selected && (
-                            <Check className="absolute top-2 right-2 size-3.5 text-highlight" />
-                          )}
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="p-3 pb-0"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Text size</CardTitle></CardHeader>
-                <CardContent className="flex flex-col gap-3 p-3">
-                  {/* Three sizes with three homes, because one setting could not serve them: the
-                      chrome, the conversation and what you type are read at different distances.
-                      Each row states what it changes, so nobody has to guess what "Medium" means. */}
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-medium">Interface</span>
-                      <SizeChoices
-                        label="Interface text size"
-                        value={settings.interfaceSize ?? 'medium'}
-                        onChange={(size) => onChange({ interfaceSize: size })}
-                      />
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">The rail, headers, menus and settings.</span>
-                    <p data-testid="text-size-preview-interface" className="text-[11px] text-muted-foreground" style={{ zoom: INTERFACE_SCALE[settings.interfaceSize ?? 'medium'] }}>
-                      <span className="font-medium text-foreground">Rail · Header · Settings</span> — this sheet scales with the rest.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-medium">Chat</span>
-                      <SizeChoices
-                        label="Chat text size"
-                        value={nearestChatSize(settings.conversationFontSize)}
-                        onChange={(size) => onChange({ conversationFontSize: CHAT_PX[size] })}
-                      />
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">Messages in the conversation.</span>
-                    <p data-testid="text-size-preview-chat" className="text-muted-foreground" style={{ fontSize: CHAT_PX[nearestChatSize(settings.conversationFontSize)], lineHeight: 1.8 }}>
-                      Messages appear at this size.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-medium">Composer</span>
-                      <SizeChoices
-                        label="Composer text size"
-                        value={composerSizeOf(settings.composerSize)}
-                        onChange={(size) => onChange({ composerSize: size })}
-                      />
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">What you type before sending.</span>
-                    <p data-testid="text-size-preview-composer" className="text-muted-foreground" style={{ fontSize: COMPOSER_PX[composerSizeOf(settings.composerSize)], lineHeight: 1.8 }}>
-                      Message your bot…
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="p-3 pb-0">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Theme
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-3 p-3">
-                  {THEME_GROUPS.map((group) => (
-                    <div key={group.id} className="flex flex-col gap-1.5">
-                      <span className="text-[11px] text-muted-foreground">{group.name}</span>
-                      <div className="grid grid-cols-3 gap-2">
-                        {THEMES.filter((theme) => theme.group === group.id).map((theme) => {
-                          const selected = theme.id === settings.theme;
-                          const { palette } = theme;
-                          return (
-                            <motion.button
-                              key={theme.id}
-                              type="button"
-                              whileTap={{ scale: 0.97 }}
-                              aria-pressed={selected}
-                              onClick={() => onChange({ theme: theme.id })}
-                              className={cn(
-                                'relative flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors hover:bg-muted',
-                                selected ? 'border-highlight' : 'border-border'
-                              )}
-                            >
-                              <span
-                                className="relative flex size-8 flex-none items-end justify-end rounded-md border border-black/10 p-1"
-                                style={{ background: palette.bg }}
-                              >
-                                <span
-                                  className="absolute inset-x-1 top-1 h-2.5 rounded-sm"
-                                  style={{ background: palette.elev }}
-                                />
-                                <span className="size-1.5 rounded-full" style={{ background: palette.highlight }} />
-                              </span>
-                              <span className="min-w-0 truncate font-medium">{theme.name}</span>
-                              {selected && (
-                                <Check className="absolute top-1.5 right-1.5 size-3 text-highlight" />
-                              )}
-                            </motion.button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-              <p className="border-t pt-3 text-[11px] text-muted-foreground">
-                Ember <span className="font-medium tabular-nums">{appVersion ?? 'unknown'}</span>
-                <span className="text-muted-foreground/70"> · settings save as you change them</span>
-              </p>
-            </TabsContent>
-
-            <TabsContent value="instances" className="mt-0 flex flex-col gap-4">
+              <KilnSharing />
               {/* Token rotation stays available without competing with the connection flow. */}
               <details className="rounded-lg border p-3">
                 <summary className="cursor-pointer text-xs font-medium">Advanced: local Kiln token</summary>
@@ -890,71 +967,11 @@ export default function SettingsPanel({
                 </CardContent>
               </Card>
               </details>
-              <Card>
-                <CardHeader className="p-3 pb-0">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Kiln instances
-                  </CardTitle>
-                  <CardDescription>
-                    Each Kiln keeps its own conversations. Connect another computer or share this
-                    computer’s Kiln below.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-2">
-                  <EndpointsSettings
-                    endpoints={settings.piEndpoints}
-                    instances={instances}
-                    onChange={onChange}
-                    onRefreshInstances={onRefreshInstances}
-                  />
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="p-3 pb-0">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Instance defaults
-                  </CardTitle>
-                  <CardDescription>
-                    Choose the defaults used when starting work on each instance.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-2">
-                  <InstanceDefaultsSettings
-                    instances={instances}
-                    projectsByInstance={projectsByInstance}
-                    projectUsageByInstance={projectUsageByInstance}
-                    modelsByInstance={modelsByInstance}
-                    recentModelsByInstance={recentModelsByInstance}
-                    settings={settings}
-                    onChange={onChange}
-                  />
-                </CardContent>
-              </Card>
+
+
+              <Button variant="link" className="self-start" onClick={() => onViewChange('providers')}>Share provider access instead →</Button>
             </TabsContent>
 
-            <TabsContent value="providers" className="mt-0 flex flex-col gap-4">
-              <Card>
-                <CardHeader className="p-3 pb-0">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Model providers
-                  </CardTitle>
-                  <CardDescription>
-                    Each ember-harness host keeps its own credentials, stored on that host and never sent
-                    back to this window. Sign in where a provider supports it, or paste an API key.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-3 pt-2">
-                  <ProvidersSettings
-                    endpoints={settings.piEndpoints}
-                    instances={instances}
-                    onProviderChange={onRefreshModels}
-                    instanceDefaults={settings.instanceDefaults}
-                    onDefaultChange={(id, model) => onChange({ instanceDefaults: { ...settings.instanceDefaults, [id]: { ...settings.instanceDefaults[id], model, variant: model?.variant } } })}
-                    {...(providerEndpointId ? { initialEndpointId: providerEndpointId } : {})}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
           </div>
         </Tabs>
       </DialogContent>

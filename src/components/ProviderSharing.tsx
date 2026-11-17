@@ -92,7 +92,7 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
       {!desktop ? <p>Provider sharing is available in the Ember desktop app. Open Settings → Providers there to review your Kilns.</p> : <>
         <p className="text-muted-foreground">The comparison reads metadata only. Choose one source, then review each provider and destination. Existing credentials and model defaults stay unchanged. Connections are managed separately.</p>
         <Button size="xs" variant="outline" disabled={busy || !candidates.length || !window.ember.piRequest} onClick={() => void inspect()}>{busy ? <Loader2 className="animate-spin" /> : null}Compare providers</Button>
-        {!candidates.length ? <p>Add a Kiln in Settings → Instances, then return here to compare providers.</p> : null}
+        {!candidates.length ? <p>Add a Kiln in Settings → Computers and Containers, then return here to compare providers.</p> : null}
         {hosts ? <>
           <ul className="space-y-1" aria-label="Kiln comparison status">{hosts.map(host => <li key={host.endpoint.id}>{sharingHostMessage(host)}</li>)}</ul>
           <div className="max-h-64 overflow-auto rounded border p-2" aria-label="Provider availability">

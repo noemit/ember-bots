@@ -459,3 +459,15 @@ html.motion-paused *::after {
 
 /* Exact annotation source ranges, independent of selection and read receipts. */
 ::highlight(ember-quote) { background-color: color-mix(in srgb, var(--highlight) 32%, transparent); color: inherit; }
+
+/* Settings keeps a familiar category sidebar without squeezing phone-sized dialogs. */
+.settings-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+@media (max-width: 639px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.settings-layout [data-slot="card-header"] { padding: 20px 20px 0; }
+.settings-layout [data-slot="card-content"] { padding: 20px; }
+.settings-layout [data-slot="card-title"] { font-size: 14px; text-transform: none; letter-spacing: normal; color: var(--foreground); }
+.settings-layout button { min-height: 36px; }
+.settings-layout [role="tab"] { min-height: 44px; }

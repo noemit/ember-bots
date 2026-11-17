@@ -47,7 +47,7 @@ test('global blob style changes every recognized chat while preserving scoped cu
   await expect(customized).toHaveClass(/blob-buddy/);
   const before = await customized.locator('svg path').first().getAttribute('fill');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('tab', { name: 'General' });
+  const settings = page.getByRole('tab', { name: 'Appearance' });
   await settings.click();
   await page.getByRole('button', { name: 'Crystal' }).click();
   await expect(customized).toHaveClass(/blob-crystal/);

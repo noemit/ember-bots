@@ -1,3 +1,4 @@
+import type { SettingsView } from './lib/settingsNavigation';
 import { mergeScheduledSessionBindings } from './lib/scheduledBindings';
 import { annotationNotePatch } from './lib/annotationNote';
 import { confirmAnnotations, type AnnotationGuard } from './lib/annotationNavigation';
@@ -479,7 +480,7 @@ export default function App() {
     return byInstance;
   }, [sessionsByInstance]);
 
-  const [settingsView, setSettingsView] = React.useState<'general' | 'instances' | 'providers'>('general');
+  const [settingsView, setSettingsView] = React.useState<SettingsView>('providers');
   /** The host whose Providers screen is open, when it was opened from a session's model picker. */
   const [providerEndpointId, setProviderEndpointId] = React.useState<string | undefined>(undefined);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
@@ -5588,13 +5589,13 @@ export default function App() {
             onOpenSettings={() => navigateWithAnnotations(() => {
               setMobileRailOpen(false);
               setProviderEndpointId(undefined);
-              setSettingsView('general');
+              setSettingsView('providers');
               setSettingsActivated(true);
               setSettingsOpen(true);
             })}
             onOpenInstanceSettings={() => {
               setProviderEndpointId(undefined);
-              setSettingsView('instances');
+              setSettingsView('computers');
               setSettingsActivated(true);
               setSettingsOpen(true);
             }}
@@ -5609,7 +5610,7 @@ export default function App() {
             onSettings={() => {
               setMobileRailOpen(false);
               setProviderEndpointId(undefined);
-              setSettingsView('instances');
+              setSettingsView('computers');
               setSettingsActivated(true);
               setSettingsOpen(true);
             }}

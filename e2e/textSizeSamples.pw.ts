@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 test('each text size shows a live sample that follows its own preset only', async ({ page }) => {
   await page.goto('/?noDock');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
   const chat = page.getByTestId('text-size-preview-chat');
   const composer = page.getByTestId('text-size-preview-composer');
   const iface = page.getByTestId('text-size-preview-interface');

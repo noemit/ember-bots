@@ -60,6 +60,7 @@ test('all structured diagnostics name the host and offer recovery, never raw sec
 
 test('sharing requires enable then explicit reveal and clears details on disable', async ({ page }) => {
   await settings(page);
+  await page.getByRole('tab', { name: 'Remote access', exact: true }).click();
   const sharing = page.getByRole('region', { name: 'Share this Kiln', exact: true });
   await expect(sharing).toContainText('local only');
   await expect(sharing.getByLabel('Shared Kiln URL')).toHaveCount(0);
@@ -84,7 +85,9 @@ test('remote browser cannot change host sharing or connection credentials', asyn
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
-  await expect(add(page)).toContainText('remote browser cannot enable');
+  await page.getByRole('tab', { name: 'Remote access', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Share this Kiln' })).toContainText('remote browser cannot enable');
+  await page.getByRole('tab', { name: 'Computers and Containers', exact: true }).click();
   await add(page).getByRole('button', { name: 'On another computer', exact: true }).click();
   await expect(add(page)).toContainText('Open Ember on the desktop');
   await expect(add(page).getByLabel('Bearer token')).toHaveCount(0);
@@ -99,6 +102,7 @@ test('a blocked enabled share cannot be removed without verified current ownersh
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
+  await page.getByRole('tab', { name: 'Remote access', exact: true }).click();
   const sharing = page.getByRole('region', { name: 'Share this Kiln', exact: true });
   await sharing.getByRole('button', { name: 'Check sharing', exact: true }).click();
   await expect(sharing).toContainText('verify ownership');

@@ -14,6 +14,8 @@ const providersTab = async (page: Page) => {
 };
 
 const saveKey = async (page: Page, provider: string, key: string) => {
+  await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Add provider', exact: true }).getByRole('button', { name: new RegExp(provider) }).click();
   const field = page.getByRole('textbox', { name: `API key for ${provider}` });
   await field.fill(key);
   await field.locator('..').getByRole('button', { name: 'Save', exact: true }).click();
@@ -45,9 +47,7 @@ const findModel = async (picker: Locator, name: string, absent = false) => {
 test('a DeepInfra key can be saved and its models reach the picker', async ({ page }) => {
   await providersTab(page);
   // The row exists before any key does — that is what gives it a field to type into.
-  await expect(page.getByText('DeepInfra', { exact: true })).toBeVisible();
   await saveKey(page, 'DeepInfra', 'mock-deepinfra-key');
-  await expect(page.getByText('DeepInfra', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove credential for DeepInfra' })).toBeVisible();
 
   const picker = await openPicker(page);
@@ -62,7 +62,6 @@ test('a DeepInfra key can be saved and its models reach the picker', async ({ pa
 
 test('OpenRouter still shows its row and its own models, next to DeepInfra', async ({ page }) => {
   await providersTab(page);
-  await expect(page.getByText('OpenRouter', { exact: true })).toBeVisible();
   await saveKey(page, 'OpenRouter', 'mock-openrouter-key');
 
   const picker = await openPicker(page);
@@ -75,7 +74,7 @@ test('both keys can be present at once, each with its own status', async ({ page
   await saveKey(page, 'DeepInfra', 'mock-deepinfra-key');
   await saveKey(page, 'OpenRouter', 'mock-openrouter-key');
   for (const provider of ['DeepInfra', 'OpenRouter']) {
-    await expect(page.getByRole('button', { name: `Remove credential for ${provider}` })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Manage ' + provider })).toBeVisible();
   }
   const picker = await openPicker(page);
   await findModel(picker, 'Qwen3-32B');

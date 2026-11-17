@@ -40,7 +40,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await settings(page).click();
       const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole('tab', { name: 'General', exact: true })).toHaveAttribute('aria-selected', 'true');
+      await expect(dialog.getByRole('tab', { name: 'Providers', exact: true })).toHaveAttribute('aria-selected', 'true');
       await expect(dialog.getByRole('tabpanel')).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(dialog).toHaveCount(0);
@@ -51,7 +51,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await testInfo.attach('Settings before Sessions', { path, contentType: 'image/png' });
     await toolbar(page).getByRole('button', { name: 'Instances', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Instance settings', exact: true }).click();
-    await expect(page.getByRole('dialog').getByRole('tab', { name: 'Instances', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('dialog').getByRole('tab', { name: 'Computers and Containers', exact: true })).toHaveAttribute('aria-selected', 'true');
   });
 }
 

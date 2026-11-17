@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { KeyRound, Loader2, LogIn, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SecretInput from '@/components/ui/secret-input';
@@ -24,6 +25,7 @@ import CustomProviders from './CustomProviders';
 import OllamaSetup from './OllamaSetup';
 
 type Props = {
+  inventory?: boolean;
   endpoints: PiEndpoint[];
   instances: Instance[];
   /**
@@ -55,7 +57,7 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
  * `$HEARTH_HOME/auth.json` and is never sent back or rendered. Subscription sign-in runs on that
  * same host; this panel shows the browser link and polls for confirmed credential storage.
  */
-export default function ProvidersSettings({ endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange, onProviderCatalog }: Props) {
+export default function ProvidersSettings({ inventory = false, endpoints, instances, onProviderChange, initialEndpointId, instanceDefaults = {}, onDefaultChange, onProviderCatalog }: Props) {
   const [endpointId, setEndpointId] = React.useState(initialEndpointId ?? endpoints[0]?.id ?? '');
   const activeEndpoint = React.useRef(endpointId);
   activeEndpoint.current = endpointId;
@@ -68,17 +70,17 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   /** The provider whose sign-in dialog is open, if any. */
   const [confirmation, setConfirmation] = React.useState<{ endpointId: string; providerName: string; catalog: ModelList | null } | null>(null);
   const [choosingDefault, setChoosingDefault] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
+  const [managing, setManaging] = React.useState<string | null>(null);
+  const [removing, setRemoving] = React.useState<string | null>(null);
   const [signIn, setSignIn] = React.useState<PiProviderInfo | null>(null);
 
   React.useEffect(() => {
-    if (initialEndpointId && endpoints.some((endpoint) => endpoint.id === initialEndpointId)) {
-      setEndpointId(initialEndpointId);
-      return;
-    }
-    if (!endpoints.some((endpoint) => endpoint.id === endpointId)) {
-      setEndpointId(endpoints[0]?.id ?? '');
-    }
-  }, [endpointId, endpoints, initialEndpointId]);
+    if (initialEndpointId) setEndpointId(initialEndpointId);
+  }, [initialEndpointId]);
+  React.useEffect(() => {
+    if (!endpoints.some(endpoint => endpoint.id === endpointId)) setEndpointId(endpoints[0]?.id ?? '');
+  }, [endpointId, endpoints]);
 
   // Stable identity, so the signing dialog's effects don't restart on every parent render.
   const notifyChanged = useStableCallback((id: string) => onProviderChange?.(id));
@@ -99,7 +101,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
       setProviders(null);
       setDefaultModel(null);
       notifyCatalog(id, []);
-      setError('Could not load providers from this ember-harness — check the endpoint and retry.');
+      setError('Kiln did not return its providers. Check the connection in Computers and Containers, then use Refresh providers above.');
       setLoading(false);
       return;
     }
@@ -126,7 +128,9 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
     if (!key) return;
     setBusy(provider.id);
     setError(null);
-    const result = await piSetProviderKey(endpointId, provider.id, key);
+    const id = endpointId;
+    const result = await piSetProviderKey(id, provider.id, key);
+    if (activeEndpoint.current !== id) return;
     setBusy(null);
     if (!result.ok) {
       setError(`${provider.name}: ${result.error ?? 'could not save the key'}`);
@@ -145,7 +149,9 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   const remove = async (provider: PiProviderInfo) => {
     setBusy(provider.id);
     setError(null);
-    const result = await piRemoveProvider(endpointId, provider.id);
+    const id = endpointId;
+    const result = await piRemoveProvider(id, provider.id);
+    if (activeEndpoint.current !== id) return;
     setBusy(null);
     if (!result.ok) {
       setError(`${provider.name}: ${result.error ?? 'could not remove the credential'}`);
@@ -158,7 +164,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   if (endpoints.length === 0) {
     return (
       <p className="text-[12px] text-muted-foreground">
-        Add an ember-harness endpoint first. Credentials live on each ember-harness host, not in this
+        Connect a Kiln in Computers and Containers first. Credentials live on each computer or container, not in this
         window.
       </p>
     );
@@ -167,16 +173,17 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
   if (!window.ember.piRequest) {
     return (
       <p className="text-[12px] text-muted-foreground">
-        This Ember bridge can't reach ember-harness directly; update Ember to manage provider credentials.
+        This Ember cannot reach Kiln’s provider API. Open a current Ember desktop app to manage provider credentials.
       </p>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Select value={endpointId} onValueChange={(id) => { setEndpointId(id); setConfirmation(null); setChoosingDefault(false); }}>
-          <SelectTrigger size="sm" className="min-w-0 flex-1 text-xs" aria-label="ember-harness host">
+      <div className="flex flex-wrap items-center gap-2 border-b pb-5">
+        <span className="text-xs text-muted-foreground">Providers on</span>
+        <Select value={endpointId} onValueChange={(id) => { setEndpointId(id); setConfirmation(null); setChoosingDefault(false); setManaging(null); setRemoving(null); setAdding(false); setDrafts({}); setSignIn(null); }}>
+          <SelectTrigger size="sm" className="min-w-0 flex-1 text-xs" aria-label="Computer for providers">
             <SelectValue placeholder="Select a host" />
           </SelectTrigger>
           <SelectContent>
@@ -202,6 +209,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
         </Button>
       </div>
 
+      <p className="text-xs text-muted-foreground">Credentials stay on the selected computer or container. Keys stay hidden here.</p>
       {defaultModel || instanceDefaults[endpointId]?.model ? (
         <p className="text-[11px] text-muted-foreground">New chats default to {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : defaultModel}.</p>
       ) : null}
@@ -240,40 +248,34 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
         <p className="text-[12px] text-muted-foreground">This ember-harness reports no providers.</p>
       ) : null}
 
-      <OllamaSetup key={'ollama-' + endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async connected => {
-        await load(endpointId);
-        notifyChanged(endpointId);
-        if (connected) await confirmDefault(endpointId, 'Ollama');
-      }} />
-      <CustomProviders key={endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async (name) => {
-        await load(endpointId);
-        notifyChanged(endpointId);
-        if (name) await confirmDefault(endpointId, name);
-      }} />
-      <ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={(id) => { notifyChanged(id); if (id === endpointId) void load(id); }} />
-
-      {providers?.filter(provider => !provider.custom && provider.id !== 'ollama').map((provider) => {
+      {inventory ? <div className="flex items-center justify-between gap-3 border-t pt-5">
+        <div><h3 className="text-base font-semibold">Your providers</h3><p className="mt-1 text-xs text-muted-foreground">{providers?.filter(provider => provider.credential).length ?? 0} with saved credentials</p></div>
+        <Button onClick={() => setAdding(true)}>Add provider</Button>
+      </div> : null}
+      {inventory && providers && !providers.some(provider => provider.credential) ? <p className="rounded-lg border p-5 text-sm text-muted-foreground">No saved provider credentials on this computer yet. Choose Add provider to connect one.</p> : null}
+      {providers?.filter(provider => !provider.custom && provider.id !== 'ollama' && (!inventory || !!provider.credential || managing === provider.id)).map((provider) => {
         const draft = drafts[provider.id] ?? '';
         const isBusy = busy === provider.id;
         return (
-          <div key={provider.id} className="rounded-lg border bg-muted/20 px-3 py-2">
+          <div key={provider.id} className="rounded-lg border bg-background px-4 py-4">
             <div className="flex items-center gap-2">
               <KeyRound className="size-3.5 flex-none text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium" title={provider.id}>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={provider.id}>
                 {provider.name}
               </span>
               {provider.credential ? (
-                <span className="flex-none rounded bg-success/10 px-1.5 py-0.5 text-[10.5px] text-success">
-                  {credentialLabel[provider.credential]}
+                <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10.5px] text-foreground">
+                  {credentialLabel[provider.credential]} saved
                 </span>
               ) : (
                 <span className="flex-none text-[10.5px] text-muted-foreground">no credential</span>
               )}
-              {provider.credential ? (
+              {inventory ? <Button size="sm" variant="outline" aria-expanded={managing === provider.id} onClick={() => { setManaging(managing === provider.id ? null : provider.id); setRemoving(null); }} aria-label={'Manage ' + provider.name}>Manage</Button> : null}
+              {provider.credential && (!inventory || managing === provider.id) ? (
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  onClick={() => void remove(provider)}
+                  onClick={() => setRemoving(provider.id)}
                   disabled={isBusy}
                   aria-label={`Remove credential for ${provider.name}`}
                 >
@@ -281,6 +283,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
                 </Button>
               ) : null}
             </div>
+            {!inventory || managing === provider.id ? <>
             {provider.signIn ? (
               <div className="mt-2 flex items-center gap-2">
                 <Button
@@ -302,6 +305,7 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
             ) : null}
             <div className="mt-2 flex items-center gap-2">
               <SecretInput
+                autoFocus={inventory}
                 value={draft}
                 onChange={(event) => setDrafts((prev) => ({ ...prev, [provider.id]: event.target.value }))}
                 onKeyDown={(event) => {
@@ -319,9 +323,41 @@ export default function ProvidersSettings({ endpoints, instances, onProviderChan
                 Save
               </Button>
             </div>
+            {removing === provider.id ? <div className="mt-3 space-y-2 rounded border p-3 text-xs" role="group" aria-label={'Remove ' + provider.name}>
+              <p>Remove {provider.name}’s saved credential from {endpoints.find(endpoint => endpoint.id === endpointId)?.label}? Chat history and other computers stay unchanged.</p>
+              {(instanceDefaults[endpointId]?.model?.providerID === provider.id || defaultModel?.startsWith(provider.id + ' / ')) ? <p className="text-warning">This provider supplies the default model. New chats may need another model or a new credential. Ember won’t choose a replacement.</p> : null}
+              <Button size="sm" variant="destructive" disabled={isBusy} onClick={() => { void remove(provider); setRemoving(null); }}>Confirm removal</Button>{' '}
+              <Button size="sm" variant="outline" onClick={() => setRemoving(null)}>Keep credential</Button>
+            </div> : null}
+            </> : null}
           </div>
         );
       })}
+
+      {inventory ? <Dialog open={adding} onOpenChange={setAdding}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[560px]">
+          <DialogHeader><DialogTitle>Add provider</DialogTitle><DialogDescription>Choose a provider to connect on {endpoints.find(endpoint => endpoint.id === endpointId)?.label}. Adding access never changes the default model by itself.</DialogDescription></DialogHeader>
+          <div className="flex flex-col gap-2">
+            {providers?.filter(provider => !provider.custom && provider.id !== 'ollama').map(provider => <Button key={provider.id} variant="outline" className="min-h-11 justify-between" onClick={() => { setAdding(false); setManaging(provider.id); }}>
+              {provider.name}<span className="text-xs text-muted-foreground">{provider.credential ? 'Manage saved access' : 'Connect'}</span>
+            </Button>)}
+            <p className="mt-3 text-xs text-muted-foreground">For a local model or an OpenAI-compatible server, use Ollama or Custom providers below the inventory.</p>
+          </div>
+        </DialogContent>
+      </Dialog> : null}
+      <details className="rounded-lg border p-3"><summary className="cursor-pointer py-2 text-sm font-medium">Local models · Ollama</summary>
+      <OllamaSetup key={'ollama-' + endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async connected => {
+        await load(endpointId);
+        notifyChanged(endpointId);
+        if (connected) await confirmDefault(endpointId, 'Ollama');
+      }} />
+      </details>
+      <CustomProviders key={endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async (name) => {
+        await load(endpointId);
+        notifyChanged(endpointId);
+        if (name) await confirmDefault(endpointId, name);
+      }} />
+      <ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={(id) => { notifyChanged(id); if (id === endpointId) void load(id); }} />
 
       {signIn ? (
         <ProviderSignInDialog

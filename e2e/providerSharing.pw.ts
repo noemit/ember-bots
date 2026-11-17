@@ -33,7 +33,7 @@ const prepare = async (page: Page) => {
     };
   });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByRole('tab', { name: 'Instances', exact: true }).click();
+  await page.getByRole('tab', { name: 'Computers and Containers', exact: true }).click();
   const alignment = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Align all my instances' }) });
   await alignment.getByRole('button', { name: 'Review', exact: true }).click();
   await alignment.getByRole('button', { name: 'Review instances', exact: true }).click();
@@ -140,6 +140,7 @@ test('remote browser sharing stays desktop-only without requesting metadata or c
     window.ember.piRequest = async (id, path, init) => { if (path.startsWith('/alignment')) probe.calls.push(path); return original(id, path, init); };
   });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
   await page.getByRole('button', { name: 'Split view', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
   const area = page.getByRole('region', { name: 'Share providers across Kilns' });
