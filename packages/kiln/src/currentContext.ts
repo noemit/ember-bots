@@ -12,11 +12,13 @@ export const currentContextOf = (view: Pick<ContextView, 'head' | 'messages'>) =
     view.messages.findLastIndex((message) => message.role === 'user'))).reduce((sum, message) =>
     sum + (message.role === 'system' ? 0 : estimateMessageTokens(message)), 0),
   currentContextEpoch: view.head === undefined ? 'initial' : String(view.head.id),
+  contextCompaction: view.head?.kind === 'pi.compaction' ? { entryId: Number(view.head.id), reason: String((view.head.data as { reason?: string } | undefined)?.reason ?? 'unknown') } : null,
 });
 export const CurrentContextDoc = defineDoc<{
   currentContextTokens?: number;
   currentContextHistoryTokens?: number;
   currentContextEpoch?: string;
+  contextCompaction?: { entryId: number; reason: string } | null;
   /** Newest visible entry incorporated by this derivation; readers must reject mismatched anchors. */
   sourceEntryId?: number;
 }>({ kind: 'hearth.current-context', version: 1, scope: 'conversation', history: 'latest', fork: 'initial', initial: () => ({}), checkpointWhen: () => true });

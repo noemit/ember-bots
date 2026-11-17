@@ -186,6 +186,7 @@ export type Session = {
   currentContextHistoryTokens?: number;
   /** Host context generation: changes after a reset or successful compaction. */
   currentContextEpoch?: string;
+  contextCompaction?: { entryId: number; reason: string } | null;
   /** True while a context compaction task is in flight (Hearth's `pi.live.compactions`). */
   compacting?: boolean;
   /** The newest compaction failure reported by the host (`pi.live.compactionFailure`). */

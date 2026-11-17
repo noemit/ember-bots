@@ -1,3 +1,4 @@
+import type { CompactionSettings } from "./compaction-settings";
 import { StopQueueDoc, prepareStopQueueHandoff, resumeStopQueueHandoff } from './stopQueueHandoff';
 import type { OllamaSettings } from "./ollama-settings";
 import type { CustomProviders } from "./custom-providers";
@@ -140,6 +141,7 @@ type Deps = {
   localRuntimes?: readonly LocalRuntimeProbe[];
   customProviders?: CustomProviders;
   ollamaSettings?: OllamaSettings;
+  compactionSettings?: CompactionSettings;
   /**
    * The host's process table and memory. Production leaves this out; a test passes a fake so the
    * routes can be exercised without depending on what is running on the machine under test.
@@ -389,6 +391,7 @@ type ConversationSummary = {
   /** Estimated older content before the latest user message; excludes system instructions/tools and usage totals. */
   currentContextHistoryTokens?: number;
   currentContextEpoch?: string;
+  contextCompaction?: { entryId: number; reason: string } | null;
   /** Server-side YOLO policy: permission prompts auto-accept for this conversation. */
   autoAccept?: boolean;
   /** True while summarizing or while its summary write waits for a turn boundary. */
@@ -534,6 +537,7 @@ const summaryOf = async (
       currentContextTokens: currentContext.currentContextTokens,
       currentContextHistoryTokens: currentContext.currentContextHistoryTokens,
       currentContextEpoch: currentContext.currentContextEpoch,
+      contextCompaction: currentContext.contextCompaction,
     } : {}),
     autoAccept: Boolean(auto?.enabled),
     compacting: Boolean(live?.compactions?.length) || Boolean(inbox?.items.some(
@@ -1052,6 +1056,7 @@ const imagesInEntry = (entry: EntryShape): string => {
 const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/alignment$/, ["GET"]],
   [/^\/alignment\/(connections|import|share)$/, ["POST"]],
+  [/^\/settings\/compaction$/, ["GET", "PUT"]],
   [/^\/health$/, ["GET"]],
   [/^\/admin\/restart$/, ["POST"]],
   [/^\/models$/, ["GET"]],
@@ -1360,6 +1365,19 @@ const server = Bun.serve<{
         const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 200) : "requested";
         restart(reason);
         return json({ ok: true, restarting: true, reason, version: version ?? "0.0.0", ...(build ? { commit: build } : {}) });
+      }
+
+      if (path === "/settings/compaction") {
+        const settings = deps.compactionSettings;
+        if (!settings) return badRequest("This Kiln cannot configure compaction yet. Update Kiln, then reopen these settings.");
+        if (request.method === "GET") return json(settings.state());
+        if (request.method === "PUT") {
+          const body = await readBody(request);
+          try { return json(settings.save(body.preference)); }
+          catch (error) {
+            return badRequest(`Kiln could not save compaction settings. ${error instanceof Error ? error.message : 'Check the token counts, then try Save again.'}`);
+          }
+        }
       }
 
       // These routes use the same bearer authentication and bounded request reader as credentials.

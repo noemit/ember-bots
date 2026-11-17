@@ -1,20 +1,6 @@
-/**
- * The composer's context meter, as a pure derivation (unit-tested in `contextMeter.test.ts`).
- *
- * The two numbers the meter draws with come from different places: the token count is what the
- * *last turn* reported, and the window belongs to whatever model is *selected now*. Comparing them
- * across a model switch is comparing two unrelated quantities — and, worse, the old code fed that
- * ratio to an automatic compaction, so picking a small-window model could rewrite the session's
- * history on a denominator the turn never ran against.
- *
- * So a percentage exists only when both sides are the same model:
- * - the numerator is the last completed assistant turn's prompt + output tokens;
- * - the denominator is the selected model's window, and only when the selected model is the model
- *   that recorded the turn.
- *
- * Everything else is `unknown`, with the reason kept so the tooltip can say which fact is missing.
- * `none` is separate from `unknown` on purpose: a session that has not finished a turn yet has
- * nothing to report, so the meter stays out of the way rather than claiming ignorance.
+/** Context meter policy. Kiln supplies an epoch-anchored active context estimate: it replaces
+ * stale pre-compaction turn usage and can be compared with the next model's window. Missing
+ * Kiln snapshots stay unknown. Legacy hosts retain same-model last-turn usage as a fallback.
  */
 import type { ChatMessage, ModelRef, TokenUsage } from '../types';
 
@@ -28,6 +14,7 @@ export type ContextWindowSource = {
 export type ContextUnknownReason =
   /** The last completed turn reported no token usage (some providers don't). */
   | 'no-usage'
+  | 'no-current-context'
   /** The turn has usage but no recorded model, so there is no window to look up. */
   | 'no-turn-model'
   /** The composer is set to a different model than the one the turn ran on. */
@@ -74,8 +61,19 @@ export const formatTokenCount = (count: number): string => {
  */
 export const contextMeterState = (
   messages: readonly ChatMessage[],
-  selectedModel: ContextWindowSource | undefined
+  selectedModel: ContextWindowSource | undefined,
+  current?: { tokens?: number; epoch?: string }
 ): ContextMeterState => {
+  if (current) {
+    const model = refOf(selectedModel);
+    const used = current.tokens;
+    const limit = selectedModel?.details?.contextTokens;
+    if (used === undefined || !Number.isFinite(used) || used < 0 || !current.epoch)
+      return { kind: 'unknown', reason: 'no-current-context', selectedModel: model };
+    if (!model || !limit || !Number.isFinite(limit) || limit <= 0)
+      return { kind: 'unknown', reason: 'no-window', used, selectedModel: model };
+    return { kind: 'known', used, limit, percent: Math.max(0, Math.round(used / limit * 100)), model };
+  }
   // The last *completed* turn: a live one has no usage yet, and the previous turn's count is what
   // is actually sitting in the window while it streams.
   let last: ChatMessage | undefined;
@@ -124,6 +122,8 @@ const unknownReason = (state: Extract<ContextMeterState, { kind: 'unknown' }>): 
       return `the last turn ran on ${modelName(state.turnModel)}, but the composer is set to ${modelName(
         state.selectedModel
       )} — Ember only measures a turn against the model that ran it`;
+    case 'no-current-context':
+      return 'the host is refreshing the active context estimate; previous turn totals are not current context';
     case 'no-window':
       return `${modelName(state.turnModel)} reports no context window, so there's no percentage to show`;
   }

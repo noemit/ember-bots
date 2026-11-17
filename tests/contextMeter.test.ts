@@ -148,3 +148,12 @@ test('invalid or loading windows and non-finite usage never create a context per
     expect(contextMeterState([assistant({ tokens: usage(input) })], { ...TURN_MODEL, details: { contextTokens: 200_000 } }).kind).toBe('unknown');
   }
 });
+
+test('Kiln active context supersedes old turn usage after compaction and across model switches', () => {
+  const model = { providerID: 'test', modelID: 'large', details: { contextTokens: 100000 } };
+  const old = [{ id: 'old', role: 'assistant', parts: [], tokens: { input: 80000, output: 1000, cacheRead: 0, cacheWrite: 0 } }] as unknown as ChatMessage[];
+  expect(contextMeterState(old, model, { tokens: 5000, epoch: '42' })).toMatchObject({ kind: 'known', used: 5000, percent: 5 });
+  expect(contextMeterState(old, { ...model, details: { contextTokens: 20000 } }, { tokens: 5000, epoch: '42' })).toMatchObject({ kind: 'known', used: 5000, percent: 25 });
+  expect(contextMeterState(old, model, {})).toMatchObject({ kind: 'unknown', reason: 'no-current-context' });
+  expect(contextMeterState(old, model, { tokens: 0, epoch: '43' })).toMatchObject({ kind: 'known', used: 0 });
+});

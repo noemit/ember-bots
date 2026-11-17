@@ -2,6 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CompactionSettings } from "./compaction-settings";
 import { Harness } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -151,10 +152,12 @@ export const runKiln = async (): Promise<void> => {
   if (shellPath !== undefined) {
     console.log(`[hearth] agent commands run in ${SHELL_SLICE} (shell ${shellPath})`);
   }
+  const compactionSettings = new CompactionSettings(config.home, models);
   const harness = await Harness.open(
     storage,
     {
       models,
+      settings: () => compactionSettings.settings(),
       registry,
       env: ({ cwd, conversationId }) => attestPermissionEnvironment(new NodeExecutionEnv({
         cwd: cwd ?? process.cwd(),
@@ -214,6 +217,7 @@ export const runKiln = async (): Promise<void> => {
     storage,
     harness,
     models,
+    compactionSettings,
     defaultAgent: hearthDefault(),
     store,
     version: kilnVersion,

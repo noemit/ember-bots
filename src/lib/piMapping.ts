@@ -84,6 +84,7 @@ export type PiConversationSummary = {
   /** Estimated older content before the latest user message; excludes system instructions/tools and usage totals. */
   currentContextHistoryTokens?: number;
   currentContextEpoch?: string;
+  contextCompaction?: { entryId: number; reason: string } | null;
   /** True while a compaction task (manual/threshold/overflow) is in flight. */
   compacting?: boolean;
   /** The newest compaction failure (`pi.live.compactionFailure`). */
@@ -152,6 +153,7 @@ export const piConversationToSession = (
     typeof conversation.currentContextHistoryTokens === 'number' && Number.isFinite(conversation.currentContextHistoryTokens) && conversation.currentContextHistoryTokens >= 0
       ? conversation.currentContextHistoryTokens
       : undefined,
+  contextCompaction: conversation.contextCompaction,
   currentContextEpoch: typeof conversation.currentContextEpoch === 'string' ? conversation.currentContextEpoch : undefined,
   compacting: conversation.compacting === true,
   compactionFailure:

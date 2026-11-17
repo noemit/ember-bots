@@ -80,6 +80,7 @@ import type {
 import { isSettledFailure, transcriptNotice, type TranscriptFailureSource } from '../lib/transcriptStatus';
 import type { RepairHalt } from '../lib/repairBudget';
 import ContextMeter from './ContextMeter';
+import ContextCompactionStatus from './ContextCompactionStatus';
 import ContextRecommendation from './ContextRecommendation';
 import { contextMeterState } from '../lib/contextMeter';
 import { COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE, hostReportsCost, sessionCostState } from '../lib/sessionCost';
@@ -1403,14 +1404,11 @@ function ChatView({
       : legacyCost.kind === 'unknown'
         ? { kind: 'unknown' }
         : { kind: 'none' });
-  // Composer context meter: the last completed turn's tokens against the window of the model that
-  // ran it. The window comes from the composer's selection (or the instance default while the
-  // composer is on "server default"), and only counts when it is the same model — otherwise the
-  // meter says "unknown" rather than a ratio between two unrelated numbers. See
-  // `lib/contextMeter.ts` for the rule and the reasons.
+  // Kiln's active, epoch-anchored estimate takes precedence over old turn usage. Legacy hosts
+  // retain their same-model last-turn fallback; missing Kiln snapshots stay unknown.
   const contextMeter = React.useMemo(
-    () => contextMeterState(messages, model ?? defaultModel),
-    [messages, model, defaultModel]
+    () => contextMeterState(messages, model ?? defaultModel, instance?.kind === 'pi' ? { tokens: session?.currentContextTokens, epoch: session?.currentContextEpoch } : undefined),
+    [messages, model, defaultModel, instance?.kind, session?.currentContextTokens, session?.currentContextEpoch]
   );
   const turnBusy = sending || state === 'active';
 
@@ -2494,6 +2492,7 @@ function ChatView({
               </form>
             ) : null}
           </div>
+          {session ? <ContextCompactionStatus key={`compaction:${sessionKey(session)}`} session={session} host={instance?.label ?? 'Kiln'} onCompact={onCompact} /> : null}
           {session ? (
             <ContextRecommendation
               key={sessionKey(session)}

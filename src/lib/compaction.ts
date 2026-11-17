@@ -29,7 +29,6 @@ export const compactionOutcome = (trace: CompactionTrace): CompactionOutcome => 
   if (!trace.accepted || (trace.error && trace.error.trim()) || trace.taskStatus === 'failed') return 'failed';
   if (trace.taskStatus === 'landed' || trace.taskStatus === 'nothing') return trace.taskStatus;
   if (trace.taskStatus === 'pending' || trace.taskStatus === 'running') return 'pending';
-  if (trace.entriesAfter < trace.entriesBefore) return 'landed';
   return trace.sawCompacting ? 'pending' : 'unknown';
 };
 

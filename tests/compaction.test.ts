@@ -42,8 +42,8 @@ describe('what a compaction did', () => {
     expect(message).toMatch(/try again/i);
   });
 
-  test('a fast compaction that already shrunk the transcript before the first poll still counts as landed', () => {
-    expect(compactionOutcome(trace({ sawCompacting: false, entriesBefore: 20, entriesAfter: 8 }))).toBe('landed');
+  test('a shorter transcript page is not proof that a compaction summary landed', () => {
+    expect(compactionOutcome(trace({ sawCompacting: false, entriesBefore: 20, entriesAfter: 8 }))).toBe('unknown');
   });
 
   test('accepted, never flagged: the silent path', () => {
