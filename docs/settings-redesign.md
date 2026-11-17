@@ -37,10 +37,9 @@ when Ember quits. Native macOS/Windows installation and physical phone behavior 
 
 ## Evidence
 
-Actual production React renderer captures (the existing mock bridge supplies isolated test accounts)
-are under `/home/em/reports/ember-settings-production/evidence/`. This is not a live credential audit.
-The implementation task report in that directory records commands and limitations. No release or
-version bump is part of this work.
+Browser tests capture the production React renderer with isolated fixture accounts. Screenshots
+are written to Playwright’s per-test output directory, not a machine-specific report folder.
+These fixtures are not a live credential audit. No release or version bump is part of this work.
 
 ## Production copy review integration
 
@@ -51,4 +50,5 @@ generic. Ollama still resolves on the selected Kiln and retains install/resource
 8k/text defaults remain accessible. Remote HTTPS retains sign-out/anonymous-API checks. Kiln sharing
 retains forwarding persistence, external process ownership and independent full-control token warnings.
 No updater backend, remote-control facade, version bump, publication or process-lifetime change was added.
-The new sharing steps require a bounded contextual Gemini follow-up by the coordinator before approval.
+The new sharing steps received a second contextual Gemini review; final copy removes repeated guidance
+and correctly pluralizes the selected and added credential counts.

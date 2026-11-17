@@ -43,7 +43,7 @@ test('production compaction component saves host-owned targets, resets and repor
   await page.getByRole('button', { name: 'Save compaction settings' }).click();
   await expect(page.getByRole('status')).toContainText('Saved on Tower');
   expect(await page.evaluate(() => (window as TestWindow).compactionTest.requests.at(-1))).toMatchObject({ id: 'test-kiln', path: '/settings/compaction', init: { method: 'PUT', body: { preference: { compactAtTokens: 70000, keepRecentTokens: 5000 } } } });
-  await page.screenshot({ path: '/tmp/ember-compaction-settings.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('ember-compaction-settings.png'), fullPage: true });
   await page.getByRole('button', { name: 'Reset to defaults' }).click();
   await expect(page.getByText('Using default targets', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as TestWindow).compactionTest.requests.at(-1))).toMatchObject({ init: { method: 'PUT', body: { preference: null } } });

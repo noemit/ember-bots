@@ -42,7 +42,7 @@ const prepare = async (page: Page) => {
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Custom OpenAI-compatible providers' })).toBeVisible();
   const area = page.getByRole('region', { name: 'Share providers across Kilns' });
-  await page.screenshot({ path: '/tmp/ember-provider-sharing-entry.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('ember-provider-sharing-entry.png'), fullPage: true });
   await area.getByRole('button', { name: 'Review and share' }).click();
   await page.evaluate(() => { (window as unknown as { sharingProbe: { calls: unknown[] } }).sharingProbe.calls.length = 0; });
   await area.getByRole('button', { name: 'Compare providers' }).click();
@@ -75,7 +75,7 @@ test('metadata review names missing/existing/unsupported hosts and shares only e
   await area.getByRole('button', { name: 'Back', exact: true }).click();
   await area.getByLabel('Provider sharing destination').selectOption({ label: 'Missing' });
   await area.getByRole('button', { name: 'Continue to providers' }).click();
-  await page.screenshot({ path: '/home/em/reports/ember-settings-production/evidence/sharing-desktop-providers.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('sharing-desktop-providers.png'), fullPage: true });
   await expect(area.getByLabel('Share new-generic-provider to Missing')).toBeEnabled();
 
   await expect(area.getByLabel('Share environment-provider to Missing')).toBeDisabled();
@@ -101,16 +101,16 @@ test('metadata review names missing/existing/unsupported hosts and shares only e
   await expect(area.getByRole('button', { name: 'Share 4 reviewed selections' })).toHaveCount(0);
   await expect(area.getByRole('button', { name: 'Review 4 selections' })).toBeEnabled();
   await expect(area).not.toContainText('synthetic-peer-token');
-  await page.screenshot({ path: '/tmp/ember-provider-sharing-review.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('ember-provider-sharing-review.png'), fullPage: true });
   await area.getByLabel('Destination Missing configuration for custom-test', { exact: true }).scrollIntoViewIfNeeded();
-  await page.screenshot({ path: '/tmp/ember-provider-sharing-custom-review.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('ember-provider-sharing-custom-review.png'), fullPage: true });
   await area.getByText('Compare all provider metadata', { exact: true }).click();
   await area.getByRole('button', { name: 'Review 4 selections' }).click();
   await expect(area.getByRole('heading', { name: 'Review before sharing' })).toBeFocused();
   await expect(area.getByLabel('Reviewed providers')).toContainText('custom-test');
   await expect(area).toContainText('http://100.64.0.30:3002');
   await expect(area).toContainText('Scope:');
-  await page.screenshot({ path: '/home/em/reports/ember-settings-production/evidence/sharing-desktop-review.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('sharing-desktop-review.png'), fullPage: true });
   const before = await page.evaluate(() => window.ember.getSettings().then(settings => settings.instanceDefaults));
   await area.getByRole('button', { name: 'Share 4 reviewed selections' }).click();
   await expect(area.getByRole('status')).toContainText('Missing: 4 credentials added');
@@ -124,7 +124,7 @@ test('metadata review names missing/existing/unsupported hosts and shares only e
   expect(await page.evaluate(() => window.ember.getSettings().then(settings => settings.instanceDefaults))).toEqual(before);
   expect(await page.evaluate(() => window.ember.getSettings().then(settings => JSON.stringify(settings)))).not.toContain('provider-secret-never-render');
   await expect(page.getByRole('region', { name: 'Default model for new chats' })).toHaveCount(0);
-  await page.screenshot({ path: '/tmp/ember-provider-sharing-result.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('ember-provider-sharing-result.png'), fullPage: true });
 });
 
 test('turning off experimental sharing or changing source clears selections', async ({ page }) => {
@@ -194,16 +194,16 @@ test('mobile guided sharing keeps final Send reachable and back preserves the re
   await area.getByLabel('Provider sharing destination').selectOption({ label: 'Missing' });
   await area.getByRole('button', { name: 'Continue to providers' }).click();
   await area.getByLabel('Share new-generic-provider to Missing').check();
-  await area.getByRole('button', { name: 'Review 1 selections' }).click();
+  await area.getByRole('button', { name: 'Review 1 selection' }).click();
   await area.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(area.getByLabel('Share new-generic-provider to Missing')).toBeChecked();
-  await area.getByRole('button', { name: 'Review 1 selections' }).click();
-  const send = area.getByRole('button', { name: 'Share 1 reviewed selections' });
+  await area.getByRole('button', { name: 'Review 1 selection' }).click();
+  const send = area.getByRole('button', { name: 'Share 1 reviewed selection' });
   await send.scrollIntoViewIfNeeded();
   await expect(send).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({ path: '/home/em/reports/ember-settings-production/evidence/sharing-mobile-review.png', fullPage: true });
+  await page.screenshot({ path: test.info().outputPath('sharing-mobile-review.png'), fullPage: true });
   await expect(area).not.toContainText('provider-secret-never-render');
   await send.click();
-  await expect(area.getByRole('status')).toContainText('Missing: 1 credentials added');
+  await expect(area.getByRole('status')).toContainText('Missing: 1 credential added');
 });
