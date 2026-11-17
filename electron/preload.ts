@@ -43,7 +43,7 @@ const ember = {
   setAppIcon: (dataUrl: string): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke('ember:app-icon', { dataUrl }),
   /** Carry a pre-IPC icon failure into the same log the handler writes. */
-  reportAppIconIssue: (reason: string): Promise<{ ok: boolean }> =>
+  reportAppIconIssue: (reason: string | null): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('ember:app-icon-report', { reason }),
   /** One formatted line into `ember-compact.log` (see `src/lib/compaction.ts`). */
   reportCompaction: (line: string): Promise<{ ok: boolean }> =>

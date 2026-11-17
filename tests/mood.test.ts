@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { moodFrom, stateFromMood } from '../src/blob/mood';
+import { dockIconMood, moodFrom, stateFromMood } from '../src/blob/mood';
 
 describe('moodFrom', () => {
   test('maps state, prompt kind and thinking to a mood', () => {
@@ -31,5 +31,13 @@ describe('moodFrom', () => {
     // And it does not disturb the known states around it.
     expect(moodFrom('idle', undefined, false)).toBe('idle');
     expect(stateFromMood('busy')).toBe('active');
+  });
+
+  test('dockIconMood coalesces thinking and busy to one static working mood', () => {
+    expect(dockIconMood('thinking')).toBe('busy');
+    expect(dockIconMood('busy')).toBe('busy');
+    for (const mood of ['idle', 'unread', 'input', 'question', 'error', 'unknown'] as const) {
+      expect(dockIconMood(mood)).toBe(mood);
+    }
   });
 });

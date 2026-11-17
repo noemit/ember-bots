@@ -50,6 +50,7 @@ import {
 import { startRemoteServer } from './remoteServer';
 import { parseRemoteProxyOrigin } from './remoteProxy';
 import { appendCompactLog } from './compactLog';
+import { createAppIconDiagnosticLogger } from './appIconLog';
 import { initializeFirstRunSettings, quarantineCorruptSettings } from './settingsFile';
 import { RemoteListener, type StartOutcome } from './remoteListener';
 import { EventStreamManager, type EmberEvent, type StreamStatus } from './eventStream';
@@ -1271,34 +1272,18 @@ ipcMain.handle('ember:updates:action', (event, action: unknown) => {
  * `<userData>/app-icon.log`, one line per attempt — what the renderer sent, what the platform
  * offered, and what happened. Readable without a console.
  */
-const record = (result: { ok: boolean; reason?: string }, bytes: number): typeof result => {
-  try {
-    const line = [
-      new Date().toISOString(),
-      result.ok ? 'ok' : `failed: ${result.reason ?? 'unknown'}`,
-      `bytes=${bytes}`,
-      `png=${result.ok || result.reason !== 'not a png data URL'}`,
-      `platform=${process.platform}`,
-      `app.dock=${app.dock ? 'present' : 'absent'}`,
-      `windows=${BrowserWindow.getAllWindows().length}`,
-    ].join(' ');
-    // Append, with a small cap: the sequence around a launch is the useful part (attempt, then done or
-    // failed), and overwriting kept only the last line. A diagnostic log should not need a rotation
-    // policy, hence the 8 KB ceiling.
-    const file = path.join(app.getPath('userData'), 'app-icon.log');
-    let previous = '';
-    try {
-      previous = fs.readFileSync(file, 'utf8');
-    } catch {
-      // First write.
-    }
-    fs.writeFileSync(file, `${previous.length > 8_000 ? '' : previous}${line}
-`);
-  } catch {
-    // A diagnostic that throws would be worse than the bug it is chasing.
-  }
-  return result;
-};
+const appIconDiagnostics = createAppIconDiagnosticLogger(() =>
+  path.join(app.getPath('userData'), 'app-icon.log')
+);
+
+const appIconDiagnosticContext = () => ({
+  platform: process.platform,
+  hasDock: Boolean(app.dock),
+  windows: BrowserWindow.getAllWindows().length,
+});
+
+const recordAppIconDiagnostic = (result: { ok: boolean; reason?: string }, bytes: number): typeof result =>
+  appIconDiagnostics.record(result, bytes, appIconDiagnosticContext());
 
 /**
  * The renderer's side of the same story: a failure *before* the IPC (a rejected render, a cancelled
@@ -1318,7 +1303,7 @@ ipcMain.handle('ember:compact-log', (event, args: { line?: unknown }): { ok: boo
 
 ipcMain.handle('ember:app-icon-report', (event, args: { reason?: unknown }): { ok: boolean } => {
   assertTrustedSender(event);
-  record({ ok: false, reason: `renderer: ${String(args?.reason ?? 'unknown').slice(0, 300)}` }, 0);
+  appIconDiagnostics.reportIssue(args?.reason, appIconDiagnosticContext());
   return { ok: true };
 });
 
@@ -1329,16 +1314,16 @@ ipcMain.handle('ember:app-icon', (event, args: { dataUrl?: unknown }): { ok: boo
   // indistinguishable from one that was never rendered, and this path spent a while doing nothing on
   // a platform whose API it did not have.
   const bytes = Buffer.byteLength(dataUrl);
-  if (!dataUrl.startsWith('data:image/png;base64,')) return record({ ok: false, reason: 'not a png data URL' }, bytes);
-  if (bytes > MAX_DOCK_ICON_BYTES) return record({ ok: false, reason: `too large (${bytes} bytes)` }, bytes);
+  if (!dataUrl.startsWith('data:image/png;base64,')) return recordAppIconDiagnostic({ ok: false, reason: 'not a png data URL' }, bytes);
+  if (bytes > MAX_DOCK_ICON_BYTES) return recordAppIconDiagnostic({ ok: false, reason: `too large (${bytes} bytes)` }, bytes);
   try {
     const image = nativeImage.createFromDataURL(dataUrl);
-    if (image.isEmpty()) return record({ ok: false, reason: 'the PNG did not decode' }, bytes);
+    if (image.isEmpty()) return recordAppIconDiagnostic({ ok: false, reason: 'the PNG did not decode' }, bytes);
     if (app.dock) app.dock.setIcon(image);
     else BrowserWindow.getAllWindows().forEach((win) => { if (!win.isDestroyed()) win.setIcon(image); });
-    return record({ ok: true }, bytes);
+    return recordAppIconDiagnostic({ ok: true }, bytes);
   } catch (error) {
-    return record({ ok: false, reason: error instanceof Error ? error.message : 'could not set the icon' }, bytes);
+    return recordAppIconDiagnostic({ ok: false, reason: error instanceof Error ? error.message : 'could not set the icon' }, bytes);
   }
 });
 
@@ -1655,6 +1640,7 @@ app.on('window-all-closed', () => {
 
 // Quit can't await, so the last buffered entries go out synchronously.
 app.on('will-quit', () => {
+  appIconDiagnostics.dispose();
   dailyUpdateChecks?.dispose();
   updateController?.dispose();
   remoteListener.dispose();

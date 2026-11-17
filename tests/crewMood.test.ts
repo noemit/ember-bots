@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { moodFrom } from '../src/blob/mood';
 import { crewByLeader } from '../src/lib/crew';
-import { crewAppearanceMood, crewActivityPhase, shouldAlternateCrew } from '../src/lib/crewMood';
+import {
+  CREW_PHASE_BUFFER_MS,
+  crewAppearanceMood,
+  crewActivityPhase,
+  nextCrewPhaseDelayMs,
+  resolveCrewMoods,
+  shouldAlternateCrew,
+} from '../src/lib/crewMood';
 import { deriveSessionStatus } from '../src/lib/sessionStatus';
 import { sessionKey, type BallMood, type BallState, type Session } from '../src/types';
 
@@ -95,5 +102,55 @@ describe('crew cadence policy', () => {
     const working = crewByLeader([leader, { ...worker, task: { id: 'task:1', title: 'Task', status: 'working' } }]);
     expect(crewAppearanceMood(leader, 'idle', working, statesFor('active'))).toBe('busy');
     expect(crewAppearanceMood(leader, 'idle', working, {})).toBe('idle');
+  });
+
+  test('nextCrewPhaseDelayMs finds exact earliest phase boundary across resting crew keys', () => {
+    expect(nextCrewPhaseDelayMs(new Set(), 0)).toBeNull();
+    const keys = new Set(['host::leader', 'other::leader']);
+    let elapsedMs = 0;
+    for (let step = 0; step < 8; step++) {
+      const delayMs = nextCrewPhaseDelayMs(keys, elapsedMs);
+      expect(delayMs).not.toBeNull();
+      const boundary = elapsedMs + delayMs!;
+      const before = [...keys].map((key) => crewActivityPhase(key, (boundary - 1) / 1000));
+      const atStart = [...keys].map((key) => crewActivityPhase(key, elapsedMs / 1000));
+      expect(before).toEqual(atStart);
+      const after = [...keys].map((key) =>
+        crewActivityPhase(key, (boundary + CREW_PHASE_BUFFER_MS) / 1000)
+      );
+      expect(after).not.toEqual(atStart);
+      elapsedMs = boundary + CREW_PHASE_BUFFER_MS;
+    }
+  });
+
+  test('resolveCrewMoods preserves reference equality across non-flipping timestamps', () => {
+    const crewKeys = new Set(['host::leader']);
+    const first = resolveCrewMoods(
+      { 'host::leader': 'busy', 'host::peer': 'idle' },
+      crewKeys,
+      0,
+      false
+    );
+    const delayMs = nextCrewPhaseDelayMs(crewKeys, 0)!;
+    // Non-flipping timestamps and cloned poll inputs return the exact previous object reference.
+    const mid = resolveCrewMoods(
+      { 'host::leader': 'busy', 'host::peer': 'idle' },
+      new Set(['host::leader']),
+      Math.max(1, delayMs - 500),
+      false,
+      first
+    );
+    expect(mid).toBe(first);
+
+    // Crossing the boundary flips the crew mood and returns a fresh object reference.
+    const flipped = resolveCrewMoods(
+      { 'host::leader': 'busy', 'host::peer': 'idle' },
+      crewKeys,
+      delayMs + CREW_PHASE_BUFFER_MS,
+      false,
+      mid
+    );
+    expect(flipped).not.toBe(mid);
+    expect(flipped['host::leader']).not.toBe(first['host::leader']);
   });
 });

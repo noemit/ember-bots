@@ -48,7 +48,7 @@ import {
   seedIdentity,
   sessionAvatarKey,
 } from './blob/seed';
-import { moodFrom } from './blob/mood';
+import { dockIconMood, moodFrom } from './blob/mood';
 import { crewAppearanceMood } from './lib/crewMood';
 import { useCrewAppearance } from './hooks/useCrewAppearance';
 import {
@@ -1613,6 +1613,7 @@ export default function App() {
   // tile and the contrast-adjusted palettes come from the current CSS variables.
   const selectedState: BallState = selectedKey ? states[selectedKey] ?? 'unknown' : 'idle';
   const selectedMood: BallMood = selectedKey ? moods[selectedKey] ?? 'unknown' : 'idle';
+  const dockMood = dockIconMood(selectedMood);
   React.useEffect(() => {
     // No `selectedKey` guard: the icon should be the blob from launch, not only once a session is
     // chosen. With nothing selected it simply mirrors the idle mood.
@@ -1622,10 +1623,10 @@ export default function App() {
     let cancelled = false;
     // The attempt goes in the log too: without it, "no line" cannot be told apart from "the effect
     // never ran", and that is the difference between a broken render and a stale build.
-    void window.ember.reportAppIconIssue?.(`attempt blob=${settings.blobStyle} mood=${selectedMood} key=${selectedKey ?? '-'}`);
+    void window.ember.reportAppIconIssue?.(`attempt blob=${settings.blobStyle} mood=${dockMood} key=${selectedKey ?? '-'}`);
     void import('./blob/dockIcon')
       .then(({ renderDockIcon }) =>
-        cancelled ? undefined : renderDockIcon(settings.blobStyle, selectedIdentity, selectedMood)
+        cancelled ? undefined : renderDockIcon(settings.blobStyle, selectedIdentity, dockMood)
       )
       .then((dataUrl) => {
         if (cancelled) {
@@ -1649,7 +1650,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedKey, selectedIdentity, selectedMood, settings.blobStyle, settings.theme]);
+  }, [selectedKey, selectedIdentity, dockMood, settings.blobStyle, settings.theme]);
 
   const refreshInstances = React.useCallback(async function refreshInstances() {
     setRefreshing(true);
@@ -4148,7 +4149,7 @@ export default function App() {
    * Rename on the source instance, mirroring locally right away. The local `updated` bump keeps
    * an in-flight pre-rename poll from reverting the title (the server's PATCH bumps it too).
    */
-  const handleRenameSession = async (session: Session, title: string) => {
+  const handleRenameSession = useStableCallback(async (session: Session, title: string) => {
     const next = title.trim();
     const key = sessionKey(session);
     const previous = session.title;
@@ -4168,7 +4169,16 @@ export default function App() {
         showActionError(titleSaveFailure(host));
       },
     });
-  };
+  });
+
+  /** One attempt, including failure: never surprise the human with a delayed retry after restart. */
+  const forgetAutomaticTitle = useStableCallback((key: string) => {
+    assessedTitles.current.add(key);
+    const seeds = { ...settingsRef.current.taskTitleSeeds };
+    if (!(key in seeds)) return;
+    delete seeds[key];
+    handleSettings({ taskTitleSeeds: seeds });
+  });
 
   /**
    * A person renaming a session makes the name final.
@@ -4183,19 +4193,11 @@ export default function App() {
     await handleRenameSession(session, title);
   };
 
-  /** One attempt, including failure: never surprise the human with a delayed retry after restart. */
-  function forgetAutomaticTitle(key: string) {
-    assessedTitles.current.add(key);
-    const seeds = { ...settingsRef.current.taskTitleSeeds };
-    if (!(key in seeds)) return;
-    delete seeds[key];
-    handleSettings({ taskTitleSeeds: seeds });
-  }
-
   React.useEffect(() => {
     if (!settingsLoaded) return;
-    const seeds = settingsRef.current.taskTitleSeeds ?? {};
-    const sessions = Object.values(sessionsByInstanceRef.current).flat();
+    const seeds = settings.taskTitleSeeds ?? {};
+    if (Object.keys(seeds).length === 0) return;
+    const sessions = Object.values(sessionsByInstance).flat();
     for (const session of sessions) {
       const key = sessionKey(session);
       const seed = seeds[key];
@@ -4205,7 +4207,7 @@ export default function App() {
         forgetAutomaticTitle(key);
         continue;
       }
-      const transcript = transcriptsRef.current[key];
+      const transcript = transcripts[key];
       // A completed step is not a completed turn: the host must also report it quiet.
       if (states[key] !== 'idle' || !transcript?.historyComplete) continue;
       const exchange = firstNamingExchange(transcript.messages);
@@ -4218,7 +4220,15 @@ export default function App() {
       forgetAutomaticTitle(key);
       if (name && name !== seed) void handleRenameSession(session, name);
     }
-  });
+  }, [
+    settingsLoaded,
+    settings.taskTitleSeeds,
+    sessionsByInstance,
+    states,
+    transcripts,
+    forgetAutomaticTitle,
+    handleRenameSession,
+  ]);
 
   /**
    * Archive from a session's × control (header or tab). A session with live work, a pending
