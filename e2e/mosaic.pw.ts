@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test';
 test('Mosaic replaces Pip in settings and keeps custom shape and colour in the rail', async ({ page }, testInfo) => {
   await page.goto('/?noDock');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
   await expect(page.getByRole('button', { name: /Pip/ })).toHaveCount(0);
   await page.getByRole('button', { name: /Mosaic/ }).click();
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.blobStyle))).toBe('mosaic');

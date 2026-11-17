@@ -1,0 +1,128 @@
+{
+  "thinking": {
+    "algorithm": "independent-trails-v2",
+    "mode": "tuned",
+    "beatMs": 100,
+    "hold": {
+      "min": 1,
+      "max": 18
+    },
+    "appearance": {
+      "min": 1,
+      "max": 1
+    },
+    "cycleSeconds": 40,
+    "pairChance": 0.45,
+    "sides": [
+      "left",
+      "right",
+      "top",
+      "bottom"
+    ],
+    "touchChance": 0.95,
+    "opacity": {
+      "min": 0.1,
+      "max": 1
+    },
+    "rainbow": {
+      "enabled": true,
+      "cycle": {
+        "min": 2,
+        "max": 15
+      },
+      "passSeconds": 1.6,
+      "peakOpacity": 0.7,
+      "staggerSeconds": 0.1,
+      "direction": "seeded",
+      "phase": 0
+    },
+    "units": {
+      "beatMs": "milliseconds",
+      "hold": "beats",
+      "appearance": "beats between births",
+      "cycleSeconds": "seconds (target; rounded up to next birth)",
+      "rainbowCycle": "seconds",
+      "rainbowPass": "seconds",
+      "rainbowStagger": "seconds",
+      "rainbowPhase": "fraction",
+      "opacity": "fraction",
+      "probability": "fraction"
+    },
+    "constraints": {
+      "maxBirthCells": 2,
+      "birthPairs": "opposite-only",
+      "minimumBirthIntervalBeats": 1,
+      "trailBudget": 64,
+      "distanceCells": [
+        1,
+        2
+      ],
+      "outsideBody": true,
+      "insideCanvas": true,
+      "avoidActiveCoordinateReuse": false
+    }
+  },
+  "working": {
+    "algorithm": "independent-trails-v2",
+    "mode": "tuned",
+    "beatMs": 100,
+    "hold": {
+      "min": 3,
+      "max": 3
+    },
+    "appearance": {
+      "min": 1,
+      "max": 1
+    },
+    "cycleSeconds": 40,
+    "pairChance": 0.44,
+    "sides": [
+      "left",
+      "right",
+      "top",
+      "bottom"
+    ],
+    "touchChance": 0,
+    "opacity": {
+      "min": 0.1,
+      "max": 1
+    },
+    "rainbow": {
+      "enabled": false,
+      "cycle": {
+        "min": 2,
+        "max": 15
+      },
+      "passSeconds": 1.6,
+      "peakOpacity": 0.7,
+      "staggerSeconds": 0.1,
+      "direction": "seeded",
+      "phase": 0
+    },
+    "units": {
+      "beatMs": "milliseconds",
+      "hold": "beats",
+      "appearance": "beats between births",
+      "cycleSeconds": "seconds (target; rounded up to next birth)",
+      "rainbowCycle": "seconds",
+      "rainbowPass": "seconds",
+      "rainbowStagger": "seconds",
+      "rainbowPhase": "fraction",
+      "opacity": "fraction",
+      "probability": "fraction"
+    },
+    "constraints": {
+      "maxBirthCells": 2,
+      "birthPairs": "opposite-only",
+      "minimumBirthIntervalBeats": 1,
+      "trailBudget": 64,
+      "distanceCells": [
+        1,
+        2
+      ],
+      "outsideBody": true,
+      "insideCanvas": true,
+      "avoidActiveCoordinateReuse": false
+    }
+  }
+}

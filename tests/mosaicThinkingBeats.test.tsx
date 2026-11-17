@@ -1,87 +1,64 @@
 import { expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { renderToStaticMarkup } from 'react-dom/server';
-import MosaicBlob from '../src/blob/MosaicBlob';
 import { MOSAIC_SHAPES, mosaicGeometry } from '../src/blob/mosaic';
 import { seedIdentity } from '../src/blob/seed';
 import { mosaicActivityPlan } from '../src/blob/mosaicActivityPlan';
-import { mosaicThinkingCandidates, oppositeThinkingSide, type ThinkingCell } from '../src/blob/mosaicThinkingPlan';
+import { mosaicTrailPlan } from '../src/blob/mosaicTrailPlan';
+import { MOSAIC_PROFILES } from '../src/blob/mosaicProfiles';
+import { oppositeThinkingSide } from '../src/blob/mosaicThinkingPlan';
 
-test('all thinking beats show one cell or an occasional opposing pair, including every boundary and wrap', () => {
-  for (const shape of MOSAIC_SHAPES) for (let seed = 0; seed < 8; seed++) {
-    const cells = mosaicGeometry({ ...seedIdentity('beats-' + seed), shapeName: shape.name }).cells.map(cell => ({ ...cell, fill: '#123456' }));
-    const candidates = mosaicThinkingCandidates(cells);
-    const plan = mosaicActivityPlan(cells, 'beats-' + seed, 'thinking');
-    expect(plan).toEqual(mosaicActivityPlan(cells, 'beats-' + seed, 'thinking'));
-    expect(plan).not.toEqual(mosaicActivityPlan(cells, 'different-' + seed, 'thinking'));
-    expect(plan.tracks).toHaveLength(1);
-    expect(plan.slots).toBe(2);
-    const events = plan.tracks[0];
-    expect(events.length / plan.duration).toBeGreaterThan(3);
-    expect(events.length / plan.duration).toBeLessThan(4);
-    expect(events.filter(event => event.cells.length === 2).length / events.length).toBeGreaterThan(.02);
-    expect(events.filter(event => event.cells.length === 2).length / events.length).toBeLessThan(.3);
-    expect(new Set(events.flatMap(event => event.cells.map(cell => `${cell.x}:${cell.y}`))).size).toBeGreaterThan(20);
-    for (const [i, event] of events.entries()) {
-      expect(event.cells.length).toBeGreaterThanOrEqual(1);
-      expect(event.cells.length).toBeLessThanOrEqual(2);
-      expect(event.until - event.at).toBeGreaterThanOrEqual(.16 - 1e-10);
-      expect(event.until - event.at).toBeLessThan(.3);
-      if (i) {
-        expect(event.at - events[i - 1].until).toBeGreaterThanOrEqual(.04 - 1e-10);
-        expect(event.at - events[i - 1].until).toBeLessThan(.1);
-      }
-      for (const pixel of event.cells as ThinkingCell[]) {
-        const candidate = candidates.find(cell => cell.x === pixel.x && cell.y === pixel.y)!;
-        expect(candidate).toBeDefined();
-        expect(candidate.side).toBe(pixel.side);
-        expect(candidate.distance).toBe(pixel.distance);
-        expect(pixel.opacity).toBeGreaterThanOrEqual(.3);
-        expect(pixel.opacity).toBeLessThanOrEqual(1);
-      }
-      if (event.cells.length === 2) {
-        const [a, b] = event.cells as ThinkingCell[];
-        expect(b.side).toBe(oppositeThinkingSide[a.side]);
-        expect(`${a.x}:${a.y}`).not.toBe(`${b.x}:${b.y}`);
+const geometry = (shape: string, seed: string) => mosaicGeometry({ ...seedIdentity(seed), shapeName: shape }).cells.map(cell => ({ ...cell, fill: '#123456' }));
+test('all twelve shapes × eight seeds retain independent births, full lives, actual gaps and circular slots', () => {
+  expect(MOSAIC_SHAPES).toHaveLength(12);
+  let reuse = 0, touches = 0, thinkingCells = 0;
+  for (const shape of MOSAIC_SHAPES) for (let seed = 0; seed < 8; seed++) for (const mood of ['thinking', 'busy'] as const) {
+    const cells = geometry(shape.name, 'beats-' + seed);
+    const p = mosaicActivityPlan(cells, 'beats-' + seed, mood), profile = MOSAIC_PROFILES[mood];
+    expect(p).toEqual(mosaicActivityPlan(cells, 'beats-' + seed, mood));
+    expect(p).not.toEqual(mosaicActivityPlan(cells, 'other-' + seed, mood));
+    expect(p.duration).toBe(40); expect(p.requestedBirths).toBe(400);
+    expect(p.slots).toBe(1); expect(p.tracks.length).toBeLessThanOrEqual(64);
+    expect(p.skippedBudgetCells).toBe(0);
+    for (const [i, birth] of p.births.entries()) {
+      const life = birth.until - birth.at;
+      expect(life).toBeGreaterThanOrEqual(profile.hold.min * .1 - 1e-6);
+      expect(life).toBeLessThanOrEqual(profile.hold.max * .1 + 1e-6);
+      if (i) expect(birth.at - p.births[i - 1].at).toBeGreaterThanOrEqual(.1 - 1e-6);
+      expect(birth.cells.length).toBeLessThanOrEqual(2);
+      if (birth.cells.length === 2) expect(birth.cells[1].side).toBe(oppositeThinkingSide[birth.cells[0].side]);
+      for (const cell of birth.cells) {
+        expect(Number.isInteger(cell.x) && Number.isInteger(cell.y)).toBe(true);
+        expect(cells.some(b => b.x === cell.x && b.y === cell.y)).toBe(false);
+        expect(cell.x).toBeGreaterThanOrEqual(-1); expect(cell.x).toBeLessThanOrEqual(12);
+        expect(cell.y).toBeGreaterThanOrEqual(0); expect(cell.y).toBeLessThanOrEqual(13);
+        expect([1, 2]).toContain(cell.distance);
+        expect(cell.opacity!).toBeGreaterThanOrEqual(.1); expect(cell.opacity!).toBeLessThanOrEqual(1);
+        const touching = cells.some(b => Math.abs(b.x - cell.x) + Math.abs(b.y - cell.y) === 1);
+        if (mood === 'busy') expect(touching).toBe(false);
+        else { thinkingCells++; if (touching) touches++; }
+        if (p.births.slice(0, i).some(old => old.until > birth.at && old.cells.some(c => c.x === cell.x && c.y === cell.y))) reuse++;
+        // Every slot's split segments preserve exactly the complete chosen residence.
+        const matching = p.tracks[cell.slot].filter(e => e.cells[0].opacity === cell.opacity && e.cells[0].x === cell.x && e.cells[0].y === cell.y);
+        expect(matching.reduce((sum, e) => sum + e.until - e.at, 0)).toBeCloseTo(life, 5);
       }
     }
-    // Test both sides of every beat boundary, including the CSS cycle's invisible seam.
-    for (const boundary of [0, plan.duration, ...events.flatMap(event => [event.at, event.until])]) {
-      for (const offset of [-.0001, 0, .0001]) {
-        const time = (boundary + offset + plan.duration) % plan.duration;
-        const active = events.filter(event => event.at <= time && event.until > time);
-        expect(active.length).toBeLessThanOrEqual(1);
-        expect(new Set(active.flatMap(event => event.cells.map(cell => `${cell.x}:${cell.y}`))).size).toBeLessThanOrEqual(2);
-      }
-    }
-    for (const pixel of candidates) {
-      expect(Number.isInteger(pixel.x) && Number.isInteger(pixel.y)).toBe(true);
-      expect(cells.some(cell => cell.x === pixel.x && cell.y === pixel.y)).toBe(false);
-      expect(pixel.x * 7 + 8).toBeGreaterThanOrEqual(0);
-      expect((pixel.x + 1) * 7 + 8).toBeLessThanOrEqual(100);
-      expect(pixel.y * 7 + 1).toBeGreaterThanOrEqual(0);
-      expect((pixel.y + 1) * 7 + 1).toBeLessThanOrEqual(100);
-      const horizontal = pixel.side === 'left' || pixel.side === 'right';
-      const sign = pixel.side === 'left' || pixel.side === 'top' ? -1 : 1;
-      const outline = { x: pixel.x - (horizontal ? sign * pixel.distance : 0), y: pixel.y - (horizontal ? 0 : sign * pixel.distance) };
-      expect(cells.some(cell => cell.x === outline.x && cell.y === outline.y)).toBe(true);
-      expect(cells.some(cell => (horizontal ? cell.y === outline.y && sign * (cell.x - outline.x) > 0 : cell.x === outline.x && sign * (cell.y - outline.y) > 0))).toBe(false);
-    }
-    expect(new Set(candidates.map(pixel => pixel.side)).size).toBe(4);
-    expect(new Set(candidates.map(pixel => pixel.distance))).toEqual(new Set([1, 2]));
+    const pairs = p.births.filter(b => b.cells.length === 2).length / p.births.length;
+    expect(pairs).toBeGreaterThan(.32); expect(pairs).toBeLessThan(.55);
+    for (const track of p.tracks) for (let i = 1; i < track.length; i++) expect(track[i].at).toBeGreaterThanOrEqual(track[i - 1].until - 1e-9);
+    const seam = p.births.filter(b => b.until > p.duration);
+    expect(seam.length).toBeGreaterThan(0);
+    expect(p.tracks.flat().filter(e => e.at === 0).length).toBeGreaterThan(1);
   }
+  expect(reuse).toBeGreaterThan(0);
+  expect(touches / thinkingCells).toBeGreaterThan(.93); expect(touches / thinkingCells).toBeLessThan(.97);
 });
 
-test('working tracks retain the exact production plan and thinking DOM remains bounded', () => {
-  const original = createHash('sha256');
-  for (const shape of MOSAIC_SHAPES) for (let seed = 0; seed < 8; seed++) {
-    const cells = mosaicGeometry({ ...seedIdentity('beats-' + seed), shapeName: shape.name }).cells.map(cell => ({ ...cell, fill: '#123456' }));
-    const { duration, delay, tracks } = mosaicActivityPlan(cells, 'beats-' + seed, 'busy');
-    original.update(JSON.stringify({ duration, delay, tracks }));
-  }
-  expect(original.digest('hex')).toBe('2563c183b092e177cc097920df8c8497c90282ca7561b983f37c50579da3af1c');
-  const markup = renderToStaticMarkup(<MosaicBlob seed="beats" mood="thinking" />);
-  expect([...markup.matchAll(/class="mosaic-thought"/g)]).toHaveLength(2);
-  expect(markup.length).toBeLessThan(50_000);
-  expect(markup).not.toMatch(/<filter|requestAnimationFrame/);
+test('budget and unavailable geometry skip honestly; invalid inputs cannot generate unbounded CSS', () => {
+  const cells = geometry('round', 'budget');
+  const p = mosaicTrailPlan(cells, 'budget', { ...MOSAIC_PROFILES.thinking, hold: { min: 10, max: 10 }, beatMs: 100, appearance: { min: 1, max: 1 }, pairChance: 1 });
+  expect(p.tracks.length).toBeLessThanOrEqual(64);
+  const exhausted = mosaicTrailPlan(cells, 'budget', { ...MOSAIC_PROFILES.thinking, hold: { min: 38, max: 38 }, pairChance: 1 });
+  expect(exhausted.skippedBudgetCells).toBeGreaterThan(0); expect(exhausted.tracks).toHaveLength(64);
+  const empty = mosaicTrailPlan([], 'none', MOSAIC_PROFILES.busy);
+  expect(empty.tracks).toHaveLength(0); expect(empty.skippedCandidates).toBe(400);
+  expect(() => mosaicTrailPlan(cells, 'bad', { ...MOSAIC_PROFILES.busy, beatMs: 0 })).toThrow();
 });

@@ -31,7 +31,7 @@ test('procedural perimeter clusters vary without leaving the pixel grid, and pau
     });
     expect(samples.positions).toBeGreaterThan(15);
     expect(samples.counts.length).toBeGreaterThan(2);
-    expect(Math.max(...samples.counts)).toBeLessThanOrEqual(mood === 'thinking' ? 3 : 6);
+    expect(Math.max(...samples.counts)).toBeLessThanOrEqual(64);
     expect(samples.invalid).toBe(false);
   }
   // Fresh CSS-owned clocks: imperative seek/play used above deliberately detaches those test

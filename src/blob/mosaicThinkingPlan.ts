@@ -1,12 +1,12 @@
-import { hashString, mulberry32 } from './seed';
-import type { ActivityCell, MosaicActivityPlan } from './mosaicActivityPlan';
+import type { ActivityCell } from './mosaicActivityPlan';
 
 export type ThinkingSide = 'left' | 'right' | 'top' | 'bottom';
 export type ThinkingCell = ActivityCell & { side: ThinkingSide; distance: 1 | 2 };
 export const oppositeThinkingSide: Record<ThinkingSide, ThinkingSide> = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
 
 /** Outer row/column extrema, not neighbours inside notches: a side describes the avatar's
- * silhouette, never the eyes. Distance 1 touches its edge; 2 leaves one empty grid cell.
+ * silhouette, never the eyes. Distance is the offset from this row/column's outermost cell;
+ * distance 2 can still touch a different body cell. The trail planner classifies actual gaps.
  * Keep each candidate in its cardinal half of the bounding box so opposite pairs read apart
  * even on irregular tips. Reject anything outside the existing 100px SVG canvas. */
 export function mosaicThinkingCandidates(cells: readonly ActivityCell[]): ThinkingCell[] {
@@ -32,30 +32,4 @@ export function mosaicThinkingCandidates(cells: readonly ActivityCell[]): Thinki
     }
   }
   return [...candidates.values()];
-}
-
-/** A single coordinated clock prevents independent holds overlapping. Usually one pixel;
- * occasional opposing pairs share one hold and clear together before the following beat. */
-export function mosaicThinkingPlan(cells: readonly ActivityCell[], seed: string): MosaicActivityPlan {
-  const random = mulberry32(hashString(`mosaic-thinking-beats:${seed}`));
-  const duration = 31 + Math.floor(random() * 12);
-  const delay = -random() * duration;
-  const candidates = mosaicThinkingCandidates(cells);
-  const events: MosaicActivityPlan['tracks'][number] = [];
-  let at = .05 + random() * .15;
-  let previous = '';
-  while (candidates.length && at < duration - .5) {
-    const options = candidates.filter(cell => `${cell.x}:${cell.y}` !== previous);
-    const origin = options[Math.floor(random() * options.length)] ?? candidates[0];
-    previous = `${origin.x}:${origin.y}`;
-    const pixels = [origin];
-    if (random() < .15) {
-      const opposite = candidates.filter(cell => cell.side === oppositeThinkingSide[origin.side]);
-      if (opposite.length) pixels.push(opposite[Math.floor(random() * opposite.length)]);
-    }
-    const until = at + .16 + random() * .14;
-    events.push({ at, until, cells: pixels.map(cell => ({ ...cell, opacity: .3 + Math.floor(random() * 8) / 10 })) });
-    at = until + .04 + random() * .06;
-  }
-  return { duration, delay, tracks: [events], slots: 2 };
 }

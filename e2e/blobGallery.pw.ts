@@ -265,30 +265,26 @@ test('Lava waits with fluid motion while approval and question badges stay ancho
 
 test('Mosaic pixels change on both sides while the body stays anchored, with a static reduced-motion pose', async ({ page }) => {
   await page.goto('/blob-gallery.html');
-  const mosaic = page.locator('[data-preview="mosaic"] .gallery-example[data-example="1"] > .blob');
+  const mosaic = page.locator('[data-style="mosaic"][data-state="busy"] .blob').first();
   await expect(mosaic).toBeVisible();
-  for (const side of ['left', 'right']) {
-    const changes = await mosaic.locator(`.mosaic-pixel[data-side="${side}"]`).evaluateAll(nodes => {
-      const frames: string[] = [];
-      for (const time of [0, 600, 1200, 1800]) {
-        nodes.forEach(node => {
-          const pixel = node as SVGElement;
-          pixel.style.animationPlayState = 'paused';
-          pixel.style.animationDelay = `-${time}ms`;
-        });
-        frames.push(nodes.map(node => getComputedStyle(node).opacity).join(','));
-      }
-      return new Set(frames).size;
-    });
-    expect(changes).toBeGreaterThan(1);
-  }
+  const changes = await mosaic.locator('[data-mosaic-activity] rect').evaluateAll(nodes => {
+    const animations = nodes.flatMap(node => node.getAnimations());
+    animations.forEach(animation => animation.pause());
+    const frames = new Set<string>();
+    for (const time of [0, 600, 1200, 1800]) {
+      animations.forEach(animation => { animation.currentTime = time; });
+      frames.add(nodes.map(node => { const css = getComputedStyle(node); return css.transform + ':' + css.opacity; }).join('|'));
+    }
+    return frames.size;
+  });
+  expect(changes).toBeGreaterThan(1);
   await expect(mosaic.locator('.mosaic-step')).toHaveCSS('transform', 'none');
   expect(await page.locator('[data-style="mosaic"][data-state="idle"] .blob').first().evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(mosaic.locator('.mosaic-pixel').first()).toHaveCSS('animation-name', 'none');
   expect(await mosaic.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
-  await expect(mosaic.locator('.mosaic-pixel').first()).toHaveCSS('opacity', '0.45');
-  const scribble = page.locator('[data-preview="scribble"] .gallery-example[data-example="1"] > .blob');
+  await expect(mosaic.locator('.mosaic-pixel').first()).toHaveCSS('opacity', '0');
+  const scribble = page.locator('[data-style="scribble"][data-state="busy"] .blob').first();
   expect(await scribble.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
 });
 

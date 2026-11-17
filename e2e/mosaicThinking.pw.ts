@@ -1,97 +1,96 @@
 import { expect, test } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 
-test('thinking wanders one pixel per fast beat with only opposing pairs and keeps faint rainbow/reduced/hidden behavior', async ({ page }, testInfo) => {
+test('approved trails retain old pixels while births continue; actual gaps, rainbow, phase and visibility contracts', async ({ page }, info) => {
+  test.setTimeout(180_000);
   await page.goto('/blob-gallery.html');
-  await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
   await page.getByRole('button', { name: 'Detail · 112px', exact: true }).click();
-  const allThinking = page.locator('[data-style="mosaic"][data-state="thinking"] .blob');
-  const thinking = allThinking.first();
-  await thinking.scrollIntoViewIfNeeded();
-  const beats = await allThinking.evaluateAll(nodes => nodes.map(node => {
-    const animations = node.getAnimations({ subtree: true });
-    const pixels = [...node.querySelectorAll('.mosaic-thought')];
-    const body = [...node.querySelectorAll<SVGRectElement>('[data-mosaic-grid] > rect')].map(rect => ({ x: rect.x.baseVal.value, y: rect.y.baseVal.value }));
-    const sideOf = (x: number, y: number) => {
-      const sides: string[] = [];
-      const rows = body.filter(cell => cell.y === y).map(cell => cell.x);
-      const columns = body.filter(cell => cell.x === x).map(cell => cell.y);
-      if (rows.length) {
-        const left = Math.min(...rows) - x, right = x - Math.max(...rows);
-        if (left === 1 || left === 2) sides.push('left');
-        if (right === 1 || right === 2) sides.push('right');
-      }
-      if (columns.length) {
-        const top = Math.min(...columns) - y, bottom = y - Math.max(...columns);
-        if (top === 1 || top === 2) sides.push('top');
-        if (bottom === 1 || bottom === 2) sides.push('bottom');
-      }
-      return sides;
-    };
-    const frames = [];
-    // 20ms sampling sees even the shortest 40ms rests. Pure tests cover every exact boundary.
-    for (let time = 0; time < 42000; time += 20) {
-      animations.forEach(animation => { animation.currentTime = time; });
-      const lit = pixels.flatMap(pixel => {
-        const style = getComputedStyle(pixel), opacity = Number(style.opacity);
-        if (!opacity) return [];
-        const transform = new DOMMatrix(style.transform);
-        return [{ x: transform.e, y: transform.f, opacity, sides: sideOf(transform.e, transform.f) }];
-      });
-      frames.push({ time, lit });
+  const region = page.getByRole('region', { name: 'Mosaic states', exact: true });
+  await region.scrollIntoViewIfNeeded();
+  // Real wall clock: never seek or pause this trace. The test sampler is not product playback.
+  const clock = await region.evaluate(async node => {
+    const blobs = [...node.querySelectorAll<HTMLElement>('[data-state="thinking"] .blob, [data-state="busy"] .blob')];
+    const start = performance.now();
+    const frames: { time: number; avatars: { mood: string | null; lit: { slot: number; key: string }[] }[] }[] = [];
+    while (performance.now() - start < 4500) {
+      await new Promise(requestAnimationFrame);
+      frames.push({ time: performance.now() - start, avatars: blobs.map(blob => ({ mood: blob.dataset.mood ?? null,
+        lit: [...blob.querySelectorAll('[data-mosaic-activity] rect')].flatMap((pixel, slot) => {
+          const css = getComputedStyle(pixel);
+          return +css.opacity ? [{ slot, key: `${css.transform}:${css.opacity}:${css.fill}` }] : [];
+        }),
+      })) });
     }
-    let appearances = 0;
-    for (let i = 1; i < frames.length; i++) if (frames[i].lit.length && !frames[i - 1].lit.length) appearances++;
-    return { shape: node.getAttribute('data-shape'), appearancesPerSecond: appearances / 42, frames };
-  }));
-  for (const sample of beats) {
-    expect(sample.appearancesPerSecond).toBeGreaterThan(3);
-    expect(sample.appearancesPerSecond).toBeLessThan(4);
-    const active = sample.frames.filter(frame => frame.lit.length);
-    expect(active.filter(frame => frame.lit.length === 1).length / active.length).toBeGreaterThan(.7);
-    expect(active.filter(frame => frame.lit.length === 2).length).toBeGreaterThan(0);
-    const opposite: Record<string, string> = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
-    const violations = sample.frames.filter(({ lit }) => lit.length > 2
-      || new Set(lit.map(cell => `${cell.x}:${cell.y}`)).size !== lit.length
-      || lit.some(cell => !Number.isInteger(cell.x) || !Number.isInteger(cell.y) || !cell.sides.length || cell.opacity < .3 || cell.opacity > 1)
-      || (lit.length === 2 && !lit[0].sides.some(side => lit[1].sides.includes(opposite[side]))));
-    expect(violations).toEqual([]);
-    expect(new Set(sample.frames.flatMap(frame => frame.lit.map(cell => cell.opacity))).size).toBe(8);
-  }
-  writeFileSync(testInfo.outputPath('computed-beat-samples.json'), JSON.stringify(beats));
-  const rainbow = await thinking.evaluate(node => {
-    const animations = node.getAnimations({ subtree: true });
-    const bands = [...node.querySelectorAll('.mosaic-rainbow')];
-    const frames = [];
-    for (let time = 0; time < 34000; time += 100) {
-      animations.forEach(animation => { animation.currentTime = time; });
-      frames.push({ time, bands: bands.map(band => Number(getComputedStyle(band).opacity)) });
-    }
-    return { frames, peak: [...frames].sort((a, b) => b.bands.filter(alpha => alpha === .1).length - a.bands.filter(alpha => alpha === .1).length)[0].time };
+    return frames;
   });
-  expect(Math.max(...rainbow.frames.flatMap(frame => frame.bands))).toBeCloseTo(.1);
-  expect(rainbow.frames.filter(frame => frame.bands.some(alpha => alpha > 0)).length / rainbow.frames.length).toBeLessThan(.3);
-  writeFileSync(testInfo.outputPath('computed-rainbow-samples.json'), JSON.stringify(rainbow));
+  writeFileSync(info.outputPath('wallclock.json'), JSON.stringify(clock));
+  for (const mood of ['thinking', 'busy']) {
+    let retainedWithBirths = 0;
+    for (let i = 1; i < clock.length; i++) for (let j = 0; j < clock[i].avatars.length; j++) {
+      const now = clock[i].avatars[j], old = clock[i - 1].avatars[j];
+      if (now.mood !== mood) continue;
+      const retained = now.lit.some(c => old.lit.some(o => o.slot === c.slot && o.key === c.key));
+      const born = now.lit.some(c => !old.lit.some(o => o.slot === c.slot && o.key === c.key));
+      if (retained && born) retainedWithBirths++;
+    }
+    expect(retainedWithBirths).toBeGreaterThan(15);
+  }
+  await page.getByRole('button', { name: 'Pause animations', exact: true }).click();
+  const computed = await region.evaluate(node => {
+    const blobs = [...node.querySelectorAll<HTMLElement>('[data-state="thinking"] .blob, [data-state="busy"] .blob')];
+    return blobs.map(blob => {
+      const pixels = [...blob.querySelectorAll('[data-mosaic-activity] rect')];
+      const body = [...blob.querySelectorAll<SVGRectElement>('[data-mosaic-grid] > rect')].map(r => ({ x: r.x.baseVal.value, y: r.y.baseVal.value }));
+      const animations = blob.getAnimations({ subtree: true });
+      let samples = 0, touching = 0, peak = 0, invalid = 0, maxLive = 0;
+      const positions = new Set<string>();
+      for (let time = 0; time < 40000; time += 200) {
+        animations.forEach(a => { a.currentTime = time; });
+        let live = 0;
+        for (const pixel of pixels) {
+          const css = getComputedStyle(pixel); if (+css.opacity === 0) continue;
+          live++; samples++;
+          const m = new DOMMatrix(css.transform), x = m.e, y = m.f;
+          positions.add(`${x}:${y}`);
+          if (body.some(b => Math.abs(b.x - x) + Math.abs(b.y - y) === 1)) touching++;
+          if (!Number.isInteger(x) || !Number.isInteger(y) || body.some(b => b.x === x && b.y === y) || x < -1 || x > 12 || y < 0 || y > 13) invalid++;
+        }
+        maxLive = Math.max(maxLive, live);
+        for (const band of blob.querySelectorAll('.mosaic-rainbow')) peak = Math.max(peak, +getComputedStyle(band).opacity);
+      }
+      return { mood: blob.dataset.mood, samples, touching, peak, invalid, maxLive, slots: pixels.length, positions: [...positions],
+        delay: pixels[0] ? getComputedStyle(pixels[0]).animationDelay : '',
+        names: animations.map(a => (a as CSSAnimation).animationName) };
+    });
+  });
+  writeFileSync(info.outputPath('computed-profiles.json'), JSON.stringify(computed));
+  for (const avatar of computed) {
+    expect(avatar.invalid).toBe(0); expect(avatar.maxLive).toBeGreaterThan(2); expect(avatar.slots).toBeLessThanOrEqual(64);
+    if (avatar.mood === 'busy') { expect(avatar.touching).toBe(0); expect(avatar.peak).toBe(0); }
+    else { expect(avatar.touching / avatar.samples).toBeGreaterThan(.9); expect(avatar.touching / avatar.samples).toBeLessThan(.99); expect(avatar.peak).toBeCloseTo(.7); }
+  }
+  const trailNames = computed.flatMap(a => a.names.filter(n => /mosaic-(thinking|busy)-\d+-\d+$/.test(n)));
+  expect(new Set(trailNames).size).toBe(trailNames.length);
+  expect(new Set(computed.map(a => a.delay)).size).toBeGreaterThanOrEqual(3);
   for (const theme of ['stone', 'graphite']) {
     await page.getByLabel('Theme', { exact: true }).selectOption(theme);
-    for (const [label, time] of [['rainbow', rainbow.peak], ['later', rainbow.peak + 4000]] as const) {
-      await allThinking.evaluateAll((nodes, time) => nodes.forEach(node => node.getAnimations({ subtree: true }).forEach(animation => { animation.currentTime = time; })), time);
-      await page.getByRole('region', { name: 'Mosaic states', exact: true }).screenshot({ path: testInfo.outputPath(`mosaic-${theme}-${label}.png`) });
-    }
+    await region.screenshot({ path: info.outputPath(`mosaic-${theme}-profiles.png`) });
   }
-  for (const mood of ['idle', 'busy', 'input', 'question', 'error', 'unread', 'unknown']) {
-    await expect(page.locator(`[data-style="mosaic"][data-state="${mood}"] [data-mosaic-rainbow]`)).toHaveCount(0);
+  for (const mood of ['idle', 'input', 'question', 'error', 'unread', 'unknown']) {
+    await expect(region.locator(`[data-state="${mood}"] [data-mosaic-activity]`)).toHaveCount(0);
+    await expect(region.locator(`[data-state="${mood}"] [data-mosaic-rainbow]`)).toHaveCount(0);
   }
-  expect(await page.locator('[data-style="mosaic"][data-state="idle"] .blob').first().evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
-  await page.getByRole('button', { name: 'Play animations', exact: true }).click();
+  // Fresh CSS-owned clocks after imperative seeking above.
+  await page.reload(); await region.scrollIntoViewIfNeeded();
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: true });
     document.dispatchEvent(new Event('visibilitychange'));
   });
   await expect(page.locator('html')).toHaveClass(/motion-paused/);
-  expect(await thinking.evaluate(node => node.getAnimations({ subtree: true }).every(animation => animation.playState === 'paused'))).toBe(true);
+  const times = () => region.locator('[data-mosaic-activity] rect').evaluateAll(nodes => nodes.flatMap(n => n.getAnimations().map(a => ({ time: a.currentTime, state: a.playState }))));
+  const paused = await times(); expect(paused.length).toBeGreaterThan(0); expect(paused.every(a => a.state === 'paused')).toBe(true);
+  await page.waitForTimeout(200); expect(await times()).toEqual(paused);
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  expect(await page.locator('.blob-mosaic').evaluateAll(nodes => nodes.flatMap(node => node.getAnimations({ subtree: true })).length)).toBe(0);
-  await expect(thinking.locator('.mosaic-rainbow').first()).toHaveCSS('opacity', '0');
-  await expect(thinking.locator('.mosaic-thought').first()).toHaveCSS('opacity', '0');
+  expect(await region.locator('.blob').evaluateAll(nodes => nodes.flatMap(n => n.getAnimations({ subtree: true })).length)).toBe(0);
+  expect(await region.locator('[data-mosaic-activity] rect, .mosaic-rainbow').evaluateAll(nodes => nodes.every(n => getComputedStyle(n).opacity === '0'))).toBe(true);
 });

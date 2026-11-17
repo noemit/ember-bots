@@ -8,9 +8,9 @@ type Props = { cells: ActivityCell[]; seed: string; mood: 'busy' | 'thinking' };
 export default function MosaicActivity({ cells, seed, mood }: Props) {
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
   const plan = React.useMemo(() => mosaicActivityPlan(cells, seed, mood), [cells, seed, mood]);
-  const slots = plan.tracks.flatMap((events, track) => Array.from({ length: plan.slots }, (_, slot) => ({
-    name: `${uid}-mosaic-${track}-${slot}`, frames: activityKeyframes(events, slot, plan.duration),
-  })));
+  const slots = React.useMemo(() => plan.tracks.flatMap((events, track) => Array.from({ length: plan.slots }, (_, slot) => ({
+    name: `${uid}-mosaic-${mood}-${track}-${slot}`, frames: activityKeyframes(events, slot, plan.duration),
+  }))), [plan, uid, mood]);
   return <g data-mosaic-activity={mood}>
     <style>{slots.map(({ name, frames }) => `@keyframes ${name}{${frames}}`).join('')}</style>
     {slots.map(({ name }) => <rect key={name} className={mood === 'thinking' ? 'mosaic-thought' : 'mosaic-pixel'} x={0} y={0} width={1} height={1} opacity={0}
