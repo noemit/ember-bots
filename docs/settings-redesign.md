@@ -21,8 +21,8 @@ for keyboard navigation, a desktop sidebar and a two-column mobile category list
 - **Appearance:** all theme choices; independent interface/conversation/composer sizes and live
   text samples; real Blob renderers for avatar style and size.
 - **Conversations:** recent-session window, split view, scheduled-run auto-hide, explicit unread
-  and conversation muting guidance. Context & compaction integration belongs immediately after these
-  preferences; the marked source slot is reserved for the separate compaction-settings task (159425).
+  and conversation muting guidance. Context & compaction follows these preferences using the reviewed component from task 159425.
+  It saves authenticated per-Kiln thresholds and retained-token targets, not local appearance preferences.
 - **Remote access:** existing password-gated browser access, listener status, reviewed HTTPS proxy
   setup, recovery warning, Share this Kiln, URL/masked-token reveal/copy, and advanced local-token
   rotation. Browser access, backend sharing and provider sharing remain independent.

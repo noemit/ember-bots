@@ -35,3 +35,25 @@ for (const width of [1440, 390]) {
     await expect(dialog.locator('svg').first()).toBeVisible();
   });
 }
+
+
+test('Conversations exposes the real host-owned 70k/5k compaction settings', async ({ page }) => {
+  await page.goto('/?noDock');
+  await page.waitForFunction(() => Boolean(window.ember?.piRequest));
+  await page.evaluate(() => {
+    const original = window.ember.piRequest!;
+    window.ember.piRequest = async (id, path, init) => {
+      if (path !== '/settings/compaction') return original(id, path, init);
+      const preference = init?.method === 'PUT' ? (init.body as { preference: unknown }).preference : null;
+      return { ok: true, status: 200, data: { preference, defaults: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000, backgroundTokens: 32768 }, models: [] } as never };
+    };
+  });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  const area = page.getByRole('region', { name: 'Context & compaction', exact: true });
+  await expect(area.getByLabel('Compact at tokens', { exact: true })).toHaveValue('70000');
+  await expect(area.getByLabel('Keep recent tokens', { exact: true })).toHaveValue('5000');
+  await area.getByRole('button', { name: 'Save compaction settings', exact: true }).click();
+  await expect(area.getByRole('status')).toContainText('Saved on');
+  await expect(area.getByRole('button', { name: 'Reset to Pi defaults', exact: true })).toBeEnabled();
+});

@@ -69,7 +69,7 @@ export default function ContextCompactionSettings({ instances }: { instances: In
     {instance ? <>
       <div className="flex items-center gap-3"><p className="text-xs text-muted-foreground">{busy ? `Asking ${instance.label}…` : value?.preference ? 'Custom token targets' : value ? 'Using Pi defaults' : 'Settings unavailable'}</p><Button variant="ghost" size="sm" disabled={busy} onClick={() => void load()}>Reload</Button></div>
       {value ? <>
-        <p className="text-xs text-muted-foreground">Pi defaults: automatic compaction on; keep 20,000 recent tokens. Background work starts 49,152 tokens below the model window; generation waits at 16,384 below it.</p>
+        <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">How Pi defaults work</summary><p className="mt-2">Automatic compaction is on and keeps 20,000 recent tokens. Background work starts 49,152 tokens below the model window; generation waits at 16,384 below it.</p></details>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1 text-sm">Compact at tokens<input className="block w-full rounded border bg-background px-3 py-2" type="number" min="1024" max="10000000" step="1" value={at} onChange={event => setAt(event.target.value)} disabled={busy} /></label>
           <label className="space-y-1 text-sm">Keep recent tokens<input className="block w-full rounded border bg-background px-3 py-2" type="number" min="1" step="1" value={keep} onChange={event => setKeep(event.target.value)} disabled={busy} /></label>

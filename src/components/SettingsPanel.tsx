@@ -1,4 +1,5 @@
 import DesktopUpdates from './DesktopUpdates';
+import ContextCompactionSettings from './ContextCompactionSettings';
 import type { ProjectUsage } from '../lib/projectUsage';
 import { AVATAR_SIZES, avatarPixels } from '../blob/size';
 import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from '../lib/instanceDefaultModel';
@@ -870,7 +871,7 @@ export default function SettingsPanel({
                 <p className="mt-2 text-sm text-muted-foreground">You decide when a reply is read. Opening a chat, copying or replying never marks it read. Use New unread messages to jump, then Mark as read or Mark all as read when you’re ready. Undo restores the previous marks.</p>
                 <p className="mt-2 text-sm text-muted-foreground">Mute a conversation from its menu to quiet its unread indicators. Questions and approvals remain visible.</p>
               </section>
-              {/* Context & compaction: ContextCompactionSettings is integrated here by the compaction-settings task. */}
+              <Card><CardContent className="p-5"><ContextCompactionSettings instances={instances} /></CardContent></Card>
             </TabsContent>
 
             <TabsContent value="remote" className="mt-0 flex flex-col gap-5">
