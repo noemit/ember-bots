@@ -34,9 +34,9 @@ const prepare = async (page: Page) => {
   });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Computers and Containers', exact: true }).click();
-  const alignment = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Align all my instances' }) });
+  const alignment = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Align all my connections' }) });
   await alignment.getByRole('button', { name: 'Review', exact: true }).click();
-  await alignment.getByRole('button', { name: 'Review instances', exact: true }).click();
+  await alignment.getByRole('button', { name: 'Review connections', exact: true }).click();
   await alignment.getByRole('button', { name: 'Align now', exact: true }).click();
   await expect(alignment.getByRole('status')).toContainText('Added 4 connections');
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
@@ -53,6 +53,8 @@ const calls = (page: Page) => page.evaluate(() => (window as unknown as { sharin
 
 test('metadata review names missing/existing/unsupported hosts and shares only explicitly reviewed providers without changing defaults', async ({ page }) => {
   const area = await prepare(page);
+  await expect(area.getByLabel('Provider availability')).not.toBeVisible();
+  await area.getByText('Compare all provider metadata', { exact: true }).click();
   await expect(area.getByLabel('Provider availability')).toContainText('Missing credential');
   await expect(area.getByLabel('Provider availability')).toContainText('Environment key — available here, not exported');
   await expect(area.getByLabel('Kiln comparison status')).toContainText('Old does not support reviewed provider sharing yet');
@@ -61,10 +63,21 @@ test('metadata review names missing/existing/unsupported hosts and shares only e
   await expect(area).not.toContainText('provider-secret-never-render');
   const source = await area.getByLabel('Provider sharing source').locator('option').nth(1).getAttribute('value');
   await area.getByLabel('Provider sharing source').selectOption(source!);
-  await expect(area.getByLabel('Share new-generic-provider to Missing')).toBeEnabled();
+  await area.getByRole('button', { name: 'Continue to destination' }).click();
+  for (const name of ['Old', 'Offline']) {
+    await area.getByLabel('Provider sharing destination').selectOption({ label: name });
+    await expect(area.getByRole('button', { name: 'Continue to providers' })).toBeDisabled();
+    await expect(area).toContainText(name === 'Old' ? 'Update Kiln there' : 'Check its connection');
+  }
+  await area.getByLabel('Provider sharing destination').selectOption({ label: 'Existing' });
+  await area.getByRole('button', { name: 'Continue to providers' }).click();
   await expect(area.getByLabel('Share new-generic-provider to Existing')).toBeDisabled();
-  await expect(area.getByLabel('Share new-generic-provider to Old')).toBeDisabled();
-  await expect(area.getByLabel('Share new-generic-provider to Offline')).toBeDisabled();
+  await area.getByRole('button', { name: 'Back', exact: true }).click();
+  await area.getByLabel('Provider sharing destination').selectOption({ label: 'Missing' });
+  await area.getByRole('button', { name: 'Continue to providers' }).click();
+  await page.screenshot({ path: '/home/em/reports/ember-settings-production/evidence/sharing-desktop-providers.png', fullPage: true });
+  await expect(area.getByLabel('Share new-generic-provider to Missing')).toBeEnabled();
+
   await expect(area.getByLabel('Share environment-provider to Missing')).toBeDisabled();
   await expect(area.getByLabel('Share custom-test to Missing')).toBeEnabled();
   await expect(area.getByLabel('Share custom-mismatch to Missing')).toBeDisabled();
@@ -77,19 +90,27 @@ test('metadata review names missing/existing/unsupported hosts and shares only e
   await expect(area.getByLabel('Share openai-codex to Missing')).toBeDisabled();
   await expect(area.getByLabel('Share other-oauth to Missing')).toBeDisabled();
   await area.getByLabel('Enable experimental Codex and Antigravity sign-in sharing').check();
-  await expect(area).toContainText('tokens refresh');
-  await expect(area).toContainText('Signing in separately');
+  await expect(area).toContainText('refresh sign-in tokens separately');
+  await expect(area).toContainText('Signing in on each Kiln separately is safer');
   await expect(area.getByLabel('Share openai-codex to Missing')).toBeEnabled();
   await expect(area.getByLabel('Share antigravity to Missing')).toBeEnabled();
   await area.getByLabel('Share new-generic-provider to Missing').check();
   await area.getByLabel('Share openai-codex to Missing').check();
   await area.getByLabel('Share antigravity to Missing').check();
   await area.getByLabel('Share custom-test to Missing').check();
-  await expect(area.getByRole('button', { name: 'Share 4 reviewed selections' })).toBeEnabled();
+  await expect(area.getByRole('button', { name: 'Share 4 reviewed selections' })).toHaveCount(0);
+  await expect(area.getByRole('button', { name: 'Review 4 selections' })).toBeEnabled();
   await expect(area).not.toContainText('synthetic-peer-token');
   await page.screenshot({ path: '/tmp/ember-provider-sharing-review.png', fullPage: true });
   await area.getByLabel('Destination Missing configuration for custom-test', { exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/tmp/ember-provider-sharing-custom-review.png', fullPage: true });
+  await area.getByText('Compare all provider metadata', { exact: true }).click();
+  await area.getByRole('button', { name: 'Review 4 selections' }).click();
+  await expect(area.getByRole('heading', { name: 'Review before sharing' })).toBeFocused();
+  await expect(area.getByLabel('Reviewed providers')).toContainText('custom-test');
+  await expect(area).toContainText('http://100.64.0.30:3002');
+  await expect(area).toContainText('Scope:');
+  await page.screenshot({ path: '/home/em/reports/ember-settings-production/evidence/sharing-desktop-review.png', fullPage: true });
   const before = await page.evaluate(() => window.ember.getSettings().then(settings => settings.instanceDefaults));
   await area.getByRole('button', { name: 'Share 4 reviewed selections' }).click();
   await expect(area.getByRole('status')).toContainText('Missing: 4 credentials added');
@@ -102,7 +123,7 @@ test('metadata review names missing/existing/unsupported hosts and shares only e
   expect(targets[0].providers).toEqual([{ providerId: 'new-generic-provider', type: 'api_key' }, { providerId: 'openai-codex', type: 'oauth', experimental: true }, { providerId: 'antigravity', type: 'oauth', experimental: true }, { providerId: 'custom-test', type: 'api_key', configIdentity: { id: 'custom-test', name: 'Internal', baseUrl: 'https://models.example/v1', modelIds: ['one'] }, destinationConfigIdentity: { id: 'custom-local-destination', name: 'Internal', baseUrl: 'https://models.example/v1', modelIds: ['one'] } }]);
   expect(await page.evaluate(() => window.ember.getSettings().then(settings => settings.instanceDefaults))).toEqual(before);
   expect(await page.evaluate(() => window.ember.getSettings().then(settings => JSON.stringify(settings)))).not.toContain('provider-secret-never-render');
-  await expect(page.getByRole('region', { name: 'Confirm instance default' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Default model for new chats' })).toHaveCount(0);
   await page.screenshot({ path: '/tmp/ember-provider-sharing-result.png', fullPage: true });
 });
 
@@ -110,17 +131,32 @@ test('turning off experimental sharing or changing source clears selections', as
   const area = await prepare(page);
   const source = await area.getByLabel('Provider sharing source').locator('option').nth(1).getAttribute('value');
   await area.getByLabel('Provider sharing source').selectOption(source!);
+  await area.getByRole('button', { name: 'Continue to destination' }).click();
+  await area.getByLabel('Provider sharing destination').selectOption({ label: 'Missing' });
+  await area.getByRole('button', { name: 'Continue to providers' }).click();
   await expect(area).toContainText('Kiln address: http://100.64.0.30:3002');
   const experimental = area.getByLabel('Enable experimental Codex and Antigravity sign-in sharing');
   await experimental.check();
   await area.getByLabel('Share openai-codex to Missing').check();
   await experimental.uncheck();
-  await expect(area.getByRole('button', { name: 'Share 0 reviewed selections' })).toBeDisabled();
+  await expect(area.getByRole('button', { name: 'Review 0 selections' })).toBeDisabled();
   await experimental.check();
   await expect(area.getByLabel('Share openai-codex to Missing')).not.toBeChecked();
   await area.getByLabel('Share new-generic-provider to Missing').check();
+  await area.getByRole('button', { name: 'Back', exact: true }).click();
+  await area.getByLabel('Provider sharing destination').selectOption({ label: 'Existing' });
+  await area.getByLabel('Provider sharing destination').selectOption({ label: 'Missing' });
+  await area.getByRole('button', { name: 'Continue to providers' }).click();
+  await expect(area.getByLabel('Share new-generic-provider to Missing')).not.toBeChecked();
+  await expect(experimental).not.toBeChecked();
+  await area.getByLabel('Share new-generic-provider to Missing').check();
+  await area.getByRole('button', { name: '1. Source', exact: true }).click();
   await area.getByLabel('Provider sharing source').selectOption('');
   await area.getByLabel('Provider sharing source').selectOption(source!);
+  await area.getByRole('button', { name: 'Continue to destination' }).click();
+  await expect(area.getByLabel('Provider sharing destination')).toHaveValue('');
+  await area.getByLabel('Provider sharing destination').selectOption({ label: 'Missing' });
+  await area.getByRole('button', { name: 'Continue to providers' }).click();
   await expect(area.getByLabel('Share new-generic-provider to Missing')).not.toBeChecked();
   expect((await calls(page)).filter(call => call.path === '/alignment/share')).toHaveLength(0);
 });
@@ -148,4 +184,26 @@ test('remote browser sharing stays desktop-only without requesting metadata or c
   await expect(area).toContainText('available in the Ember desktop app');
   await expect(area.getByRole('button', { name: 'Compare providers' })).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { remoteSharingProbe: { calls: string[] } }).remoteSharingProbe.calls)).toEqual([]);
+});
+
+test('mobile guided sharing keeps final Send reachable and back preserves the reviewed selection', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const area = await prepare(page);
+  await area.getByLabel('Provider sharing source').selectOption({ label: 'ember-harness (mock)' });
+  await area.getByRole('button', { name: 'Continue to destination' }).click();
+  await area.getByLabel('Provider sharing destination').selectOption({ label: 'Missing' });
+  await area.getByRole('button', { name: 'Continue to providers' }).click();
+  await area.getByLabel('Share new-generic-provider to Missing').check();
+  await area.getByRole('button', { name: 'Review 1 selections' }).click();
+  await area.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(area.getByLabel('Share new-generic-provider to Missing')).toBeChecked();
+  await area.getByRole('button', { name: 'Review 1 selections' }).click();
+  const send = area.getByRole('button', { name: 'Share 1 reviewed selections' });
+  await send.scrollIntoViewIfNeeded();
+  await expect(send).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: '/home/em/reports/ember-settings-production/evidence/sharing-mobile-review.png', fullPage: true });
+  await expect(area).not.toContainText('provider-secret-never-render');
+  await send.click();
+  await expect(area.getByRole('status')).toContainText('Missing: 1 credentials added');
 });

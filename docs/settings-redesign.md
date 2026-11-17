@@ -11,10 +11,12 @@ for keyboard navigation, a desktop sidebar and a two-column mobile category list
 - **Providers:** saved credential inventory and primary Add provider, API keys, subscription
   sign-in, explicit keep/change default-model decision, removal confirmation, Custom/OpenAI-compatible
   definitions and Ollama. Credential badges report storage, not health. Ollama's existing setup is
-  under a Local models disclosure. Sharing stays a secondary reviewed flow. The existing dense comparison matrix and review
-  panel are intentionally preserved; this is NOT the approved staged source → destination → providers
-  → review wizard. A guided wrapper remains a design gap for root review. Security remains its existing
-  fill-only, exact custom binding, source-peer reachability and experimental OAuth consent policies.
+  under a Local models disclosure. Sharing stays secondary to the inventory: a guided source → destination → providers → review flow.
+  The metadata comparison is available in an optional disclosure, not the primary interaction.
+  Changing source or destination clears selected providers and experimental consent; going Back alone
+  retains the reviewed choices. Final review names both URLs, credential count, selected providers and
+  destination access scope. Existing fill-only, exact custom binding, source-peer reachability,
+  desktop-only and explicit experimental OAuth consent policies are unchanged.
   Model experience clearing/retention remains here because it describes model use.
 - **Computers and Containers:** connection creation/test/edit/removal and Access credentials,
   reviewed instance alignment, all per-computer model/provider/marker/workspace/project/YOLO defaults
@@ -39,3 +41,14 @@ Actual production React renderer captures (the existing mock bridge supplies iso
 are under `/home/em/reports/ember-settings-production/evidence/`. This is not a live credential audit.
 The implementation task report in that directory records commands and limitations. No release or
 version bump is part of this work.
+
+## Production copy review integration
+
+Applied the root-approved Gemini production review, with security/runtime details preserved: no global
+autosave promise; connection/Kiln terminology and correct Remote access paths; compaction defaults and
+all smaller-model clamps in a disclosure; no retired ratings language. Generic sign-in prompts remain
+generic. Ollama still resolves on the selected Kiln and retains install/resource guidance; custom-model
+8k/text defaults remain accessible. Remote HTTPS retains sign-out/anonymous-API checks. Kiln sharing
+retains forwarding persistence, external process ownership and independent full-control token warnings.
+No updater backend, remote-control facade, version bump, publication or process-lifetime change was added.
+The new sharing steps require a bounded contextual Gemini follow-up by the coordinator before approval.

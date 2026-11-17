@@ -28,12 +28,12 @@ export const loginPollOutcome = (answer: PollAnswer): LoginPollOutcome => {
       kind: 'unreachable',
       error:
         answer.error ??
-        "ember-harness didn't answer, so this sign-in's progress is unknown. Check that the host is running, then try again.",
+        "Kiln didn't answer, so this sign-in's progress is unknown. Check that the host is running, then try again.",
     };
   }
   if (answer.state?.status === 'complete') return { kind: 'complete' };
   if (answer.state?.status === 'failed') {
-    return { kind: 'failed', error: answer.state.error ?? 'ember-harness could not finish signing in.' };
+    return { kind: 'failed', error: answer.state.error ?? 'Kiln could not finish signing in.' };
   }
   return { kind: 'pending' };
 };

@@ -17,7 +17,7 @@ test('custom provider discovery, explicit default choice, edit and remove in Set
   await form.getByRole('button', { name: 'Discover models', exact: true }).click();
   await expect(form.getByLabel('Model IDs')).toHaveValue('deepseek-v4.1-flash');
   await form.getByRole('button', { name: 'Save custom provider' }).click();
-  const confirmation = page.getByRole('region', { name: 'Confirm instance default' });
+  const confirmation = page.getByRole('region', { name: 'Default model for new chats' });
   await expect(confirmation).toContainText('Spark DeepSeek');
   await confirmation.getByRole('button', { name: 'Keep current default' }).click();
   await expect.poll(() => page.evaluate(async () => JSON.stringify(await window.ember.getSettings()))).not.toContain('mock-only-secret');
@@ -55,7 +55,7 @@ test('onboarding supports a keyless manual model when discovery fails, without s
   await expect(wizard.getByRole('status')).toContainText('enter model IDs manually');
   await form.getByLabel('Model IDs').fill('deepseek-v4.1-flash');
   await form.getByRole('button', { name: 'Save custom provider' }).click();
-  await wizard.getByRole('region', { name: 'Confirm instance default' }).getByRole('button', { name: 'Keep current default' }).click();
+  await wizard.getByRole('region', { name: 'Default model for new chats' }).getByRole('button', { name: 'Keep current default' }).click();
   const choice = wizard.getByLabel('Default model for');
   await expect(choice).toBeVisible(); await expect(choice).toHaveValue('');
   await expect(page.getByTestId('onboarding-next')).toBeDisabled();

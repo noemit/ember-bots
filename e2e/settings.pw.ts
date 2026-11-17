@@ -55,5 +55,5 @@ test('Conversations exposes the real host-owned 70k/5k compaction settings', asy
   await expect(area.getByLabel('Keep recent tokens', { exact: true })).toHaveValue('5000');
   await area.getByRole('button', { name: 'Save compaction settings', exact: true }).click();
   await expect(area.getByRole('status')).toContainText('Saved on');
-  await expect(area.getByRole('button', { name: 'Reset to Pi defaults', exact: true })).toBeEnabled();
+  await expect(area.getByRole('button', { name: 'Reset to defaults', exact: true })).toBeEnabled();
 });

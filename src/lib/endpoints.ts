@@ -66,7 +66,7 @@ export const normalizeEndpointUrl = (value: string): string | null => {
 
 /** The first validation failure for a draft, or null when it is ready to save. */
 export const endpointError = (draft: EndpointDraft, existing: readonly PiEndpoint[] = []): string | null => {
-  if (!draft.label.trim()) return 'Give the endpoint a name.';
+  if (!draft.label.trim()) return 'Give this computer or container a name.';
   if (draft.label.length > MAX_LABEL) return 'That name is too long.';
   const url = normalizeEndpointUrl(draft.url);
   if (!url) return 'Enter an http(s) address, e.g. http://100.64.0.1:3002.';
@@ -111,7 +111,7 @@ export function endpointTestCopy(label: string, outcome: string, authLayer?: str
   if (outcome === 'auth-rejected' && authLayer === 'access') return actor + '’s Cloudflare Access gate needs service-token authentication. Check Advanced and the host’s Access policy, then test again.';
   if (outcome === 'auth-rejected' && authLayer === 'kiln') return actor + '’s Kiln rejected the bearer token. Copy its current Kiln token from the host, then test again.';
   switch (outcome) {
-    case 'ready': return actor + ` answered as Kiln and accepted the connection. You can add this instance.`;
+    case 'ready': return actor + ` answered as Kiln and accepted the token.`;
     case 'auth-rejected': return actor + ` rejected the credentials. Check the bearer token and, if used, Cloudflare Access credentials, then test again.`;
     case 'wrong-service': return actor + ` answered, but not as Kiln. Use its Kiln API URL, not Ember’s browser UI or a sign-in page, then test again.`;
     case 'tls-error': return actor + ` could not establish a trusted secure connection. Ask its owner to check the certificate and HTTPS address, then test again.`;

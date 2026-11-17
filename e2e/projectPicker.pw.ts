@@ -180,7 +180,7 @@ test('Settings shares search-first global project selection without changing the
   await page.goto('/?fixture=project-picker');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Computers and Containers', exact: true }).click();
-  await page.getByRole('button', { name: 'Then copy from one' }).click();
+  await page.getByRole('button', { name: 'Edit first connection' }).click();
   const defaults = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: /mock\) defaults/ }) });
   const originalModel = await page.evaluate(async () => (await window.ember.getSettings()).instanceDefaults['pi:hearth']?.model);
   await defaults.getByRole('button', { name: 'Choose workspace' }).click();

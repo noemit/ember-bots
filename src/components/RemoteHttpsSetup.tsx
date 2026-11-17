@@ -33,7 +33,7 @@ export function RemoteHttpsSetup({ origin, onChange }: { origin?: string; onChan
         <Button className="self-start" variant="secondary" type="submit">Save HTTPS origin</Button>
         {origin && <Button className="self-start" variant="ghost" type="button" onClick={() => { setValue(''); onChange({ remoteAccessProxyOrigin: '' }); }}>Return to Tailscale HTTP</Button>}
       </form> : <p>Change browser access on the Ember desktop, not from this phone.</p>}
-      {origin && <p>Configured address: <a className="underline" href={origin} target="_blank" rel="noreferrer">{origin}</a>. Configuration is not proof of reachability. Open it on the phone; verify sign-in, sign-out and rejected anonymous API access before relying on it.</p>}
+      {origin && <p>Configured address: <a className="underline" href={origin} target="_blank" rel="noreferrer">{origin}</a>. Open it on your phone; verify sign-in, sign-out and rejected anonymous API access before relying on it.</p>}
       <p>iPhone: Safari → Share → Add to Home Screen. Android: Chrome menu → Install app. HTTP browsing still works without installation. Offline conversations, sending, background sync and push notifications are not included.</p>
     </div>
   </details>;

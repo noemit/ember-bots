@@ -41,7 +41,7 @@ test('a lost sign-in is not success; retry waits for explicit completion', async
   const dialog = await openLogin(page, 'lost');
   await expect(dialog.getByRole('alert')).toContainText('cannot confirm');
   await expect(dialog.getByRole('button', { name: 'Copy code' })).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Confirm instance default', includeHidden: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Default model for new chats', includeHidden: true })).toHaveCount(0);
   await page.evaluate(() => { (window as Window & { loginProbe: LoginProbe }).loginProbe.complete = true; });
   await dialog.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Copy code' })).toBeVisible();
@@ -49,7 +49,7 @@ test('a lost sign-in is not success; retry waits for explicit completion', async
   await expect(dialog).toContainText('ChatGPT security settings');
   await expect(dialog.getByText('OpenAI (ChatGPT Plus/Pro) is connected.', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
-  await expect(page.getByRole('region', { name: 'Confirm instance default' })).toHaveCount(1);
+  await expect(page.getByRole('region', { name: 'Default model for new chats' })).toHaveCount(1);
 });
 
 test('a superseded start cannot overwrite the current code or start another poll loop', async ({ page }) => {

@@ -130,8 +130,8 @@ const SizeChoices = ({
 const BLOB_STYLE_COPY = {
   buddy: { name: 'Buddy', hint: 'Flat, soft shapes' },
   crystal: { name: 'Crystal', hint: 'Faceted stones that glow' },
-  mosaic: { name: 'Mosaic', hint: 'Pixel characters with colourful ribbons and curious eyes' },
-  lava: { name: 'Lava', hint: 'Grainy goo that drips while it works' },
+  mosaic: { name: 'Mosaic', hint: 'Pixel creatures with curious eyes' },
+  lava: { name: 'Lava', hint: 'Grainy lava-lamp goo' },
 };
 const BLOB_STYLES = ACTIVE_BLOB_STYLES.map(id => ({ id, ...BLOB_STYLE_COPY[id] }));
 
@@ -158,7 +158,7 @@ const InstanceDefaultsSettings = ({
   if (instances.length === 0) {
     return (
       <Alert>
-        <AlertDescription>No instances are configured yet.</AlertDescription>
+        <AlertDescription>No computers or containers are connected yet.</AlertDescription>
       </Alert>
     );
   }
@@ -197,11 +197,11 @@ const InstanceDefaultsSettings = ({
   const editingModelLabel = editingDefaults.model
     ? editingModels.find((entry) => modelRefKey(entry) === editingModelKey)?.label ??
       `${editingDefaults.model.providerID} / ${editingDefaults.model.modelID}`
-    : 'Instance default';
+    : 'Server default';
 
   const modelLabel = (instanceId: string): string => {
     const model = defaultsFor(instanceId).model;
-    if (!model) return 'Instance default';
+    if (!model) return 'Server default';
     const models = modelsByInstance[instanceId]?.models ?? [];
     const key = modelRefKey(model);
     return models.find((entry) => modelRefKey(entry) === key)?.label ?? `${model.providerID} / ${model.modelID}`;
@@ -211,7 +211,7 @@ const InstanceDefaultsSettings = ({
     <div className="flex flex-col gap-3">
       {/* Set every instance at once. Each control writes to all rows below it. */}
       <div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-2.5">
-        <span className="text-[11px] font-medium text-muted-foreground">Set every instance to the same</span>
+        <span className="text-[11px] font-medium text-muted-foreground">Defaults across computers and containers</span>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
@@ -221,7 +221,7 @@ const InstanceDefaultsSettings = ({
             onClick={() => setEditing(instances[0]?.id ?? null)}
           >
             <SlidersHorizontal className="size-3.5" />
-            Then copy from one…
+            Edit first connection…
           </Button>
           <Button
             type="button"
@@ -241,7 +241,7 @@ const InstanceDefaultsSettings = ({
             onClick={() => updateAll({ bypass: !instances.every((instance) => defaultsFor(instance.id).bypass === true) })}
           >
             <ShieldCheck className="size-3.5" />
-            {instances.every((instance) => defaultsFor(instance.id).bypass === true) ? 'Turn yolo off' : 'Turn yolo on'}
+            {instances.every((instance) => defaultsFor(instance.id).bypass === true) ? 'Turn YOLO off' : 'Turn YOLO on'}
           </Button>
         </div>
       </div>
@@ -258,12 +258,12 @@ const InstanceDefaultsSettings = ({
                   {defaults.bypass ? (
                     <ShieldCheck
                       className="size-3 flex-none text-warning"
-                      aria-label="yolo by default on this instance"
+                      aria-label="YOLO mode enabled by default"
                     />
                   ) : null}
                 </span>
                 <span className="truncate text-[11px] text-muted-foreground">
-                  {configured ? modelLabel(instance.id) : 'Using the instance default'}
+                  {configured ? modelLabel(instance.id) : 'Using server default'}
                   {defaults.directory ? ` · ${defaults.directory}` : ''}
                 </span>
               </span>
@@ -285,8 +285,8 @@ const InstanceDefaultsSettings = ({
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="w-[440px] sm:max-w-[440px]">
           <DialogHeader className="text-left">
-            <DialogTitle>{editingInstance?.label ?? 'Instance'} defaults</DialogTitle>
-            <DialogDescription>Used when starting work on this instance.</DialogDescription>
+            <DialogTitle>{editingInstance?.label ?? 'Connection'} defaults</DialogTitle>
+            <DialogDescription>Applies to new conversations on this Kiln. Existing chats keep their settings.</DialogDescription>
           </DialogHeader>
           {editing ? (
             <div className="flex flex-col gap-4">
@@ -307,8 +307,7 @@ const InstanceDefaultsSettings = ({
               <section className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium">Preferred provider</span>
                 <span className="text-[11px] text-muted-foreground">
-                  When no model is pinned, new bots prefer this provider&apos;s models on this
-                  instance. Useful for a subscription that exists on some devices only.
+                  When no default model is set, new chats prefer models from this provider.
                 </span>
                 <Select
                   value={editingDefaults.preferredProvider ?? '__none'}
@@ -332,7 +331,7 @@ const InstanceDefaultsSettings = ({
 
               <section className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium">Instance underline</span>
+                  <span className="text-xs font-medium">Connection underline</span>
                   {editing ? (
                     <button
                       type="button"
@@ -344,8 +343,7 @@ const InstanceDefaultsSettings = ({
                   ) : null}
                 </div>
                 <span className="text-[11px] text-muted-foreground">
-                  A marker beneath session names from this instance, so it is obvious which host
-                  a session runs on. Off unless you pick one.
+                  Adds a colored line under chat names from this connection in the sidebar. Off unless you pick one.
                 </span>
                 <div className="grid grid-cols-7 gap-1.5">
                   <button
@@ -364,7 +362,7 @@ const InstanceDefaultsSettings = ({
                     <button
                       key={index}
                       type="button"
-                      aria-label={`Instance underline color ${index + 1}`}
+                      aria-label={`Connection underline color ${index + 1}`}
                       aria-pressed={editingDefaults.markerColor === index}
                       onClick={() => update(editing, { markerColor: index })}
                       className={cn(
@@ -383,7 +381,7 @@ const InstanceDefaultsSettings = ({
 
               {editingInstance ? <section className="flex flex-col gap-2">
                 <span className="text-xs font-medium">Workspace</span>
-                <span className="text-[11px] text-muted-foreground">The folder where your projects or work already live.</span>
+                <span className="text-[11px] text-muted-foreground">Parent folder opened when you browse for a project. Does not select a project automatically.</span>
                 <ProjectPicker instance={editingInstance} projects={projectsByInstance[editing] ?? []} projectUsage={projectUsageByInstance?.[editing]} workspaceOnly
                   workspace={editingDefaults.workspaceDirectory} value={editingDefaults.workspaceDirectory ?? ''}
                   onWorkspaceChange={(workspaceDirectory) => update(editing, { workspaceDirectory })} onSelect={() => {}} />
@@ -397,16 +395,16 @@ const InstanceDefaultsSettings = ({
 
               <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
                 <div className="flex min-w-0 flex-col">
-                  <span className="font-medium">Yolo mode by default</span>
+                  <span className="font-medium">YOLO mode by default</span>
                   <span className="text-[11px] text-muted-foreground">
-                    New bots here start with permission prompts auto-accepted.
+                    New chats here approve tool calls automatically.
                   </span>
                 </div>
                 <Toggle
                   pressed={editingDefaults.bypass === true}
                   onPressedChange={(bypass) => update(editing, { bypass })}
                   variant="outline"
-                  aria-label="Yolo mode by default"
+                  aria-label="YOLO mode by default"
                   className="data-[state=on]:border-warning/60 data-[state=on]:bg-warning/10 data-[state=on]:text-warning"
                 >
                   <ShieldCheck />
@@ -565,7 +563,7 @@ export default function SettingsPanel({
                 {section.label}
               </TabsTrigger>)}
             </TabsList>
-            <p className="mt-6 hidden text-xs text-muted-foreground sm:block">Ember {appVersion ?? 'version unavailable'}<br />Settings save as you change them.</p>
+            <p className="mt-6 hidden text-xs text-muted-foreground sm:block">Ember {appVersion ?? 'version unavailable'}</p>
           </aside>
 
           <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-5 sm:px-9 sm:py-7">
@@ -641,7 +639,7 @@ export default function SettingsPanel({
               </Card> : null}
               <section aria-label="Kiln updates" className="rounded-lg border p-5 text-sm">
                 <h3 className="font-medium">Kiln updates</h3>
-                <p className="mt-2 text-muted-foreground">Ember cannot update a remote Kiln from here. Update an Ember-bundled Kiln through the Ember app on its computer. For a standalone Kiln, ask its owner to update Tinder; for a container, update its deployment. A connection does not give this Ember ownership of that process.</p>
+                <p className="mt-2 text-muted-foreground">The included Kiln updates with Ember. Ember cannot update a remote Kiln here: update the Ember app on its computer, update standalone Tinder, or redeploy the container. Connecting does not give Ember ownership of that process.</p>
               </section>
             </TabsContent>
 
@@ -711,7 +709,7 @@ export default function SettingsPanel({
                     </div>
                     <span className="text-[11px] text-muted-foreground">Sidebar, headers, menus and Settings.</span>
                     <p data-testid="text-size-preview-interface" className="text-[11px] text-muted-foreground" style={{ zoom: INTERFACE_SCALE[settings.interfaceSize ?? 'medium'] }}>
-                      <span className="font-medium text-foreground">Rail · Header · Settings</span> — this sheet scales with the rest.
+                      <span className="font-medium text-foreground">Sidebar · Header · Settings</span> — controls and menus scale to this size.
                     </p>
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -809,7 +807,7 @@ export default function SettingsPanel({
                     <div className="flex min-w-0 flex-1 flex-col">
                       <span className="font-medium">Show recent sessions</span>
                       <span className="text-[11px] text-muted-foreground">
-                        Quieter sessions drop out of the list until they're active again.
+                        Older chats leave the sidebar until they are active again. Search all time still finds them.
                       </span>
                     </div>
                     <Select
@@ -850,8 +848,8 @@ export default function SettingsPanel({
                       <span className="font-medium">Split view</span>
                       <span className="text-[11px] text-muted-foreground">
                         {settings.splitView
-                          ? 'Opening a session adds a column beside this one, as many as fit. Closing a column returns it to the list.'
-                          : 'Opening a session takes over the view. Turn this on to keep several open side by side instead.'}
+                          ? 'Open multiple chats side by side, as many as fit your window. Closing a column keeps the chat in the sidebar.'
+                          : 'Show one chat at a time. Turn on to keep several open side by side.'}
                       </span>
                     </div>
                     <Toggle
@@ -878,7 +876,7 @@ export default function SettingsPanel({
               <Card>
                 <CardHeader className="p-3 pb-0">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Remote access
+                    Ember browser access
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3 p-3">
@@ -928,7 +926,7 @@ export default function SettingsPanel({
                   <p className="text-[11px] text-muted-foreground">
                     {settings.remotePasswordConfigured
                       ? `At least ${REMOTE_PASSWORD_MIN} characters.`
-                      : `At least ${REMOTE_PASSWORD_MIN} characters, and only on this machine: Ember stores a hash, never the password itself.`}
+                      : `At least ${REMOTE_PASSWORD_MIN} characters. Required before enabling browser access. Ember stores a hash, never the password itself.`}
                   </p>
                   {settings.remotePasswordConfigured ? (
                     <Button
@@ -953,8 +951,7 @@ export default function SettingsPanel({
                     This computer
                   </CardTitle>
                   <CardDescription>
-                    Manage this computer’s Kiln bearer token. Sharing below creates a reachable
-                    API address; Ember’s browser access uses its own separate password.
+                    Manage this computer’s local Kiln bearer token. Use Share this Kiln above to make it reachable from another computer.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-3 pt-2">

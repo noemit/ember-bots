@@ -24,6 +24,10 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [hosts, setHosts] = React.useState<SharingHost[] | null>(null);
+  const [step, setStep] = React.useState(0);
+  const [destination, setDestination] = React.useState('');
+  const stepHeading = React.useRef<HTMLHeadingElement>(null);
+  React.useEffect(() => { stepHeading.current?.focus(); }, [step]);
   const [source, setSource] = React.useState('');
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [experimental, setExperimental] = React.useState(false);
@@ -35,7 +39,7 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
   const candidates = [...endpoints, ...instances.filter(instance => instance.kind === 'pi' && !endpoints.some(endpoint => endpoint.id === instance.id)).map(instance => ({ id: instance.id, label: instance.label, url: instance.url ?? '', token: '' }))];
   const inspect = async () => {
     if (!desktop || !window.ember.piRequest) return;
-    setBusy(true); setNotice(''); setHosts(null); setSelected(new Set()); setSource(''); setExperimental(false);
+    setBusy(true); setNotice(''); setHosts(null); setSelected(new Set()); setSource(''); setExperimental(false); setDestination(''); setStep(0);
     const config = JSON.stringify(endpoints);
     reviewed.current = config;
     try {
@@ -56,7 +60,8 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
     if (reviewed.current !== JSON.stringify(latest.current)) {
       setHosts(null); setSelected(new Set()); setNotice('Your Kiln connections changed. Compare again before sharing providers.'); return;
     }
-    const targets = selectedTargets(hosts, source, selected, experimental);
+    const targets = selectedTargets(hosts, source, selected, experimental).filter(target => target.id === destination);
+    if (step !== 3) return;
     if (!targets.length) return;
     setBusy(true); setNotice('');
     const sourceLabel = hosts.find(host => host.endpoint.id === source)?.endpoint.label ?? 'The source Kiln';
@@ -80,21 +85,26 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
   };
   const sourceHost = hosts?.find(host => host.endpoint.id === source);
   const sourceProviders = sourceHost?.providers.filter(provider => provider.hasCredential) ?? [];
-  const targets = hosts ? selectedTargets(hosts, source, selected, experimental) : [];
+  const targets = hosts ? selectedTargets(hosts, source, selected, experimental).filter(target => target.id === destination) : [];
+  const destinationHost = hosts?.find(host => host.endpoint.id === destination);
+  const count = targets.reduce((total, target) => total + target.providers.length, 0);
   const comparisonProviders = (hosts?.flatMap(host => host.providers) ?? []).filter((provider, index, all) => all.findIndex(other => provider.configIdentity && other.configIdentity ? sameDefinition(provider.configIdentity, other.configIdentity) : provider.providerId === other.providerId) === index);
   return <section className="rounded-lg border px-3 py-3" aria-label="Share providers across Kilns">
     <div className="flex items-center justify-between gap-3">
       <div><h3 className="text-xs font-medium">Share providers across Kilns</h3>
-        <p className="mt-1 text-xs text-muted-foreground">Compare provider availability before choosing what to share.</p></div>
+        <p className="mt-1 text-xs text-muted-foreground">Add missing provider credentials to another Kiln.</p></div>
       <Button size="xs" variant="outline" disabled={busy} onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Close review' : 'Review and share'}</Button>
     </div>
     {open ? <div className="mt-3 flex flex-col gap-3 text-xs">
       {!desktop ? <p>Provider sharing is available in the Ember desktop app. Open Settings → Providers there to review your Kilns.</p> : <>
-        <p className="text-muted-foreground">The comparison reads metadata only. Choose one source, then review each provider and destination. Existing credentials and model defaults stay unchanged. Connections are managed separately.</p>
+        <p className="text-muted-foreground">Choose a source and destination, then select providers and review. Existing credentials and model defaults stay unchanged. Credentials travel directly between Kilns; Ember reads metadata only.</p>
         <Button size="xs" variant="outline" disabled={busy || !candidates.length || !window.ember.piRequest} onClick={() => void inspect()}>{busy ? <Loader2 className="animate-spin" /> : null}Compare providers</Button>
         {!candidates.length ? <p>Add a Kiln in Settings → Computers and Containers, then return here to compare providers.</p> : null}
         {hosts ? <>
-          <ul className="space-y-1" aria-label="Kiln comparison status">{hosts.map(host => <li key={host.endpoint.id}>{sharingHostMessage(host)}</li>)}</ul>
+          <nav aria-label="Sharing steps" className="flex flex-wrap gap-2">{['Source', 'Destination', 'Providers', 'Review'].map((label, index) => <Button key={label} size="xs" variant={step === index ? 'secondary' : 'ghost'} disabled={busy || index > step} aria-current={step === index ? 'step' : undefined} onClick={() => setStep(index)}>{index + 1}. {label}</Button>)}</nav>
+          <h4 ref={stepHeading} tabIndex={-1} className="font-medium">{['Choose the source Kiln', 'Choose the destination Kiln', 'Choose providers to share', 'Review before sharing'][step]}</h4>
+          <details><summary className="cursor-pointer">Compare all provider metadata</summary>
+          <ul className="mt-2 space-y-1" aria-label="Kiln comparison status">{hosts.map(host => <li key={host.endpoint.id}>{sharingHostMessage(host)}</li>)}</ul>
           <div className="max-h-64 overflow-auto rounded border p-2" aria-label="Provider availability">
             {comparisonProviders.map(exemplar => <div key={JSON.stringify(exemplar.configIdentity ? ['custom', exemplar.configIdentity.name, exemplar.configIdentity.baseUrl, exemplar.configIdentity.modelIds] : ['provider', exemplar.providerId])} className="py-1">
               <strong>{exemplar.configIdentity?.name ?? exemplar.providerId}</strong>
@@ -108,20 +118,28 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
             </div>)}
             {!hosts.some(host => host.providers.length) ? <p>No provider credentials were reported. Add a key or sign in on a Kiln, then compare again.</p> : null}
           </div>
-          <label className="flex items-center gap-2">Source Kiln<select aria-label="Provider sharing source" className="min-w-0 rounded border bg-background p-1" disabled={busy} value={source} onChange={event => { setSource(event.target.value); setSelected(new Set()); setExperimental(false); }}>
+          </details>
+          {step === 0 ? <><label className="flex flex-wrap items-center gap-2">Source Kiln<select aria-label="Provider sharing source" className="min-w-0 rounded border bg-background p-1" disabled={busy} value={source} onChange={event => { setSource(event.target.value); setSelected(new Set()); setExperimental(false); setDestination(''); }}>
             <option value="">Choose a source</option>{hosts.filter(host => host.state === 'ready').map(host => <option value={host.endpoint.id} key={host.endpoint.id}>{host.endpoint.label}</option>)}
           </select></label>
-          {sourceHost ? <>
-            <p className="text-muted-foreground">Credentials go directly from {sourceHost.endpoint.label} ({sourceHost.endpoint.url}) to the selected Kilns. Anyone able to use those Kilns can use these provider accounts. Nothing is selected automatically.</p>
+          {sourceHost ? <p className="break-all text-muted-foreground">{sourceHost.endpoint.label} · {sourceHost.endpoint.url}</p> : null}
+          <Button size="xs" disabled={busy || !sourceHost} onClick={() => setStep(1)}>Continue to destination</Button></> : null}
+          {step === 1 ? <><label className="flex flex-wrap items-center gap-2">Destination Kiln<select aria-label="Provider sharing destination" className="min-w-0 max-w-full rounded border bg-background p-1" disabled={busy} value={destination} onChange={event => { setDestination(event.target.value); setSelected(new Set()); setExperimental(false); }}>
+            <option value="">Choose a destination</option>{hosts.filter(host => host.endpoint.id !== source).map(host => <option value={host.endpoint.id} key={host.endpoint.id}>{host.endpoint.label}</option>)}
+          </select></label>
+          {destinationHost ? <><p className="break-all text-muted-foreground">Kiln address: {destinationHost.endpoint.url}</p><p>{sharingHostMessage(destinationHost)}</p></> : null}
+          <Button size="xs" disabled={busy || !destinationHost || destinationHost.state !== 'ready'} onClick={() => setStep(2)}>Continue to providers</Button></> : null}
+          {sourceHost && (step === 2 || step === 3) ? <>
+            <p className="break-words text-muted-foreground">Credentials go directly from {sourceHost.endpoint.label} ({sourceHost.endpoint.url}) to {destinationHost?.endpoint.label} ({destinationHost?.endpoint.url}). Anyone able to use those Kilns can use these provider accounts. Nothing is selected automatically.</p>
             {sourceProviders.some(provider => provider.configIdentity) ? <details className="rounded border p-2"><summary className="cursor-pointer">Review custom provider configurations on {sourceHost.endpoint.label}</summary>
               {sourceProviders.filter(provider => provider.configIdentity).map(provider => <ConfigReview key={provider.providerId} config={provider.configIdentity!} label={`Source configuration for ${provider.providerId}`} />)}
             </details> : null}
-            {sourceProviders.some(experimentalSignIn) ? <div className="rounded border p-2">
+            {step === 2 && sourceProviders.some(experimentalSignIn) ? <div className="rounded border p-2">
               <label className="flex items-start gap-2"><input type="checkbox" checked={experimental} disabled={busy} onChange={event => { setExperimental(event.target.checked); setSelected(new Set()); }} />Enable experimental Codex and Antigravity sign-in sharing</label>
-              <p className="mt-1 text-muted-foreground">These sign-ins may stop working on either Kiln when their tokens refresh. Sharing can conflict with provider account policies. Signing in separately on each Kiln is safer. Enable this only if you accept that risk; then select each destination below.</p>
+              <p className="mt-1 text-muted-foreground">Independent Kilns refresh sign-in tokens separately, which can sign out either Kiln or conflict with provider policies. Signing in on each Kiln separately is safer. Enable only if you accept this risk, then select the sign-ins to share.</p>
             </div> : null}
             {!sourceProviders.length ? <p>{sourceHost.endpoint.label} has no provider credentials to share. Add a key or sign in there, then compare again.</p> : null}
-            {hosts.filter(host => host.endpoint.id !== source).map(host => <fieldset key={host.endpoint.id} disabled={busy} className="rounded border p-2">
+            {step === 2 ? hosts.filter(host => host.endpoint.id === destination).map(host => <fieldset key={host.endpoint.id} disabled={busy} className="rounded border p-2">
               <legend className="px-1 font-medium">{host.endpoint.label}</legend>
               <p className="mb-1 break-all text-muted-foreground">Kiln address: {host.endpoint.url || 'No address configured'}</p>
               {sourceProviders.map(provider => {
@@ -137,10 +155,20 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
                   </div> : null}
                 </div>;
               })}
-            </fieldset>)}
-            <p className="text-muted-foreground">Custom providers require the exact same reviewed configuration on both Kilns. A missing or changed binding is skipped; sharing never installs configuration.</p>
-            <Button size="xs" disabled={busy || !targets.length} onClick={() => void share()}>{busy ? <Loader2 className="animate-spin" /> : null}Share {targets.reduce((count, target) => count + target.providers.length, 0)} reviewed selections</Button>
+            </fieldset>) : null}
+            <p className="text-muted-foreground">Custom providers require the exact same provider name, base URL and model IDs on both Kilns. Missing or changed configurations are skipped; sharing never installs configuration.</p>
+            {step === 2 ? <Button size="xs" disabled={busy || !targets.length} onClick={() => setStep(3)}>Review {count} selections</Button> : <>
+              <p className="font-medium">Share {count} {count === 1 ? 'credential' : 'credentials'} with {destinationHost?.endpoint.label}</p>
+              <p className="text-muted-foreground">Scope: anyone able to use the destination Kiln can use these provider accounts. Only missing credentials are added. No connections, provider configurations or model defaults are changed.</p>
+              <ul aria-label="Reviewed providers" className="space-y-2">{targets.flatMap(target => target.providers.map(provider => <li key={provider.providerId}>
+                <strong>{provider.providerId}</strong> · {provider.type === 'oauth' ? 'Experimental subscription sign-in — token refresh may break either sign-in' : 'Stored API key'}
+                {provider.configIdentity ? <ConfigReview config={provider.configIdentity} label={'Reviewed source configuration for ' + provider.providerId} /> : null}
+                {provider.destinationConfigIdentity ? <ConfigReview config={provider.destinationConfigIdentity} label={'Reviewed destination configuration for ' + provider.providerId} /> : null}
+              </li>))}</ul>
+              <Button size="xs" className="self-start max-w-full whitespace-normal h-auto min-h-9" disabled={busy || !targets.length} onClick={() => void share()}>{busy ? <Loader2 className="animate-spin" /> : null}Share {count} reviewed selections</Button>
+            </>}
           </> : null}
+          {step > 0 ? <Button size="xs" variant="outline" className="self-start" disabled={busy} onClick={() => setStep(step - 1)}>Back</Button> : null}
         </> : null}
       </>}
     </div> : null}

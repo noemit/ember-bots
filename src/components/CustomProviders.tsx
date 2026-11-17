@@ -72,7 +72,7 @@ export default function CustomProviders({ endpointId, hostName, onChange }: {
     }}>
       <label className="space-y-1 text-xs">Display name<Input required maxLength={100} value={name} disabled={busy} onChange={event => setName(event.target.value)} placeholder="Spark · DeepSeek" /></label>
       <label className="space-y-1 text-xs">Base URL<Input required type="url" value={baseUrl} disabled={busy} onChange={event => setBaseUrl(event.target.value)} placeholder="http://spark:8000/v1" /></label>
-      <p className="text-xs text-muted-foreground">Include the API path, usually /v1. HTTP and HTTPS hosts, ports and paths are supported. HTTP is unencrypted; use it only on a network you trust.</p>
+      <p className="text-xs text-muted-foreground">Include the API path (usually /v1). Use plain HTTP only on a trusted private network.</p>
       {savedKey ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={replaceKey} disabled={busy} onChange={event => { setReplaceKey(event.target.checked); setApiKey(''); }} />Replace or remove saved API key</label> : null}
       {!savedKey || replaceKey ? <label className="space-y-1 text-xs">API key (optional)<SecretInput value={apiKey} disabled={busy} onChange={event => setApiKey(event.target.value)} placeholder="Leave empty for a keyless server" /></label> : <p className="text-xs text-muted-foreground">The saved key stays on {hostName}. If you change the base URL, re-enter the key or choose keyless access.</p>}
       <Button type="button" size="xs" variant="secondary" disabled={busy || !baseUrl.trim()} onClick={() => void run(async () => {
@@ -83,7 +83,7 @@ export default function CustomProviders({ endpointId, hostName, onChange }: {
         else setIds(current => [...new Set([...current.split('\n').filter(Boolean), ...result.modelIds])].join('\n'));
       })}>{busy ? 'Waiting for Kiln…' : 'Discover models'}</Button>
       <label className="space-y-1 text-xs">Model IDs (one per line)<textarea className="min-h-20 w-full rounded-md border bg-transparent p-2 text-xs" required value={ids} disabled={busy} onChange={event => setIds(event.target.value)} placeholder="deepseek-v4.1-flash" /></label>
-      <p className="text-xs text-muted-foreground">Discovery is optional. Enter the exact model ID your server accepts even if discovery fails. Models use standard OpenAI chat completions; context defaults to 8k and text input.</p>
+      <p className="text-xs text-muted-foreground">Enter the exact model IDs your server accepts, or use Discover models to fetch them. Models use standard OpenAI chat completions; context defaults to 8k and text input.</p>
       <div className="flex gap-2"><Button type="submit" size="xs" disabled={busy || !name.trim() || !baseUrl.trim() || !ids.trim()}>Save custom provider</Button><Button type="button" size="xs" variant="ghost" disabled={busy} onClick={() => { generation.current++; setEditing(null); setApiKey(''); setError(''); }}>Cancel</Button></div>
     </form> : null}
     {error ? <p role="status" className="text-xs text-destructive">{error}</p> : null}

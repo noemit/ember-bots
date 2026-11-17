@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('Add instance asks where, keeps help optional, tests a draft and saves desktop gate credentials', async ({ page }) => {
+test('Add connection asks where, keeps help optional, tests a draft and saves desktop gate credentials', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => Boolean(window.ember?.piRequest));
   await page.evaluate(() => {
@@ -8,11 +8,11 @@ test('Add instance asks where, keeps help optional, tests a draft and saves desk
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
-  const area = page.getByRole('region', { name: 'Add instance', exact: true });
-  await expect(area.getByRole('group', { name: 'Where will Kiln run?' })).toBeVisible();
+  const area = page.getByRole('region', { name: 'Add connection', exact: true });
+  await expect(area.getByRole('group', { name: 'Where is Kiln running?' })).toBeVisible();
   await expect(area.getByRole('textbox', { name: 'Kiln URL', exact: true })).toHaveCount(0);
-  await area.getByRole('button', { name: 'On another computer', exact: true }).click();
-  await area.getByLabel('Instance name', { exact: true }).fill('Test Tower');
+  await area.getByRole('button', { name: 'On another computer or container', exact: true }).click();
+  await area.getByLabel('Computer or container name', { exact: true }).fill('Test Tower');
   await area.getByLabel('Kiln URL', { exact: true }).fill('https://kiln.example.test');
   await area.getByLabel('Bearer token', { exact: true }).fill('synthetic-kiln-token');
   await expect(area.getByLabel('Cloudflare Access client secret')).toBeHidden();
@@ -22,8 +22,8 @@ test('Add instance asks where, keeps help optional, tests a draft and saves desk
   await expect(area.getByLabel('Cloudflare Access client secret')).toHaveCSS('-webkit-text-security', 'disc');
   await area.getByRole('button', { name: 'Test connection', exact: true }).click();
   await expect(area.getByRole('status')).toContainText('Test Tower');
-  await expect(area.getByRole('status')).toContainText('accepted the connection');
-  await area.getByRole('button', { name: 'Add instance', exact: true }).click();
+  await expect(area.getByRole('status')).toContainText('accepted the token');
+  await area.getByRole('button', { name: 'Add connection', exact: true }).click();
   // This is the in-memory dev fixture; real desktop secrets remain OS-encrypted and masked.
   await expect.poll(() => page.evaluate(async () => (await window.ember.getSettings()).piEndpoints.find(e => e.label === 'Test Tower')?.access?.clientSecret)).toBe('synthetic-access-secret');
   await page.screenshot({ path: '/tmp/ember-kiln-sharing-add.png', fullPage: true });
@@ -91,8 +91,8 @@ test('browser remote capability never invites endpoint secret entry or editing',
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
-  const area = page.getByRole('region', { name: 'Add instance', exact: true });
-  await area.getByRole('button', { name: 'On another computer', exact: true }).click();
+  const area = page.getByRole('region', { name: 'Add connection', exact: true });
+  await area.getByRole('button', { name: 'On another computer or container', exact: true }).click();
   await expect(area).toContainText('Open Ember on the desktop');
   await expect(area.getByRole('textbox', { name: /Bearer token|Cloudflare Access/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Edit ember-harness/ })).toHaveCount(0);

@@ -5,11 +5,11 @@ async function settings(page: Page) {
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
 }
-const add = (page: Page) => page.getByRole('region', { name: 'Add instance', exact: true });
+const add = (page: Page) => page.getByRole('region', { name: 'Add connection', exact: true });
 async function remoteDraft(page: Page) {
   const area = add(page);
-  await area.getByRole('button', { name: 'On another computer', exact: true }).click();
-  await area.getByLabel('Instance name', { exact: true }).fill('Studio Mac');
+  await area.getByRole('button', { name: 'On another computer or container', exact: true }).click();
+  await area.getByLabel('Computer or container name', { exact: true }).fill('Studio Mac');
   await area.getByLabel('Kiln URL', { exact: true }).fill('https://kiln.example.test');
   await area.getByLabel('Bearer token', { exact: true }).fill('synthetic-private-token');
   return area;
@@ -24,8 +24,8 @@ test('basic remote flow needs no network classification or advanced fields', asy
   await area.getByRole('button', { name: 'Test connection', exact: true }).click();
   await expect(area.getByRole('status')).toContainText('Studio Mac answered as Kiln');
   await page.screenshot({ path: '/tmp/ember-instance-basic.png' });
-  await area.getByRole('button', { name: 'Add instance', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Connected instances' })).toContainText('Studio Mac');
+  await area.getByRole('button', { name: 'Add connection', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Computers and containers' })).toContainText('Studio Mac');
 });
 
 test('help and advanced Access credentials are progressive and removable', async ({ page }) => {
@@ -88,7 +88,7 @@ test('remote browser cannot change host sharing or connection credentials', asyn
   await page.getByRole('tab', { name: 'Remote access', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Share this Kiln' })).toContainText('remote browser cannot enable');
   await page.getByRole('tab', { name: 'Computers and Containers', exact: true }).click();
-  await add(page).getByRole('button', { name: 'On another computer', exact: true }).click();
+  await add(page).getByRole('button', { name: 'On another computer or container', exact: true }).click();
   await expect(add(page)).toContainText('Open Ember on the desktop');
   await expect(add(page).getByLabel('Bearer token')).toHaveCount(0);
 });

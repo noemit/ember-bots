@@ -20,9 +20,9 @@ test('connection alignment stays separate from provider sharing and discovered c
   });
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
-  const area = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Align all my instances' }) });
+  const area = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Align all my connections' }) });
   await area.getByRole('button', { name: 'Review', exact: true }).click();
-  await area.getByRole('button', { name: 'Review instances', exact: true }).click();
+  await area.getByRole('button', { name: 'Review connections', exact: true }).click();
   await expect(area).toContainText('1 stored API keys');
   await expect(area.getByRole('checkbox')).toHaveCount(0);
   await expect(area.getByRole('button', { name: 'Review and share' })).toBeVisible();
@@ -33,9 +33,9 @@ test('connection alignment stays separate from provider sharing and discovered c
   expect(await calls()).not.toContain('/alignment/share');
   await expect.poll(() => page.evaluate(() => window.ember.getSettings().then(s => s.piEndpoints.some(e => e.label === 'Test remote')))).toBe(true);
   await expect(area).not.toContainText('synthetic-test-token');
-  await area.getByRole('button', { name: 'Review instances', exact: true }).click();
+  await area.getByRole('button', { name: 'Review connections', exact: true }).click();
   await area.getByRole('button', { name: 'Review and share' }).click();
-  await expect(area).toContainText('The comparison reads metadata only');
+  await expect(area).toContainText('Ember reads metadata only');
   expect(await calls()).not.toContain('/alignment/share');
   await page.screenshot({ path: '/tmp/ember-instance-alignment.png' });
 });

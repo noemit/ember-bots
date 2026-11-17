@@ -49,27 +49,27 @@ export default function EndpointsSettings({ endpoints, instances, onChange, onRe
     } finally { setTesting(null); }
   };
   return <div className="flex flex-col gap-4">
-    <section aria-label="Add instance" className="flex flex-col gap-3">
+    <section aria-label="Add connection" className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Add computer or container</h3>
-      <div className="flex gap-2" role="group" aria-label="Where will Kiln run?">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Where is Kiln running?">
         <Button size="sm" variant={location === 'local' ? 'secondary' : 'outline'} aria-pressed={location === 'local'} onClick={() => setLocation('local')}>On this computer</Button>
-        <Button size="sm" variant={location === 'remote' ? 'secondary' : 'outline'} aria-pressed={location === 'remote'} onClick={() => setLocation('remote')}>On another computer</Button>
+        <Button size="sm" variant={location === 'remote' ? 'secondary' : 'outline'} aria-pressed={location === 'remote'} onClick={() => setLocation('remote')}>On another computer or container</Button>
       </div>
       {location === 'local' ? <>
         <p className="text-xs text-muted-foreground">Ember includes a local Kiln. No network setup is needed. It starts with Ember and stops when you quit Ember, not when you close its window on macOS.</p>
         <details className="text-xs"><summary className="cursor-pointer py-2">Connect a separate local Kiln</summary><p className="mb-2 text-muted-foreground">A Tinder-managed Kiln has its own lifetime. Use its local URL and bearer token; quitting Ember leaves it running.</p><Button size="sm" variant="outline" onClick={() => { changeDraft({ ...empty, url: 'http://127.0.0.1:3003' }); setLocation('remote'); }}>Enter local connection details</Button></details>
       </> : <>
-        <p className="text-xs text-muted-foreground">Enter the URL and bearer token from the computer running Kiln. In Ember there, use Share this Kiln. For Tinder, ask its owner for connection details. Adding a connection does not change that host’s network.</p>
+        <p className="text-xs text-muted-foreground">Enter the Kiln URL and bearer token. In the other Ember, open Settings → Remote access → Share this Kiln. For Tinder, ask its owner for connection details. Connecting never changes that host’s network.</p>
         {!desktop ? <p className="text-xs">Open Ember on the desktop to add, edit or test connections. This browser cannot read or change their credentials.</p> : <>
           {editing && <p className="text-xs font-medium">Editing connection</p>}
           <EndpointForm draft={draft} onChange={changeDraft} />
-          <div className="flex gap-2"><Button size="sm" variant="outline" disabled={testing !== null} onClick={() => void test(draft, 'draft')}>{testing === 'draft' ? 'Testing connection…' : 'Test connection'}</Button><Button size="sm" onClick={save}>{editing ? 'Save instance' : 'Add instance'}</Button>{editing && <Button size="sm" variant="ghost" onClick={() => { changeDraft(empty); setEditing(null); }}>Cancel edit</Button>}</div>
+          <div className="flex gap-2"><Button size="sm" variant="outline" disabled={testing !== null} onClick={() => void test(draft, 'draft')}>{testing === 'draft' ? 'Testing connection…' : 'Test connection'}</Button><Button size="sm" onClick={save}>{editing ? 'Save connection' : 'Add connection'}</Button>{editing && <Button size="sm" variant="ghost" onClick={() => { changeDraft(empty); setEditing(null); }}>Cancel edit</Button>}</div>
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
           {results.draft && <p role="status" className="text-xs">{results.draft}</p>}
         </>}
       </>}
     </section>
-    {endpoints.length > 0 && <section aria-label="Connected instances" className="flex flex-col gap-2 border-t pt-3">
+    {endpoints.length > 0 && <section aria-label="Computers and containers" className="flex flex-col gap-2 border-t pt-3">
       <h3 className="text-xs font-medium">Computers and containers</h3>
       {endpoints.map(endpoint => <div data-endpoint={endpoint.id} key={endpoint.id} className="rounded-lg border p-3 text-xs">
         <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{endpoint.label}</span><span className="text-muted-foreground">{({ ready: 'Connected', checking: 'Checking connection', unreachable: 'Not answering', unsupported: 'Needs a compatible Kiln' })[instances.find(i => i.id === endpoint.id)?.status ?? 'checking']}</span>

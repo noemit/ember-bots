@@ -63,14 +63,14 @@ export const experimentalSignIn = (provider: SharingProvider): boolean =>
 export function sharingBlock(provider: SharingProvider, destination: SharingHost, experimental: boolean): string | null {
   if (destination.state === 'unsupported') return `${destination.endpoint.label} needs a newer Kiln. Update it, then compare again.`;
   if (destination.state !== 'ready') return `${destination.endpoint.label} did not answer. Check its connection, then compare again.`;
-  if (!portableConnection(destination.endpoint)) return 'This destination needs a private-network or HTTPS address and a saved connection token. Edit it in Instances, then compare again.';
+  if (!portableConnection(destination.endpoint)) return 'This destination needs a private-network or HTTPS address and a saved connection token. Edit it in Computers and Containers, then compare again.';
   const matches = destinationProviders(provider, destination);
   if (provider.configIdentity && matches.length > 1) return `${destination.endpoint.label} has multiple matching custom provider definitions. Review those definitions until only one matches, then compare again. Sharing does not choose a local provider for you.`;
   const existing = matches[0];
   if (existing?.hasCredential) return 'Already available — the existing credential or environment key will be kept.';
   if (((provider.providerId.startsWith('custom-') || provider.providerId === 'orcarouter') && !provider.configIdentity) || (provider.configIdentity && !existing?.configIdentity)) return 'Custom provider configuration differs or is missing. Use the same provider definition on both Kilns, then compare again. Sharing does not install configuration.';
   if (!provider.hasCredential || !provider.shareable || provider.source === 'environment') return 'This credential cannot be exported. Add a key or sign in directly on the destination.';
-  if (provider.type === 'oauth' && (!experimentalSignIn(provider) || !experimental)) return 'Sign in on the destination, or enable experimental sharing for a supported sign-in below.';
+  if (provider.type === 'oauth' && (!experimentalSignIn(provider) || !experimental)) return 'Sign in on the destination, or enable experimental sharing for a supported sign-in above.';
   return null;
 }
 
@@ -92,6 +92,6 @@ export const selectionKey = (host: string, provider: string): string => JSON.str
 
 export function sharingHostMessage(host: SharingHost): string {
   if (host.state === 'unsupported') return `${host.endpoint.label} does not support reviewed provider sharing yet. Update Kiln there, then compare again.`;
-  if (host.state === 'unavailable') return `${host.endpoint.label} did not answer. Check its connection in Instances, then compare again.`;
+  if (host.state === 'unavailable') return `${host.endpoint.label} did not answer. Check its connection in Computers and Containers, then compare again.`;
   return `${host.endpoint.label} answered. Provider metadata is ready to review.`;
 }

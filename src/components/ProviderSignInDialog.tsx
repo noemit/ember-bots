@@ -185,7 +185,7 @@ export default function ProviderSignInDialog({
     const sent = await piAnswerProviderLogin(endpointId, providerId, verdict.value);
     setSendingAnswer(false);
     if (!sent.ok) {
-      setAnswerProblem(sent.error ?? `${providerName}’s host did not take that answer. Check the address and try again.`);
+      setAnswerProblem(sent.error ?? `${providerName}’s Kiln did not accept that answer. Check the sign-in instructions and try again.`);
       return;
     }
     // The host took it; the question it belonged to is answered until a new one arrives.
@@ -235,7 +235,7 @@ export default function ProviderSignInDialog({
           <DialogTitle>Sign in to {providerName}</DialogTitle>
           <DialogDescription>
             {done
-              ? 'Signed in. Kiln saved the connection on its computer.'
+              ? 'Signed in. Kiln saved the credential.'
               : error ? 'Sign-in did not finish. Use Try again below to start a new attempt.'
               : starting ? `Connecting to ${providerName}…`
               : question ? 'Finish signing in below. Kiln needs one thing from you to complete it.'

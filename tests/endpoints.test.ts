@@ -85,7 +85,7 @@ describe('connection result copy', () => {
       const text = endpointTestCopy('Studio Mac', outcome);
       expect(text).toContain('Studio Mac');
       expect(text).not.toMatch(/HTTP [0-9]|undefined|null|stack|!/);
-      expect(text).toMatch(outcome === 'ready' ? /add this instance/ : /test again/);
+      expect(text).toMatch(outcome === 'ready' ? /answered.*accepted.*token/ : /test again/);
     }
     expect(endpointTestCopy('Studio Mac', 'wrong-service')).toContain('browser UI');
     expect(endpointTestCopy('Studio Mac', 'tls-error')).toContain('certificate');

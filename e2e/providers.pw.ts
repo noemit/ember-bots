@@ -18,9 +18,9 @@ const saveKey = async (page: Page, provider: string, key: string) => {
   await page.getByRole('dialog', { name: 'Add provider', exact: true }).getByRole('button', { name: new RegExp(provider) }).click();
   const field = page.getByRole('textbox', { name: `API key for ${provider}` });
   await field.fill(key);
-  await field.locator('..').getByRole('button', { name: 'Save', exact: true }).click();
+  await field.locator('..').getByRole('button', { name: 'Save key', exact: true }).click();
   // A saved key offers the instance-default decision; that is not this test's subject.
-  await page.getByRole('region', { name: 'Confirm instance default' }).getByRole('button', { name: 'Keep current default' }).click();
+  await page.getByRole('region', { name: 'Default model for new chats' }).getByRole('button', { name: 'Keep current default' }).click();
   await expect(field).toHaveValue('');
 };
 
@@ -104,12 +104,12 @@ test('switching computers during a pending save clears scoped controls and ignor
   });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Computers and Containers', exact: true }).click();
-  const connection = page.getByRole('region', { name: 'Add instance', exact: true });
-  await connection.getByRole('button', { name: 'On another computer', exact: true }).click();
-  await connection.getByLabel('Instance name', { exact: true }).fill('Computer B');
+  const connection = page.getByRole('region', { name: 'Add connection', exact: true });
+  await connection.getByRole('button', { name: 'On another computer or container', exact: true }).click();
+  await connection.getByLabel('Computer or container name', { exact: true }).fill('Computer B');
   await connection.getByLabel('Kiln URL', { exact: true }).fill('https://computer-b.example.test');
   await connection.getByLabel('Bearer token', { exact: true }).fill('synthetic-only');
-  await connection.getByRole('button', { name: 'Add instance', exact: true }).click();
+  await connection.getByRole('button', { name: 'Add connection', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
   await page.getByRole('button', { name: 'Add provider', exact: true }).click();
   const chooser = page.getByRole('dialog', { name: 'Add provider', exact: true });
@@ -119,19 +119,19 @@ test('switching computers during a pending save clears scoped controls and ignor
   await expect(field).toBeFocused();
   await expect(field).toBeInViewport();
   await page.keyboard.type('synthetic-key-for-A');
-  await field.locator('..').getByRole('button', { name: 'Save', exact: true }).click();
+  await field.locator('..').getByRole('button', { name: 'Save key', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { providerHostProbe: { pending: boolean } }).providerHostProbe.pending)).toBe(true);
-  await page.getByRole('combobox', { name: 'Computer for providers', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Computer or container for providers', exact: true }).click();
   await page.getByRole('option', { name: /^Computer B/ }).click();
   await expect(field).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Confirm instance default' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Default model for new chats' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Manage Shared Provider', exact: true }).click();
   await expect(field).toHaveValue('');
   await field.fill('synthetic-key-for-B');
-  await expect(field.locator('..').getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await expect(field.locator('..').getByRole('button', { name: 'Save key', exact: true })).toBeEnabled();
   await page.evaluate(() => (window as unknown as { providerHostProbe: { release: () => void } }).providerHostProbe.release());
   await expect(field).toHaveValue('synthetic-key-for-B');
-  await expect(field.locator('..').getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await expect(page.getByRole('region', { name: 'Confirm instance default' })).toHaveCount(0);
+  await expect(field.locator('..').getByRole('button', { name: 'Save key', exact: true })).toBeEnabled();
+  await expect(page.getByRole('region', { name: 'Default model for new chats' })).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toContainText('Model B');
 });

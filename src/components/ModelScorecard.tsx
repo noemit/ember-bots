@@ -32,8 +32,8 @@ export default function ModelScorecard({ model, instanceId, directory }: {
     <div className="flex flex-wrap gap-2">
       <select aria-label="Experience scope" value={scope} onChange={(event) => setScope(event.target.value)} className="min-w-0 rounded border bg-background p-1 text-xs">
         {directory ? <option value="project">This project</option> : null}
-        {instanceId ? <option value="instance">This instance</option> : null}
-        <option value="all">All observed instances</option>
+        {instanceId ? <option value="instance">This connection</option> : null}
+        <option value="all">All observed connections</option>
       </select>
       <select aria-label="Experience date range" value={days} onChange={(event) => setDays(Number(event.target.value))} className="rounded border bg-background p-1 text-xs">
         <option value={30}>Last 30 days</option><option value={90}>Last 90 days</option>
@@ -41,7 +41,7 @@ export default function ModelScorecard({ model, instanceId, directory }: {
     </div>
     <p className="text-[11px] text-muted-foreground">{stats.count} observed model calls · {model.variant || 'default / unknown effort'}{stats.count < 5 ? ' · limited data' : ''}</p>
     {facts.map(([label, value]) => <div key={label} className="flex justify-between gap-3 text-[11px]"><span className="text-muted-foreground">{label}</span><span className="text-right tabular-nums">{value}</span></div>)}
-    <p className="text-[10px] text-muted-foreground">Only sessions seen by Ember. Calls are not whole tasks; durations can include tool/wait time. Ratings are yours, not an automatic quality score.</p>
+    <p className="text-[10px] text-muted-foreground">Only sessions seen by Ember. Calls are not whole tasks; durations can include tool/wait time.</p>
     {error ? <div role="alert" className="text-xs text-destructive">{error} <button onClick={() => void retryModelStats()} className="underline">Retry</button></div> : null}
   </section>;
 }
@@ -52,7 +52,7 @@ export function ModelExperienceSettings() {
   const [error, setError] = React.useState<string | null>(null);
   return <section className="flex flex-col gap-2 rounded-lg border p-3">
     <h3 className="text-xs font-semibold">Model experience</h3>
-    <p className="text-[11px] text-muted-foreground">Stored on this Ember host: usage metadata only — no conversation text. Up to 10,000 observations from the last 90 days. Visible in the model picker.</p>
+    <p className="text-[11px] text-muted-foreground">Stores call duration, token rate and cost on this Ember for stats in the model picker. Up to 10,000 calls from the last 90 days; never stores conversation text.</p>
     <Button size="sm" variant="outline" disabled={busy} className="self-start" onClick={() => {
       if (!confirm) { setConfirm(true); return; }
       setBusy(true);

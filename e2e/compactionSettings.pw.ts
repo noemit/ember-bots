@@ -32,7 +32,7 @@ test('production compaction component saves host-owned targets, resets and repor
     w.refreshCompactionSettings = (instances = [{ id: 'test-kiln', kind: 'pi', label: 'Tower', status: 'ready', attachable: true }]) => root.render(createElement(Component, { instances }));
     w.refreshCompactionSettings();
   });
-  await expect(page.getByText('Using Pi defaults', { exact: true })).toBeVisible();
+  await expect(page.getByText('Using default targets', { exact: true })).toBeVisible();
   await page.getByLabel('Compact at tokens', { exact: true }).fill('71000');
   const loads = await page.evaluate(() => (window as TestWindow).compactionTest.requests.length);
   await page.evaluate(() => (window as TestWindow).refreshCompactionSettings([{ id: 'test-kiln', kind: 'pi', label: 'Tower', status: 'unreachable', attachable: false }]));
@@ -44,11 +44,11 @@ test('production compaction component saves host-owned targets, resets and repor
   await expect(page.getByRole('status')).toContainText('Saved on Tower');
   expect(await page.evaluate(() => (window as TestWindow).compactionTest.requests.at(-1))).toMatchObject({ id: 'test-kiln', path: '/settings/compaction', init: { method: 'PUT', body: { preference: { compactAtTokens: 70000, keepRecentTokens: 5000 } } } });
   await page.screenshot({ path: '/tmp/ember-compaction-settings.png', fullPage: true });
-  await page.getByRole('button', { name: 'Reset to Pi defaults' }).click();
-  await expect(page.getByText('Using Pi defaults', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reset to defaults' }).click();
+  await expect(page.getByText('Using default targets', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as TestWindow).compactionTest.requests.at(-1))).toMatchObject({ init: { method: 'PUT', body: { preference: null } } });
   await page.getByRole('button', { name: 'Reload', exact: true }).click();
-  await expect(page.getByText('Using Pi defaults', { exact: true })).toBeVisible();
+  await expect(page.getByText('Using default targets', { exact: true })).toBeVisible();
   await page.evaluate(() => { (window as TestWindow).compactionTest.hold = true; });
   await page.getByRole('button', { name: 'Save compaction settings' }).click();
   await page.evaluate(() => {

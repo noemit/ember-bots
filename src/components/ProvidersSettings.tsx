@@ -114,7 +114,7 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
       setProviders(null);
       setDefaultModel(null);
       notifyCatalog(id, []);
-      setError('Kiln did not return its providers. Check the connection in Computers and Containers, then use Refresh providers above.');
+      setError((endpoints.find(endpoint => endpoint.id === id)?.label ?? 'This Kiln') + ' did not return its providers. Check its connection in Computers and Containers, then use Refresh providers above.');
       setLoading(false);
       return;
     }
@@ -122,7 +122,7 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
     notifyCatalog(id, catalog.providers);
     setDefaultModel(catalog.default ? `${catalog.default.provider} / ${catalog.default.modelId}` : null);
     setLoading(false);
-  }, [notifyCatalog]);
+  }, [notifyCatalog, endpoints]);
 
   React.useEffect(() => {
     void load(endpointId);
@@ -198,8 +198,8 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
       <div className="flex flex-wrap items-center gap-2 border-b pb-5">
         <span className="text-xs text-muted-foreground">Providers on</span>
         <Select value={endpointId} onValueChange={onEndpointChange}>
-          <SelectTrigger size="sm" className="min-w-0 flex-1 text-xs" aria-label="Computer for providers">
-            <SelectValue placeholder="Select a host" />
+          <SelectTrigger size="sm" className="min-w-0 flex-1 text-xs" aria-label="Computer or container for providers">
+            <SelectValue placeholder="Select a computer or container" />
           </SelectTrigger>
           <SelectContent>
             {endpoints.map((endpoint) => {
@@ -229,8 +229,8 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
         <p className="text-[11px] text-muted-foreground">New chats default to {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : defaultModel}.</p>
       ) : null}
       {confirmation?.endpointId === endpointId && onDefaultChange ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-highlight/30 bg-highlight/5 p-3" role="region" aria-label="Confirm instance default">
-          <p className="text-xs">{confirmation.providerName} is connected. Which model should new chats on {endpoints.find((endpoint) => endpoint.id === endpointId)?.label ?? 'this instance'} use?</p>
+        <div className="flex flex-col gap-2 rounded-lg border border-highlight/30 bg-highlight/5 p-3" role="region" aria-label="Default model for new chats">
+          <p className="text-xs">{confirmation.providerName} is connected. Which model should new chats on {endpoints.find((endpoint) => endpoint.id === endpointId)?.label ?? 'this computer'} use?</p>
           <p className="text-xs text-muted-foreground">Current default: {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : defaultModel ?? 'Server default'}</p>
           <div className="flex flex-wrap gap-2">
             <Button size="xs" variant="secondary" onClick={() => { setConfirmation(null); setChoosingDefault(false); }}>Keep current default</Button>
@@ -260,14 +260,14 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
       ) : null}
 
       {providers && providers.length === 0 ? (
-        <p className="text-[12px] text-muted-foreground">This ember-harness reports no providers.</p>
+        <p className="text-[12px] text-muted-foreground">{endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'This Kiln'} reported no providers. Use Refresh providers above, or check its connection in Computers and Containers.</p>
       ) : null}
 
       {inventory ? <div className="flex items-center justify-between gap-3 border-t pt-5">
         <div><h3 className="text-base font-semibold">Your providers</h3><p className="mt-1 text-xs text-muted-foreground">{providers?.filter(provider => provider.credential).length ?? 0} with saved credentials</p></div>
         <Button disabled={loading || !providers} onClick={() => { focusChosenCredential.current = false; setAdding(true); }}>Add provider</Button>
       </div> : null}
-      {inventory && providers && !providers.some(provider => provider.credential) ? <p className="rounded-lg border p-5 text-sm text-muted-foreground">No saved provider credentials on this computer yet. Choose Add provider to connect one.</p> : null}
+      {inventory && providers && !providers.some(provider => provider.credential) ? <p className="rounded-lg border p-5 text-sm text-muted-foreground">No saved provider credentials on {endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this computer'} yet. Choose Add provider to connect one.</p> : null}
       {providers?.filter(provider => !provider.custom && provider.id !== 'ollama' && (!inventory || !!provider.credential || managing === provider.id)).map((provider) => {
         const draft = drafts[provider.id] ?? '';
         const isBusy = busy === provider.id;
@@ -283,7 +283,7 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
                   {credentialLabel[provider.credential]} saved
                 </span>
               ) : (
-                <span className="flex-none text-[10.5px] text-muted-foreground">no credential</span>
+                <span className="flex-none text-[10.5px] text-muted-foreground">No saved credential</span>
               )}
               {inventory ? <Button size="sm" variant="outline" aria-expanded={managing === provider.id} onClick={() => { setManaging(managing === provider.id ? null : provider.id); setRemoving(null); }} aria-label={'Manage ' + provider.name}>Manage</Button> : null}
               {provider.credential && (!inventory || managing === provider.id) ? (
@@ -330,19 +330,19 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
                     void save(provider);
                   }
                 }}
-                placeholder={provider.credential === 'oauth' ? 'Or paste an API key instead' : 'Paste API key'}
+                placeholder={provider.credential === 'oauth' ? 'Or paste an API key instead' : provider.credential === 'api_key' ? 'Paste a new API key to replace' : 'Paste API key'}
                 autoComplete="off"
                 aria-label={`API key for ${provider.name}`}
                 className="h-8 flex-1 text-xs"
               />
               <Button size="xs" variant="secondary" onClick={() => void save(provider)} disabled={isBusy || !draft.trim()}>
-                Save
+                Save key
               </Button>
             </div>
             {removing === provider.id ? <div className="mt-3 space-y-2 rounded border p-3 text-xs" role="group" aria-label={'Remove ' + provider.name}>
-              <p>Remove {provider.name}’s saved credential from {endpoints.find(endpoint => endpoint.id === endpointId)?.label}? Chat history and other computers stay unchanged.</p>
+              <p>Remove {provider.name}’s saved credential from {endpoints.find(endpoint => endpoint.id === endpointId)?.label}? Chat history and other connections stay unchanged.</p>
               {(instanceDefaults[endpointId]?.model?.providerID === provider.id || defaultModel?.startsWith(provider.id + ' / ')) ? <p className="text-warning">This provider supplies the default model. New chats may need another model or a new credential. Ember won’t choose a replacement.</p> : null}
-              <Button size="sm" variant="destructive" disabled={isBusy} onClick={() => { void remove(provider); setRemoving(null); }}>Confirm removal</Button>{' '}
+              <Button size="sm" variant="destructive" disabled={isBusy} onClick={() => { void remove(provider); setRemoving(null); }}>Remove credential</Button>{' '}
               <Button size="sm" variant="outline" onClick={() => setRemoving(null)}>Keep credential</Button>
             </div> : null}
             </> : null}
@@ -363,7 +363,7 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
             {providers?.filter(provider => !provider.custom && provider.id !== 'ollama').map(provider => <Button key={provider.id} variant="outline" className="min-h-11 justify-between" onClick={() => { focusChosenCredential.current = true; setAdding(false); setManaging(provider.id); }}>
               {provider.name}<span className="text-xs text-muted-foreground">{provider.credential ? 'Manage saved access' : 'Connect'}</span>
             </Button>)}
-            <p className="mt-3 text-xs text-muted-foreground">For a local model or an OpenAI-compatible server, use Ollama or Custom providers below the inventory.</p>
+            <p className="mt-3 text-xs text-muted-foreground">For Ollama or a custom OpenAI-compatible server, use the sections below Your providers.</p>
           </div>
         </DialogContent>
       </Dialog> : null}

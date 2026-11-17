@@ -90,10 +90,12 @@ test('adding a provider offers an explicit instance-default decision', async ({ 
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Add provider', exact: true }).getByRole('button', { name: /DeepSeek/ }).click();
   const field = page.getByRole('textbox', { name: 'API key for DeepSeek' });
   await field.fill('mock-test-key');
-  await field.locator('..').getByRole('button', { name: 'Save', exact: true }).click();
-  const confirmation = page.getByRole('region', { name: 'Confirm instance default' });
+  await field.locator('..').getByRole('button', { name: 'Save key', exact: true }).click();
+  const confirmation = page.getByRole('region', { name: 'Default model for new chats' });
   await expect(confirmation).toContainText('DeepSeek');
   await confirmation.getByRole('button', { name: 'Choose default model' }).click();
   // The existing picker offers the whole catalogue, so a provider never silently chooses a model.
@@ -117,10 +119,12 @@ test('the confirmed instance default seeds the next chat without changing existi
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Add provider', exact: true }).getByRole('button', { name: /DeepSeek/ }).click();
   const field = page.getByRole('textbox', { name: 'API key for DeepSeek' });
   await field.fill('mock-test-key');
-  await field.locator('..').getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('region', { name: 'Confirm instance default' }).getByRole('button', { name: 'Choose default model' }).click();
+  await field.locator('..').getByRole('button', { name: 'Save key', exact: true }).click();
+  await page.getByRole('region', { name: 'Default model for new chats' }).getByRole('button', { name: 'Choose default model' }).click();
   const picker = page.getByRole('dialog', { name: 'Choose a model' });
   await picker.getByRole('button', { name: 'DeepSeek V4.1 Flash', exact: true }).click();
   await picker.getByRole('button', { name: 'Done', exact: true }).click();
@@ -137,11 +141,13 @@ test('provider sign-in also offers the default decision after the credential lan
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Add provider', exact: true }).getByRole('button', { name: /xAI/ }).click();
   await page.getByRole('button', { name: 'Sign in with SuperGrok or X Premium' }).click();
   const signIn = page.getByRole('dialog', { name: 'Sign in to xAI' });
   await expect(signIn).toContainText('xAI is connected.', { timeout: 10_000 });
   await signIn.getByRole('button', { name: 'Close', exact: true }).first().click();
-  await expect(page.getByRole('region', { name: 'Confirm instance default' })).toContainText('xAI');
+  await expect(page.getByRole('region', { name: 'Default model for new chats' })).toContainText('xAI');
 });
 
 test('rail hover actions have an opaque surface separating them from the text', async ({ page }) => {

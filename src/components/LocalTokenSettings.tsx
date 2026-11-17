@@ -47,7 +47,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
 
   // Pin `loadToken` so an unstable function identity from the parent (`.bind()`, an inline arrow)
   // can never re-trigger the initial read on every parent render — that was the bug where the row
-  // flashed nonstop between `••••••••` and "Reading it from the harness…".
+  // flashed nonstop between `••••••••` and "Reading local Kiln token…".
   const hasLoadToken = Boolean(loadToken);
   const runLoadToken = useStableCallback(
     (options?: { rotate?: boolean }): Promise<LocalHarnessToken> => {
@@ -67,7 +67,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
       })
       .catch(() => {
         if (cancelled) return;
-        setError("Ember couldn't read the token from the harness on this computer.");
+        setError("Ember couldn't read the local Kiln token on this computer. Close and reopen Settings to try again.");
       })
       .finally(() => {
         if (!cancelled) setBusy(null);
@@ -101,13 +101,13 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
       const answer = await runLoadToken({ rotate: true });
       setState(answer);
       setRevealed(true);
-      if (!answer.ok) setError(answer.reason ?? "The harness didn't accept a new token.");
+      if (!answer.ok) setError(answer.reason ?? "Kiln didn't accept a new token.");
       else onRefreshInstances?.();
     } catch (err) {
       setError(
         err instanceof Error
-          ? `Ember couldn't give the harness a new token: ${err.message}`
-          : "Ember couldn't give the harness a new token."
+          ? `Ember couldn't set a new Kiln token: ${err.message}`
+          : "Ember couldn't set a new Kiln token."
       );
     } finally {
       setBusy(null);
@@ -123,7 +123,7 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
 
       {busy === 'load' && !state ? (
         <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" /> Reading it from the harness…
+          <Loader2 className="size-3 animate-spin" /> Reading local Kiln token…
         </span>
       ) : state?.token ? (
         <>
@@ -188,21 +188,20 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
                   data-testid="rotate-token"
                 >
                   {busy === 'rotate' ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-                  {busy === 'rotate' ? 'Restarting the harness…' : 'New token'}
+                  {busy === 'rotate' ? 'Restarting Kiln…' : 'New token'}
                 </Button>
               </div>
             )
           ) : (
             <p className="text-[11px] text-muted-foreground">
-              Ember didn't start this harness, so it can't give it a new token. Restart the harness
-              yourself and it keeps the token it already has.
+              This Kiln runs independently of Ember, so Ember cannot rotate its token here. Rotate the token where that Kiln is managed.
             </p>
           )}
         </>
       ) : (
         <p className="text-[11.5px] text-muted-foreground">
           {state?.reason ??
-            "There's no token to show: this build doesn't know about a harness on this computer."}
+            "No local Kiln token is available on this computer."}
         </p>
       )}
 

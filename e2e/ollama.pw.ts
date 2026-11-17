@@ -4,6 +4,7 @@ async function setup(page: Page) {
   await page.goto('/?noDock');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByText('Local models · Ollama', { exact: true }).click();
   return page.getByRole('region', { name: 'Ollama setup' });
 }
 
@@ -16,7 +17,7 @@ test('named keyless Ollama, explicit keep-default, saved address on reopen and r
   const before = await page.evaluate(async () => JSON.stringify((await window.ember.getSettings()).instanceDefaults));
   await ollama.getByRole('button', { name: 'Test / Refresh', exact: true }).click();
   await expect(ollama).toContainText('Ollama is ready');
-  const confirmation = page.getByRole('region', { name: 'Confirm instance default' });
+  const confirmation = page.getByRole('region', { name: 'Default model for new chats' });
   await expect(confirmation).toContainText('Ollama is connected');
   await confirmation.getByRole('button', { name: 'Keep current default' }).click();
   expect(await page.evaluate(async () => JSON.stringify((await window.ember.getSettings()).instanceDefaults))).toBe(before);
@@ -28,6 +29,7 @@ test('named keyless Ollama, explicit keep-default, saved address on reopen and r
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByText('Local models · Ollama', { exact: true }).click();
   await expect(ollama.getByLabel('Ollama service address')).toHaveValue('http://ollama-container:11434');
   await ollama.getByRole('button', { name: 'Reset address', exact: true }).click();
   await expect(ollama).toContainText('http://127.0.0.1:11434');
@@ -65,10 +67,11 @@ test('onboarding discovers installed models but requires a human default choice'
   await page.goto('/?fixture=onboarding&noProviders&noDock');
   const wizard = page.getByTestId('onboarding');
   await wizard.getByRole('button', { name: /4\. Choose an AI/ }).click();
+  await wizard.getByText('Local models · Ollama', { exact: true }).click();
   const ollama = wizard.getByRole('region', { name: 'Ollama setup' });
   await ollama.getByRole('button', { name: 'Test / Refresh', exact: true }).click();
-  await wizard.getByRole('region', { name: 'Confirm instance default' }).getByRole('button', { name: 'Keep current default' }).click();
-  const choice = wizard.getByLabel('Default model for');
+  await wizard.getByRole('region', { name: 'Default model for new chats' }).getByRole('button', { name: 'Keep current default' }).click();
+  const choice = wizard.locator('select[id=onboarding-default-model]');
   await expect(choice).toHaveValue('');
   await expect(page.getByTestId('onboarding-next')).toBeDisabled();
   const option = choice.locator('option').filter({ hasText: 'llama3.2:3b' });
