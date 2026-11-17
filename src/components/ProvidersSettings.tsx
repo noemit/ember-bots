@@ -26,6 +26,8 @@ import OllamaSetup from './OllamaSetup';
 
 type Props = {
   inventory?: boolean;
+  /** Suppresses the duplicate default-model summary when OnboardingWizard renders `#onboarding-default-model` above. */
+  onboarding?: boolean;
   endpoints: PiEndpoint[];
   instances: Instance[];
   /**
@@ -68,7 +70,7 @@ export default function ProvidersSettings(props: Props) {
 }
 
 /** A host transition remounts every credential draft, action and dialog together. */
-function HostProvidersSettings({ inventory = false, endpoints, instances, onProviderChange, instanceDefaults = {}, onDefaultChange, onProviderCatalog, endpointId, onEndpointChange }: Props & { endpointId: string; onEndpointChange: (id: string) => void }) {
+function HostProvidersSettings({ inventory = false, onboarding = false, endpoints, instances, onProviderChange, instanceDefaults = {}, onDefaultChange, onProviderCatalog, endpointId, onEndpointChange }: Props & { endpointId: string; onEndpointChange: (id: string) => void }) {
   const mounted = React.useRef(true);
   const reads = React.useRef(0);
   const defaultReads = React.useRef(0);
@@ -89,6 +91,15 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
   /** The provider whose sign-in dialog is open, if any. */
   const [confirmation, setConfirmation] = React.useState<{ endpointId: string; providerName: string; catalog: ModelList | null } | null>(null);
   const [choosingDefault, setChoosingDefault] = React.useState(false);
+  const savedDefaultKey = instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : '';
+  const previousDefaultKey = React.useRef(savedDefaultKey);
+  React.useEffect(() => {
+    if (previousDefaultKey.current === savedDefaultKey) return;
+    previousDefaultKey.current = savedDefaultKey;
+    if (onboarding && !choosingDefault && savedDefaultKey) {
+      setConfirmation(null);
+    }
+  }, [onboarding, choosingDefault, savedDefaultKey]);
   const [adding, setAdding] = React.useState(false);
   const [managing, setManaging] = React.useState<string | null>(null);
   const [removing, setRemoving] = React.useState<string | null>(null);
@@ -225,13 +236,13 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
       </div>
 
       <p className="text-xs text-muted-foreground">Credentials stay on the selected computer or container. Keys stay hidden here.</p>
-      {defaultModel || instanceDefaults[endpointId]?.model ? (
+      {!onboarding && (defaultModel || instanceDefaults[endpointId]?.model) ? (
         <p className="text-[11px] text-muted-foreground">New chats default to {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : defaultModel}.</p>
       ) : null}
       {confirmation?.endpointId === endpointId && onDefaultChange ? (
         <div className="flex flex-col gap-2 rounded-lg border border-highlight/30 bg-highlight/5 p-3" role="region" aria-label="Default model for new chats">
           <p className="text-xs">{confirmation.providerName} is connected. Which model should new chats on {endpoints.find((endpoint) => endpoint.id === endpointId)?.label ?? 'this computer'} use?</p>
-          <p className="text-xs text-muted-foreground">Current default: {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : defaultModel ?? 'Server default'}</p>
+          <p className="text-xs text-muted-foreground">Current default: {instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : onboarding ? 'None chosen yet' : defaultModel ?? 'Server default'}</p>
           <div className="flex flex-wrap gap-2">
             <Button size="xs" variant="secondary" onClick={() => { setConfirmation(null); setChoosingDefault(false); }}>Keep current default</Button>
             <Button size="xs" variant="outline" disabled={!confirmation.catalog} onClick={() => setChoosingDefault(true)}>Choose default model</Button>
@@ -243,7 +254,12 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
         <ModelPicker open recentModels={[]} models={confirmation.catalog.models} value={instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : DEFAULT_MODEL} defaultModelId={confirmation.catalog.defaultModelId}
           instanceDefaultModelId={effectiveInstanceDefaultModel(instanceDefaults[confirmation.endpointId], confirmation.catalog.defaultModelId)}
           onSetInstanceDefault={(model) => onDefaultChange(confirmation.endpointId, withInstanceDefaultModel(instanceDefaults[confirmation.endpointId], model).model)}
-          onOpenChange={setChoosingDefault} onSelect={(key, variant) => {
+          onOpenChange={(nextOpen) => {
+            setChoosingDefault(nextOpen);
+            if (!nextOpen && onboarding && instanceDefaults[endpointId]?.model) {
+              setConfirmation(null);
+            }
+          }} onSelect={(key, variant) => {
           const model = confirmation.catalog?.models.find((entry) => modelRefKey(entry) === key);
           if (key !== DEFAULT_MODEL && !model) return;
           onDefaultChange(confirmation.endpointId, model ? { providerID: model.providerID, modelID: model.modelID, ...(variant ? { variant } : {}) } : undefined);

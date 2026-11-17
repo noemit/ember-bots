@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  canDismissOnboarding,
   canFinish,
   onboardingModelReady,
   OPENCODE_ONBOARDING_TIP,
@@ -156,6 +157,12 @@ describe('explicit onboarding model choice', () => {
     expect(OPENCODE_ONBOARDING_TIP).toMatch(/not every model is free/);
     expect(OPENCODE_ONBOARDING_TIP).toMatch(/API key.*paste.*OpenCode Zen.*Save/);
     expect(OPENCODE_ONBOARDING_TIP).not.toMatch(/!|undefined|null|OAuth/);
+  });
+  test('fresh setup requires a chosen model before Skip or Escape can dismiss', () => {
+    expect(canDismissOnboarding(true, false)).toBe(false);
+    expect(canDismissOnboarding(true, true)).toBe(true);
+    expect(canDismissOnboarding(false, false)).toBe(true);
+    expect(canDismissOnboarding(false, true)).toBe(true);
   });
 });
 
