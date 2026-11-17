@@ -131,3 +131,155 @@ test('a queued full that already started keeps a later tail from reading beside 
   await late;
   expect(calls).toEqual(['tail', 'full']);
 });
+
+test('a queued afterCurrent full does not resolve until the follow-up task completes', async () => {
+  const coordinator = new ReadCoordinator();
+  const calls: string[] = [];
+  let releaseFirst = () => {};
+  const firstBlock = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let releaseSecond = () => {};
+  const secondBlock = new Promise<void>((resolve) => { releaseSecond = resolve; });
+
+  const first = coordinator.run('a', 'full', async () => {
+    calls.push('first:start');
+    await firstBlock;
+    calls.push('first:end');
+  });
+  let secondSettled = false;
+  const second = coordinator.run('a', 'full', async () => {
+    calls.push('second:start');
+    await secondBlock;
+    calls.push('second:end');
+  }, true).then(() => {
+    secondSettled = true;
+  });
+
+  releaseFirst();
+  await first;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(['first:start', 'first:end', 'second:start']);
+  expect(secondSettled).toBe(false);
+
+  releaseSecond();
+  await second;
+  expect(secondSettled).toBe(true);
+  expect(calls).toEqual(['first:start', 'first:end', 'second:start', 'second:end']);
+});
+
+test('a full upgrade queued behind a tail does not resolve until the full task completes', async () => {
+  const coordinator = new ReadCoordinator();
+  let releaseTail = () => {};
+  const tailBlock = new Promise<void>((resolve) => { releaseTail = resolve; });
+  let releaseFull = () => {};
+  const fullBlock = new Promise<void>((resolve) => { releaseFull = resolve; });
+
+  const tail = coordinator.run('a', 'tail', async () => { await tailBlock; });
+  let fullCompleted = false;
+  let fullSettled = false;
+  const full = coordinator.run('a', 'full', async () => {
+    await fullBlock;
+    fullCompleted = true;
+  }).then(() => {
+    fullSettled = true;
+  });
+
+  releaseTail();
+  await tail;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(fullCompleted).toBe(false);
+  expect(fullSettled).toBe(false);
+
+  releaseFull();
+  await full;
+  expect(fullCompleted).toBe(true);
+  expect(fullSettled).toBe(true);
+});
+
+test('a queued follow-up rejection propagates to its caller without wedging subsequent reads', async () => {
+  const coordinator = new ReadCoordinator();
+  let releaseFirst = () => {};
+  const firstBlock = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let releaseReload = () => {};
+  const reloadBlock = new Promise<void>((resolve) => { releaseReload = resolve; });
+
+  const inFlight = coordinator.run('a', 'tail', async () => { await firstBlock; });
+  const reload = coordinator.run('a', 'full', async () => {
+    await reloadBlock;
+    throw new Error('reload failed');
+  }, true);
+  // A routine tail joining the already-sufficient running tail waits for the queue to clear without
+  // inheriting the reload caller's failure.
+  const joinedTail = coordinator.run('a', 'tail', async () => {});
+
+  releaseFirst();
+  await inFlight;
+  releaseReload();
+
+  const [settled] = await Promise.allSettled([reload]);
+  expect(settled.status).toBe('rejected');
+  if (settled.status === 'rejected') {
+    expect(settled.reason).toBeInstanceOf(Error);
+    expect((settled.reason as Error).message).toBe('reload failed');
+  }
+  await expect(joinedTail).resolves.toBeUndefined();
+
+  let recovered = false;
+  await coordinator.run('a', 'full', async () => { recovered = true; });
+  expect(recovered).toBe(true);
+});
+
+test('a failing in-flight read still drains its queued follow-up', async () => {
+  const coordinator = new ReadCoordinator();
+  let releaseFirst = () => {};
+  const firstBlock = new Promise<void>((resolve) => { releaseFirst = resolve; });
+
+  const first = coordinator.run('a', 'tail', async () => {
+    await firstBlock;
+    throw new Error('poll failed');
+  });
+  let followUpRan = false;
+  const followUp = coordinator.run('a', 'full', async () => {
+    followUpRan = true;
+  }, true);
+
+  releaseFirst();
+  await expect(first).rejects.toThrow('poll failed');
+  await expect(followUp).resolves.toBeUndefined();
+  expect(followUpRan).toBe(true);
+});
+
+test('a newer queued full replaces an older queued full and resolves only when the newest finishes', async () => {
+  const coordinator = new ReadCoordinator();
+  const calls: string[] = [];
+  let releaseFirst = () => {};
+  const firstBlock = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let releaseNewest = () => {};
+  const newestBlock = new Promise<void>((resolve) => { releaseNewest = resolve; });
+
+  const initial = coordinator.run('a', 'full', async () => {
+    calls.push('initial');
+    await firstBlock;
+  });
+  const olderQueued = coordinator.run('a', 'full', async () => {
+    calls.push('older full');
+  }, true);
+  let olderSettled = false;
+  void olderQueued.then(() => { olderSettled = true; });
+  const newerQueued = coordinator.run('a', 'full', async () => {
+    calls.push('newer full:start');
+    await newestBlock;
+    calls.push('newer full:end');
+  }, true);
+
+  expect(newerQueued).toBe(olderQueued);
+  releaseFirst();
+  await initial;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(['initial', 'newer full:start']);
+  expect(olderSettled).toBe(false);
+
+  releaseNewest();
+  await Promise.all([olderQueued, newerQueued]);
+  expect(olderSettled).toBe(true);
+  expect(calls).toEqual(['initial', 'newer full:start', 'newer full:end']);
+});
