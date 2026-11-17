@@ -13,6 +13,8 @@ export default function ContextCompactionSettings({ instances }: { instances: In
   const kilns = instances.filter(instance => instance.kind === 'pi');
   const [chosen, setChosen] = React.useState('');
   const instance = kilns.find(kiln => kiln.id === chosen) ?? kilns[0];
+  const instanceId = instance?.id;
+  const instanceLabel = instance?.label;
   const [value, setValue] = React.useState<CompactionSettingsState>();
   const [at, setAt] = React.useState('70000');
   const [keep, setKeep] = React.useState('5000');
@@ -28,17 +30,17 @@ export default function ContextCompactionSettings({ instances }: { instances: In
   const load = React.useCallback(async () => {
     const version = ++revision.current;
     setValue(undefined); setError(''); setNotice('');
-    if (!instance) return;
+    if (!instanceId) { setBusy(false); return; }
     setBusy(true);
     try {
-      const result = await window.ember.piRequest?.<CompactionSettingsState>(instance.id, '/settings/compaction');
+      const result = await window.ember.piRequest?.<CompactionSettingsState>(instanceId, '/settings/compaction');
       if (revision.current !== version) return;
       if (!result?.ok) throw new Error();
       apply(result.data);
     } catch {
-      if (revision.current === version) setError(`${instance.label} did not return compaction settings. It may need an update or be offline. Use Reload to try again.`);
+      if (revision.current === version) setError(`${instanceLabel} did not return compaction settings. It may need an update or be offline. Use Reload to try again.`);
     } finally { if (revision.current === version) setBusy(false); }
-  }, [instance]);
+  }, [instanceId, instanceLabel]);
   React.useEffect(() => { void load(); return () => { revision.current += 1; }; }, [load]);
   const save = async (reset = false) => {
     if (!instance || busy) return;
@@ -63,7 +65,7 @@ export default function ContextCompactionSettings({ instances }: { instances: In
     {kilns.length ? <label className="flex items-center gap-3 text-sm">Kiln
       <select aria-label="Compaction Kiln" value={instance?.id ?? ''} onChange={event => setChosen(event.target.value)} className="rounded border bg-background p-2">
         {kilns.map(kiln => <option key={kiln.id} value={kiln.id}>{kiln.label}</option>)}
-      </select></label> : <p className="text-sm text-muted-foreground">Connect a Kiln in Instances to configure automatic compaction.</p>}
+      </select></label> : <p className="text-sm text-muted-foreground">Connect a Kiln in Computers and Containers to configure automatic compaction.</p>}
     {instance ? <>
       <div className="flex items-center gap-3"><p className="text-xs text-muted-foreground">{busy ? `Asking ${instance.label}…` : value?.preference ? 'Custom token targets' : value ? 'Using Pi defaults' : 'Settings unavailable'}</p><Button variant="ghost" size="sm" disabled={busy} onClick={() => void load()}>Reload</Button></div>
       {value ? <>
