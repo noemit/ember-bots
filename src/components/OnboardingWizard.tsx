@@ -163,9 +163,13 @@ export default function OnboardingWizard({
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
         style={{ backgroundImage: `radial-gradient(ellipse at 100% 0%, color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 10%, transparent), transparent 55%), radial-gradient(ellipse at 0% 100%, color-mix(in oklab, ${blobColor('crystal', 'onboarding-crystalglow')} 10%, transparent), transparent 50%)` }}>
-        <div className="absolute -right-24 -top-24 rotate-12 opacity-10 blur-[48px]">
-          <Blob style="lava" seed="onboarding-fireglow" size={400} mood="idle" interactive={false} />
-        </div>
+        <div
+          data-testid="onboarding-lava-glow"
+          className="absolute -right-24 -top-24 size-[400px] rotate-12 rounded-full opacity-15"
+          style={{
+            backgroundImage: `radial-gradient(circle at 46% 52%, color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 65%, #fbbf24), color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 80%, #ea580c) 38%, transparent 70%)`,
+          }}
+        />
         <div className="absolute -bottom-24 -left-20 -rotate-12 opacity-10 blur-[40px]">
           <Blob style="crystal" seed="onboarding-crystalglow" size={340} mood="idle" interactive={false} />
         </div>

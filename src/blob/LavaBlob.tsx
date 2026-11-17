@@ -28,6 +28,13 @@ type Props = {
 };
 
 /**
+ * Compact rail avatars (<48px) and actively churning lamps (`thinking`/`busy`) carve their rim on
+ * the GPU without CPU `feTurbulence` or `feMorphology`, so per-frame lobe motion never re-runs
+ * procedural noise or box-kernel erosion/dilation.
+ */
+const PRINT_RIM_MIN_SIZE = 48;
+
+/**
  * The rendered size below which body grain is left out. At rail sizes (22-55px) a speck is a whole
  * pixel of a small avatar and reads as dirt, not print; the rim's stipple carries the texture there.
  */
@@ -47,7 +54,7 @@ const TONES = ['halo', 'core', 'glow'] as const;
  * interior pools and decision badges), so the state still reads in a still frame, on the dock icon and
  * under `prefers-reduced-motion`.
  */
-export default function LavaBlob({
+function LavaBlobImpl({
   seed,
   identity,
   size = 30,
@@ -85,7 +92,8 @@ export default function LavaBlob({
   const cold = mood === 'error';
   const grain = lavaGrainFrequency(size);
   const rim = lavaRimWidth(size);
-  const bodyGrain = size >= BODY_GRAIN_MIN_SIZE;
+  const lightweightFilter = mood === 'thinking' || mood === 'busy' || size < PRINT_RIM_MIN_SIZE;
+  const bodyGrain = !lightweightFilter && size >= BODY_GRAIN_MIN_SIZE;
   const budIndex = geometry.bodies.length - 1;
   const [mainBody, ...restBodies] = geometry.bodies;
   const bud = restBodies[restBodies.length - 1];
@@ -192,20 +200,6 @@ export default function LavaBlob({
             {/* Error: the lamp has gone cold. Drained of colour but still the same lump. */}
             {cold ? <feColorMatrix in="goo" type="saturate" values="0.12" result="goo" /> : null}
 
-            {/* Print grain: one noise field, read as alpha. */}
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency={grain}
-              numOctaves={2}
-              seed={noiseSeed}
-              result="noise"
-            />
-            <feColorMatrix
-              in="noise"
-              type="matrix"
-              values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0"
-              result="grain"
-            />
             {/* A translucent shade of the body gives the rim definition on light and dark surfaces.
                 Standalone SVGs use the same hue family without requiring theme CSS. */}
             <feFlood style={{ floodColor: `var(--lava-rim, ${cold ? COLD_DEEP : colors.deep})` }} floodOpacity={0.68} result="ink" />
@@ -219,47 +213,85 @@ export default function LavaBlob({
             <feBlend in="goo" in2="goo" mode="multiply" result="deep" />
             <feComposite in="ramp" in2="ramp" operator="arithmetic" k2={1.4} result="deepMask" />
             <feComposite in="deep" in2="deepMask" operator="in" result="deepRim" />
-            {/* Stipple the ramp against the grain, so the ink breaks up as it reaches inward. */}
-            <feComposite in="ramp" in2="grain" operator="arithmetic" k2={12} k3={-8} k4={1.1} result="stipple" />
-            <feComposite in="ink" in2="stipple" operator="in" result="inkStipple" />
-            <feComposite in="inkStipple" in2="goo" operator="in" result="inkInside" />
 
-            {/* The rim itself: a solid band just inside the silhouette. */}
-            <feMorphology in="goo" operator="erode" radius={rim} result="core" />
-            <feComposite in="goo" in2="core" operator="out" result="band" />
-            <feComposite in="ink" in2="band" operator="in" result="inkBand" />
-
-            {/* And just outside it, grain: the ink bleeding into the paper. */}
-            <feMorphology in="goo" operator="dilate" radius={1.3} result="spread" />
-            <feGaussianBlur in="spread" stdDeviation={0.8} result="spreadSoft" />
-            <feComposite in="spreadSoft" in2="goo" operator="out" result="bleed" />
-            <feComposite in="bleed" in2="grain" operator="arithmetic" k2={4.8} k3={-8} k4={1.6} result="bleedGrain" />
-            {/* Confined to the spread: unconfined, the darkest grains far out on the paper drew too. */}
-            <feComposite in="bleedGrain" in2="bleed" operator="in" result="bleedNear" />
-            <feComposite in="ink" in2="bleedNear" operator="in" result="inkBleed" />
-
-            {bodyGrain ? (
+            {lightweightFilter ? (
               <>
-                {/* Film grain over the body: the darkest and lightest grains, faint. */}
-                <feComposite in="grain" in2="grain" operator="arithmetic" k2={3} k4={-1.95} result="darkSpecks" />
-                <feComposite in="ink" in2="darkSpecks" operator="in" result="darkInk" />
-                <feComposite in="darkInk" in2="goo" operator="in" result="darkGrain" />
-                <feComposite in="grain" in2="grain" operator="arithmetic" k2={-3} k4={1.14} result="lightSpecks" />
-                <feFlood floodColor="#ffffff" floodOpacity={0.6} result="paper" />
-                <feComposite in="paper" in2="lightSpecks" operator="in" result="lightInk" />
-                <feComposite in="lightInk" in2="goo" operator="in" result="lightGrain" />
+                {/* Actively orbiting lobes (thinking/busy) and compact rail sizes (<48px) carve the
+                    rim with GPU blur + alpha threshold instead of CPU feTurbulence + feMorphology. */}
+                <feGaussianBlur in="goo" stdDeviation={rim} result="rimBlur" />
+                <feColorMatrix
+                  in="rimBlur"
+                  type="matrix"
+                  values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 20 -16.3"
+                  result="core"
+                />
+                <feComposite in="goo" in2="core" operator="out" result="band" />
+                <feComposite in="ink" in2="band" operator="in" result="inkBand" />
+                <feMerge>
+                  <feMergeNode in="goo" />
+                  <feMergeNode in="deepRim" />
+                  <feMergeNode in="inkBand" />
+                </feMerge>
               </>
-            ) : null}
+            ) : (
+              <>
+                {/* Print grain: one noise field, read as alpha. */}
+                <feTurbulence
+                  type="fractalNoise"
+                  baseFrequency={grain}
+                  numOctaves={2}
+                  seed={noiseSeed}
+                  result="noise"
+                />
+                <feColorMatrix
+                  in="noise"
+                  type="matrix"
+                  values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0"
+                  result="grain"
+                />
+                {/* Stipple the ramp against the grain, so the ink breaks up as it reaches inward. */}
+                <feComposite in="ramp" in2="grain" operator="arithmetic" k2={12} k3={-8} k4={1.1} result="stipple" />
+                <feComposite in="ink" in2="stipple" operator="in" result="inkStipple" />
+                <feComposite in="inkStipple" in2="goo" operator="in" result="inkInside" />
 
-            <feMerge>
-              <feMergeNode in="goo" />
-              {bodyGrain ? <feMergeNode in="lightGrain" /> : null}
-              {bodyGrain ? <feMergeNode in="darkGrain" /> : null}
-              <feMergeNode in="deepRim" />
-              <feMergeNode in="inkInside" />
-              <feMergeNode in="inkBand" />
-              <feMergeNode in="inkBleed" />
-            </feMerge>
+                {/* The rim itself: a solid band just inside the silhouette. */}
+                <feMorphology in="goo" operator="erode" radius={rim} result="core" />
+                <feComposite in="goo" in2="core" operator="out" result="band" />
+                <feComposite in="ink" in2="band" operator="in" result="inkBand" />
+
+                {/* And just outside it, grain: the ink bleeding into the paper. */}
+                <feMorphology in="goo" operator="dilate" radius={1.3} result="spread" />
+                <feGaussianBlur in="spread" stdDeviation={0.8} result="spreadSoft" />
+                <feComposite in="spreadSoft" in2="goo" operator="out" result="bleed" />
+                <feComposite in="bleed" in2="grain" operator="arithmetic" k2={4.8} k3={-8} k4={1.6} result="bleedGrain" />
+                {/* Confined to the spread: unconfined, the darkest grains far out on the paper drew too. */}
+                <feComposite in="bleedGrain" in2="bleed" operator="in" result="bleedNear" />
+                <feComposite in="ink" in2="bleedNear" operator="in" result="inkBleed" />
+
+                {bodyGrain ? (
+                  <>
+                    {/* Film grain over the body: the darkest and lightest grains, faint. */}
+                    <feComposite in="grain" in2="grain" operator="arithmetic" k2={3} k4={-1.95} result="darkSpecks" />
+                    <feComposite in="ink" in2="darkSpecks" operator="in" result="darkInk" />
+                    <feComposite in="darkInk" in2="goo" operator="in" result="darkGrain" />
+                    <feComposite in="grain" in2="grain" operator="arithmetic" k2={-3} k4={1.14} result="lightSpecks" />
+                    <feFlood floodColor="#ffffff" floodOpacity={0.6} result="paper" />
+                    <feComposite in="paper" in2="lightSpecks" operator="in" result="lightInk" />
+                    <feComposite in="lightInk" in2="goo" operator="in" result="lightGrain" />
+                  </>
+                ) : null}
+
+                <feMerge>
+                  <feMergeNode in="goo" />
+                  {bodyGrain ? <feMergeNode in="lightGrain" /> : null}
+                  {bodyGrain ? <feMergeNode in="darkGrain" /> : null}
+                  <feMergeNode in="deepRim" />
+                  <feMergeNode in="inkInside" />
+                  <feMergeNode in="inkBand" />
+                  <feMergeNode in="inkBleed" />
+                </feMerge>
+              </>
+            )}
           </filter>
         </defs>
 
@@ -324,3 +356,30 @@ export default function LavaBlob({
     </div>
   );
 }
+
+function sameLavaIdentity(a?: AvatarIdentity, b?: AvatarIdentity): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.shapeSeed === b.shapeSeed &&
+    a.shapeName === b.shapeName &&
+    a.colorSeed === b.colorSeed &&
+    a.colorIndex === b.colorIndex &&
+    a.color === b.color &&
+    a.motionSeed === b.motionSeed
+  );
+}
+
+function areLavaPropsEqual(prev: Props, next: Props): boolean {
+  return (
+    prev.seed === next.seed &&
+    (prev.size ?? 30) === (next.size ?? 30) &&
+    (prev.mood ?? 'idle') === (next.mood ?? 'idle') &&
+    (prev.state ?? 'idle') === (next.state ?? 'idle') &&
+    (prev.interactive ?? true) === (next.interactive ?? true) &&
+    sameLavaIdentity(prev.identity, next.identity)
+  );
+}
+
+const LavaBlob = React.memo(LavaBlobImpl, areLavaPropsEqual);
+export default LavaBlob;
