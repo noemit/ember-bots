@@ -85,7 +85,7 @@ function BlobGallery() {
     <section className="gallery-spotlights" aria-label="Mosaic motion comparison">
       {(['busy', 'thinking'] as const).map(mood => <article key={mood} className="gallery-spotlight">
         <div className="gallery-stage" data-preview={`mosaic-${mood}`}><div className="gallery-example-strip">{renderExamples('mosaic', mood, 112)}</div><div className="gallery-rail-sample">{[0, 1, 2].map(index => <React.Fragment key={index}>{renderBlob('mosaic', mood, 55, index)}</React.Fragment>)}<span>Rail · 55px</span></div></div>
-        <div><p className="gallery-eyebrow">MOSAIC / {mood === 'busy' ? 'WORKING' : 'THINKING'}</p><h2>{mood === 'busy' ? 'Working at the edges.' : 'A thought takes shape.'}</h2><p>{mood === 'busy' ? 'Small clusters come and go around the silhouette, each on its own clock.' : 'A quieter cluster appears, pauses, then returns somewhere new. Whole pixels, uneven rests.'} The body and eyes keep their character.</p></div>
+        <div><p className="gallery-eyebrow">MOSAIC / {mood === 'busy' ? 'WORKING' : 'THINKING'}</p><h2>{mood === 'busy' ? 'Working at the edges.' : 'A thought takes shape.'}</h2><p>{mood === 'busy' ? 'Small clusters come and go around the silhouette, each on its own clock.' : 'Clusters gather and scatter at different ink strengths. Occasionally, a faint diagonal rainbow passes over the tiles.'} The body and eyes keep their character.</p></div>
       </article>)}
     </section>
 

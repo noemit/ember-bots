@@ -1,6 +1,6 @@
 import { hashString, mulberry32 } from './seed';
 
-export type ActivityCell = { x: number; y: number; fill: string };
+export type ActivityCell = { x: number; y: number; fill: string; opacity?: number };
 export type ActivityEvent = { at: number; until: number; cells: ActivityCell[] };
 export type MosaicActivityPlan = { duration: number; delay: number; tracks: ActivityEvent[][] };
 const key = (x: number, y: number) => `${x}:${y}`;
@@ -26,7 +26,7 @@ export function mosaicActivityPlan(cells: readonly ActivityCell[], seed: string,
   const perimeter = mosaicPerimeter(cells);
   const duration = 79 + Math.floor(random() * 28);
   const delay = -random() * duration;
-  const tracks = Array.from({ length: mood === 'thinking' ? 1 : 2 }, () => {
+  const tracks = Array.from({ length: mood === 'thinking' ? 3 : 2 }, () => {
     const events: ActivityEvent[] = [];
     if (!perimeter.length) return events;
     let at = random() * 3, previous = -1;
@@ -39,9 +39,11 @@ export function mosaicActivityPlan(cells: readonly ActivityCell[], seed: string,
       const cluster = [origin];
       const count = 1 + Math.floor(random() * 3);
       while (cluster.length < count && neighbours.length) cluster.push(neighbours.splice(Math.floor(random() * neighbours.length), 1)[0]);
+      // Only thinking varies pigment density; working retains its original opaque beats.
+      const pigments = mood === 'thinking' ? cluster.map(cell => ({ ...cell, opacity: .3 + Math.floor(random() * 8) / 10 })) : cluster;
       const until = at + (mood === 'thinking' ? .4 + random() * 1.1 : .22 + random() * .65);
-      events.push({ at, until, cells: cluster });
-      at = until + (mood === 'thinking' ? .8 + random() * 2.8 : .45 + random() * 1.7);
+      events.push({ at, until, cells: pigments });
+      at = until + (mood === 'thinking' ? .3 + random() * 1.2 : .45 + random() * 1.7);
     }
     return events;
   });
@@ -53,7 +55,7 @@ export function activityKeyframes(events: ActivityEvent[], slot: number, duratio
   for (const event of events) {
     const cell = event.cells[slot];
     if (!cell) continue;
-    frames.push(`${(event.at / duration * 100).toFixed(4)}%{opacity:1;transform:translate(${cell.x}px,${cell.y}px);fill:${cell.fill}}`);
+    frames.push(`${(event.at / duration * 100).toFixed(4)}%{opacity:${cell.opacity ?? 1};transform:translate(${cell.x}px,${cell.y}px);fill:${cell.fill}}`);
     frames.push(`${(event.until / duration * 100).toFixed(4)}%{opacity:0}`);
   }
   return frames.join('');

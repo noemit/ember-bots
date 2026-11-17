@@ -1,4 +1,5 @@
 import * as React from 'react';
+import MosaicRainbow from './MosaicRainbow';
 import MosaicActivity from './MosaicActivity';
 import { seedIdentity, hashString } from './seed';
 import { mosaicBaseHex, mosaicField, mosaicGeometry, mosaicSurfaces } from './mosaic';
@@ -39,6 +40,7 @@ export default function MosaicBlob({ seed, identity, size = 30, mood = 'idle', i
         <g data-mosaic-grid transform="translate(8 1) scale(7)" shapeRendering="crispEdges">
           {art.tiles.map(({ x, y, fill }) => <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={fill} />)}
           {mood === 'thinking' || mood === 'busy' ? <MosaicActivity mood={mood} cells={art.tiles} seed={art.motionSeed} /> : null}
+          {mood === 'thinking' ? <MosaicRainbow cells={art.tiles} seed={art.motionSeed} /> : null}
           <g className="mosaic-eyes">{(mood === 'error' ? art.errorEyes : art.eyes).map(({ x, y }, index) => <g key={x}>
             <g className="mosaic-eye-open">
               <rect data-mosaic-eye x={x} y={y} width={mood === 'error' ? 3 : 2} height={mood === 'error' ? 3 : 1} fill="#fffdf5" />

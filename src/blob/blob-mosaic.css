@@ -50,3 +50,20 @@
   .blob-mosaic .mosaic-thought { animation: none !important; opacity: 0; }
   .blob-mosaic .mosaic-pixel { animation: none !important; opacity: 0; }
 }
+
+/* A low-ink rainbow visits briefly, then leaves the identity colour alone for most of its cycle.
+   Opacity is on whole diagonal cell groups; eyes above this layer never receive the wash. */
+.blob-mosaic .mosaic-rainbow {
+  opacity: 0;
+  animation-name: mosaic-rainbow-pass;
+  animation-timing-function: steps(1, end);
+  animation-iteration-count: infinite;
+}
+@keyframes mosaic-rainbow-pass {
+  0%, 5%, 100% { opacity: 0; }
+  0.1%, 4% { opacity: .04; }
+  1%, 3% { opacity: .1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blob-mosaic .mosaic-rainbow { animation: none !important; opacity: 0; }
+}
