@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { ARCHIVE_AGE_OPTIONS, bulkArchiveTargets } from '@/lib/bulkArchive';
 import type { GroupEntry } from '@/lib/projectGroups';
+import { customGroupName, defaultGroupName } from '@/lib/sessionGroups';
 import { SessionContextMenuContent } from './SessionRow';
 import Blob from '../blob/Blob';
 import { sessionKey } from '../types';
@@ -85,6 +86,12 @@ export default function GroupRow({
   // Recomputed per render so the menu's counts stay current with the member list.
   const avatarSize = useAvatarSize(22);
   const inactiveTargets = bulkArchiveTargets(entry.members, moods, { now: Date.now() });
+  const memberTitles = entry.members.map((member) => member.title?.trim() || member.id);
+  const customName =
+    entry.customName !== undefined
+      ? entry.customName?.trim() || null
+      : (customGroupName(entry.name, memberTitles) ?? null);
+  const accessibleName = customName ?? (entry.name.trim() || defaultGroupName(memberTitles));
 
   return (
     <motion.div
@@ -95,7 +102,7 @@ export default function GroupRow({
       transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
       role="button"
       tabIndex={0}
-      aria-label={`Open group ${entry.name}`}
+      aria-label={`Open group ${accessibleName}`}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -107,14 +114,26 @@ export default function GroupRow({
     >
       <div className="flex items-center gap-1.5 px-1">
         <GroupIcon className="size-3 flex-none text-muted-foreground" aria-hidden="true" />
-        {/* No name in the header, deliberately. A group created from "Group with…" is seeded with
-            an empty name, and `defaultGroupName` returns the *member's own title* for a single-member
-            group — so the header either drew nothing or repeated the first name in the list below it.
-            The row keeps `aria-label` and a tooltip, so it still says what it is — the visible
-            name is what went, not the accessible one. */}
-        <span className="min-w-0 truncate text-[11.5px] font-semibold text-foreground">
-          {entry.members.length} {entry.members.length === 1 ? 'bot' : 'bots'}
-        </span>
+        {/* Explicit user-authored group names show visibly alongside a muted member count; unnamed
+            groups (or ones that only held a synthesized fallback) keep `{N} bots` so the header
+            never repeats a member's own title above the list. */}
+        {customName ? (
+          <>
+            <span
+              title={customName}
+              className="min-w-0 truncate text-[11.5px] font-semibold text-foreground"
+            >
+              {customName}
+            </span>
+            <span className="flex-none text-[10.5px] tabular-nums text-muted-foreground">
+              {entry.members.length}
+            </span>
+          </>
+        ) : (
+          <span className="min-w-0 truncate text-[11.5px] font-semibold text-foreground">
+            {entry.members.length} {entry.members.length === 1 ? 'bot' : 'bots'}
+          </span>
+        )}
         {onNewAgent ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -124,13 +143,13 @@ export default function GroupRow({
                   event.stopPropagation();
                   onNewAgent();
                 }}
-                aria-label={`New session in ${entry.name}`}
+                aria-label={`New session in ${accessibleName}`}
                 className="ml-auto flex size-6 flex-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <Plus className="size-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left">New session in {entry.name}</TooltipContent>
+            <TooltipContent side="left">New session in {accessibleName}</TooltipContent>
           </Tooltip>
         ) : null}
         {onManage ? (
@@ -140,8 +159,11 @@ export default function GroupRow({
               event.stopPropagation();
               onManage();
             }}
-            aria-label={`Manage ${entry.name}`}
-            className="flex-none rounded px-1.5 text-[10.5px] text-muted-foreground hover:text-foreground"
+            aria-label={`Manage ${accessibleName}`}
+            className={cn(
+              'flex-none rounded px-1.5 text-[10.5px] text-muted-foreground hover:text-foreground',
+              !onNewAgent && 'ml-auto'
+            )}
           >
             Manage
           </button>
@@ -153,8 +175,11 @@ export default function GroupRow({
               event.stopPropagation();
               onUngroup();
             }}
-            aria-label={`Ungroup ${entry.name}`}
-            className="flex-none rounded px-1.5 text-[10.5px] text-muted-foreground hover:text-destructive"
+            aria-label={`Ungroup ${accessibleName}`}
+            className={cn(
+              'flex-none rounded px-1.5 text-[10.5px] text-muted-foreground hover:text-destructive',
+              !onNewAgent && !onManage && 'ml-auto'
+            )}
           >
             Ungroup
           </button>

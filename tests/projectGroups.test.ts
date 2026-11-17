@@ -171,12 +171,29 @@ describe('groups in the rail', () => {
     const entries = buildRailEntries([inProject('a')], projectsByInstance, groups);
     const entry = entries.find((candidate) => candidate.kind === 'group');
     if (entry?.kind !== 'group') throw new Error('expected a group entry');
+    expect(entry.customName).toBe('Release train');
     const draft = groupDraftFromEntry(entry);
     expect(draft.keys).toEqual(['local::a', 'local::b', 'studio::c']);
     expect(draft).toMatchObject({ id: 'g', name: 'Release train' });
     // Rebuilding the draft from `members` is the bug this guards: it would save two keys back and
     // drop the member the instance could not answer for.
     expect(entry.members.map(sessionKey)).not.toEqual(draft.keys);
+  });
+
+  test('unnamed groups preserve an accessible fallback name while leaving customName and draft name blank', () => {
+    const entries = buildRailEntries(
+      [
+        { ...inProject('a'), title: 'Parse config', updated: 20 },
+        { ...inProject('b'), title: 'Migrate schema', updated: 10 },
+      ],
+      projectsByInstance,
+      [{ id: 'g', name: '', keys: ['local::a', 'local::b'] }]
+    );
+    const entry = entries.find((candidate) => candidate.kind === 'group');
+    if (entry?.kind !== 'group') throw new Error('expected a group entry');
+    expect(entry.customName).toBeNull();
+    expect(entry.name).toBe('Parse config + Migrate schema');
+    expect(groupDraftFromEntry(entry).name).toBe('');
   });
 
   test('a primary that is no longer configured falls back to the most recent member', () => {

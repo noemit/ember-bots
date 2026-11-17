@@ -223,10 +223,9 @@ describe('searching a group by name', () => {
       members,
       { groups: [group] }
     );
-    // The header draws the count, not the name: a group's name was either empty (seeded by
-    // "Group with…") or a member's own title, so the header repeated the list under it. The name
-    // still reaches a screen reader through the row's accessible name.
-    expect(textOf(html)).toContain('2 bots');
+    // An explicitly named group draws its custom name visibly in the header alongside its count,
+    // and exposes the same name as the row's accessible label.
+    expect(textOf(html)).toContain('Release train');
     expect(html).toContain('aria-label="Open group Release train"');
   });
 });

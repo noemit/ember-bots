@@ -204,6 +204,23 @@ export const defaultGroupName = (titles: readonly string[]): string => {
   return named.length > 2 ? `${head} +${named.length - 2}` : head;
 };
 
+/**
+ * The explicit, user-authored name for a group, or `undefined` when the group is unnamed or only
+ * carries a synthesized fallback (`"Group"`, a single member's own title, or `defaultGroupName`
+ * from a save before unnamed groups were stored with `name: ""`).
+ */
+export const customGroupName = (
+  name: string,
+  memberTitles: readonly string[] = []
+): string | undefined => {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === 'Group') return undefined;
+  const named = memberTitles.map((title) => title.trim()).filter(Boolean);
+  if (named.length === 1 && trimmed === named[0]) return undefined;
+  if (named.length >= 2 && trimmed === defaultGroupName(named)) return undefined;
+  return trimmed;
+};
+
 /** How Ember sees the instance a missing group member points at. */
 export type GroupMemberInstance = {
   /** The instance's label, as the rail and the panel show it. */

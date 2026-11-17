@@ -83,7 +83,7 @@ export default function ManageGroupDialog({
   const missingNote = groupMissingNote(
     missingGroupMembers(keys, (key) => byKey.has(key), instanceFor)
   );
-  const resolvedName = name.trim() || defaultGroupName(members.map((member) => member.title ?? member.id));
+  const placeholderName = defaultGroupName(members.map((member) => member.title ?? member.id));
   const canSave = canSaveGroup(keys);
 
   const candidates = React.useMemo(() => {
@@ -119,7 +119,7 @@ export default function ManageGroupDialog({
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder={resolvedName}
+            placeholder={placeholderName}
             aria-label="Group name"
           />
 
@@ -220,7 +220,7 @@ export default function ManageGroupDialog({
             onClick={() => {
               onSave({
                 id: draft?.id ?? randomId(),
-                name: resolvedName,
+                name: name.trim(),
                 keys,
                 primaryKey: primaryKey && keys.includes(primaryKey) ? primaryKey : keys[0],
               });

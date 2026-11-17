@@ -3,6 +3,7 @@ import {
   addToGroup,
   canSaveGroup,
   createGroup,
+  customGroupName,
   defaultGroupName,
   groupForSession,
   groupMissingNote,
@@ -88,6 +89,15 @@ describe('session groups', () => {
     expect(defaultGroupName(['Parse config'])).toBe('Group');
     expect(defaultGroupName(['Parse config', 'Migrate schema'])).toBe('Parse config + Migrate schema');
     expect(defaultGroupName(['A', 'B', 'C', 'D'])).toBe('A + B +2');
+  });
+
+  test('customGroupName preserves explicit user titles and ignores empty or synthesized fallbacks', () => {
+    expect(customGroupName('', ['Parse config', 'Migrate schema'])).toBeUndefined();
+    expect(customGroupName('   ', ['Parse config', 'Migrate schema'])).toBeUndefined();
+    expect(customGroupName('Group', ['Parse config', 'Migrate schema'])).toBeUndefined();
+    expect(customGroupName('Parse config', ['Parse config'])).toBeUndefined();
+    expect(customGroupName('Parse config + Migrate schema', ['Parse config', 'Migrate schema'])).toBeUndefined();
+    expect(customGroupName('  Frontend Release  ', ['Parse config', 'Migrate schema'])).toBe('Frontend Release');
   });
 
   test('upsertGroup moves members out of other groups on both create and edit', () => {
