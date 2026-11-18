@@ -187,7 +187,12 @@ import { crewByLeader, isWorker, leaderNeedsInput, threadRows, threadSourcesFor,
 import { processesToStopOnHide } from './lib/hideProcesses';
 import { hideElsewhereNote, hideForceStopAsk, hideStopFailure, refusedPids } from './lib/hideStopCopy';
 import { InvalidationQueue, invalidationsFor, parseEmberEvent, sessionIsLoaded, type Invalidation } from '@/lib/invalidation';
-import { APPLY_STREAM_DELTAS, applyLiveDeltas } from '@/lib/liveStream';
+import {
+  APPLY_STREAM_DELTAS,
+  applyLiveDeltas,
+  isTerminalStreamEvent,
+  StreamDeltaCoalescer,
+} from '@/lib/liveStream';
 import {
   MAX_OPEN_SESSIONS,
   MIN_COLUMN_WIDTH,
@@ -826,6 +831,8 @@ export default function App() {
     fullRepairRef.current(key);
   }, []);
 
+  const streamDeltaCoalescerRef = React.useRef<StreamDeltaCoalescer | null>(null);
+
   /**
    * The single transcript commit path. Every fetched full or tail response goes through here so
    * structural sharing, optimistic reconciliation, the message cache and the compact summary stay
@@ -847,8 +854,12 @@ export default function App() {
        */
       liveOutputs?: readonly LiveToolOutput[]
     ) => {
-      const current =
+      const rawCurrent =
         messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages ?? [];
+      const bufferedDeltas = streamDeltaCoalescerRef.current?.takeKey(key);
+      const current = bufferedDeltas
+        ? (applyLiveDeltas(rawCurrent, bufferedDeltas) ?? rawCurrent)
+        : rawCurrent;
       const now = Date.now();
       ageOutPendingSend(key, current, now);
       const pending = pendingOptimisticIds.current.get(key) ?? new Set<string>();
@@ -939,6 +950,19 @@ export default function App() {
    * on screen, a transcript that is not settled — means the caller should take the REST path, which
    * is also how the first chunk of a turn arrives and how any drift is corrected.
    */
+  const canBufferStreamDeltas = useStableCallback(
+    (instanceId: string, sessionId: string): boolean => {
+      const key = sessionKey({ instanceId, sessionId });
+      if (!sessionIsLoaded({ instanceId, sessionId }, watchedSessionKeysRef.current, activeSessionRef.current, document.hidden)) {
+        return false;
+      }
+      const transcript = transcriptsRef.current[key];
+      if (!transcript || transcript.status !== 'ready') return false;
+      const current = messageCacheRef.current.get(key) ?? transcript.messages;
+      return current.some((message) => message.live === true);
+    }
+  );
+
   const applyStreamDeltas = useStableCallback(
     (instanceId: string, sessionId: string, deltas: LiveDelta[]): boolean => {
       const key = sessionKey({ instanceId, sessionId });
@@ -1000,6 +1024,7 @@ export default function App() {
    */
   const markSessionStepsInterrupted = (instanceId: string, sessionId: string) => {
     const key = sessionKey({ instanceId, sessionId });
+    streamDeltaCoalescerRef.current?.flushKey(key);
     const current = messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages;
     if (!current) return;
     let changed = false;
@@ -2622,6 +2647,24 @@ export default function App() {
     }
   });
   const invalidationQueue = React.useMemo(() => new InvalidationQueue(refetch), [refetch]);
+  const deltaCoalescer = React.useMemo(
+    () =>
+      new StreamDeltaCoalescer((instanceId, sessionId, deltas) => {
+        if (applyStreamDeltas(instanceId, sessionId, deltas)) return;
+        const loaded = (instId: string, sessId: string) =>
+          sessionIsLoaded(
+            { instanceId: instId, sessionId: sessId },
+            watchedSessionKeysRef.current,
+            activeSessionRef.current,
+            document.hidden
+          );
+        invalidationsFor({ instanceId, type: 'pi:message_update', sessionId }, loaded).forEach(
+          (invalidation) => invalidationQueue.push(invalidation)
+        );
+      }),
+    [applyStreamDeltas, invalidationQueue]
+  );
+  streamDeltaCoalescerRef.current = deltaCoalescer;
 
   React.useEffect(() => {
     const bridge = window.ember;
@@ -2678,11 +2721,25 @@ export default function App() {
       }
       if (!readySet.has(event.instanceId)) return;
       // Whitelisted milestones carry a bounded summary; those become live activity entries.
-      // A streamed chunk carries the append itself, so a watching column can draw it without
-      // reading the transcript again. Anything this cannot apply falls through to the invalidation
-      // below, which is the path every hint took before deltas existed.
-      if (APPLY_STREAM_DELTAS && event.deltas && event.deltas.length > 0 && event.sessionId) {
-        if (applyStreamDeltas(event.instanceId, event.sessionId, event.deltas)) return;
+      // Flush any buffered rAF deltas synchronously before terminal boundaries so settled reads
+      // and idle states never lag behind a pending animation frame.
+      if (isTerminalStreamEvent(event.type)) {
+        if (event.sessionId) deltaCoalescer.flushSession(event.instanceId, event.sessionId);
+        else deltaCoalescer.flushInstance(event.instanceId);
+      }
+      // A streamed chunk carries the append itself, so a watching column can coalesce deltas per
+      // animation frame instead of re-rendering per token or reading the transcript again. Anything
+      // this cannot buffer or apply falls through to the invalidation below.
+      if (
+        APPLY_STREAM_DELTAS &&
+        event.type === 'pi:message_update' &&
+        event.deltas &&
+        event.deltas.length > 0 &&
+        event.sessionId &&
+        canBufferStreamDeltas(event.instanceId, event.sessionId)
+      ) {
+        deltaCoalescer.push(event.instanceId, event.sessionId, event.deltas);
+        return;
       }
       if (event.directory && (event.type.startsWith('question.') || event.type.startsWith('permission.'))) {
         const list =
@@ -2720,10 +2777,11 @@ export default function App() {
       window.removeEventListener('pageshow', resume);
       window.removeEventListener('ember:remote-resume', resume);
       unsubscribe();
+      deltaCoalescer.flushAll();
       invalidationQueue.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds; refs carry the rest
-  }, [readyKey, invalidationQueue]);
+  }, [readyKey, invalidationQueue, deltaCoalescer]);
 
   // ---- Polling: the safety net. Instances with a live stream poll slowly; the rest fast. ----
   // Split by liveness so one instance that can't stream (older OpenChamber, flaky tunnel)

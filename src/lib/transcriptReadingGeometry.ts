@@ -16,3 +16,46 @@ export function shouldOfferLastMessageJump(
   if (viewport.bottom <= viewport.top || !latestUser || latestUser.bottom > viewport.top) return false;
   return !userMessages.some(row => row.bottom > viewport.top && row.top < viewport.bottom);
 }
+
+const defaultScheduleFrame = (callback: () => void): number =>
+  typeof globalThis.requestAnimationFrame === 'function'
+    ? globalThis.requestAnimationFrame(callback)
+    : (globalThis.setTimeout(callback, 16) as unknown as number);
+
+const defaultCancelFrame = (handle: number): void => {
+  if (typeof globalThis.cancelAnimationFrame === 'function') {
+    globalThis.cancelAnimationFrame(handle);
+  } else {
+    globalThis.clearTimeout(handle);
+  }
+};
+
+/** Coalesce scroll and resize geometry checks to at most one measurement per animation frame. */
+export function createReadingGeometryScheduler(
+  measure: () => void,
+  scheduleFrame: (callback: () => void) => number = defaultScheduleFrame,
+  cancelFrame: (handle: number) => void = defaultCancelFrame,
+): { schedule: () => void; flush: () => void; cancel: () => void } {
+  let frame: number | null = null;
+  return {
+    schedule() {
+      if (frame !== null) return;
+      frame = scheduleFrame(() => {
+        frame = null;
+        measure();
+      });
+    },
+    flush() {
+      if (frame !== null) {
+        cancelFrame(frame);
+        frame = null;
+      }
+      measure();
+    },
+    cancel() {
+      if (frame === null) return;
+      cancelFrame(frame);
+      frame = null;
+    },
+  };
+}

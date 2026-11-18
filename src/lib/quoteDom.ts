@@ -1,6 +1,7 @@
 /** Renderer-owned source snapshots: stale DOM must never be projected onto newer text. */
 const markdownSources = new WeakMap<Element, string>();
 export const registerQuoteMarkdown = (element: Element, source: string): void => { markdownSources.set(element, source); };
+export const unregisterQuoteMarkdown = (element: Element): void => { markdownSources.delete(element); };
 export type QuoteTextRun = { node: Text; start: number; end: number };
 
 /** Exact text leaves carry parser offsets. Plain Linkify/live prose is lossless as a whole. */
