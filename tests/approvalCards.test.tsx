@@ -1,8 +1,22 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PermissionCard } from '../src/components/Transcript';
 import { piApprovalToPermissionRequest, type PiApproval } from '../src/lib/piMapping';
 import { rememberPiInstances } from '../src/piApi';
+
+let hadWindow = false;
+let stubbedWindow: unknown;
+beforeAll(() => {
+  const scope = globalThis as { window?: unknown };
+  hadWindow = 'window' in scope;
+  stubbedWindow = scope.window;
+  delete scope.window;
+});
+afterAll(() => {
+  const scope = globalThis as { window?: unknown };
+  if (hadWindow) scope.window = stubbedWindow;
+  else delete scope.window;
+});
 
 const renderApproval = (approval: PiApproval, endpointId = 'pi:local'): string => {
   rememberPiInstances([{ id: endpointId, kind: 'pi' }]);

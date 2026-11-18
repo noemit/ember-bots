@@ -3,7 +3,7 @@ import { questionDrafts } from '../src/lib/asyncQuestionDrafts';
 import { composerMemory } from '../src/lib/composerDrafts';
 import { reconcileFullTranscript } from '../src/lib/transcriptReconciliation';
 import type { ChatMessage } from '../src/types';
-import { canReloadRemote, remoteAuxiliaryDrafts, remoteUnsentText, setRemoteActiveWork, setRemoteDraftBlocker } from '../src/lib/remoteLifecycle';
+import { canReloadRemote, remoteAuxiliaryDrafts, remoteUnsentText, resetRemoteLifecycleForTest, setRemoteActiveWork, setRemoteDraftBlocker } from '../src/lib/remoteLifecycle';
 
 // All traffic is stubbed. This test never probes a running Ember or changes network settings.
 test('remote resume repairs reads, preserves private drafts and never replays an uncertain send', async () => {
@@ -207,7 +207,7 @@ test('remote resume repairs reads, preserves private drafts and never replays an
     composerMemory.clear();
     questionDrafts.clear();
     remoteAuxiliaryDrafts.clear();
-    setRemoteActiveWork(false);
+    resetRemoteLifecycleForTest();
     for (const [key, descriptor] of originals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else Reflect.deleteProperty(globalThis, key);

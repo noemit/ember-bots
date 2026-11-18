@@ -46,7 +46,7 @@ exports.default = async function notarizeApp(context) {
   }
 
   const appleId = process.env.APPLE_ID?.trim();
-  const applePassword = process.env.APPLE_PASSWORD?.trim();
+  const applePassword = (process.env.APPLE_PASSWORD || process.env.APPLE_APP_SPECIFIC_PASSWORD)?.trim();
   const teamId = process.env.APPLE_TEAM_ID?.trim();
 
   if (!appleId || !applePassword || !teamId) {

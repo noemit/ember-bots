@@ -131,35 +131,30 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
 
   const hydrateSettings = React.useCallback((stored: Partial<EmberSettings>) => {
     assignmentWritesRef.current.acknowledge(stored.avatarAssignments);
+    hydratedRef.current = true;
+    let next: EmberSettings;
     if (revisionRef.current > 0) {
       if (settledRevisionRef.current > 0) {
-        const next = { ...settingsRef.current, avatarAssignments: assignmentWritesRef.current.visible() };
-        settingsRef.current = next;
-        setSettings(next);
-        setSettingsLoaded(true);
-        return;
+        next = { ...settingsRef.current, avatarAssignments: assignmentWritesRef.current.visible() };
+      } else {
+        const pendingDrafts = Object.fromEntries(
+          [...pendingDraftsRef.current].map(([key, entry]) => [key, entry.value])
+        );
+        const baseDrafts =
+          optimisticValuesRef.current.composerDrafts ??
+          stored.composerDrafts ??
+          DEFAULT_SETTINGS.composerDrafts;
+        next = {
+          ...DEFAULT_SETTINGS,
+          ...stored,
+          ...optimisticValuesRef.current,
+          avatarAssignments: assignmentWritesRef.current.visible(),
+          composerDrafts: mergeDraftChanges(baseDrafts, pendingDrafts),
+        };
       }
-      const pendingDrafts = Object.fromEntries(
-        [...pendingDraftsRef.current].map(([key, entry]) => [key, entry.value])
-      );
-      const baseDrafts =
-        optimisticValuesRef.current.composerDrafts ??
-        stored.composerDrafts ??
-        DEFAULT_SETTINGS.composerDrafts;
-      const next = {
-        ...DEFAULT_SETTINGS,
-        ...stored,
-        ...optimisticValuesRef.current,
-        avatarAssignments: assignmentWritesRef.current.visible(),
-        composerDrafts: mergeDraftChanges(baseDrafts, pendingDrafts),
-      };
-      settingsRef.current = next;
-      setSettings(next);
-      setSettingsLoaded(true);
-      return;
+    } else {
+      next = { ...DEFAULT_SETTINGS, ...stored, avatarAssignments: assignmentWritesRef.current.visible() };
     }
-    const next = { ...DEFAULT_SETTINGS, ...stored, avatarAssignments: assignmentWritesRef.current.visible() };
-    hydratedRef.current = true;
     settingsRef.current = next;
     setSettings(next);
     setSettingsLoaded(true);

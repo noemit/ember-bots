@@ -221,7 +221,7 @@ export default function GroupRow({
                       {/* The bare blob, not `SessionBlob`: that component is a 56px column with
                           its own title chip, which would repeat the name this row already writes
                           and push it out of the way. A list row needs a face beside a name. */}
-                      <span className="relative flex-none">
+                      <span className="relative inline-flex flex-none">
                         <Blob
                           style={blobStyle}
                           seed={key}

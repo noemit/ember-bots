@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
   createClientMessageId,
   createSession,
@@ -31,6 +31,17 @@ import type { ScheduledTask } from '../src/api';
 import { shouldOfferSessionReload } from '../src/components/ChatView';
 import { cacheSummary, formatCost, isAssistantTurnEnd, relativeTimeAgo, tokensPerSecond } from '../src/components/Transcript';
 import type { ChatMessage, ModelOption } from '../src/types';
+
+let hadWindow = false;
+let previousWindow: unknown;
+beforeAll(() => {
+  hadWindow = 'window' in globalThis;
+  previousWindow = (globalThis as { window?: unknown }).window;
+});
+afterAll(() => {
+  if (hadWindow) (globalThis as { window?: unknown }).window = previousWindow;
+  else delete (globalThis as { window?: unknown }).window;
+});
 
 const setRequest = (
   request: (instanceId: string, method: string, path: string, body?: unknown) => Promise<unknown>

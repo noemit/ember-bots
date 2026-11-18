@@ -95,6 +95,15 @@ async function timestampBelowTitle(row: Locator) {
   expect(time.y).toBeGreaterThanOrEqual(title.y + title.height - 1);
 }
 
+async function blobCenteredWithText(row: Locator) {
+  const wrapper = (await row.locator('[data-session-key]').boundingBox())!;
+  const blob = (await row.locator('.blob').first().boundingBox())!;
+  const text = (await row.locator('[data-rail-text]').boundingBox())!;
+  const textCenter = text.y + text.height / 2;
+  expect(Math.abs(wrapper.y + wrapper.height / 2 - textCenter)).toBeLessThanOrEqual(2);
+  expect(Math.abs(blob.y + blob.height / 2 - textCenter)).toBeLessThanOrEqual(2);
+}
+
 for (const compact of [false, true]) {
   test(`full folder above distinct session; descriptions only wide (compact ${compact})`, async ({ page }) => {
     await fixture(page, { compact });
@@ -107,6 +116,7 @@ for (const compact of [false, true]) {
     const actions = (await row.locator('..').locator('[data-rail-actions]').boundingBox())!;
     const heading = (await row.locator('[data-rail-folder]').boundingBox())!;
     expect(actions.y + actions.height, 'hover actions stay in their band above the complete folder').toBeLessThanOrEqual(heading.y + 1);
+    await blobCenteredWithText(row);
     await page.screenshot({ path: `/tmp/ember-rail-text-normal-${compact}.png` });
     await page.keyboard.press('ControlOrMeta+b');
     await expect(rail(page)).toHaveCSS('width', '760px');
@@ -114,6 +124,7 @@ for (const compact of [false, true]) {
     await expect(row.getByTestId('session-preview')).toBeVisible();
     await expect(row.getByTestId('session-preview')).toContainText('Review the updated onboarding');
     await timestampBelowTitle(row);
+    await blobCenteredWithText(row);
     await page.screenshot({ path: `/tmp/ember-rail-text-wide-${compact}.png` });
     await page.keyboard.press('ControlOrMeta+b');
     const icon = page.locator('[data-mini-session="pi:hearth::10"]');

@@ -34,7 +34,7 @@ test('focus is a quiet colour cue, absent when unfocused', () => {
 test('identity colour remains conditional and the focus halo has a theme-accent fallback', () => {
   const source = readFileSync(new URL('../src/components/ChatView.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
-  expect(source).toMatch(/style=\{session && showSessionAvatar \? \{\s*'--composer-glow-color': blobColor\(blobStyle, identity\)/);
+  expect(source).toMatch(/style=\{session && showSessionAvatar && !questionComposer\.isChildTaskAnswer \? \{\s*'--composer-glow-color': blobColor\(blobStyle, identity\)/);
   expect(css).toContain('var(--composer-glow-color, var(--ring))');
   expect(css).toContain('background-blend-mode: var(--composer-glow-blend)');
   expect(css).toContain('mix-blend-mode: var(--composer-glow-blend)');

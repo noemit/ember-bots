@@ -35,6 +35,9 @@ describe('useEmberSettings concurrency and ref consistency', () => {
         return null;
       }
       await render(React.createElement(Harness));
+      await act(() => {
+        hook.hydrateSettings(DEFAULT_SETTINGS);
+      });
 
       let immediateRefSnapshot: EmberSettings | undefined;
       await act(async () => {

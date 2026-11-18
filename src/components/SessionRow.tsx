@@ -255,97 +255,100 @@ const SessionRow = React.memo(function SessionRow({
             aria-current={selected ? 'true' : undefined}
             onClick={() => onSelect(session)}
             className={cn(
-              'flex w-full items-start gap-2.5 rounded-lg px-2.5 text-left transition-colors duration-150',
+              'flex w-full items-stretch rounded-lg px-2.5 text-left transition-colors duration-150',
               compact ? 'py-1.5' : 'py-2',
               selected ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
             )}
           >
-            <div
-              className="relative mt-[7px]"
-              data-session-key={key}
-              data-visible-column={visibleColumn ? 'true' : undefined}
-            >
-              {/* Project/task/session identity is resolved once in App so every surface stays aligned,
-                  including across instances that reuse session ids. */}
-              <Blob style={blobStyle} seed={key} identity={identity} size={avatarSize} mood={mood} />
-              <ProcessIndicator session={session} overlay />
-              {visibleColumn ? (
-                <span
-                  data-column-underline
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -bottom-1.5 left-1/2 h-[3px] w-7 -translate-x-1/2 rounded-full bg-highlight"
-                />
-              ) : null}
-            </div>
-
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              {/* Keep a dedicated action band above the full-width folder. Reserving action
-                  width on every wrapped line made long folder names needlessly tall. */}
-              <div data-rail-heading="" className="flex min-w-0 flex-col items-stretch pt-[30px]">
-                {topMeta ? (
-                  <span className="flex min-w-0 flex-1 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">
-                    {topMeta}
-                  </span>
-                ) : <RailFolder name={projectName} path={session.directory} />}
-              </div>
-              <div data-rail-title-row="" className="flex min-w-0 items-baseline gap-2">
-                {snoozed ? <span className="flex-none text-[10px] text-muted-foreground">Snoozed</span> : null}
-                {/* A run the scheduler started is an ordinary session; this mark is the only thing
-                    that says so, and the tooltip names the task so it can be found in the rail's
-                    own Scheduled section. */}
-                {scheduledTask ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <CalendarClock
-                        className="size-3 flex-none text-muted-foreground"
-                        aria-label={`Started by the scheduled task ${scheduledTask.name}`}
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent side="left" className="max-w-[240px]">
-                      <span className="block">This was triggered by a scheduled task.</span>
-                      <span className="block text-muted-foreground">{scheduledTask.name}</span>
-                    </TooltipContent>
-                  </Tooltip>
+            {/* Keep a dedicated action band above both the blob and the full-width folder.
+                Reserving action width on every wrapped line made long folder names needlessly tall,
+                and applying clearance only to the heading left blobs pinned above the text stack. */}
+            <div className="flex min-w-0 flex-1 items-center gap-2.5 pt-[30px]">
+              <div
+                className="relative flex flex-none"
+                data-session-key={key}
+                data-visible-column={visibleColumn ? 'true' : undefined}
+              >
+                {/* Project/task/session identity is resolved once in App so every surface stays aligned,
+                    including across instances that reuse session ids. */}
+                <Blob style={blobStyle} seed={key} identity={identity} size={avatarSize} mood={mood} />
+                <ProcessIndicator session={session} overlay />
+                {visibleColumn ? (
+                  <span
+                    data-column-underline
+                    aria-hidden="true"
+                    className="pointer-events-none absolute -bottom-1.5 left-1/2 h-[3px] w-7 -translate-x-1/2 rounded-full bg-highlight"
+                  />
                 ) : null}
-                <span
-                  data-session-title=""
-                  data-instance-marker={markerColor}
-                  title={title}
-                  className="min-w-0 flex-1 line-clamp-2 text-[13px] leading-[18px] font-medium text-foreground [overflow-wrap:anywhere]"
-                  style={markerColor === undefined ? undefined : {
-                    textDecoration: 'underline',
-                    textDecorationColor: `var(--instance-marker-${markerColor})`,
-                    textDecorationThickness: '2px',
-                    textUnderlineOffset: '3px',
-                  }}
-                >
-                  {title}
-                </span>
               </div>
-              <RailDescription preview={preview} timestamp={session.updated} compact={!expanded} />
-              {mood === 'input' || mood === 'question' || mood === 'error' || (!topMeta && instanceLabel) ? (
-                <span className="flex items-center gap-1 truncate text-[10.5px] text-muted-foreground">
-                  {mood === 'input' || mood === 'question' ? (
-                    <Badge variant="outline" className="flex-none border-highlight/40 px-1 py-0 text-[10px] font-medium text-highlight">
-                      Needs input
-                    </Badge>
-                  ) : mood === 'error' ? (
-                    <Badge variant="outline" className="flex-none border-destructive/40 px-1 py-0 text-[10px] font-medium text-destructive">
-                      Failed
-                    </Badge>
+
+              <div data-rail-text="" className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <div data-rail-heading="" className="flex min-w-0 flex-col items-stretch">
+                  {topMeta ? (
+                    <span className="flex min-w-0 flex-1 items-center gap-1 text-[10px] font-medium tracking-wide text-muted-foreground">
+                      {topMeta}
+                    </span>
+                  ) : <RailFolder name={projectName} path={session.directory} />}
+                </div>
+                <div data-rail-title-row="" className="flex min-w-0 items-baseline gap-2">
+                  {snoozed ? <span className="flex-none text-[10px] text-muted-foreground">Snoozed</span> : null}
+                  {/* A run the scheduler started is an ordinary session; this mark is the only thing
+                      that says so, and the tooltip names the task so it can be found in the rail's
+                      own Scheduled section. */}
+                  {scheduledTask ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <CalendarClock
+                          className="size-3 flex-none text-muted-foreground"
+                          aria-label={`Started by the scheduled task ${scheduledTask.name}`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-[240px]">
+                        <span className="block">This was triggered by a scheduled task.</span>
+                        <span className="block text-muted-foreground">{scheduledTask.name}</span>
+                      </TooltipContent>
+                    </Tooltip>
                   ) : null}
-                  {!topMeta &&
-                  (mood === 'input' || mood === 'question' || mood === 'error') &&
-                  instanceLabel ? (
-                    <span aria-hidden>·</span>
-                  ) : null}
-                  {!topMeta && instanceLabel ? (
-                    <>
-                      <span className="truncate">{instanceLabel}</span>
-                    </>
-                  ) : null}
-                </span>
-              ) : null}
+                  <span
+                    data-session-title=""
+                    data-instance-marker={markerColor}
+                    title={title}
+                    className="min-w-0 flex-1 line-clamp-2 text-[13px] leading-[18px] font-medium text-foreground [overflow-wrap:anywhere]"
+                    style={markerColor === undefined ? undefined : {
+                      textDecoration: 'underline',
+                      textDecorationColor: `var(--instance-marker-${markerColor})`,
+                      textDecorationThickness: '2px',
+                      textUnderlineOffset: '3px',
+                    }}
+                  >
+                    {title}
+                  </span>
+                </div>
+                <RailDescription preview={preview} timestamp={session.updated} compact={!expanded} />
+                {mood === 'input' || mood === 'question' || mood === 'error' || (!topMeta && instanceLabel) ? (
+                  <span className="flex items-center gap-1 truncate text-[10.5px] text-muted-foreground">
+                    {mood === 'input' || mood === 'question' ? (
+                      <Badge variant="outline" className="flex-none border-highlight/40 px-1 py-0 text-[10px] font-medium text-highlight">
+                        Needs input
+                      </Badge>
+                    ) : mood === 'error' ? (
+                      <Badge variant="outline" className="flex-none border-destructive/40 px-1 py-0 text-[10px] font-medium text-destructive">
+                        Failed
+                      </Badge>
+                    ) : null}
+                    {!topMeta &&
+                    (mood === 'input' || mood === 'question' || mood === 'error') &&
+                    instanceLabel ? (
+                      <span aria-hidden>·</span>
+                    ) : null}
+                    {!topMeta && instanceLabel ? (
+                      <>
+                        <span className="truncate">{instanceLabel}</span>
+                      </>
+                    ) : null}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </motion.button>
         </ContextMenuTrigger>

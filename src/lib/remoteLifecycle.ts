@@ -52,3 +52,11 @@ export const installRemoteLifecycle = () => {
     event.returnValue = '';
   });
 };
+/** Reset module-level remote lifecycle flags between unit tests. */
+export const resetRemoteLifecycleForTest = () => {
+  remote = false;
+  expired = false;
+  activeWork = false;
+  requests = 0;
+  draftBlockers.clear();
+};
