@@ -37,6 +37,36 @@ test('static responses negotiate compression, preserve content, and handle HEAD'
     const plain = await fetch(`${url}/app-abcdefgh.js`, { headers: { 'Accept-Encoding': 'gzip;q=0, br;q=0' } });
     expect(plain.headers.has('content-encoding')).toBe(false);
     expect(await plain.text()).toBe(content);
+
+    for (const res of [index, manifest, plain, head]) {
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    }
+    const csp = index.headers.get('content-security-policy') ?? '';
+    for (const directive of [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: http: https:",
+      "connect-src 'self' ws: wss:",
+      "font-src 'self' data:",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'",
+      "frame-src 'none'",
+      "frame-ancestors 'none'",
+    ]) {
+      expect(csp).toContain(directive);
+    }
+    expect(plain.headers.has('content-security-policy')).toBe(false);
+    expect(manifest.headers.has('content-security-policy')).toBe(false);
+
+    const missing = await fetch(`${url}/missing.js`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('x-frame-options')).toBe('DENY');
+    expect(missing.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(missing.headers.get('referrer-policy')).toBe('no-referrer');
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

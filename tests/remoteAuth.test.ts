@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { hashRemotePassword, MAX_REMOTE_PASSWORD_LENGTH, verifyRemotePassword } from '../electron/remoteAuth';
+import { createRemoteServer, MAX_LOGIN_ATTEMPTS, MAX_LOGIN_VERIFY_IN_FLIGHT } from '../electron/remoteServer';
 
 describe('remote access authentication', () => {
   test('hashes passwords without storing the plaintext and verifies them', async () => {
@@ -34,5 +38,58 @@ describe('remote access authentication', () => {
       verifyRemotePassword('wrong', stored),
     ]);
     expect(results).toEqual([true, true, false]);
+  });
+
+  test('accepts max-length passphrases and caps concurrent scrypt verifications on /remote/login bursts', async () => {
+    const maxPass = 'p'.repeat(MAX_REMOTE_PASSWORD_LENGTH);
+    const maxStored = await hashRemotePassword(maxPass);
+    expect(await verifyRemotePassword(maxPass, maxStored)).toBe(true);
+    expect(await verifyRemotePassword(maxPass + 'x', maxStored)).toBe(false);
+
+    const directory = await mkdtemp(join(tmpdir(), 'ember-scrypt-burst-'));
+    let activeVerifications = 0;
+    let maxActiveVerifications = 0;
+    let totalVerifications = 0;
+    const server = createRemoteServer(directory, {
+      modelStats: { list: async () => [], observe: async () => [], clear: async () => {} },
+      listInstances: async () => [],
+      getSettings: () => ({}),
+      setSettings: async (patch) => patch,
+      request: async () => ({ ok: true, status: 200, data: {} }),
+      verifyPassword: async (candidate) => {
+        totalVerifications += 1;
+        activeVerifications += 1;
+        maxActiveVerifications = Math.max(maxActiveVerifications, activeVerifications);
+        try {
+          return await verifyRemotePassword(candidate, maxStored);
+        } finally {
+          activeVerifications -= 1;
+        }
+      },
+      subscribeEvents: () => () => {},
+      eventStatus: () => ({}),
+    }, { failedLoginDelayMs: 0 });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const url = `http://127.0.0.1:${address.port}`;
+    try {
+      const responses = await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          fetch(`${url}/remote/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: `wrong-attempt-${index}` }),
+          })
+        )
+      );
+      expect(maxActiveVerifications).toBeLessThanOrEqual(MAX_LOGIN_VERIFY_IN_FLIGHT);
+      expect(totalVerifications).toBeLessThanOrEqual(MAX_LOGIN_ATTEMPTS);
+      expect(responses.filter((res) => res.status === 429).length).toBeGreaterThanOrEqual(20 - MAX_LOGIN_ATTEMPTS);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(directory, { recursive: true });
+    }
   });
 });

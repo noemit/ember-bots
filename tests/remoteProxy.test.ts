@@ -18,7 +18,7 @@ const fixture = async (proxyOrigin?: string) => {
     verifyPassword: async (password) => password === 'fixture-password',
     subscribeEvents: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     eventStatus: () => ({ fixture: true }),
-  }, { proxyOrigin });
+  }, { proxyOrigin, failedLoginDelayMs: 0 });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Fixture did not bind');
@@ -130,17 +130,30 @@ for (const reason of ['logout', 'idle expiry', 'absolute expiry'] as const) {
   });
 }
 
-test('forged forwarded client IPs cannot bypass the proxy login limit', async () => {
-  const f = await fixture(origin);
+test('proxy login buckets by first forwarded client IP without locking out other clients, while direct HTTP ignores forged forwarding headers', async () => {
+  const direct = await fixture();
   try {
     for (let attempt = 0; attempt < 8; attempt++) {
-      const denied = await f.call('/remote/login', { ...proxyHeaders, 'X-Forwarded-For': '192.0.2.' + attempt }, 'POST', { password: 'wrong' });
+      const denied = await direct.call('/remote/login', { 'X-Forwarded-For': '192.0.2.' + attempt, 'CF-Connecting-IP': '198.51.100.' + attempt }, 'POST', { password: 'wrong' });
       expect(denied.status).toBe(401);
     }
-    const blocked = await f.login({ ...proxyHeaders, 'X-Forwarded-For': '203.0.113.1' });
-    expect(blocked.status).toBe(429);
-    expect(blocked.headers.get('cache-control')).toBe('no-store');
-  } finally { await f.close(); }
+    const directBlocked = await direct.login({ 'X-Forwarded-For': '203.0.113.1', 'CF-Connecting-IP': '203.0.113.1' });
+    expect(directBlocked.status).toBe(429);
+    expect(directBlocked.headers.get('cache-control')).toBe('no-store');
+  } finally { await direct.close(); }
+
+  const proxied = await fixture(origin);
+  try {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const denied = await proxied.call('/remote/login', { ...proxyHeaders, 'X-Forwarded-For': `192.0.2.9, 10.0.0.${attempt}` }, 'POST', { password: 'wrong' });
+      expect(denied.status).toBe(401);
+    }
+    const scannerBlocked = await proxied.login({ ...proxyHeaders, 'X-Forwarded-For': '192.0.2.9, 10.0.0.99' });
+    expect(scannerBlocked.status).toBe(429);
+    expect(scannerBlocked.headers.get('cache-control')).toBe('no-store');
+    const otherAllowed = await proxied.login({ ...proxyHeaders, 'X-Forwarded-For': '203.0.113.1' });
+    expect(otherAllowed.status).toBe(200);
+  } finally { await proxied.close(); }
 });
 
 test('listener replacement drops trusted HTTPS streams and never carries sessions into the replacement', async () => {

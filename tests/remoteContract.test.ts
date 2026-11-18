@@ -1,9 +1,9 @@
 import { expect, spyOn, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
-import { createRemoteServer, isAllowedHost, isAllowedOrigin } from '../electron/remoteServer';
+import { createHash, randomBytes } from 'node:crypto';
+import { createRemoteServer, isAllowedHost, isAllowedOrigin, MAX_LOGIN_BODY_BYTES } from '../electron/remoteServer';
 import { hashRemotePassword, verifyRemotePassword } from '../electron/remoteAuth';
 import { redactRemoteSettings, withoutDesktopOnlySettings } from '../electron/transport';
 
@@ -14,6 +14,8 @@ import { redactRemoteSettings, withoutDesktopOnlySettings } from '../electron/tr
 
 const fixture = async (settings: unknown = { theme: 'stone' }) => {
   const directory = await mkdtemp(join(tmpdir(), 'ember-remote-contract-'));
+  await writeFile(join(directory, 'index.html'), '<!doctype html><html><body>Ember</body></html>');
+  await writeFile(join(directory, 'app-12345678.js'), 'console.log("ember");');
   const password = randomBytes(18).toString('hex');
   const hash = await hashRemotePassword(password);
   const writes: string[] = [];
@@ -214,6 +216,86 @@ test('a session ends after the idle window and the cookie is no longer accepted'
       clock.mockRestore();
     }
   } finally {
+    await f.close();
+  }
+});
+
+test('pre-auth /remote/login caps bodies at 4 KB while authenticated routes retain the 32 MB cap', async () => {
+  const f = await fixture();
+  try {
+    const oversizedLogin = await f.call('/remote/login', 'POST', {
+      password: f.password,
+      padding: 'x'.repeat(MAX_LOGIN_BODY_BYTES),
+    });
+    expect(oversizedLogin.status).toBe(413);
+    expect(await oversizedLogin.json()).toEqual({ error: 'Request body is too large' });
+
+    const { cookie } = await f.login();
+    const largerAuthenticated = await f.call('/remote/settings', 'POST', {
+      theme: 'stone',
+      note: 'y'.repeat(16 * 1024),
+    }, { Cookie: cookie });
+    expect(largerAuthenticated.status).toBe(200);
+  } finally {
+    await f.close();
+  }
+});
+
+test('HTML, JSON, redirect, SSE and static responses carry defense-in-depth security headers and CSP', async () => {
+  const f = await fixture();
+  const abort = new AbortController();
+  try {
+    const expectSecurityHeaders = (response: Response) => {
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    };
+
+    const loginHtml = await f.call('/remote/login', 'GET');
+    expect(loginHtml.status).toBe(200);
+    expectSecurityHeaders(loginHtml);
+    const loginCsp = loginHtml.headers.get('content-security-policy') ?? '';
+    expect(loginCsp).toContain("frame-ancestors 'none'");
+    expect(loginCsp).toContain("default-src 'self'");
+    const html = await loginHtml.text();
+    const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+    expect(scriptMatch).not.toBeNull();
+    const scriptHash = createHash('sha256').update(scriptMatch![1], 'utf8').digest('base64');
+    expect(loginCsp).toContain(`'sha256-${scriptHash}'`);
+    expect(loginCsp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+
+    const redirect = await f.call('/');
+    expect(redirect.status).toBe(302);
+    expectSecurityHeaders(redirect);
+
+    const unauthJson = await f.call('/remote/settings', 'POST', {});
+    expect(unauthJson.status).toBe(401);
+    expectSecurityHeaders(unauthJson);
+
+    const { cookie } = await f.login();
+    const authJson = await f.call('/remote/settings', 'GET', undefined, { Cookie: cookie });
+    expect(authJson.status).toBe(200);
+    expectSecurityHeaders(authJson);
+
+    const appHtml = await f.call('/', 'GET', undefined, { Cookie: cookie });
+    expect(appHtml.status).toBe(200);
+    expectSecurityHeaders(appHtml);
+    const appCsp = appHtml.headers.get('content-security-policy') ?? '';
+    expect(appCsp).toContain("frame-ancestors 'none'");
+    expect(appCsp).toContain("connect-src 'self' ws: wss:");
+    expect(appCsp).toContain("img-src 'self' data: http: https:");
+    expect(appCsp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(appCsp).toContain("font-src 'self' data:");
+
+    const staticJs = await f.call('/app-12345678.js', 'GET', undefined, { Cookie: cookie });
+    expect(staticJs.status).toBe(200);
+    expectSecurityHeaders(staticJs);
+
+    const sse = await fetch(`${f.url}/remote/events`, { headers: { Cookie: cookie }, signal: abort.signal });
+    expect(sse.status).toBe(200);
+    expectSecurityHeaders(sse);
+  } finally {
+    abort.abort();
     await f.close();
   }
 });

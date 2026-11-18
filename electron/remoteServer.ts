@@ -2,16 +2,17 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { brotliCompress, gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import type { ApiMethod } from './transport';
 import type { ModelStatsStore } from './modelStats';
 import { canonicalizePiPath, desktopOnlyPiRouteError } from './piPath';
-import { isTrustedHttpsProxy, parseRemoteProxyOrigin, remoteBindAddress } from './remoteProxy';
+import { isLoopbackPeer, isTrustedHttpsProxy, parseRemoteProxyOrigin, remoteBindAddress } from './remoteProxy';
 
 const REMOTE_PORT = 57821;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
+const MAX_LOGIN_BODY_BYTES = 4096;
 const TAILSCALE_MIN = 0x64400000;
 const TAILSCALE_MAX = 0x647fffff;
 /** Plain name; the `__Host-` form below is used whenever the cookie can carry `Secure`. */
@@ -27,6 +28,20 @@ const SESSION_IDLE_MS = 12 * 60 * 60 * 1000;
 const SESSION_ABSOLUTE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 8;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const MAX_LOGIN_VERIFY_IN_FLIGHT = 2;
+const MAX_LOGIN_VERIFY_QUEUE = 4;
+const DEFAULT_FAILED_LOGIN_DELAY_MS = 250;
+const MAX_TRACKED_ATTEMPTS = 2048;
+const MAX_ACTIVE_SESSIONS = 2048;
+
+const SECURITY_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+} as const;
+
+const STATIC_HTML_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; connect-src 'self' ws: wss:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'";
 
 type ApiResponse = { ok: boolean; status: number; data: unknown };
 type Handlers = {
@@ -50,11 +65,41 @@ type Handlers = {
 export type RemoteServerOptions = {
   /** External HTTPS origin. Enables a loopback-only listener and exact proxy request validation. */
   proxyOrigin?: string;
+  /** Pause applied after a failed password verification to throttle forwarded-IP scanning (default 250ms). */
+  failedLoginDelayMs?: number;
+  /** Maximum tracked login-attempt buckets and active sessions before evicting oldest entries (default 2048). */
+  maxTrackedAttempts?: number;
+  maxSessions?: number;
 };
 
 const SSE_HEARTBEAT_MS = 25_000;
 type Session = { secure: boolean; expiresAt: number; startedAt: number; streams: Set<() => void> };
-type Attempt = { count: number; resetAt: number };
+type Attempt = { count: number; inFlight: number; resetAt: number };
+
+let verifyInFlight = 0;
+const verifyWaiters: Array<() => void> = [];
+
+const acquireVerifySlot = (): Promise<boolean> => {
+  if (verifyInFlight < MAX_LOGIN_VERIFY_IN_FLIGHT) {
+    verifyInFlight += 1;
+    return Promise.resolve(true);
+  }
+  if (verifyWaiters.length >= MAX_LOGIN_VERIFY_QUEUE) {
+    return Promise.resolve(false);
+  }
+  return new Promise<boolean>((resolve) => {
+    verifyWaiters.push(() => {
+      verifyInFlight += 1;
+      resolve(true);
+    });
+  });
+};
+
+const releaseVerifySlot = (): void => {
+  verifyInFlight = Math.max(0, verifyInFlight - 1);
+  const next = verifyWaiters.shift();
+  if (next) next();
+};
 
 /** A request failure that carries the status the client should see. */
 export class HttpError extends Error {
@@ -97,14 +142,14 @@ const json = (response: http.ServerResponse, status: number, value: unknown, hea
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
+    ...SECURITY_HEADERS,
     ...headers,
     'Content-Length': Buffer.byteLength(body),
   });
   response.end(body);
 };
 
-const readBody = (request: http.IncomingMessage): Promise<unknown> =>
+const readBody = (request: http.IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> =>
   new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -112,7 +157,7 @@ const readBody = (request: http.IncomingMessage): Promise<unknown> =>
     request.on('data', (chunk: Buffer) => {
       if (settled) return;
       total += chunk.byteLength;
-      if (total > MAX_BODY_BYTES) {
+      if (total > maxBytes) {
         settled = true;
         // Stop reading, but let the response go out before the socket dies: destroying the
         // request here used to turn an oversized body into a bare connection reset.
@@ -148,11 +193,15 @@ const cookies = (request: http.IncomingMessage): Record<string, string> =>
       .map(([key, value]) => [key, decodeURIComponent(value)])
   );
 
+const LOGIN_SCRIPT = `const form=document.querySelector('form'),error=document.querySelector('#error'),button=form.querySelector('button');form.addEventListener('submit',async e=>{e.preventDefault();error.textContent='Signing in to Ember…';button.disabled=true;try{const body=JSON.stringify({password:form.password.value});const r=await fetch('/remote/login',{method:'POST',headers:{'Content-Type':'application/json'},body,cache:'no-store'});if(r.ok)location.href='/';else error.textContent=r.status===429?'Ember is pausing sign-in attempts. Wait a few minutes, then try Sign in again.':r.status===401?'Ember did not accept that password. Check the password set on the Ember computer, then try Sign in again.':'Ember could not sign you in. Check that the desktop app is running, then try Sign in again.';}catch{error.textContent='The Ember computer did not answer. Check your private connection and that Ember is running, then try Sign in again.';}finally{button.disabled=false;}});`;
+const LOGIN_SCRIPT_HASH = createHash('sha256').update(LOGIN_SCRIPT, 'utf8').digest('base64');
+const LOGIN_PAGE_CSP = `default-src 'self'; script-src 'self' 'sha256-${LOGIN_SCRIPT_HASH}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'`;
+
 const loginPage = (): string => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#151413"><title>Ember login</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#151413;color:#efece7;font:14px system-ui,sans-serif}main{width:min(360px,calc(100% - 40px));padding:24px;border:1px solid #2c2a26;border-radius:12px;background:#1b1a18}h1{font-size:18px;margin:0 0 8px}p{color:#9b958c;font-size:12px}label{display:grid;gap:6px;margin:20px 0 12px}input{box-sizing:border-box;width:100%;min-height:44px;font-size:16px;padding:9px 10px;border:1px solid #2c2a26;border-radius:6px;background:#242220;color:inherit}button{width:100%;min-height:44px;padding:9px;border:0;border-radius:6px;background:#efece7;color:#151413;font-weight:600}#error{color:#f07a6a;min-height:18px}</style></head>
 <body><main><h1>Ember</h1><p>Enter the remote access password.</p><form><label>Password<input name="password" type="password" autocomplete="current-password" autofocus></label><div id="error" role="status" aria-live="polite"></div><button>Sign in</button></form></main>
-<script>const form=document.querySelector('form'),error=document.querySelector('#error'),button=form.querySelector('button');form.addEventListener('submit',async e=>{e.preventDefault();error.textContent='Signing in to Ember…';button.disabled=true;try{const body=JSON.stringify({password:form.password.value});const r=await fetch('/remote/login',{method:'POST',headers:{'Content-Type':'application/json'},body,cache:'no-store'});if(r.ok)location.href='/';else error.textContent=r.status===429?'Ember is pausing sign-in attempts. Wait a few minutes, then try Sign in again.':r.status===401?'Ember did not accept that password. Check the password set on the Ember computer, then try Sign in again.':'Ember could not sign you in. Check that the desktop app is running, then try Sign in again.';}catch{error.textContent='The Ember computer did not answer. Check your private connection and that Ember is running, then try Sign in again.';}finally{button.disabled=false;}});</script></body></html>`;
+<script>${LOGIN_SCRIPT}</script></body></html>`;
 
 const contentType = (file: string): string => {
   if (file.endsWith('.js')) return 'text/javascript; charset=utf-8';
@@ -200,11 +249,14 @@ export const serveStatic = async (request: http.IncomingMessage, response: http.
         }
       }
     }
+    const type = contentType(file);
+    const isHtml = type.startsWith('text/html');
     response.writeHead(200, {
-      'Content-Type': contentType(file),
+      'Content-Type': type,
       'Cache-Control': 'no-store',
       'Content-Length': body.length,
-      'X-Content-Type-Options': 'nosniff',
+      ...SECURITY_HEADERS,
+      ...(isHtml ? { 'Content-Security-Policy': STATIC_HTML_CSP } : {}),
       Vary: 'Accept-Encoding',
       ...(encoding ? { 'Content-Encoding': encoding } : {}),
     });
@@ -214,7 +266,31 @@ export const serveStatic = async (request: http.IncomingMessage, response: http.
   }
 };
 
-const clientAddress = (request: http.IncomingMessage): string => request.socket.remoteAddress ?? 'unknown';
+const hasWhitespaceOrControl = (value: string): boolean => {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x20 || code === 0x7f) return true;
+  }
+  return false;
+};
+
+const firstForwardedClient = (header: string | string[] | undefined): string | undefined => {
+  const raw = Array.isArray(header) ? header[0] : header;
+  if (typeof raw !== 'string') return undefined;
+  const first = raw.split(',')[0]?.trim().toLowerCase();
+  if (!first || first.length > 128 || hasWhitespaceOrControl(first)) return undefined;
+  return first;
+};
+
+const loginClientKey = (request: http.IncomingMessage, trustedProxy: boolean): string => {
+  if (trustedProxy && isLoopbackPeer(request.socket.remoteAddress)) {
+    const forwarded =
+      firstForwardedClient(request.headers['x-forwarded-for']) ??
+      firstForwardedClient(request.headers['cf-connecting-ip']);
+    if (forwarded) return `forwarded:${forwarded}`;
+  }
+  return `peer:${request.socket.remoteAddress ?? 'unknown'}`;
+};
 
 const hostnameOf = (host: string): string => {
   const trimmed = host.trim().toLowerCase();
@@ -262,11 +338,14 @@ export type RemoteHttpServer = http.Server & { revokeRemoteSessions: () => void 
 
 export const createRemoteServer = (root: string, handlers: Handlers, options: RemoteServerOptions = {}): RemoteHttpServer => {
   const proxyOrigin = parseRemoteProxyOrigin(options.proxyOrigin);
+  const failedLoginDelayMs = Math.max(0, options.failedLoginDelayMs ?? DEFAULT_FAILED_LOGIN_DELAY_MS);
+  const maxTrackedAttempts = Math.max(1, options.maxTrackedAttempts ?? MAX_TRACKED_ATTEMPTS);
+  const maxSessions = Math.max(1, options.maxSessions ?? MAX_ACTIVE_SESSIONS);
   const sessions = new Map<string, Session>();
   const attempts = new Map<string, Attempt>();
   const pruneExpired = (now: number) => {
     for (const [key, attempt] of attempts) {
-      if (attempt.resetAt <= now) attempts.delete(key);
+      if (attempt.resetAt <= now && attempt.inFlight <= 0) attempts.delete(key);
     }
     for (const [token, session] of sessions) {
       if (session.expiresAt <= now || session.startedAt + SESSION_ABSOLUTE_MS <= now) {
@@ -279,6 +358,34 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
     const session = sessions.get(token);
     sessions.delete(token);
     if (session) [...session.streams].forEach((close) => close());
+  };
+  const setAttempt = (key: string, attempt: Attempt, now: number) => {
+    attempts.delete(key);
+    attempts.set(key, attempt);
+    if (attempts.size <= maxTrackedAttempts) return;
+    pruneExpired(now);
+    if (attempts.size <= maxTrackedAttempts) return;
+    for (const [oldestKey, oldestAttempt] of attempts) {
+      if (attempts.size <= maxTrackedAttempts) break;
+      if (oldestKey === key || oldestAttempt.inFlight > 0) continue;
+      attempts.delete(oldestKey);
+    }
+    for (const oldestKey of attempts.keys()) {
+      if (attempts.size <= maxTrackedAttempts) break;
+      if (oldestKey === key) continue;
+      attempts.delete(oldestKey);
+    }
+  };
+  const setSession = (token: string, session: Session, now: number) => {
+    sessions.delete(token);
+    sessions.set(token, session);
+    if (sessions.size <= maxSessions) return;
+    pruneExpired(now);
+    for (const oldestToken of sessions.keys()) {
+      if (sessions.size <= maxSessions) break;
+      if (oldestToken === token) continue;
+      revoke(oldestToken);
+    }
   };
   const server = http.createServer(async (request, response) => {
     try {
@@ -306,37 +413,79 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
       const now = Date.now();
       pruneExpired(now);
       if (url.pathname === '/remote/login' && request.method === 'POST') {
-        const source = clientAddress(request);
-        const attempt = attempts.get(source);
-        if (attempt && attempt.resetAt > now && attempt.count >= MAX_LOGIN_ATTEMPTS) {
-          response.setHeader('Retry-After', String(Math.ceil((attempt.resetAt - now) / 1000)));
+        const source = loginClientKey(request, trustedProxy);
+        const current = attempts.get(source);
+        const reserved = current && current.resetAt > now
+          ? current
+          : { count: 0, inFlight: 0, resetAt: now + LOGIN_WINDOW_MS };
+        if (reserved.count + reserved.inFlight >= MAX_LOGIN_ATTEMPTS) {
+          response.setHeader('Retry-After', String(Math.max(1, Math.ceil((reserved.resetAt - now) / 1000))));
           return json(response, 429, { error: 'Too many login attempts' });
         }
-        const input = await readBody(request);
-        const password = input && typeof input === 'object' ? String((input as Record<string, unknown>).password ?? '') : '';
-        if (!(await handlers.verifyPassword(password))) {
-          const next = attempt && attempt.resetAt > now ? attempt : { count: 0, resetAt: now + LOGIN_WINDOW_MS };
-          next.count += 1;
-          attempts.set(source, next);
-          return json(response, 401, { error: 'Invalid password' });
+        reserved.inFlight += 1;
+        setAttempt(source, reserved, now);
+        let reservationReleased = false;
+        try {
+          const input = await readBody(request, MAX_LOGIN_BODY_BYTES);
+          const password = input && typeof input === 'object' ? String((input as Record<string, unknown>).password ?? '') : '';
+          const acquired = await acquireVerifySlot();
+          if (!acquired) {
+            response.setHeader('Retry-After', '2');
+            return json(response, 429, { error: 'Too many login attempts' });
+          }
+          try {
+            const checkAt = Date.now();
+            const activeAttempt = attempts.get(source);
+            if (activeAttempt && activeAttempt.resetAt > checkAt && activeAttempt.count >= MAX_LOGIN_ATTEMPTS) {
+              response.setHeader('Retry-After', String(Math.max(1, Math.ceil((activeAttempt.resetAt - checkAt) / 1000))));
+              return json(response, 429, { error: 'Too many login attempts' });
+            }
+            const valid = await handlers.verifyPassword(password);
+            const finishedAt = Date.now();
+            reservationReleased = true;
+            reserved.inFlight = Math.max(0, reserved.inFlight - 1);
+            if (!valid) {
+              const latest = attempts.get(source);
+              const target = latest && latest.resetAt > finishedAt
+                ? latest
+                : { count: 0, inFlight: latest === reserved ? reserved.inFlight : 0, resetAt: finishedAt + LOGIN_WINDOW_MS };
+              target.count += 1;
+              setAttempt(source, target, finishedAt);
+              if (failedLoginDelayMs > 0) {
+                await new Promise<void>((resolve) => setTimeout(resolve, failedLoginDelayMs));
+              }
+              return json(response, 401, { error: 'Invalid password' });
+            }
+            attempts.delete(source);
+            const token = randomBytes(32).toString('base64url');
+            setSession(token, { secure, expiresAt: finishedAt + SESSION_IDLE_MS, startedAt: finishedAt, streams: new Set() }, finishedAt);
+            const name = secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE;
+            const flags = [`${name}=${encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict',
+              `Max-Age=${SESSION_ABSOLUTE_MS / 1000}`, ...(secure ? ['Secure'] : [])];
+            response.setHeader('Set-Cookie', flags.join('; '));
+            return json(response, 200, { ok: true });
+          } finally {
+            releaseVerifySlot();
+          }
+        } finally {
+          if (!reservationReleased) {
+            reserved.inFlight = Math.max(0, reserved.inFlight - 1);
+            if (reserved.count === 0 && reserved.inFlight === 0 && attempts.get(source) === reserved) {
+              attempts.delete(source);
+            }
+          }
         }
-        attempts.delete(source);
-        const token = randomBytes(32).toString('base64url');
-        sessions.set(token, { secure, expiresAt: now + SESSION_IDLE_MS, startedAt: now, streams: new Set() });
-        const name = secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE;
-        const flags = [`${name}=${encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict',
-          `Max-Age=${SESSION_ABSOLUTE_MS / 1000}`, ...(secure ? ['Secure'] : [])];
-        response.setHeader('Set-Cookie', flags.join('; '));
-        return json(response, 200, { ok: true });
       }
 
       const jar = cookies(request);
       const token = jar[secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE];
       const session = token ? sessions.get(token) : undefined;
       const authenticated = Boolean(session && session.secure === secure && session.expiresAt > now && session.startedAt + SESSION_ABSOLUTE_MS > now);
-      if (session && authenticated) {
+      if (session && authenticated && token) {
         // Sliding idle window, capped by the absolute lifetime set at sign-in.
         session.expiresAt = Math.min(now + SESSION_IDLE_MS, session.startedAt + SESSION_ABSOLUTE_MS);
+        sessions.delete(token);
+        sessions.set(token, session);
       } else if (session) {
         revoke(token);
       }
@@ -348,10 +497,19 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
           return json(response, 401, { error: 'Session expired', code: 'session-expired' });
         }
         if (url.pathname === '/remote/login' && request.method === 'GET') {
-          response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+          response.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            ...SECURITY_HEADERS,
+            'Content-Security-Policy': LOGIN_PAGE_CSP,
+          });
           response.end(loginPage());
         } else if (request.method === 'GET' || request.method === 'HEAD') {
-          response.writeHead(302, { Location: '/remote/login' });
+          response.writeHead(302, {
+            Location: '/remote/login',
+            'Cache-Control': 'no-store',
+            ...SECURITY_HEADERS,
+          });
           response.end();
         } else {
           json(response, 401, { error: 'Authentication required', code: 'session-expired' });
@@ -381,7 +539,7 @@ export const createRemoteServer = (root: string, handlers: Handlers, options: Re
           'Cache-Control': 'no-store, no-transform',
           Connection: 'keep-alive',
           'X-Accel-Buffering': 'no',
-          'X-Content-Type-Options': 'nosniff',
+          ...SECURITY_HEADERS,
         });
         let closed = false;
         let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -490,4 +648,19 @@ export const startRemoteServer = (root: string, handlers: Handlers, options: Rem
   return { server, address };
 };
 
-export { REMOTE_PORT, SESSION_COOKIE, SECURE_SESSION_COOKIE, SESSION_IDLE_MS, SESSION_ABSOLUTE_MS };
+export {
+  REMOTE_PORT,
+  MAX_BODY_BYTES,
+  MAX_LOGIN_BODY_BYTES,
+  MAX_LOGIN_ATTEMPTS,
+  LOGIN_WINDOW_MS,
+  MAX_LOGIN_VERIFY_IN_FLIGHT,
+  MAX_LOGIN_VERIFY_QUEUE,
+  DEFAULT_FAILED_LOGIN_DELAY_MS,
+  MAX_TRACKED_ATTEMPTS,
+  MAX_ACTIVE_SESSIONS,
+  SESSION_COOKIE,
+  SECURE_SESSION_COOKIE,
+  SESSION_IDLE_MS,
+  SESSION_ABSOLUTE_MS,
+};
