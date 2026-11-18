@@ -533,6 +533,37 @@ export const isActiveHarness = (state: LocalHarnessState): state is Extract<Loca
 export const isManagedHarness = (state: LocalHarnessState): state is Extract<LocalHarnessState, { token: string }> =>
   state.kind === 'started' || state.kind === 'restarted';
 
+/**
+ * Whether an endpoint entry is the unedited default row synthesized from the local harness.
+ *
+ * `readEmberSettings` merges the local harness into `piEndpoints` so Settings → Instances and the
+ * renderer see "This computer" without waiting for a save. Persisting that synthesized entry back
+ * into `settings.json` freezes an ephemeral Canary port (`port: 0`) across launches and keeps
+ * `pi:local` alive even after the user turns `localHarnessEnabled` off. Custom labels, addresses,
+ * tokens, or Access credentials are deliberate user edits and are kept.
+ */
+export const isSynthesizedLocalEndpoint = (
+  endpoint: HarnessEndpoint & { access?: unknown; hasAccessSecret?: boolean },
+  synthesized: { url: string; token: string } | null
+): boolean =>
+  synthesized !== null &&
+  endpoint.id === 'pi:local' &&
+  (endpoint.label === 'This computer' || endpoint.label === 'Local') &&
+  sameAddress(endpoint.url, synthesized.url) &&
+  endpoint.token === synthesized.token &&
+  !endpoint.access &&
+  !endpoint.hasAccessSecret;
+
+export const withoutSynthesizedLocalEndpoint = <
+  T extends HarnessEndpoint & { access?: unknown; hasAccessSecret?: boolean },
+>(
+  endpoints: readonly T[],
+  synthesized: { url: string; token: string } | null
+): T[] =>
+  synthesized
+    ? endpoints.filter((endpoint) => !isSynthesizedLocalEndpoint(endpoint, synthesized))
+    : [...endpoints];
+
 export const mergeLocalHarnessEndpoint = <T extends HarnessEndpoint>(
   configured: readonly T[],
   started: { url: string; token: string } | null

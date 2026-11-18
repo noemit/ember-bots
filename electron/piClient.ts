@@ -261,14 +261,28 @@ const readResponseText = async (response: Response): Promise<string> => {
   return Buffer.concat(chunks, total).toString('utf8');
 };
 
+const endpointSignature = (endpoint: PiEndpoint): string =>
+  JSON.stringify([
+    endpoint.url.replace(/\/+$/, ''),
+    endpoint.token,
+    endpoint.access ? [endpoint.access.clientId, endpoint.access.clientSecret] : null,
+    endpoint.hasAccessSecret === true,
+  ]);
+
 export class PiClient {
   private readonly endpoints = new Map<string, PiEndpoint>();
+  private readonly endpointRevisions = new Map<string, number>();
+  private readonly watchRefreshRevisions = new Map<string, number>();
   private readonly conversations = new Map<string, Subscription>();
   private readonly tasks = new Map<string, Subscription>();
   private readonly broadcast: Broadcaster;
   private readonly resolveEndpoint?: (endpointId: string) => PiEndpoint | undefined;
   private readonly resolveOpenIds?: (endpointId: string) => ReadonlySet<number>;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
+  private closed = false;
+  private syncRevision = 0;
+  private nextEndpointRevision = 0;
+  private nextWatchRefreshRevision = 0;
   /** Open sockets per endpoint, so liveness is "any socket up" rather than one special socket. */
   private readonly openSockets = new Map<string, number>();
   /**
@@ -295,15 +309,33 @@ export class PiClient {
     this.maxSockets = Math.max(1, options.maxSocketsPerEndpoint ?? MAX_SOCKETS_PER_ENDPOINT);
   }
 
+  private clearWatchTimer(): void {
+    if (!this.watchTimer) return;
+    clearInterval(this.watchTimer);
+    this.watchTimer = null;
+  }
+
+  /** Whether the periodic watch-set refresh timer is currently active (exposed for tests). */
+  hasWatchTimer(): boolean {
+    return this.watchTimer !== null;
+  }
+
   /** Reconcile the endpoint set (settings may have changed) and refresh watches. */
   async syncEndpoints(endpoints: readonly PiEndpoint[]): Promise<void> {
+    if (this.closed) return;
+    const revision = ++this.syncRevision;
     const wanted = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
     for (const [id, endpoint] of wanted) {
       const prev = this.endpoints.get(id);
-      if (prev && (prev.url.replace(/\/+$/, '') !== endpoint.url.replace(/\/+$/, '') || prev.token !== endpoint.token || JSON.stringify(prev.access) !== JSON.stringify(endpoint.access))) {
+      const prevSig = prev ? endpointSignature(prev) : null;
+      const nextSig = endpointSignature(endpoint);
+      if (prev && prevSig !== nextSig) {
         this.dropEndpoint(id);
       }
       this.endpoints.set(id, endpoint);
+      if (!prev || prevSig !== nextSig) {
+        this.endpointRevisions.set(id, ++this.nextEndpointRevision);
+      }
     }
     for (const id of [...this.endpoints.keys()]) {
       if (!wanted.has(id)) {
@@ -311,15 +343,27 @@ export class PiClient {
         this.dropEndpoint(id);
       }
     }
+    if (this.endpoints.size === 0) {
+      this.clearWatchTimer();
+    }
     await Promise.all([...wanted.keys()].map((id) => this.refreshConversationWatches(id)));
-    if (wanted.size > 1) {
-      void this.pushPeerLists([...wanted.values()]);
+    if (this.closed || revision !== this.syncRevision) return;
+    if (this.endpoints.size === 0) {
+      this.clearWatchTimer();
+      return;
+    }
+    if (this.endpoints.size > 1) {
+      void this.pushPeerLists([...this.endpoints.values()]);
     }
     // A conversation created after this sync would otherwise have no event stream until the
     // next instance probe (60s). Refresh the watch set on a short timer so new conversations
     // start streaming promptly.
-    if (!this.watchTimer && wanted.size > 0) {
+    if (!this.watchTimer) {
       this.watchTimer = setInterval(() => {
+        if (this.closed || this.endpoints.size === 0) {
+          this.clearWatchTimer();
+          return;
+        }
         void Promise.all([...this.endpoints.keys()].map((id) => this.refreshConversationWatches(id)));
       }, 15_000);
       this.watchTimer.unref?.();
@@ -350,6 +394,8 @@ export class PiClient {
   }
 
   private dropEndpoint(id: string): void {
+    this.endpointRevisions.delete(id);
+    this.watchRefreshRevisions.delete(id);
     const prefix = `events:${id}:`;
     for (const key of [...this.conversations.keys()]) {
       if (key.startsWith(prefix)) this.stopSubscription(this.conversations, key);
@@ -476,6 +522,7 @@ export class PiClient {
 
   /** Subscribe to one conversation's events (idempotent); reconnects with backoff. */
   private watchConversation(endpointId: string, conversationId: number): void {
+    if (this.closed) return;
     const endpoint = this.endpoints.get(endpointId);
     if (!endpoint) return;
     const key = `events:${endpointId}:${conversationId}`;
@@ -487,6 +534,7 @@ export class PiClient {
 
   /** Subscribe to the endpoint's live task graph (one socket per endpoint). */
   private watchTasks(endpointId: string): void {
+    if (this.closed) return;
     const endpoint = this.endpoints.get(endpointId);
     if (!endpoint) return;
     const key = `tasks:${endpointId}`;
@@ -501,11 +549,26 @@ export class PiClient {
 
   /** Refresh the conversation watch set from the conversation list. */
   private async refreshConversationWatches(endpointId: string): Promise<void> {
+    if (this.closed) return;
     const endpoint = this.endpoints.get(endpointId);
-    if (!endpoint) return;
+    const endpointRevision = this.endpointRevisions.get(endpointId);
+    if (!endpoint || endpointRevision === undefined) return;
+    const signature = endpointSignature(endpoint);
+    const refreshRevision = ++this.nextWatchRefreshRevision;
+    this.watchRefreshRevisions.set(endpointId, refreshRevision);
     this.watchTasks(endpointId);
     const prefix = `events:${endpointId}:`;
     const page = await this.request(endpointId, '/conversations');
+    if (this.closed) return;
+    const current = this.endpoints.get(endpointId);
+    if (
+      !current ||
+      this.endpointRevisions.get(endpointId) !== endpointRevision ||
+      this.watchRefreshRevisions.get(endpointId) !== refreshRevision ||
+      endpointSignature(current) !== signature
+    ) {
+      return;
+    }
     if (!page.ok || !Array.isArray((page.data as { conversations?: unknown })?.conversations)) return;
     const conversations = (page.data as { conversations: WatchableConversation[] }).conversations ?? [];
     const openIds = this.resolveOpenIds?.(endpointId);
@@ -528,9 +591,22 @@ export class PiClient {
 
   /** A reconnecting WebSocket subscription with jittered backoff. */
   private subscribe(endpointId: string, url: string, onMessage: (message: string) => void): Subscription {
+    const initialEndpoint = this.endpoints.get(endpointId);
+    const expectedRevision = this.endpointRevisions.get(endpointId);
+    const expectedSignature = initialEndpoint ? endpointSignature(initialEndpoint) : null;
     const subscription: Subscription = { url, backoff: freshBackoff(), stopped: false };
     const connect = () => {
-      if (subscription.stopped) return;
+      if (subscription.stopped || this.closed) return;
+      const endpoint = this.endpoints.get(endpointId);
+      if (
+        !endpoint ||
+        expectedRevision === undefined ||
+        this.endpointRevisions.get(endpointId) !== expectedRevision ||
+        endpointSignature(endpoint) !== expectedSignature
+      ) {
+        subscription.stopped = true;
+        return;
+      }
       const held = this.sockets.get(endpointId) ?? 0;
       if (held >= this.maxSockets) {
         // Retry later rather than pile on. The watch set is already smaller than the cap, so being
@@ -544,11 +620,6 @@ export class PiClient {
         return;
       }
       this.sockets.set(endpointId, held + 1);
-      const endpoint = this.endpoints.get(endpointId);
-      if (!endpoint) {
-        this.sockets.set(endpointId, Math.max(0, held));
-        return;
-      }
       // Undici's WebSocket handshake uses redirect:error; neither Access nor bearer credentials
       // can follow a proxy redirect. Browser WebSocket cannot supply these separate headers.
       let headers: Record<string, string>;
@@ -593,7 +664,7 @@ export class PiClient {
           opened = false;
           this.setSocketOpen(endpointId, -1);
         }
-        if (subscription.stopped) return;
+        if (subscription.stopped || this.closed) return;
         subscription.backoff = noteClosed(subscription.backoff);
         subscription.timer = setTimeout(connect, reconnectDelay(subscription.backoff));
       };
@@ -607,6 +678,7 @@ export class PiClient {
 
   /** Close and reconnect active WebSocket subscriptions, and re-query watched conversations. */
   restartAll(): void {
+    if (this.closed) return;
     const restartSubscription = (subscription: Subscription | undefined) => {
       if (!subscription || subscription.stopped) return;
       if (subscription.timer) {
@@ -624,8 +696,11 @@ export class PiClient {
   }
 
   closeAll(): void {
-    if (this.watchTimer) clearInterval(this.watchTimer);
-    this.watchTimer = null;
+    this.closed = true;
+    this.clearWatchTimer();
+    this.endpoints.clear();
+    this.endpointRevisions.clear();
+    this.watchRefreshRevisions.clear();
     [...this.conversations.keys()].forEach((key) => this.stopSubscription(this.conversations, key));
     [...this.tasks.keys()].forEach((key) => this.stopSubscription(this.tasks, key));
   }

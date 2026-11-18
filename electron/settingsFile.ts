@@ -1,5 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { lockEndpointSecrets, restoreEndpointSecrets, unlockEndpointSecrets, type SecretStore } from './endpointSecrets';
+import { mergeLocalHarnessEndpoint, withoutSynthesizedLocalEndpoint } from './localHarness';
+import { parsePiEndpoints, type PiEndpoint } from './transport';
 
 /**
  * Keeps an unreadable settings file instead of letting the next save overwrite it.
@@ -15,7 +18,7 @@ export type QuarantineResult =
   | { ok: true; movedTo: string }
   | { ok: false; error: string };
 
-export const quarantineCorruptSettings = (file: string, suffix = Date.now()): QuarantineResult => {
+export const quarantineCorruptSettings = (file: string, suffix: number | string = Date.now()): QuarantineResult => {
   const target = `${file}.corrupt-${suffix}`;
   try {
     fs.renameSync(file, target);
@@ -24,7 +27,6 @@ export const quarantineCorruptSettings = (file: string, suffix = Date.now()): Qu
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 };
-
 
 /** Record a genuinely new install before Kiln creates its database or any settings are saved. */
 export const initializeFirstRunSettings = (file: string, database: string): void => {
@@ -35,4 +37,222 @@ export const initializeFirstRunSettings = (file: string, database: string): void
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
   }
+};
+
+/** The file's object, or undefined when it is missing or does not parse (not the same as empty). */
+export const readJsonRoot = (file: string): Record<string, unknown> | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return undefined;
+  }
+};
+
+export const readJson = (file: string): Record<string, unknown> => readJsonRoot(file) ?? {};
+
+let tempFileCounter = 0;
+
+export const writeJsonFile = async (
+  file: string,
+  data: unknown,
+  onRenamed?: (writtenFile: string) => void
+): Promise<void> => {
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.${Date.now()}.${++tempFileCounter}.tmp`;
+  try {
+    await fs.promises.writeFile(temporary, JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 });
+    await fs.promises.rename(temporary, file);
+    onRenamed?.(file);
+  } finally {
+    await fs.promises.unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+  }
+};
+
+const isPositiveTimestamp = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+const defaultStatMtimeMs = (file: string): number => {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return -1;
+  }
+};
+
+export type SettingsFileControllerOptions = {
+  emberSettingsPath: () => string;
+  openchamberSettingsPath: () => string;
+  statMtimeMs?: (file: string) => number;
+  quarantineSuffix?: () => number | string;
+  onRecovered?: (movedTo: string) => void;
+  onQuarantineFailed?: (error: string) => void;
+};
+
+/**
+ * Owns Ember's and OpenChamber's mtime-cached JSON settings reads, serialized settings writes,
+ * cache invalidation on atomic rename, and one-shot `onboardedAt` stamping.
+ */
+export const createSettingsFileController = (options: SettingsFileControllerOptions) => {
+  const statMtimeMs = options.statMtimeMs ?? defaultStatMtimeMs;
+  let settingsRecoveredFrom: string | null = null;
+  let settingsQuarantineFailed = false;
+  let emberSettingsCache: { mtimeMs: number; root: Record<string, unknown> } | null = null;
+  let openchamberSettingsCache: { mtimeMs: number; root: Record<string, unknown> } | null = null;
+  let settingsWrites: Promise<unknown> = Promise.resolve();
+  let onboardedStamped = false;
+
+  const quarantineSettingsFile = (file: string): void => {
+    if (settingsRecoveredFrom) return;
+    const result = quarantineCorruptSettings(file, options.quarantineSuffix?.());
+    if (result.ok) {
+      settingsRecoveredFrom = result.movedTo;
+      options.onRecovered?.(result.movedTo);
+      return;
+    }
+    settingsRecoveredFrom = file;
+    settingsQuarantineFailed = true;
+    options.onQuarantineFailed?.(result.error);
+  };
+
+  const readEmberSettingsFile = (): Record<string, unknown> => {
+    const file = options.emberSettingsPath();
+    const mtimeMs = statMtimeMs(file);
+    if (emberSettingsCache && emberSettingsCache.mtimeMs === mtimeMs) return emberSettingsCache.root;
+    const parsed = readJsonRoot(file);
+    if (parsed === undefined && mtimeMs !== -1) {
+      try {
+        quarantineSettingsFile(file);
+      } catch {
+        // Keep serving the last good parse; `settingsQuarantineFailed` refuses the next write.
+      }
+    }
+    const root = parsed ?? emberSettingsCache?.root ?? {};
+    emberSettingsCache = { mtimeMs: parsed === undefined && settingsRecoveredFrom ? -1 : mtimeMs, root };
+    return root;
+  };
+
+  const readOpenchamberSettings = (): Record<string, unknown> => {
+    const file = options.openchamberSettingsPath();
+    const mtimeMs = statMtimeMs(file);
+    if (openchamberSettingsCache && openchamberSettingsCache.mtimeMs === mtimeMs) {
+      return openchamberSettingsCache.root;
+    }
+    const root = readJson(file);
+    openchamberSettingsCache = { mtimeMs, root };
+    return root;
+  };
+
+  const writeJson = async (file: string, data: unknown): Promise<void> => {
+    await writeJsonFile(file, data, (written) => {
+      if (written === options.emberSettingsPath()) emberSettingsCache = null;
+      if (written === options.openchamberSettingsPath()) openchamberSettingsCache = null;
+    });
+  };
+
+  const enqueueWrite = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = settingsWrites.catch(() => {}).then(operation);
+    settingsWrites = result;
+    return result;
+  };
+
+  const noteOnboarded = (
+    hasHealthyInstance: boolean,
+    onRecorded?: () => void,
+    now: () => number = Date.now
+  ): Promise<boolean> => {
+    if (onboardedStamped || settingsQuarantineFailed) return Promise.resolve(false);
+    if (!hasHealthyInstance) return Promise.resolve(false);
+    const current = readEmberSettingsFile();
+    if (settingsQuarantineFailed) return Promise.resolve(false);
+    if (isPositiveTimestamp(current.onboardingStartedAt)) return Promise.resolve(false);
+    if (isPositiveTimestamp(current.onboardedAt)) {
+      onboardedStamped = true;
+      return Promise.resolve(false);
+    }
+    onboardedStamped = true;
+    return enqueueWrite(async () => {
+      if (settingsQuarantineFailed) {
+        onboardedStamped = false;
+        return false;
+      }
+      const root = readEmberSettingsFile();
+      if (settingsQuarantineFailed) {
+        onboardedStamped = false;
+        return false;
+      }
+      if (isPositiveTimestamp(root.onboardingStartedAt)) {
+        onboardedStamped = false;
+        return false;
+      }
+      if (isPositiveTimestamp(root.onboardedAt)) {
+        return false;
+      }
+      await writeJson(options.emberSettingsPath(), { ...root, onboardedAt: now() });
+      onRecorded?.();
+      return true;
+    }).catch((error) => {
+      onboardedStamped = false;
+      throw error;
+    });
+  };
+
+  return {
+    readEmberSettingsFile,
+    readOpenchamberSettings,
+    writeJson,
+    enqueueWrite,
+    noteOnboarded,
+    isRecovered: () => settingsRecoveredFrom !== null,
+    isQuarantineFailed: () => settingsQuarantineFailed,
+    invalidateEmberCache: () => {
+      emberSettingsCache = null;
+    },
+    invalidateOpenchamberCache: () => {
+      openchamberSettingsCache = null;
+    },
+  };
+};
+
+export const resolveEffectivePiEndpoints = (options: {
+  root: Record<string, unknown>;
+  secretStore: SecretStore;
+  canaryBuild: boolean;
+  localHarness: { url: string; token: string } | null;
+  discoverLocal?: () => PiEndpoint | null;
+}): PiEndpoint[] => {
+  const { root, secretStore, canaryBuild, localHarness, discoverLocal } = options;
+  const configured = parsePiEndpoints(unlockEndpointSecrets(root.piEndpoints, secretStore));
+  const localEnabled = root.localHarnessEnabled !== false;
+  const discovered: PiEndpoint[] =
+    configured.length > 0 || Array.isArray(root.piEndpoints) || canaryBuild || !localEnabled
+      ? configured
+      : (() => {
+          const found = discoverLocal?.() ?? null;
+          return found ? [found] : [];
+        })();
+  return mergeLocalHarnessEndpoint(discovered, localEnabled ? localHarness : null).map((endpoint) =>
+    endpoint.id === 'pi:local' && endpoint.label === 'Local' ? { ...endpoint, label: 'This computer' } : endpoint
+  );
+};
+
+export const resolvePersistedPiEndpoints = (options: {
+  rawStored: unknown;
+  previousEffective: readonly PiEndpoint[];
+  patchValue: unknown;
+  synthesizedLocal: { url: string; token: string } | null;
+  secretStore: SecretStore;
+}): unknown[] | undefined => {
+  const { rawStored, previousEffective, patchValue, synthesizedLocal, secretStore } = options;
+  if (patchValue === undefined) {
+    if (!Array.isArray(rawStored)) return undefined;
+    const configured = parsePiEndpoints(unlockEndpointSecrets(rawStored, secretStore));
+    const cleaned = withoutSynthesizedLocalEndpoint(configured, synthesizedLocal);
+    return lockEndpointSecrets(cleaned, rawStored, secretStore);
+  }
+  const restored = parsePiEndpoints(restoreEndpointSecrets(patchValue, previousEffective));
+  const cleaned = withoutSynthesizedLocalEndpoint(restored, synthesizedLocal);
+  return lockEndpointSecrets(cleaned, rawStored, secretStore);
 };

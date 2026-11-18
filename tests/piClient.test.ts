@@ -216,3 +216,205 @@ describe('every socket a client opens is one the watch set asked for', () => {
     }
   });
 });
+
+describe('PiClient shutdown, endpoint-edit races, and watchTimer cleanup', () => {
+  test('closeAll() mid-refresh bails out before opening conversation watches or starting watchTimer', async () => {
+    let seenConversationsFetch!: () => void;
+    const conversationsRequested = new Promise<void>((resolve) => {
+      seenConversationsFetch = resolve;
+    });
+    let releaseConversations!: () => void;
+    const conversationsGate = new Promise<void>((resolve) => {
+      releaseConversations = resolve;
+    });
+    const openedConversationStreams: string[] = [];
+
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      async fetch(request, srv) {
+        const { pathname } = new URL(request.url);
+        if (pathname === '/conversations') {
+          seenConversationsFetch();
+          await conversationsGate;
+          return Response.json({ conversations: [{ id: 1 }, { id: 2 }] });
+        }
+        if (pathname.endsWith('/events') || pathname.endsWith('/tasks/stream')) {
+          if (pathname.endsWith('/events')) openedConversationStreams.push(pathname);
+          if (!srv.upgrade(request, { data: {} })) return new Response('no upgrade', { status: 426 });
+          return undefined as unknown as Response;
+        }
+        return new Response('not found', { status: 404 });
+      },
+      websocket: { open() {}, close() {}, message() {} },
+    });
+
+    const client = new PiClient(() => {});
+    try {
+      const syncing = client.syncEndpoints([
+        { id: 'pi:test', label: 'Test', url: `http://127.0.0.1:${server.port}`, token: 'tok' },
+      ]);
+      await conversationsRequested;
+      // Shut down while GET /conversations is still in flight.
+      client.closeAll();
+      releaseConversations();
+      await syncing;
+      await Bun.sleep(80);
+
+      expect(openedConversationStreams).toEqual([]);
+      expect(client.socketCount('pi:test')).toBe(0);
+      expect(client.hasWatchTimer()).toBe(false);
+    } finally {
+      client.closeAll();
+      server.stop(true);
+    }
+  });
+
+  test('changing an endpoint URL or token mid-refresh discards the stale watch set without tearing down the new one', async () => {
+    let seenOldFetch!: () => void;
+    const oldFetchStarted = new Promise<void>((resolve) => {
+      seenOldFetch = resolve;
+    });
+    let releaseOldFetch!: () => void;
+    const oldFetchGate = new Promise<void>((resolve) => {
+      releaseOldFetch = resolve;
+    });
+
+    const newServerPaths: string[] = [];
+    let newConvClosed = 0;
+
+    const oldServer = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      async fetch(request, srv) {
+        const { pathname } = new URL(request.url);
+        if (pathname === '/conversations') {
+          seenOldFetch();
+          await oldFetchGate;
+          return Response.json({ conversations: [{ id: 101 }] });
+        }
+        if (pathname.endsWith('/events') || pathname.endsWith('/tasks/stream')) {
+          if (!srv.upgrade(request, { data: {} })) return new Response('no upgrade', { status: 426 });
+          return undefined as unknown as Response;
+        }
+        return new Response('not found', { status: 404 });
+      },
+      websocket: { open() {}, close() {}, message() {} },
+    });
+
+    const newServer = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch(request, srv) {
+        const { pathname } = new URL(request.url);
+        newServerPaths.push(pathname);
+        if (pathname === '/conversations') {
+          return Response.json({ conversations: [{ id: 202 }] });
+        }
+        if (pathname.endsWith('/events') || pathname.endsWith('/tasks/stream')) {
+          if (request.headers.get('authorization') !== 'Bearer new-token') {
+            return new Response('unauthorized', { status: 401 });
+          }
+          if (!srv.upgrade(request, { data: { pathname } })) return new Response('no upgrade', { status: 426 });
+          return undefined as unknown as Response;
+        }
+        return new Response('not found', { status: 404 });
+      },
+      websocket: {
+        open() {},
+        close(ws) {
+          if ((ws.data as { pathname?: string })?.pathname === '/conversations/202/events') {
+            newConvClosed += 1;
+          }
+        },
+        message() {},
+      },
+    });
+
+    const client = new PiClient(() => {});
+    try {
+      const firstSync = client.syncEndpoints([
+        { id: 'pi:test', label: 'Test', url: `http://127.0.0.1:${oldServer.port}`, token: 'old-token' },
+      ]);
+      await oldFetchStarted;
+
+      // Edit the endpoint mid-request to point at newServer with a rotated token.
+      await client.syncEndpoints([
+        { id: 'pi:test', label: 'Test', url: `http://127.0.0.1:${newServer.port}`, token: 'new-token' },
+      ]);
+      await Bun.sleep(60);
+
+      // Now let the slow `/conversations` from oldServer resolve with conversation 101.
+      releaseOldFetch();
+      await firstSync;
+      await Bun.sleep(80);
+
+      expect(newServerPaths).toContain('/conversations/202/events');
+      expect(newServerPaths).not.toContain('/conversations/101/events');
+      expect(newConvClosed).toBe(0);
+    } finally {
+      client.closeAll();
+      oldServer.stop(true);
+      newServer.stop(true);
+    }
+  });
+
+  test('syncEndpoints([]) clears watchTimer and releases all sockets, including when superseding an in-flight sync', async () => {
+    let releaseSlow!: () => void;
+    let blockConversations = false;
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      async fetch(request, srv) {
+        const { pathname } = new URL(request.url);
+        if (pathname === '/conversations') {
+          if (blockConversations) {
+            await new Promise<void>((resolve) => {
+              releaseSlow = resolve;
+            });
+          }
+          return Response.json({ conversations: [{ id: 7 }] });
+        }
+        if (pathname.endsWith('/events') || pathname.endsWith('/tasks/stream')) {
+          if (!srv.upgrade(request, { data: {} })) return new Response('no upgrade', { status: 426 });
+          return undefined as unknown as Response;
+        }
+        return new Response('not found', { status: 404 });
+      },
+      websocket: { open() {}, close() {}, message() {} },
+    });
+
+    const endpoint = {
+      id: 'pi:test',
+      label: 'Test',
+      url: `http://127.0.0.1:${server.port}`,
+      token: 'token',
+    };
+    const client = new PiClient(() => {});
+    try {
+      await client.syncEndpoints([endpoint]);
+      await Bun.sleep(60);
+      expect(client.hasWatchTimer()).toBe(true);
+      expect(client.socketCount('pi:test')).toBeGreaterThan(0);
+
+      await client.syncEndpoints([]);
+      await Bun.sleep(60);
+      expect(client.hasWatchTimer()).toBe(false);
+      expect(client.socketCount('pi:test')).toBe(0);
+
+      // Superseding an in-flight syncEndpoints([endpoint]) with syncEndpoints([]) keeps watchTimer off.
+      blockConversations = true;
+      const inFlight = client.syncEndpoints([endpoint]);
+      await Bun.sleep(20);
+      await client.syncEndpoints([]);
+      releaseSlow?.();
+      await inFlight;
+      await Bun.sleep(60);
+      expect(client.hasWatchTimer()).toBe(false);
+      expect(client.socketCount('pi:test')).toBe(0);
+    } finally {
+      client.closeAll();
+      server.stop(true);
+    }
+  });
+});
