@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { mergePolledQueues, resolveQueueReplaceTargets } from '../src/hooks/useMessageQueue';
+import {
+  buildStagedQueuedMessage,
+  mergeMutationSession,
+  mergePolledQueues,
+  resolveQueueReplaceTargets,
+} from '../src/hooks/useMessageQueue';
 import type { MessageQueueSession, QueuedMessage } from '../src/types';
 
 const queued = (id: string, extra: Partial<QueuedMessage> = {}): QueuedMessage => ({
@@ -105,6 +110,37 @@ describe('message queue polling', () => {
     const next = { local: [session([queued('server-1')])] };
     const merged = mergePolledQueues(prev, next);
     expect(merged.local[0].items).toEqual([queued('server-1')]);
+  });
+
+  test('never swallows a staged unsent follow-up when an earlier server item has the same text', () => {
+    const stagedFollowUp = buildStagedQueuedMessage({
+      id: 'm3',
+      input: { text: 'same text' },
+      createdAt: 3_000,
+    });
+    const prev = { local: [session([stagedFollowUp])] };
+    const next = { local: [session([queued('server-2', { text: 'same text', sendConfig: { providerID: '', modelID: '' } })])] };
+    const merged = mergePolledQueues(prev, next);
+    expect(merged.local[0].items.map((item) => item.id)).toEqual(['local-m3', 'server-2']);
+  });
+});
+
+describe('merging queue mutations with staged local follow-ups', () => {
+  test('keeps remaining staged and errored follow-ups after settled server rows, even with identical text', () => {
+    const previous = session([
+      queued('local-3', { pending: true, staged: true, text: 'bump' }),
+      queued('local-4', { error: 'held', text: 'bump' }),
+    ]);
+    const incoming = session([queued('server-2', { text: 'bump' })]);
+    const merged = mergeMutationSession(previous, incoming);
+    expect(merged.items.map((item) => item.id)).toEqual(['server-2', 'local-3', 'local-4']);
+  });
+
+  test('retains staged follow-ups when an earlier follow-up was placed directly into an idle session', () => {
+    const previous = session([queued('local-3', { pending: true, staged: true, text: 'next' })]);
+    const incoming = session([]);
+    const merged = mergeMutationSession(previous, incoming);
+    expect(merged.items.map((item) => item.id)).toEqual(['local-3']);
   });
 });
 

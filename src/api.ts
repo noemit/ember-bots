@@ -1759,8 +1759,8 @@ export type PromptInput = {
 };
 
 export type QueueMessageInput = Omit<PromptInput, 'model'> & {
-  /** OpenChamber's server-owned queue requires a concrete provider/model. */
-  model: ModelOption;
+  /** OpenChamber's server-owned queue requires a concrete provider/model; Hearth uses session/server default when omitted. */
+  model?: ModelOption;
 };
 
 export const enqueueMessage = async (
@@ -1785,7 +1785,7 @@ export const enqueueMessage = async (
     });
     return { ok: sent.ok, status: sent.status, data: (sent.data as MessageQueueMutation | null) ?? null };
   }
-  if (selectedModelError(selectedModelId, model)) return { ok: false, status: 400, data: null };
+  if (!model || selectedModelError(selectedModelId, model)) return { ok: false, status: 400, data: null };
   const sendConfig: Record<string, string> = {
     providerID: model.providerID,
     modelID: model.modelID,

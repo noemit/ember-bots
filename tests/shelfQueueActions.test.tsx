@@ -65,6 +65,19 @@ describe('readable queue actions retain their contract', () => {
     expect(action(html, 'Discard this message')).toBeDefined();
   });
 
+  test('held follow-ups with server-default model render cleanly without empty slash labels', () => {
+    const html = render([
+      item('held', {
+        sendConfig: { providerID: '', modelID: '', variant: 'high' },
+        error: 'Ember held this follow-up because Tower did not accept the first message. Select Send again above, or Retry here to send this message on its own.',
+      }),
+    ]);
+    expect(html).toContain('Server default · high');
+    expect(html).not.toContain('> / <');
+    expect(action(html, 'Retry queueing')).toBeDefined();
+    expect(action(html, 'Discard this message')).toBeDefined();
+  });
+
   test('merge-up excludes steers, pending and failed items on either side', () => {
     expect(canMergeQueuedUp([item('a'), item('b')], 1)).toBe(true);
     expect(canMergeQueuedUp([item('a')], 0)).toBe(false);

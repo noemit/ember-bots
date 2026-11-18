@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { enqueueMessage, loadMessageQueue, removeQueuedMessage, reorderQueuedMessages, takeQueuedMessage } from '../src/api';
+import { enqueueMessage, errorMessageOf, loadMessageQueue, removeQueuedMessage, reorderQueuedMessages, takeQueuedMessage } from '../src/api';
 import { rememberPiInstances } from '../src/piApi';
 import type { ModelOption } from '../src/types';
 
@@ -371,6 +371,27 @@ test('a queued message writes its reply and queued context before it is submitte
     expect((writes[0].entry as { data: { text: string } }).data.text).toContain('the quoted message');
     expect((writes[1].entry as { data: { text: string } }).data.text).toBe('read this first');
     expect(submitted).toMatchObject({ type: 'input', content: 'queued with context', whenBusy: 'followUp' });
+  } finally {
+    (window.ember as { piRequest: unknown }).piRequest = previous;
+  }
+});
+
+test('a 2xx submit body naming a refused status fails enqueue instead of claiming success', async () => {
+  const previous = window.ember.piRequest;
+  (window.ember as { piRequest: unknown }).piRequest = async (_endpointId: string, path: string) => {
+    if (path.endsWith('/submit')) {
+      return { ok: true, status: 200, data: { status: 'rejected', error: 'inbox is full' } };
+    }
+    return { ok: true, status: 200, data: { ok: true } };
+  };
+  try {
+    const result = await enqueueMessage('pi:test', '51', '', {
+      text: 'refused follow-up',
+      model,
+      selectedModelId: 'opencode-go/glm-5.3-flash',
+    });
+    expect(result.ok).toBe(false);
+    expect(errorMessageOf(result.data)).toBe('inbox is full');
   } finally {
     (window.ember as { piRequest: unknown }).piRequest = previous;
   }

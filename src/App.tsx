@@ -109,9 +109,12 @@ import {
   addPendingNote,
   createPendingCreate,
   failPendingCreate,
+  handOffPendingMessages,
   holdPendingMessage,
   restartPendingCreate,
+  settleStagedFollowUps,
   type PendingCreate,
+  type PendingFirstSendOutcome,
 } from './lib/pendingCreate';
 import { newSessionFailureText, sessionCreateFailureOf } from './lib/newSessionFailure';
 import { promoteFailureText } from './lib/promoteFailure';
@@ -689,6 +692,9 @@ export default function App() {
   const pendingInputs = React.useRef(
     new Map<string, { target: SessionRef; directory?: string; input: PromptInput }>()
   );
+  // Staged follow-up queue ids held back when a new session's first send failed, keyed by that
+  // failed bubble's id so Send again can resume them in FIFO order once the host accepts it.
+  const heldFollowUpsByTriggerId = React.useRef(new Map<string, string[]>());
   const pendingFor = (key: string): Set<string> => {
     let ids = pendingOptimisticIds.current.get(key);
     if (!ids) {
@@ -3330,23 +3336,31 @@ export default function App() {
         updatedAt: now,
       },
     });
-    // `sendTo` inserts its optimistic bubble synchronously, so opening the column on the next line
-    // shows the message immediately — the handover has no empty frame.
-    const sent = first
-      ? sendTo(ref, session.directory, { ...first.input, configured: true }, {
+    // `sendToWithOutcome` inserts its optimistic bubble synchronously and `stageMessages` stages
+    // any held follow-ups (`M2..Mn`) into the session's queue synchronously, so opening the column
+    // below has no frame where either the first message or its follow-ups vanish. Follow-ups are
+    // flushed strictly in FIFO order only if `M1` was genuinely accepted by the host.
+    const showing = paneShowsPending(id);
+    const hostLabel = instanceLabelOf(options.instanceId);
+    const target = queueTargetFor(ref, session);
+    void handOffPendingMessages({
+      messages: latest.messages,
+      instanceLabel: hostLabel,
+      stageFollowUps: (followUps) => queue.stageMessages(followUps, target),
+      sendFirst: (input) =>
+        sendToWithOutcome(ref, session.directory, input, {
           retainOnFailure: true,
-          quiet: true,
-        })
-      : Promise.resolve(true);
-    for (const held of latest.messages.slice(1)) {
-      void sent.then((accepted) => {
-        if (accepted) void sendTo(ref, session.directory, held.input, { retainOnFailure: true, quiet: true });
-      });
-    }
+          quiet: showing,
+        }),
+      flushFollowUp: (localId) => queue.flushStagedMessage(localId, target),
+      failFollowUps: (localIds, reason) => queue.failStagedMessages(localIds, target, reason),
+      onRetainFailedTrigger: (messageId, stagedIds) => {
+        heldFollowUpsByTriggerId.current.set(messageId, [...stagedIds]);
+      },
+    });
     // The auto-accept write runs alongside the send rather than in front of it. What must not be
     // raced is the first *tool call*, and a model has to answer before one can exist.
     if (options.bypass) void setYolo(ref, true, session.directory);
-    const showing = paneShowsPending(id);
     dropPendingCreate(id);
     // Only drop the pane reference if it still points at *this* attempt: the person may have
     // started another draft while this one was in flight, and that one is not this one's to close.
@@ -3357,7 +3371,7 @@ export default function App() {
       // Left the draft while it was being created: the session is real, so say so and offer the way
       // in rather than pulling the person off whatever they moved on to.
       setActionNotice({
-        message: `Started “${latest.title}” on ${instanceLabelOf(options.instanceId)}.`,
+        message: `Started “${latest.title}” on ${hostLabel}.`,
         actionLabel: 'Open',
         action: () => openSession(ref, session),
       });
@@ -3523,16 +3537,17 @@ export default function App() {
   });
 
   /**
-   * Send one message. The boolean means "the UI now holds this message": placed, queued, or a
-   * failed bubble that keeps the text with its own Send again. Only a send that left no trace
-   * anywhere returns false, so a composer clears its draft exactly when the message has a home.
+   * Send one message and distinguish `uiHeld` ("the UI holds this message, so the composer may
+   * clear") from `serverAccepted` ("the host genuinely accepted the submission, so dependent
+   * follow-ups may safely proceed"). With `retainOnFailure: true`, a failed send keeps a failed
+   * bubble on screen (`uiHeld: true`) without ever claiming `serverAccepted: true`.
    */
-  const sendTo = async (
+  const sendToWithOutcome = async (
     target: SessionRef,
     directory: string | undefined,
     input: PromptInput,
     options: { retainOnFailure?: boolean; quiet?: boolean; onAccepted?: (receipt: SubmissionReceipt) => Promise<void> } = {}
-  ): Promise<boolean> => {
+  ): Promise<PendingFirstSendOutcome> => {
     showActionError(null);
     const { instanceId, sessionId } = target;
     const { model, text, attachments = [], variant } = input;
@@ -3617,14 +3632,13 @@ export default function App() {
         if (options.retainOnFailure === true) {
           retained = true;
           failSend(reason);
-          return true;
+          return { uiHeld: true, serverAccepted: false, messageId: optimisticId };
         }
         releaseOptimistic(key, [optimisticId]);
         removeOptimistic();
         showActionError(reason, () => void sendTo(target, directory, input));
-        return false;
+        return { uiHeld: false, serverAccepted: false, messageId: optimisticId };
       }
-      accepted = true;
       // Hearth says whether the message actually landed. `queued` means the conversation was
       // busy and it was parked in the inbox — that is NOT a sent message, so it belongs in the
       // queue, never the transcript. A *steer* (Alt+Enter / "send now") is also admitted
@@ -3636,9 +3650,11 @@ export default function App() {
       const outcome = submitOutcomeOf(sent.data, { steer: steered });
       if (outcome.kind === 'failed') {
         // A wire that reports a refused submission in a 2xx body: still a definite failure.
+        retained = true;
         failSend(outcome.error ?? 'The server refused the message.');
-        return false;
+        return { uiHeld: options.retainOnFailure === true, serverAccepted: false, messageId: optimisticId };
       }
+      accepted = true;
       const receipt = submissionReceiptOf(sent.data, Boolean(isPi), isPi ? undefined : optimisticId);
       let adoptedAnnotationQueue = false;
       if (options.onAccepted && receipt?.kind === 'queue' && outcome.queued && !outcome.steer) {
@@ -3694,7 +3710,7 @@ export default function App() {
           });
         }
         void refreshQueues([instanceId]);
-        return annotationLinked;
+        return { uiHeld: annotationLinked, serverAccepted: true, messageId: optimisticId };
       }
       // Placed (or steered): the host says it is in the conversation, and the bubble is already on
       // screen from the moment Enter was pressed. That claim is `unconfirmed`, not "sent": the
@@ -3718,7 +3734,7 @@ export default function App() {
       }));
       // The server may not have indexed the user turn yet; reconcile keeps the bubble until it does.
       await loadAndCommitMessages({ instanceId, sessionId }, 'full', directory, true);
-      return annotationLinked;
+      return { uiHeld: annotationLinked, serverAccepted: true, messageId: optimisticId };
     } catch (err) {
       console.error('Send failed', err);
       // Name the underlying failure: a generic "could not be refreshed" hides the real cause
@@ -3732,14 +3748,14 @@ export default function App() {
         if (!options.quiet) showActionError('Ember did not confirm this message. It may already be running. Keep this app open and check the conversation before sending it again.');
         // An annotation needs a durable receipt/source link before its editor may clear.
         // Normal composer sends already have their protected unconfirmed bubble as their home.
-        return !options.onAccepted;
+        return { uiHeld: !options.onAccepted, serverAccepted: false, messageId: optimisticId };
       }
       if (!accepted) {
         const reason = err instanceof Error ? err.message : 'Message could not be sent.';
         if (options.retainOnFailure === true) {
           retained = true;
           failSend(reason);
-          return true;
+          return { uiHeld: true, serverAccepted: false, messageId: optimisticId };
         }
         releaseOptimistic(key, [optimisticId]);
         removeOptimistic();
@@ -3747,7 +3763,7 @@ export default function App() {
       } else if (!options.quiet) {
         showActionError(`Message was sent, but the transcript could not be refreshed yet.${detail}`);
       }
-      return accepted && annotationLinked;
+      return { uiHeld: accepted && annotationLinked, serverAccepted: accepted, messageId: optimisticId };
     } finally {
       // Accepted sends and retained failures keep the id until the server copy or the user's
       // retry/discard settles it (see releaseOptimistic).
@@ -3760,6 +3776,18 @@ export default function App() {
       });
     }
   };
+
+  /**
+   * Send one message. The boolean means "the UI now holds this message": placed, queued, or a
+   * failed bubble that keeps the text with its own Send again. Only a send that left no trace
+   * anywhere returns false, so a composer clears its draft exactly when the message has a home.
+   */
+  const sendTo = async (
+    target: SessionRef,
+    directory: string | undefined,
+    input: PromptInput,
+    options: { retainOnFailure?: boolean; quiet?: boolean; onAccepted?: (receipt: SubmissionReceipt) => Promise<void> } = {}
+  ): Promise<boolean> => (await sendToWithOutcome(target, directory, input, options)).uiHeld;
 
   /**
    * Turn a ghost steer into an honest answer — which now has two shapes.
@@ -3860,6 +3888,8 @@ export default function App() {
   /** Send a failed message again, with exactly the input the first attempt used. */
   const handleRetryPendingSend = (key: string, message: ChatMessage) => {
     const stored = pendingInputs.current.get(message.id);
+    const waitingFollowUps = heldFollowUpsByTriggerId.current.get(message.id);
+    heldFollowUpsByTriggerId.current.delete(message.id);
     forgetPendingSend(key, message.id);
     if (!stored) {
       setActionNotice({ message: 'Removed it. Copy the text out of the transcript to send it again.' });
@@ -3869,6 +3899,29 @@ export default function App() {
       return;
     }
     disposePendingSend(key, message.id);
+    if (waitingFollowUps && waitingFollowUps.length > 0) {
+      const session =
+        (sessionsByInstanceRef.current[stored.target.instanceId] ?? []).find(
+          (entry) => entry.id === stored.target.sessionId
+        ) ?? null;
+      const target = queueTargetFor(stored.target, session);
+      const activeIds = queue.restageMessages(waitingFollowUps, target);
+      const hostLabel = instanceLabelOf(stored.target.instanceId);
+      void sendToWithOutcome(stored.target, stored.directory, stored.input, { retainOnFailure: true }).then(
+        (firstOutcome) =>
+          settleStagedFollowUps({
+            firstOutcome,
+            stagedIds: activeIds,
+            instanceLabel: hostLabel,
+            flushFollowUp: (localId) => queue.flushStagedMessage(localId, target),
+            failFollowUps: (localIds, reason) => queue.failStagedMessages(localIds, target, reason),
+            onRetainFailedTrigger: (messageId, stagedIds) => {
+              heldFollowUpsByTriggerId.current.set(messageId, [...stagedIds]);
+            },
+          })
+      );
+      return;
+    }
     void sendTo(stored.target, stored.directory, stored.input, { retainOnFailure: true });
   };
 
@@ -3882,6 +3935,7 @@ export default function App() {
    * notice says plainly what could not be undone.
    */
   const handleDiscardPendingSend = (key: string, message: ChatMessage) => {
+    heldFollowUpsByTriggerId.current.delete(message.id);
     const ref = parseSessionKey(key);
     if (message.delivery === 'queued' && ref) {
       const items =
@@ -3937,6 +3991,11 @@ export default function App() {
         await handleSettings({ quoteLinks: replaceAnnotationDestinations(settingsRef.current.quoteLinks, sessionKey(ref), [previousQueueId], receipt) });
       } : undefined,
     }),
+    sendDirectFollowUp: async (input) =>
+      (await sendToWithOutcome(ref, session?.directory, input, { retainOnFailure: true })).serverAccepted,
+    onPlaced: () => {
+      void loadAndCommitMessages(ref, 'full', session?.directory, true);
+    },
     onRemoved: async (ids, destination) => {
       await handleSettings({ quoteLinks: replaceAnnotationDestinations(settingsRef.current.quoteLinks, sessionKey(ref), ids, destination) });
     },

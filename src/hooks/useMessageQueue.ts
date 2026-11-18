@@ -61,7 +61,7 @@ export const mergePolledQueues = (
       // back still stay two rows.
       console.log('[merge] locals', locals.map((i)=>[i.id,i.pending,i.text]), 'served', queue.items.map((i)=>[i.id,i.text]));
       for (const served of queue.items) {
-        const match = optimistic.findIndex((item) => item.pending && sameQueuedMessage(item, served));
+        const match = optimistic.findIndex((item) => item.pending && !item.staged && sameQueuedMessage(item, served));
         if (match >= 0) optimistic.splice(match, 1);
       }
       return {
@@ -109,6 +109,55 @@ export const resolveQueueReplaceTargets = (
 };
 
 /**
+ * Preserve any still-pending or errored local rows on a session when a server mutation settles an
+ * earlier row, keeping those local rows after the server's settled items so FIFO order holds.
+ */
+export const mergeMutationSession = (
+  previous: MessageQueueSession | undefined,
+  incoming: MessageQueueSession
+): MessageQueueSession => {
+  if (!previous) return incoming;
+  const serverIds = new Set(incoming.items.map((item) => item.id));
+  const remainingLocals = previous.items.filter(
+    (item) => (item.pending || item.error) && !serverIds.has(item.id)
+  );
+  if (remainingLocals.length === 0) return incoming;
+  return {
+    ...incoming,
+    items: [...incoming.items, ...remainingLocals],
+  };
+};
+
+/**
+ * Build a local queue item for a follow-up held during session creation, visible immediately while
+ * the trigger message is still in flight.
+ */
+export const buildStagedQueuedMessage = (
+  entry: { id: string; input: PromptInput; createdAt: number },
+  model?: ModelOption
+): QueuedMessage => ({
+  id: entry.id.startsWith('local-') ? entry.id : `local-${entry.id}`,
+  createdAt: entry.createdAt,
+  text: entry.input.text,
+  content: entry.input.text,
+  attachments: (entry.input.attachments ?? []).map((file) => ({
+    filename: file.filename,
+    mimeType: file.mime,
+    dataUrl: file.url,
+  })),
+  context: entry.input.queuedContext ?? [],
+  sendConfig: {
+    providerID: model?.providerID ?? '',
+    modelID: model?.modelID ?? '',
+    ...(entry.input.mode ? { agent: entry.input.mode } : {}),
+    ...(entry.input.variant ? { variant: entry.input.variant } : {}),
+  },
+  ...(entry.input.agentMention ? { agentMention: entry.input.agentMention } : {}),
+  pending: true,
+  staged: true,
+});
+
+/**
  * The session a queue mutation applies to. Handlers take this explicitly so one hook instance can
  * serve every open column, rather than only the active session.
  */
@@ -118,6 +167,10 @@ export type QueueTarget = {
   queue: MessageQueueSession | null;
   /** Sends a prompt on this target's session; "Send now" hands an item to it. */
   send: (input: PromptInput, previousQueueId?: string) => Promise<boolean>;
+  /** Direct send fallback returning genuine server acceptance, for OpenChamber hosts without queue API/model. */
+  sendDirectFollowUp?: (input: PromptInput) => Promise<boolean>;
+  /** Refresh transcript when an idle host placed an enqueued follow-up straight into the conversation. */
+  onPlaced?: () => void;
   onRemoved?: (ids: string[], destination?: { kind: 'message' | 'queue'; id: string }) => Promise<void>;
 };
 
@@ -138,16 +191,21 @@ export const useMessageQueue = ({
   setQueuesByInstance,
   showActionError,
 }: Options) => {
+  const modelsByInstanceRef = React.useRef(modelsByInstance);
+  modelsByInstanceRef.current = modelsByInstance;
+
   const applyQueueMutation = React.useCallback(
     (instanceId: string, mutation: { session: MessageQueueSession } | null) => {
       if (!mutation) return;
       setQueuesByInstance((prev) => {
         const existing = prev[instanceId] ?? [];
+        const previous = existing.find((queue) => queue.sessionId === mutation.session.sessionId);
+        const merged = mergeMutationSession(previous, mutation.session);
         const without = existing.filter((queue) => queue.sessionId !== mutation.session.sessionId);
         return {
           ...prev,
-          [instanceId]: mutation.session.items.length || mutation.session.sendingId
-            ? [mutation.session, ...without]
+          [instanceId]: merged.items.length || merged.sendingId
+            ? [merged, ...without]
             : without,
         };
       });
@@ -315,11 +373,48 @@ export const useMessageQueue = ({
     });
   };
 
+  const resolveQueueModel = (
+    instanceId: string,
+    input: PromptInput,
+    session: Session | null
+  ): ModelOption | undefined => {
+    if (input.model) return input.model;
+    const modelList = modelsByInstanceRef.current[instanceId];
+    if (modelList?.defaultModelId) {
+      const found = modelList.models.find((candidate) => modelRefKey(candidate) === modelList.defaultModelId);
+      if (found) return found;
+    }
+    if (session?.model) {
+      const found = modelList?.models.find(
+        (candidate) =>
+          candidate.providerID === session.model!.providerID &&
+          candidate.modelID === session.model!.modelID
+      );
+      if (found) return found;
+      return {
+        providerID: session.model.providerID,
+        modelID: session.model.modelID,
+        label: `${session.model.providerID} / ${session.model.modelID}`,
+        details: {
+          name: session.model.modelID,
+          providerName: session.model.providerID,
+          reasoning: false,
+          toolcall: false,
+          attachment: (input.attachments?.length ?? 0) > 0,
+          inputs: [],
+          variants: session.model.variant ? [session.model.variant] : [],
+        },
+      };
+    }
+    return undefined;
+  };
+
   const enqueueLocal = async (
     target: QueueTarget,
     localId: string,
     directory: string,
-    input: QueueMessageInput
+    input: QueueMessageInput,
+    options?: { fallbackToDirectSendOn404?: boolean }
   ): Promise<MessageQueueMutation | null> => {
     const { instanceId, sessionId } = target.ref;
     try {
@@ -331,12 +426,22 @@ export const useMessageQueue = ({
         if (queued.status === 404) {
           pendingInputsRef.current.delete(localId);
           removeLocalItem(target, localId);
+          if (options?.fallbackToDirectSendOn404 && target.sendDirectFollowUp) {
+            const sentDirectly = await target.sendDirectFollowUp(input);
+            return sentDirectly
+              ? {
+                  revision: Date.now(),
+                  session: { sessionId, directory, items: [], sendingId: null },
+                  destination: { kind: 'message', id: localId },
+                }
+              : null;
+          }
           showActionError('This OpenChamber instance does not support message queueing yet.');
         } else {
           // Hearth explains itself — a blank message, an unsupported part, an image over the size
           // cap. Showing a generic line here threw that away, leaving an unexplained failed row.
           const reason = errorMessageOf(queued.data) ?? 'Could not queue this message.';
-          patchLocalItem(target, localId, { pending: false, error: reason });
+          patchLocalItem(target, localId, { pending: false, staged: undefined, error: reason });
           showActionError(reason, () => void retryQueued(localId, target));
         }
         return null;
@@ -353,6 +458,9 @@ export const useMessageQueue = ({
       if (serverId) rememberLandedId(localId, serverId);
       removeLocalItem(target, localId);
       applyQueueMutation(instanceId, queued.data);
+      if (queued.data.destination?.kind === 'message') {
+        target.onPlaced?.();
+      }
       if (editedText && serverId) {
         // The row was edited while it was still queueing. The host now holds the text it was queued
         // with, so run the replace a settled edit runs — against the queue the host just returned,
@@ -370,10 +478,128 @@ export const useMessageQueue = ({
       deferredEditsRef.current.delete(localId);
       patchLocalItem(target, localId, {
         pending: false,
+        staged: undefined,
         error: err instanceof Error ? err.message : 'Could not queue this message.',
       });
       return null;
     }
+  };
+
+  /**
+   * Synchronously stage follow-up messages into the session's queue before the trigger message
+   * finishes sending, so opening the column shows every held message immediately in FIFO order.
+   */
+  const stageMessages = (
+    entries: ReadonlyArray<{ id: string; input: PromptInput; createdAt: number }>,
+    target: QueueTarget
+  ): string[] => {
+    if (entries.length === 0) return [];
+    const { instanceId, sessionId } = target.ref;
+    const directory = target.session?.directory ?? '';
+    const stagedItems = entries.map((entry) => {
+      const model = resolveQueueModel(instanceId, entry.input, target.session);
+      const item = buildStagedQueuedMessage(entry, model);
+      pendingInputsRef.current.set(item.id, {
+        ...entry.input,
+        ...(model ? { model } : {}),
+      });
+      return item;
+    });
+    setQueuesByInstance((prev) => {
+      const list = prev[instanceId] ?? [];
+      const base = list.find((entry) => entry.sessionId === sessionId) ?? {
+        sessionId,
+        directory,
+        items: [],
+        sendingId: null,
+      };
+      const existingIds = new Set(base.items.map((item) => item.id));
+      const appended = stagedItems.filter((item) => !existingIds.has(item.id));
+      const without = list.filter((entry) => entry.sessionId !== sessionId);
+      return {
+        ...prev,
+        [instanceId]: [{ ...base, items: [...base.items, ...appended] }, ...without],
+      };
+    });
+    return stagedItems.map((item) => item.id);
+  };
+
+  /**
+   * Submit one staged follow-up once the trigger message (and any earlier follow-up) succeeded.
+   */
+  const flushStagedMessage = async (localId: string, target: QueueTarget): Promise<boolean> => {
+    const input = pendingInputsRef.current.get(localId);
+    if (!input) {
+      // Discarded or settled earlier by the user; do not halt later follow-ups.
+      return true;
+    }
+    const { instanceId } = target.ref;
+    const directory = target.session?.directory ?? '';
+    const modelError = selectedModelError(input.selectedModelId, input.model);
+    if (modelError) {
+      patchLocalItem(target, localId, { pending: false, staged: undefined, error: modelError });
+      showActionError(modelError);
+      return false;
+    }
+    const resolvedModel = input.model ?? resolveQueueModel(instanceId, input, target.session);
+    const nextInput: QueueMessageInput = {
+      ...input,
+      ...(resolvedModel ? { model: resolvedModel } : {}),
+    };
+    pendingInputsRef.current.set(localId, nextInput);
+    deferredEditsRef.current.delete(localId);
+    patchLocalItem(target, localId, { pending: true, staged: undefined, error: undefined });
+
+    if (!isPiInstance(instanceId) && (!directory || !resolvedModel)) {
+      if (target.sendDirectFollowUp) {
+        pendingInputsRef.current.delete(localId);
+        removeLocalItem(target, localId);
+        return target.sendDirectFollowUp(nextInput);
+      }
+      const reason = !directory
+        ? 'Could not queue this message because the session folder is unknown.'
+        : 'Could not queue this message until the instance default model is known.';
+      patchLocalItem(target, localId, { pending: false, staged: undefined, error: reason });
+      showActionError(reason, () => void retryQueued(localId, target));
+      return false;
+    }
+    return (await enqueueLocal(target, localId, directory, nextInput, { fallbackToDirectSendOn404: true })) !== null;
+  };
+
+  const failStagedMessages = (localIds: readonly string[], target: QueueTarget, reason: string) => {
+    const active = new Set(localIds.filter((id) => pendingInputsRef.current.has(id)));
+    if (active.size === 0) return;
+    updateQueue(target, (queue) =>
+      queue
+        ? {
+            ...queue,
+            items: queue.items.map((item) =>
+              active.has(item.id)
+                ? { ...item, pending: false, staged: undefined, error: reason }
+                : item
+            ),
+          }
+        : queue
+    );
+  };
+
+  const restageMessages = (localIds: readonly string[], target: QueueTarget): string[] => {
+    const activeIds = localIds.filter((id) => pendingInputsRef.current.has(id));
+    if (activeIds.length === 0) return [];
+    const active = new Set(activeIds);
+    updateQueue(target, (queue) =>
+      queue
+        ? {
+            ...queue,
+            items: queue.items.map((item) =>
+              active.has(item.id)
+                ? { ...item, pending: true, staged: true, error: undefined }
+                : item
+            ),
+          }
+        : queue
+    );
+    return activeIds;
   };
 
   const queueMessage = async (input: PromptInput, target: QueueTarget): Promise<boolean> => {
@@ -430,11 +656,23 @@ export const useMessageQueue = ({
     const directory = target.session?.directory ?? '';
     if (!input) return false;
     showActionError(null);
+    const { instanceId } = target.ref;
+    const resolvedModel = input.model ?? resolveQueueModel(instanceId, input, target.session);
+    const nextInput: QueueMessageInput = {
+      ...input,
+      ...(resolvedModel ? { model: resolvedModel } : {}),
+    };
+    pendingInputsRef.current.set(itemId, nextInput);
     // An edit recorded while the failed enqueue was in flight is already this input's text; it must
     // not be replayed as a second replacement once the retry lands.
     deferredEditsRef.current.delete(itemId);
-    patchLocalItem(target, itemId, { pending: true, error: undefined });
-    return (await enqueueLocal(target, itemId, directory, input)) !== null;
+    patchLocalItem(target, itemId, { pending: true, staged: undefined, error: undefined });
+    if (!isPiInstance(instanceId) && (!directory || !resolvedModel) && target.sendDirectFollowUp) {
+      pendingInputsRef.current.delete(itemId);
+      removeLocalItem(target, itemId);
+      return target.sendDirectFollowUp(nextInput);
+    }
+    return (await enqueueLocal(target, itemId, directory, nextInput, { fallbackToDirectSendOn404: true })) !== null;
   };
 
   const discardQueued = (itemId: string, target: QueueTarget): boolean => {
@@ -714,6 +952,10 @@ export const useMessageQueue = ({
   return {
     applyQueueMutation,
     queueMessage,
+    stageMessages,
+    flushStagedMessage,
+    failStagedMessages,
+    restageMessages,
     adoptQueuedSubmission,
     sendQueuedMessage,
     replaceQueued,

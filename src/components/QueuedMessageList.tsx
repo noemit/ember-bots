@@ -120,6 +120,10 @@ export default function QueuedMessageList({
   // The same `provider / model · level` the transcript footer shows, built by the same helper so the
   // row and the footer cannot drift.
   const queuedModelLabel = (item: QueuedMessage): string => {
+    if (!item.sendConfig.providerID && !item.sendConfig.modelID) {
+      const level = (item.sendConfig.variant ?? '').trim();
+      return level && level.toLowerCase() !== 'default' ? `Server default · ${level}` : 'Server default';
+    }
     const option = models.find(
       (candidate) =>
         candidate.providerID === item.sendConfig.providerID &&

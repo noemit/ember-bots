@@ -12,7 +12,7 @@ import type { PiQuestion } from './lib/piMapping';
 import { liveToolOutputs, piConversationToSession, piEntriesToMessages, piInboxToQueuedMessages, piModelsToModelList, piApprovalToPermissionRequest, piQuestionToQuestionRequest, toolResultSettlements } from './lib/piMapping';
 import { randomId } from './lib/randomId';
 import type { DirectoryAgent } from './lib/agentDirectory';
-import { abortReceiptOf } from './lib/sendDelivery';
+import { abortReceiptOf, submitOutcomeOf } from './lib/sendDelivery';
 import { SessionCreateError } from './lib/sessionCreateError';
 import type {
   LiveToolOutput,
@@ -641,6 +641,14 @@ export const piEnqueueMessage = async (
     { method: 'POST', body: { type: 'input', content: piInputContent(input.text, input.attachments), whenBusy: 'followUp' } }
   );
   if (!submitted.ok) return submitted;
+  const outcome = submitOutcomeOf(submitted.data);
+  if (outcome.kind === 'failed') {
+    return {
+      ok: false,
+      status: submitted.status,
+      data: { error: outcome.error ?? 'The server refused the message.' },
+    };
+  }
   // Return the refreshed queue as a mutation so the optimistic local row is replaced by the
   // server item instead of lingering as "pending". If the inbox read races the submit, add the
   // submitted item ourselves (its id is the submission id) so the row still reconciles.
