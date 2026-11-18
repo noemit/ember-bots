@@ -1,9 +1,11 @@
+import { questionDrafts } from './asyncQuestionDrafts';
 import { composerMemory } from './composerDrafts';
 // Recovery is not a send preview: retain the exact annotation, quote and whitespace.
 export type RemoteAuxiliaryDraft = { question: string; annotationDraft: string; annotationQuote: string };
 export const remoteAuxiliaryDrafts = new Map<string, RemoteAuxiliaryDraft>();
 export const remoteUnsentText = () => [...new Set([
   ...[...composerMemory.values()].map((draft) => draft.text),
+  ...questionDrafts.unsentTexts(),
   ...[...remoteAuxiliaryDrafts.values()].flatMap((draft) => [draft.question,
     draft.annotationDraft || draft.annotationQuote
       ? `Quoted text:\n${draft.annotationQuote}\nYour annotation:\n${draft.annotationDraft}` : '',
@@ -25,6 +27,7 @@ export const isRemoteBrowser = () => remote;
 export const isRemoteExpired = () => expired;
 /** Update prompts must call this at click time, not just when displaying the prompt. */
 export const canReloadRemote = () => !activeWork && requests === 0 && draftBlockers.size === 0 && remoteAuxiliaryDrafts.size === 0 &&
+  !questionDrafts.hasUnsent() &&
   ![...composerMemory.values()].some((draft) => draft.text.length || draft.attachments.length || draft.replyContext);
 export const setRemoteActiveWork = (active: boolean) => { activeWork = active; };
 export const trackRemoteRequest = (delta: number) => { requests = Math.max(0, requests + delta); };

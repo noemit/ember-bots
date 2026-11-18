@@ -3,6 +3,7 @@ import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import ChatView from '../src/components/ChatView';
 import { TooltipProvider } from '../src/components/ui/tooltip';
+import { questionDrafts } from '../src/lib/asyncQuestionDrafts';
 import { seedIdentity } from '../src/blob/seed';
 import type {
   ChatMessage,
@@ -458,10 +459,40 @@ describe('ChatView composer keystroke memoization', () => {
       await renderView(savedDrafts);
       expect(renders).toEqual(baseline);
 
-      // Switch back to Questions tab and type more keystrokes while QuestionsShelf is open.
+      // Switch back to Questions tab: Answer Mode opens, typing an answer draft skips Transcript/CrewStrip,
+      // and Back to chat restores the main composer while QuestionsShelf stays open without re-rendering on keystrokes.
       await React.act(async () => {
         (reactPropsOf(findTab('Questions')!).onClick as () => void)();
       });
+      const answerInput = findElements(
+        container,
+        (el) => el.tagName === 'TEXTAREA' && el.getAttribute('aria-label') === 'Your answer'
+      )[0];
+      expect(answerInput).toBeDefined();
+      const baselineInAnswerMode = { ...renders };
+      await React.act(async () => {
+        answerInput!.value = 'Draft answer';
+        const onChange = reactPropsOf(answerInput!).onChange as (event: unknown) => void;
+        onChange({ target: answerInput, currentTarget: answerInput });
+      });
+      expect(renders.transcript).toBe(baselineInAnswerMode.transcript);
+      expect(renders.crew).toBe(baselineInAnswerMode.crew);
+
+      const backButton = findElements(
+        container,
+        (el) =>
+          el.tagName === 'BUTTON' &&
+          findElements(el, () => true).some(
+            (child) =>
+              (child as unknown as { textContent?: string }).textContent === 'Back to chat' ||
+              child.childNodes.some((n) => n instanceof StubText && n.nodeValue === 'Back to chat')
+          )
+      )[0];
+      expect(backButton).toBeDefined();
+      await React.act(async () => {
+        (reactPropsOf(backButton!).onClick as () => void)();
+      });
+
       const baselineWithQuestionsOpen = { ...renders };
       for (const typed of ['Next', 'Next step']) {
         const composer = findComposer()!;
@@ -478,6 +509,7 @@ describe('ChatView composer keystroke memoization', () => {
         root.unmount();
       });
     } finally {
+      questionDrafts.clear();
       for (const [key, prior] of savedGlobals) {
         if (prior.present) scope[key] = prior.value;
         else delete scope[key];

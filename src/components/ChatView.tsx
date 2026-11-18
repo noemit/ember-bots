@@ -1,7 +1,9 @@
-import { questionSourceMessage } from '../lib/asyncQuestions';
+import { questionFollowups, questionSourceMessage } from '../lib/asyncQuestions';
 import type { AnnotationGuard } from '../lib/annotationNavigation';
 import { isRemoteBrowser, isRemoteExpired, remoteAuxiliaryDrafts, setRemoteDraftBlocker } from '../lib/remoteLifecycle';
 import QuestionsShelf from './QuestionsShelf';
+import QuestionAnswerComposer from './QuestionAnswerComposer';
+import { useQuestionComposer } from '../hooks/useQuestionComposer';
 import type { ProjectUsage } from '../lib/projectUsage';
 import type { ThreadQuestion } from '../lib/threadQuestions';
 import { threadShelfStatus } from '../lib/crew';
@@ -663,6 +665,9 @@ function ChatView({
   const [now, setNow] = React.useState(() => Date.now());
   const fileRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const restoreMainFocus = React.useCallback(() => {
+    window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+  }, []);
   /** The column, which is `relative`: the selection bar is positioned inside it. */
   const columnRef = React.useRef<HTMLElement>(null);
   const transcriptRef = React.useRef<HTMLDivElement>(null);
@@ -939,6 +944,16 @@ function ChatView({
   // stop button becomes a disabled spinner so a second press can't be lost, and the composer
   // stays read-only until the abort reconciles.
   const stoppingNow = Boolean(stopping);
+  const questionComposer = useQuestionComposer({
+    composerKey,
+    sessionId: session?.id ?? null,
+    asyncQuestions,
+    shelfOpen,
+    shelfSection,
+    setShelfOpen,
+    setShelfSection,
+    onRestoreMainFocus: restoreMainFocus,
+  });
   const offerReload = React.useMemo(
     () =>
       Boolean(
@@ -962,7 +977,7 @@ function ChatView({
   );
 
   const addFiles = async (files: FileList | null) => {
-    if (!files) return;
+    if (questionComposer.isAnswering || !files) return;
     let remaining =
       MAX_TOTAL_ATTACHMENT_BYTES -
       attachments.reduce((sum, file) => sum + Math.ceil(file.url.length * 0.75), 0);
@@ -1000,8 +1015,13 @@ function ChatView({
   // Enter/leave fire for every child crossed, so count depth rather than toggling.
   const dragDepth = React.useRef(0);
   const [dragging, setDragging] = React.useState(false);
+  React.useEffect(() => {
+    if (!questionComposer.isAnswering) return;
+    dragDepth.current = 0;
+    setDragging(false);
+  }, [questionComposer.isAnswering]);
   const carriesFiles = (event: React.DragEvent) =>
-    Boolean(composerKey) && event.dataTransfer.types.includes('Files');
+    !questionComposer.isAnswering && Boolean(composerKey) && event.dataTransfer.types.includes('Files');
   const dropHandlers = {
     onDragEnter: (event: React.DragEvent) => {
       if (!carriesFiles(event)) return;
@@ -1010,6 +1030,13 @@ function ChatView({
       setDragging(true);
     },
     onDragOver: (event: React.DragEvent) => {
+      if (questionComposer.isAnswering) {
+        if (event.dataTransfer.types.includes('Files')) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'none';
+        }
+        return;
+      }
       if (!carriesFiles(event)) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
@@ -1020,6 +1047,12 @@ function ChatView({
       if (dragDepth.current === 0) setDragging(false);
     },
     onDrop: (event: React.DragEvent) => {
+      if (questionComposer.isAnswering) {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        return;
+      }
       if (!carriesFiles(event)) return;
       event.preventDefault();
       dragDepth.current = 0;
@@ -1239,13 +1272,14 @@ function ChatView({
     // a crew already blocked is not "something just happened", and stealing the shelf for it would
     // hide whatever the person opened the conversation to look at.
     if (!previous) return;
+    if (questionComposer.isAnswering) return;
     if (next.queue > previous.queue) setShelfSection('queue');
     else if (next.notes > previous.notes) setShelfSection('notes');
     if (next.blocked > previous.blocked) {
       setShelfSection('crew');
       setShelfOpen(true);
     }
-  }, [queueItems.length, sessionNotes.length, crewNeedsInput]);
+  }, [queueItems.length, sessionNotes.length, crewNeedsInput, questionComposer.isAnswering]);
   // A steer is in the queue because the host is holding it for the running turn, not because a
   // follow-up is waiting. Counting it as one would keep the composer in queue mode after the turn
   // it was steering has finished, and offer to "send the next queued message" one already running.
@@ -2070,6 +2104,12 @@ function ChatView({
             sessionId={session.id}
             onAnswer={stableQuestion}
             onOpenSource={stableOpenQuestionSource}
+            onSelectQuestion={questionComposer.openQuestion}
+            onMutationSuccess={questionComposer.handleMutationSuccess}
+            activeKey={questionComposer.activeKey}
+            answerModeOpen={questionComposer.answerModeOpen}
+            historyOpen={questionComposer.historyOpen}
+            onHistoryOpenChange={questionComposer.setHistoryOpen}
           />
         ),
       },
@@ -2104,6 +2144,12 @@ function ChatView({
     onStopProcesses,
     onToggleWorkerYolo,
     processExtensionFor,
+    questionComposer.activeKey,
+    questionComposer.answerModeOpen,
+    questionComposer.handleMutationSuccess,
+    questionComposer.historyOpen,
+    questionComposer.openQuestion,
+    questionComposer.setHistoryOpen,
     queue,
     queueItems,
     quoteDestinationFocus?.destination?.kind,
@@ -2140,7 +2186,9 @@ function ChatView({
    * and low alpha, so it reads as light in the room rather than a coloured panel. `blobColor` returns
    * a `var(--blob-N)` reference, which is why `color-mix` can grade it without knowing the value.
    */
-  const connection = useComposerConnection(session ? seed : null);
+  const connection = useComposerConnection(session ? seed : null, {
+    detached: questionComposer.isChildTaskAnswer,
+  });
   const cornerTint = session && showSessionAvatar
     ? `radial-gradient(125% 100% at -6% -8%, color-mix(in oklab, ${blobColor(blobStyle, identity ?? seed)} 10%, transparent), transparent 56%)`
     : undefined;
@@ -2175,6 +2223,28 @@ function ChatView({
         if (session && !event.defaultPrevented && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
           event.preventDefault();
           setFindRequest((request) => request + 1);
+          return;
+        }
+        if (
+          questionComposer.isAnswering &&
+          event.key === 'Escape' &&
+          !event.defaultPrevented &&
+          !annotationDecisionOpen &&
+          !selectionComments.visible &&
+          !pickerOpen &&
+          !instructionsOpen &&
+          previewPreset === null &&
+          !draftAppearanceOpen &&
+          !sideQuestionOpen &&
+          !editingTitle &&
+          !(typeof document !== 'undefined' &&
+            typeof document.querySelector === 'function' &&
+            document.querySelector(
+              '[role="dialog"], [role="alertdialog"], [data-slot="dialog-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"], [data-annotation-composer], [data-annotation-decision], [aria-label="Find in conversation"], .mobile-rail.shadow-2xl'
+            ))
+        ) {
+          event.preventDefault();
+          questionComposer.backToChat();
         }
       }}
     >
@@ -2657,13 +2727,13 @@ function ChatView({
             {session ? (
               <ComposerShelf
                 active={shelfSection}
-                onActiveChange={setShelfSection}
+                onActiveChange={questionComposer.handleShelfSectionChange}
                 open={shelfOpen}
-                onOpenChange={setShelfOpen}
+                onOpenChange={questionComposer.handleShelfOpenChange}
                 sections={shelfSections}
               />
             ) : null}
-            {session && onAskSideQuestion && (sideQuestionOpen || askingSideQuestion) ? (
+            {!questionComposer.isAnswering && session && onAskSideQuestion && (sideQuestionOpen || askingSideQuestion) ? (
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -2747,12 +2817,33 @@ function ChatView({
               // text, controls and the unchanged border never participate in compositing.
               ref={connection.surface}
               data-composer-surface
-              style={session && showSessionAvatar ? {
+              style={session && showSessionAvatar && !questionComposer.isChildTaskAnswer ? {
                 '--composer-glow-color': blobColor(blobStyle, identity),
                 backgroundImage: `radial-gradient(ellipse at top left, color-mix(in oklab, ${blobColor(blobStyle, identity)} 10%, transparent), transparent 75%)`,
               } as React.CSSProperties : undefined}
               className="group/composer flex flex-col rounded-xl border bg-background"
             >
+            {questionComposer.isAnswering && questionComposer.activeRequest && session ? (
+              <QuestionAnswerComposer
+                request={questionComposer.activeRequest}
+                followups={questionFollowups(questionComposer.activeRequest, asyncQuestions)}
+                sessionId={session.id}
+                hostLabel={instanceLabel}
+                pendingCount={questionComposer.pending.length}
+                pendingIndex={questionComposer.pendingIndex}
+                onPrevious={questionComposer.previousQuestion}
+                onNext={questionComposer.nextQuestion}
+                onBackToChat={questionComposer.backToChat}
+                onAnswer={stableQuestion}
+                onMutationSuccess={questionComposer.handleMutationSuccess}
+                onAnswerConflict={questionComposer.revealHistory}
+                focusRequest={questionComposer.focusRequest}
+                sessionBusy={busy}
+                stoppingNow={stoppingNow}
+                onAbort={onAbort}
+              />
+            ) : (
+            <>
             {session && !connection.connected ? <ComposerIdentity name={session.title?.trim() || session.id} markerColor={instanceMarkerColor} seed={seed} identity={identity} style={blobStyle} mood={mood} showAvatar={showSessionAvatar} onHide={onArchive} onNewBot={onNewBotInFolder} /> : null}
             {replyContext ? (
               /* A left accent carries "this is quoted" without drawing a rectangle inside the
@@ -3359,6 +3450,8 @@ function ChatView({
                 )}
               </TooltipContent></Tooltip>
             </div>
+            </>
+            )}
             </motion.div>
           </div>
         </div>

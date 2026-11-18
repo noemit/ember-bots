@@ -12,7 +12,8 @@ const ConnectionContext = React.createContext<{
   activeKey: string | null;
   metrics: Metrics | null;
   report: (key: string, metrics: Metrics) => void;
-}>({ activeKey: null, metrics: null, report: () => {} });
+  setDetached: (key: string, detached: boolean) => void;
+}>({ activeKey: null, metrics: null, report: () => {}, setDetached: () => {} });
 
 /** Navigation and composing share geometry, without moving a session's input out of its column. */
 export function WorkspaceConnection({ activeKey, color, children }: {
@@ -20,12 +21,26 @@ export function WorkspaceConnection({ activeKey, color, children }: {
 }) {
   const desktop = React.useSyncExternalStore(subscribe, desktopSnapshot, serverSnapshot);
   const [measured, setMeasured] = React.useState<{ key: string; metrics: Metrics } | null>(null);
+  const [detachedKeys, setDetachedKeys] = React.useState<ReadonlySet<string>>(() => new Set());
   const report = React.useCallback((key: string, metrics: Metrics) => {
     setMeasured(previous => previous?.key === key && previous.metrics.height === metrics.height && previous.metrics.centre === metrics.centre
       ? previous : { key, metrics });
   }, []);
-  const key = desktop ? activeKey : null;
-  const value = React.useMemo(() => ({ activeKey: key, metrics: measured?.key === key ? measured.metrics : null, report }), [key, measured, report]);
+  const setDetached = React.useCallback((targetKey: string, detached: boolean) => {
+    setDetachedKeys((previous) => {
+      const has = previous.has(targetKey);
+      if (has === detached) return previous;
+      const next = new Set(previous);
+      if (detached) next.add(targetKey);
+      else next.delete(targetKey);
+      return next;
+    });
+  }, []);
+  const key = desktop && activeKey && !detachedKeys.has(activeKey) ? activeKey : null;
+  const value = React.useMemo(
+    () => ({ activeKey: key, metrics: measured?.key === key ? measured.metrics : null, report, setDetached }),
+    [key, measured, report, setDetached]
+  );
   return <ConnectionContext.Provider value={value}>
     <div className="contents" style={{ '--connection-agent': color } as React.CSSProperties}>{children}</div>
   </ConnectionContext.Provider>;
@@ -33,12 +48,18 @@ export function WorkspaceConnection({ activeKey, color, children }: {
 export const useWorkspaceConnection = () => React.useContext(ConnectionContext);
 
 /** Measure the actual composer, including attachments but excluding the separate trays above it, rather than guessing its height. */
-export function useComposerConnection(key: string | null) {
+export function useComposerConnection(key: string | null, options?: { detached?: boolean }) {
   const connection = useWorkspaceConnection();
-  const connected = Boolean(key && key === connection.activeKey);
+  const detached = Boolean(key && options?.detached);
+  const connected = Boolean(key && !detached && key === connection.activeKey);
   const footer = React.useRef<HTMLDivElement>(null);
   const surface = React.useRef<HTMLDivElement>(null);
-  const { report } = connection;
+  const { report, setDetached } = connection;
+  React.useLayoutEffect(() => {
+    if (!key || !detached) return;
+    setDetached(key, true);
+    return () => setDetached(key, false);
+  }, [detached, key, setDetached]);
   React.useLayoutEffect(() => {
     if (!connected || !key || !footer.current || !surface.current) return;
     let cancelled = false;

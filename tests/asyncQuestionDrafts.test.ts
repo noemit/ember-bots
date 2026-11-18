@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   createQuestionDraftStore,
+  draftAnswerPayload,
+  draftReceiptMatches,
   questionFailureRecovery,
   unlockQuestionDraft,
   type AsyncQuestionDraft,
@@ -188,5 +190,76 @@ describe('same-revision failure recovery and draft unlock', () => {
       expect(text).not.toContain('!');
       expect(text).not.toMatch(/\b(4\d\d|5\d\d|undefined|null|error:|agents?)\b/i);
     }
+  });
+});
+
+describe('structured choices + note drafts and unsent tracking', () => {
+  test('unlockQuestionDraft preserves picked choices on pending edit and folds them into text on 409 context keep', () => {
+    const failedWithChoices: AsyncQuestionDraft = {
+      text: 'Verify staging first',
+      picked: ['Keep'],
+      submitted: 'Keep\n\nVerify staging first',
+      mutation: { requestId: 'ans-1', revision: 3, action: 'answer' },
+      failed: true,
+    };
+
+    expect(unlockQuestionDraft(failedWithChoices, { pending: true, optionOrder: ['Keep', 'Remove'] })).toEqual({
+      text: 'Keep\n\nVerify staging first'.split('\n\n')[1],
+      picked: ['Keep'],
+      adding: false,
+    });
+
+    expect(
+      unlockQuestionDraft(failedWithChoices, {
+        pending: false,
+        sentAnswer: 'Remove',
+        optionOrder: ['Keep', 'Remove'],
+      })
+    ).toEqual({
+      text: 'Keep\n\nVerify staging first',
+      adding: true,
+      accepted: 'Remove',
+    });
+  });
+
+  test('draftReceiptMatches and draftAnswerPayload handle combined choice+note answers and store unsent tracking', () => {
+    const request = baseQuestion({ revision: 3, status: 'pending' });
+    const draft: AsyncQuestionDraft = {
+      text: 'Wait for logs',
+      picked: ['Remove', 'Keep'],
+      mutation: { requestId: 'req-1', revision: 3, action: 'answer' },
+    };
+    expect(draftAnswerPayload(request, draft)).toBe('Keep\nRemove\n\nWait for logs');
+    expect(
+      draftReceiptMatches(request, draft, {
+        requestId: 'req-1',
+        revision: 3,
+        answer: 'Keep\nRemove\n\nWait for logs',
+        at: 100,
+      })
+    ).toBe(true);
+    expect(
+      draftReceiptMatches(request, draft, {
+        requestId: 'req-1',
+        revision: 3,
+        answer: 'Different',
+        at: 100,
+      })
+    ).toBe(false);
+
+    const store = createQuestionDraftStore();
+    expect(store.hasUnsent()).toBe(false);
+    expect(store.unsentTexts()).toEqual([]);
+
+    store.put('q1', { text: '', accepted: 'Keep' });
+    expect(store.hasUnsent()).toBe(false);
+
+    store.put('q2', { text: 'Need rollback check', picked: ['Keep'] });
+    expect(store.hasUnsent()).toBe(true);
+    expect(store.unsentTexts()).toEqual(['Keep\n\nNeed rollback check']);
+
+    store.clear();
+    expect(store.hasUnsent()).toBe(false);
+    expect(store.get('q2')).toEqual({ text: '' });
   });
 });

@@ -1,5 +1,18 @@
 import { describe, expect, test } from 'bun:test';
-import { isAsyncQuestion, questionMutationConfirmed, questionFollowups, questionSourceMessage, questionsForSupervisor, questionStatusLabel, questionSupervisor } from '../src/lib/asyncQuestions';
+import {
+  allowsMultipleQuestionChoices,
+  composeQuestionAnswer,
+  formatQuestionAnswerForRequest,
+  isAsyncQuestion,
+  isLongQuestionContext,
+  questionMutationConfirmed,
+  questionFollowups,
+  questionRecipientLabel,
+  questionSourceMessage,
+  questionsForSupervisor,
+  questionStatusLabel,
+  questionSupervisor,
+} from '../src/lib/asyncQuestions';
 import { piQuestionToQuestionRequest } from '../src/lib/piMapping';
 import type { QuestionRequest } from '../src/types';
 
@@ -46,4 +59,49 @@ test('uncertain replies need an exact receipt on the same host, conversation and
   expect(questionMutationConfirmed(request, [['More context']], [{ ...accepted, replyTo: 'another-question' }])).toBe(false);
   expect(questionMutationConfirmed(request, [['More context']], [{ ...accepted, receipt: { ...accepted.receipt!, requestId: 'another-request' } }])).toBe(false);
   expect(questionStatusLabel({ ...accepted, status: 'answered', delivery: { requestId: 'delivery', status: 'admitted', placement: 'placed' } })).toMatch(/Delivered.*not yet confirmed seen/);
+});
+
+test('recipient provenance, choice+note composition, multiplicity, and context length helpers', () => {
+  expect(questionRecipientLabel({ ...nested, sessionId: '16' }, '16')).toBe('Answer for this conversation');
+  expect(questionRecipientLabel({ ...nested, sourceTitle: 'Backup audit' }, '16')).toBe('Answer for task · Backup audit');
+  expect(questionRecipientLabel({ ...nested, sourceTitle: undefined, assignment: undefined }, '16')).toBe('Answer for task · Conversation 81');
+
+  expect(composeQuestionAnswer(['Gradual', 'All at once'], ['All at once', 'Gradual'], '  Check canary metrics.  ')).toBe(
+    'Gradual\nAll at once\n\nCheck canary metrics.'
+  );
+  expect(composeQuestionAnswer(['Keep', 'Remove'], ['Keep'], '   ')).toBe('Keep');
+  expect(composeQuestionAnswer([], [], '  Only note\nLine 2  ')).toBe('Only note\nLine 2');
+  expect(composeQuestionAnswer(['Keep', 'Remove'], ['Remove'], 'Ignored', false)).toBe('Remove');
+
+  const multiAsync = piQuestionToQuestionRequest('host', {
+    conversationId: '81',
+    key: 'q1',
+    question: 'Choose',
+    options: ['A', 'B'],
+    mode: 'async',
+  });
+  expect(allowsMultipleQuestionChoices(multiAsync)).toBe(true);
+  expect(formatQuestionAnswerForRequest(multiAsync, ['B', 'A'], ' note ')).toBe('A\nB\n\nnote');
+
+  const singleAsync = piQuestionToQuestionRequest('host', {
+    conversationId: '81',
+    key: 'q2',
+    question: 'Pick one',
+    options: ['A', 'B'],
+    mode: 'async',
+    multiple: false,
+  });
+  expect(allowsMultipleQuestionChoices(singleAsync)).toBe(false);
+
+  const blocking = piQuestionToQuestionRequest('host', {
+    conversationId: '81',
+    key: 'q3',
+    question: 'Blocking?',
+    options: ['Yes', 'No'],
+  });
+  expect(allowsMultipleQuestionChoices(blocking)).toBe(false);
+
+  expect(isLongQuestionContext(nested)).toBe(false);
+  expect(isLongQuestionContext({ ...nested, context: 'Line 1\nLine 2' })).toBe(true);
+  expect(isLongQuestionContext({ ...nested, context: 'x'.repeat(145) })).toBe(true);
 });

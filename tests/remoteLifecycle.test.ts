@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { questionDrafts } from '../src/lib/asyncQuestionDrafts';
 import { composerMemory } from '../src/lib/composerDrafts';
 import { reconcileFullTranscript } from '../src/lib/transcriptReconciliation';
 import type { ChatMessage } from '../src/types';
@@ -140,6 +141,12 @@ test('remote resume repairs reads, preserves private drafts and never replays an
     setRemoteDraftBlocker('side-question', true);
     expect(canReloadRemote()).toBe(false);
     setRemoteDraftBlocker('side-question', false);
+    questionDrafts.put('host::81:decision', { text: 'Wait for logs', picked: ['Keep'] });
+    expect(canReloadRemote()).toBe(false);
+    expect(remoteUnsentText()).toContain('Keep\n\nWait for logs');
+    questionDrafts.put('host::81:decision', { text: '', accepted: 'Keep\n\nWait for logs' });
+    expect(canReloadRemote()).toBe(true);
+    questionDrafts.clear();
     setRemoteActiveWork(true);
     expect(win.dispatchEvent(new Event('ember:can-reload', { cancelable: true }))).toBe(false);
     setRemoteActiveWork(false);
@@ -198,6 +205,7 @@ test('remote resume repairs reads, preserves private drafts and never replays an
   } finally {
     unsubscribe?.();
     composerMemory.clear();
+    questionDrafts.clear();
     remoteAuxiliaryDrafts.clear();
     setRemoteActiveWork(false);
     for (const [key, descriptor] of originals) {

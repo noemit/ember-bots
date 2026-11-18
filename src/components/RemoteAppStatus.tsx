@@ -1,10 +1,11 @@
 import * as React from 'react';
+import { questionDrafts } from '../lib/asyncQuestionDrafts';
 import { composerMemory } from '../lib/composerDrafts';
 import { copyText } from '../lib/clipboard';
 import { isRemoteExpired, remoteAuxiliaryDrafts, remoteUnsentText, reportRemoteConnection } from '../lib/remoteLifecycle';
 import { clearRemoteShell } from '../lib/remoteShell';
 
-export const hasUnsentRemoteDraft = () => Boolean(remoteUnsentText()) || [...composerMemory.values()].some((draft) =>
+export const hasUnsentRemoteDraft = () => Boolean(remoteUnsentText()) || questionDrafts.hasUnsent() || [...composerMemory.values()].some((draft) =>
   Boolean(draft.text.trim() || draft.attachments.length || draft.replyContext));
 
 /** Remote-only chrome; never promises background execution or deferred delivery. */
@@ -76,6 +77,7 @@ export function RemoteAppStatus() {
       if (!response.ok) { setState((current) => current === 'expired' || isRemoteExpired() ? 'expired' : 'unavailable'); return; }
       await clearRemoteShell().catch(() => {});
       composerMemory.clear();
+      questionDrafts.clear();
       remoteAuxiliaryDrafts.clear();
       reportRemoteConnection('expired');
       window.dispatchEvent(new CustomEvent('ember:session-expired'));

@@ -1,10 +1,67 @@
-import type { QuestionAnswers, QuestionRequest, Session } from '../types';
+import type { QuestionAnswers, QuestionOption, QuestionRequest, Session } from '../types';
 
 export const isAsyncQuestion = (request: QuestionRequest) => request.mode === 'async';
 /** Supervisory ancestry comes from the questions endpoint, not a paged session list. */
 export const questionsForSupervisor = (session: Session, requests: readonly QuestionRequest[]) =>
   requests.filter((request) => isAsyncQuestion(request) && request.instanceId === session.instanceId &&
     (request.sessionId === session.id || request.ancestry?.some((ancestor) => String(ancestor.conversationId) === session.id)));
+
+export const questionSourceTitle = (request: QuestionRequest): string =>
+  request.sourceTitle?.trim() || request.assignment?.title?.trim() || `Conversation ${request.sessionId}`;
+
+export const questionRecipientLabel = (request: QuestionRequest, currentSessionId: string): string =>
+  request.sessionId === currentSessionId
+    ? 'Answer for this conversation'
+    : `Answer for task · ${questionSourceTitle(request)}`;
+
+export const questionOptions = (request: QuestionRequest): readonly QuestionOption[] =>
+  request.questions[0]?.options ?? [];
+
+export const questionOptionLabels = (request: QuestionRequest): string[] =>
+  questionOptions(request).map((option) => option.label);
+
+export const allowsMultipleQuestionChoices = (request: QuestionRequest): boolean =>
+  request.multiple !== false && request.questions[0]?.multiple !== false;
+
+export const allowsFreeTextQuestionNote = (request: QuestionRequest): boolean =>
+  request.freeText !== false && request.questions[0]?.custom !== false;
+
+export const orderQuestionChoices = (options: readonly string[], picked: readonly string[]): string[] => {
+  const chosen = new Set(picked);
+  if (chosen.size === 0) return [];
+  if (options.length === 0) return [...chosen];
+  const ordered = options.filter((label) => chosen.has(label));
+  for (const label of chosen) {
+    if (!ordered.includes(label)) ordered.push(label);
+  }
+  return ordered;
+};
+
+export const composeQuestionAnswer = (
+  options: readonly string[],
+  picked: readonly string[],
+  note: string,
+  freeText = true
+): string => {
+  const choices = orderQuestionChoices(options, picked);
+  const trimmedNote = freeText ? note.trim() : '';
+  return choices.join('\n') + (choices.length && trimmedNote ? '\n\n' + trimmedNote : trimmedNote);
+};
+
+export const formatQuestionAnswerForRequest = (
+  request: QuestionRequest,
+  picked: readonly string[],
+  note: string
+): string => composeQuestionAnswer(questionOptionLabels(request), picked, note, allowsFreeTextQuestionNote(request));
+
+export const isLongQuestionContext = (request: QuestionRequest): boolean => {
+  const parts = [request.context, request.decision, request.recommendation].filter(
+    (part): part is string => Boolean(part?.trim())
+  );
+  if (parts.length === 0) return false;
+  const total = parts.reduce((sum, part) => sum + part.trim().length, 0);
+  return total > 140 || parts.some((part) => part.includes('\n'));
+};
 
 export const questionStatusLabel = (request: QuestionRequest): string => {
   if (request.status === 'withdrawn') return 'Answer or question withdrawn';

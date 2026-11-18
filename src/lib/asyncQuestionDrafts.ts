@@ -1,7 +1,11 @@
 import type { QuestionRequest } from '../types';
+import { composeQuestionAnswer, formatQuestionAnswerForRequest } from './asyncQuestions';
 
 export type AsyncQuestionDraft = {
   text: string;
+  picked?: string[];
+  /** Combined payload frozen at submit time so retries and receipt matching stay immutable. */
+  submitted?: string;
   mutation?: NonNullable<QuestionRequest['mutation']>;
   failed?: boolean;
   accepted?: string;
@@ -13,24 +17,60 @@ export type QuestionFailureRecovery = {
   unlockLabel: 'Cancel' | 'Edit draft' | 'Edit this draft' | 'Keep this draft as more context';
 };
 const empty: AsyncQuestionDraft = Object.freeze({ text: '' });
+const EMPTY_PICKED: readonly string[] = Object.freeze([]);
+
+export const draftPickedChoices = (draft: AsyncQuestionDraft): readonly string[] => draft.picked ?? EMPTY_PICKED;
+
+export const draftAnswerPayload = (request: QuestionRequest, draft: AsyncQuestionDraft): string => {
+  if (draft.submitted !== undefined) return draft.submitted;
+  if (draft.adding) return draft.text.trim();
+  return formatQuestionAnswerForRequest(request, draftPickedChoices(draft), draft.text);
+};
+
+export const draftReceiptMatches = (
+  request: QuestionRequest,
+  draft: AsyncQuestionDraft,
+  receipt: QuestionRequest['receipt'] | undefined
+): boolean => {
+  const mutation = draft.mutation;
+  if (!mutation || !receipt) return false;
+  const expected = draft.submitted ?? (mutation.action === 'context'
+    ? draft.text.trim()
+    : formatQuestionAnswerForRequest(request, draftPickedChoices(draft), draft.text));
+  return receipt.requestId === mutation.requestId
+    && receipt.revision === mutation.revision
+    && (receipt.answer === expected || (mutation.action === 'context' && receipt.answer === draft.text));
+};
 
 export const unlockQuestionDraft = (
   draft: AsyncQuestionDraft,
-  options: { pending: boolean; sentAnswer?: string }
+  options: { pending: boolean; sentAnswer?: string; optionOrder?: readonly string[] }
 ): AsyncQuestionDraft | undefined => {
+  const picked = draft.picked?.length ? [...draft.picked] : undefined;
   if (draft.mutation?.action === 'withdraw') {
-    if (!draft.text && !draft.accepted && !draft.adding) return undefined;
+    if (!draft.text && !picked && !draft.accepted && !draft.adding) return undefined;
     return {
       text: draft.text,
+      ...(picked ? { picked } : {}),
       ...(draft.accepted ? { accepted: draft.accepted } : {}),
       ...(draft.adding ? { adding: true } : {}),
     };
   }
   const accepted = !options.pending ? (draft.accepted ?? options.sentAnswer) : undefined;
+  if (!options.pending) {
+    const text = draft.mutation?.action !== 'context' && picked
+      ? composeQuestionAnswer(options.optionOrder ?? [], picked, draft.text, true)
+      : draft.text;
+    return {
+      text,
+      adding: true,
+      ...(accepted ? { accepted } : {}),
+    };
+  }
   return {
     text: draft.text,
-    adding: !options.pending,
-    ...(accepted ? { accepted } : {}),
+    ...(picked ? { picked } : {}),
+    adding: false,
   };
 };
 
@@ -103,6 +143,31 @@ export const createQuestionDraftStore = () => {
     settle(key: string, requestId: string, value?: AsyncQuestionDraft) {
       if (get(key).mutation?.requestId !== requestId) return false;
       put(key, value); return true;
+    },
+    hasUnsent() {
+      for (const draft of values.values()) {
+        if (draft.text.length > 0 || (draft.picked?.length ?? 0) > 0 || draft.mutation !== undefined) return true;
+      }
+      return false;
+    },
+    unsentTexts(): string[] {
+      const texts: string[] = [];
+      for (const draft of values.values()) {
+        if (draft.mutation && draft.submitted !== undefined) {
+          if (draft.submitted) texts.push(draft.submitted);
+          continue;
+        }
+        const picked = draft.picked?.length ? draft.picked.join('\n') : '';
+        if (picked && draft.text) texts.push(`${picked}\n\n${draft.text}`);
+        else if (picked) texts.push(picked);
+        else if (draft.text) texts.push(draft.text);
+      }
+      return texts;
+    },
+    clear() {
+      const keys = [...values.keys()];
+      values.clear();
+      for (const key of keys) listeners.get(key)?.forEach(listener => listener());
     },
   };
 };

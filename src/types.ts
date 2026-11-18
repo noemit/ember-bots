@@ -502,6 +502,7 @@ export type QuestionRequest = {
   contextSequence?: number;
   sourceTitle?: string;
   decision?: string;
+  multiple?: boolean;
   freeText?: boolean;
   createdAt?: number;
   updatedAt?: number;

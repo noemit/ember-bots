@@ -13,9 +13,14 @@ test('phone layout keeps chat, composer trays and keyboard focus inside the view
   const questionPanel = leader.getByRole('tabpanel', { name: /Questions/ });
   await expect(questionPanel).toBeVisible();
   await expect(questionPanel).toContainText('Keep the migration backup?');
-  await questionPanel.locator('textarea').first().tap();
-  await expect(questionPanel.locator('textarea').first()).toBeFocused();
-  await expect(composer).toHaveValue('A draft remains available');
+  await expect(questionPanel.locator('textarea')).toHaveCount(0);
+  const answerComposer = leader.locator('[data-question-answer-composer]');
+  await expect(answerComposer).toBeVisible();
+  const noteInput = answerComposer.getByRole('textbox', { name: 'Add a note' });
+  await noteInput.tap();
+  await expect(noteInput).toBeFocused();
+  await answerComposer.getByRole('button', { name: /Back to chat/ }).tap();
+  await expect(leader.getByRole('textbox', { name: 'Message your bot' })).toHaveValue('A draft remains available');
 
   const scroll = leader.locator('[data-transcript-scroll]');
   await expect(scroll).toBeVisible();

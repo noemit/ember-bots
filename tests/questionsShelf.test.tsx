@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import QuestionsShelf, { QuestionComposer, submitQuestionAnswer } from '../src/components/QuestionsShelf';
+import QuestionsShelf, { submitQuestionAnswer } from '../src/components/QuestionsShelf';
+import QuestionAnswerComposer, {
+  submitQuestionMutation,
+} from '../src/components/QuestionAnswerComposer';
+import { TooltipProvider } from '../src/components/ui/tooltip';
 import { questionDrafts, unlockQuestionDraft } from '../src/lib/asyncQuestionDrafts';
 import { piQuestionToQuestionRequest } from '../src/lib/piMapping';
 import { questionKey } from '../src/lib/threadQuestions';
@@ -55,6 +59,30 @@ const renderShelf = (requests: QuestionRequest[], hostLabel = 'Tower') => {
   );
 };
 
+const renderAnswerComposer = (
+  request: QuestionRequest,
+  overrides: Partial<React.ComponentProps<typeof QuestionAnswerComposer>> = {}
+) => {
+  ensureRenderableGlobals();
+  return renderToStaticMarkup(
+    <TooltipProvider>
+      <QuestionAnswerComposer
+        request={request}
+        followups={[]}
+        sessionId="16"
+        hostLabel="Tower"
+        pendingCount={1}
+        pendingIndex={0}
+        onPrevious={() => {}}
+        onNext={() => {}}
+        onBackToChat={() => {}}
+        onAnswer={async () => false}
+        {...overrides}
+      />
+    </TooltipProvider>
+  );
+};
+
 const hasDisabledAttr = (attrs: string) => /\sdisabled(?:=|\s|$)/.test(attrs);
 
 const buttonsIn = (html: string) =>
@@ -69,41 +97,73 @@ const textareaDisabled = (html: string) => {
   return match ? hasDisabledAttr(match[1]) : null;
 };
 
-describe('QuestionsShelf failed-mutation lockout recovery', () => {
-  test('same-revision failed answer renders Retry and Edit draft, and unlocking re-enables options, textarea, Send, and Withdraw', () => {
+describe('QuestionsShelf compact context and failed-mutation recovery', () => {
+  test('QuestionsShelf renders zero textareas, keeps Answer + Withdraw spaced, and collapses long context behind More context', () => {
+    const longContextQuestion = pendingQuestion({
+      context: 'Line one of migration context.\n' + 'Additional detailed context. '.repeat(8),
+      recommendation: 'Keep until verification completes.',
+    });
+    const html = renderShelf([longContextQuestion]);
+    expect(html).not.toContain('<textarea');
+    expect(html).toContain('More context');
+    expect(html).not.toContain('Keep until verification completes.');
+    const buttons = buttonsIn(html);
+    expect(buttons.find((b) => b.label === 'Answer')).toBeDefined();
+    expect(buttons.find((b) => b.label === 'Withdraw question')).toBeDefined();
+  });
+
+  test('same-revision failed answer renders Retry and Edit draft, and unlocking re-enables options, textarea, Send answer, and Withdraw', () => {
     const request = pendingQuestion({ revision: 3 });
     putDraft(request, {
       text: 'Kepe',
+      picked: ['Keep'],
+      submitted: 'Keep\n\nKepe',
       mutation: { requestId: 'ans-net-fail', revision: 3, action: 'answer' },
       failed: true,
     });
 
-    const lockedHtml = renderShelf([request]);
-    expect(lockedHtml).toContain('role="alert"');
-    expect(lockedHtml).toContain('Tower did not confirm this change. Your text is kept here.');
-    expect(textareaDisabled(lockedHtml)).toBe(true);
+    const lockedShelf = renderShelf([request]);
+    expect(lockedShelf).toContain('role="alert"');
+    expect(lockedShelf).toContain('Tower did not confirm this change. Your text is kept here.');
+    const lockedShelfButtons = buttonsIn(lockedShelf);
+    expect(lockedShelfButtons.find((b) => b.label === 'Withdraw question')).toBeUndefined();
+    expect(lockedShelfButtons.find((b) => b.label === 'Retry')?.disabled).toBe(false);
+    expect(lockedShelfButtons.find((b) => b.label === 'Edit draft')?.disabled).toBe(false);
 
-    const lockedButtons = buttonsIn(lockedHtml);
+    const lockedComposer = renderAnswerComposer(request);
+    expect(lockedComposer).toContain('role="alert"');
+    expect(textareaDisabled(lockedComposer)).toBe(true);
+    const lockedButtons = buttonsIn(lockedComposer);
     expect(lockedButtons.find((b) => b.label === 'Keep')?.disabled).toBe(true);
     expect(lockedButtons.find((b) => b.label === 'Remove')?.disabled).toBe(true);
-    expect(lockedButtons.find((b) => b.label === 'Send')?.disabled).toBe(true);
-    expect(lockedButtons.find((b) => b.label === 'Withdraw question')).toBeUndefined();
+    expect(lockedButtons.find((b) => b.attrs.includes('aria-label="Send answer"'))?.disabled).toBe(true);
     expect(lockedButtons.find((b) => b.label === 'Retry')?.disabled).toBe(false);
     expect(lockedButtons.find((b) => b.label === 'Edit draft')?.disabled).toBe(false);
+    expect(lockedButtons.find((b) => b.label === 'Copy answer')?.disabled).toBe(false);
 
-    // Clicking Edit draft clears mutation/failed while preserving text on the pending question.
-    putDraft(request, unlockQuestionDraft(questionDrafts.get(questionKey(request)), { pending: true }));
+    // Clicking Edit draft clears mutation/failed while preserving picked choices and note text.
+    putDraft(
+      request,
+      unlockQuestionDraft(questionDrafts.get(questionKey(request)), {
+        pending: true,
+        optionOrder: ['Keep', 'Remove'],
+      })
+    );
 
-    const unlockedHtml = renderShelf([request]);
-    expect(unlockedHtml).not.toContain('role="alert"');
-    expect(unlockedHtml).toContain('>Kepe</textarea>');
-    expect(textareaDisabled(unlockedHtml)).toBe(false);
+    const unlockedComposer = renderAnswerComposer(request);
+    expect(unlockedComposer).not.toContain('role="alert"');
+    expect(unlockedComposer).toContain('>Kepe</textarea>');
+    expect(textareaDisabled(unlockedComposer)).toBe(false);
 
-    const unlockedButtons = buttonsIn(unlockedHtml);
-    expect(unlockedButtons.find((b) => b.label === 'Keep')?.disabled).toBe(false);
+    const unlockedButtons = buttonsIn(unlockedComposer);
+    const keepButton = unlockedButtons.find((b) => b.label === 'Keep');
+    expect(keepButton?.disabled).toBe(false);
+    expect(keepButton?.attrs).toContain('aria-pressed="true"');
     expect(unlockedButtons.find((b) => b.label === 'Remove')?.disabled).toBe(false);
-    expect(unlockedButtons.find((b) => b.label === 'Send')?.disabled).toBe(false);
-    expect(unlockedButtons.find((b) => b.label === 'Withdraw question')?.disabled).toBe(false);
+    expect(unlockedButtons.find((b) => b.attrs.includes('aria-label="Send answer"'))?.disabled).toBe(false);
+
+    const unlockedShelfButtons = buttonsIn(renderShelf([request]));
+    expect(unlockedShelfButtons.find((b) => b.label === 'Withdraw question')?.disabled).toBe(false);
   });
 
   test('same-revision failed context renders Retry and Edit draft, and unlocking keeps the context composer open and editable', () => {
@@ -121,12 +181,12 @@ describe('QuestionsShelf failed-mutation lockout recovery', () => {
       failed: true,
     });
 
-    const lockedHtml = renderShelf([request]);
+    const lockedHtml = renderAnswerComposer(request);
     expect(lockedHtml).toContain('role="alert"');
     expect(textareaDisabled(lockedHtml)).toBe(true);
 
     const lockedButtons = buttonsIn(lockedHtml);
-    expect(lockedButtons.find((b) => b.label === 'Send')?.disabled).toBe(true);
+    expect(lockedButtons.find((b) => b.attrs.includes('aria-label="Send answer"'))?.disabled).toBe(true);
     expect(lockedButtons.find((b) => b.label === 'Retry')?.disabled).toBe(false);
     expect(lockedButtons.find((b) => b.label === 'Edit draft')?.disabled).toBe(false);
     expect(lockedButtons.find((b) => b.label === 'Keep this draft as more context')).toBeUndefined();
@@ -137,11 +197,11 @@ describe('QuestionsShelf failed-mutation lockout recovery', () => {
       unlockQuestionDraft(questionDrafts.get(questionKey(request)), { pending: false, sentAnswer: 'Keep' })
     );
 
-    const unlockedHtml = renderShelf([request]);
+    const unlockedHtml = renderAnswerComposer(request);
     expect(unlockedHtml).not.toContain('role="alert"');
     expect(unlockedHtml).toContain('>Keep until verification finishes.</textarea>');
     expect(textareaDisabled(unlockedHtml)).toBe(false);
-    expect(buttonsIn(unlockedHtml).find((b) => b.label === 'Send')?.disabled).toBe(false);
+    expect(buttonsIn(unlockedHtml).find((b) => b.attrs.includes('aria-label="Send answer"'))?.disabled).toBe(false);
   });
 
   test('same-revision failed withdraw renders withdrawal-specific copy with Retry and Cancel, and Cancel unlocks answering', () => {
@@ -156,23 +216,24 @@ describe('QuestionsShelf failed-mutation lockout recovery', () => {
     expect(lockedHtml).toContain('role="alert"');
     expect(lockedHtml).toContain('Tower did not confirm withdrawing this question');
     expect(lockedHtml).not.toContain('Your text is kept here');
-    expect(textareaDisabled(lockedHtml)).toBe(true);
 
     const lockedButtons = buttonsIn(lockedHtml);
-    expect(lockedButtons.find((b) => b.label === 'Keep')?.disabled).toBe(true);
     expect(lockedButtons.find((b) => b.label === 'Retry')?.disabled).toBe(false);
     expect(lockedButtons.find((b) => b.label === 'Cancel')?.disabled).toBe(false);
     expect(lockedButtons.find((b) => b.label === 'Edit draft')).toBeUndefined();
 
+    const lockedComposer = renderAnswerComposer(request);
+    expect(textareaDisabled(lockedComposer)).toBe(true);
+    expect(buttonsIn(lockedComposer).find((b) => b.label === 'Keep')?.disabled).toBe(true);
+
     // Clicking Cancel clears the failed withdraw mutation so the human can answer or edit again.
     putDraft(request, unlockQuestionDraft(questionDrafts.get(questionKey(request)), { pending: true }));
 
-    const unlockedHtml = renderShelf([request]);
-    expect(unlockedHtml).not.toContain('role="alert"');
-    expect(textareaDisabled(unlockedHtml)).toBe(false);
-    const unlockedButtons = buttonsIn(unlockedHtml);
-    expect(unlockedButtons.find((b) => b.label === 'Keep')?.disabled).toBe(false);
-    expect(unlockedButtons.find((b) => b.label === 'Withdraw question')?.disabled).toBe(false);
+    const unlockedComposer = renderAnswerComposer(request);
+    expect(unlockedComposer).not.toContain('role="alert"');
+    expect(textareaDisabled(unlockedComposer)).toBe(false);
+    expect(buttonsIn(unlockedComposer).find((b) => b.label === 'Keep')?.disabled).toBe(false);
+    expect(buttonsIn(renderShelf([request])).find((b) => b.label === 'Withdraw question')?.disabled).toBe(false);
   });
 
   test('preserves 409 answerConflict Keep this draft as more context and revision-mismatch Edit this draft', () => {
@@ -183,24 +244,29 @@ describe('QuestionsShelf failed-mutation lockout recovery', () => {
       receipt: { requestId: 'other-answer', revision: 3, answer: 'Keep', at: 10 },
     });
     putDraft(conflictRequest, {
-      text: 'Remove',
+      text: '',
+      picked: ['Remove'],
+      submitted: 'Remove',
       mutation: { requestId: 'my-answer', revision: 3, action: 'answer' },
       failed: true,
     });
 
-    const conflictHtml = renderShelf([conflictRequest]);
+    const conflictHtml = renderAnswerComposer(conflictRequest);
     const conflictButtons = buttonsIn(conflictHtml);
     expect(conflictHtml).toContain('Tower already has an answer to this question.');
     expect(conflictButtons.find((b) => b.label === 'Retry')).toBeUndefined();
     expect(conflictButtons.find((b) => b.label === 'Keep this draft as more context')?.disabled).toBe(false);
+    expect(conflictButtons.find((b) => b.label === 'Copy answer')?.disabled).toBe(false);
 
     const revisedRequest = pendingQuestion({ revision: 5, status: 'pending' });
     putDraft(revisedRequest, {
-      text: 'Keep',
+      text: '',
+      picked: ['Keep'],
+      submitted: 'Keep',
       mutation: { requestId: 'my-answer', revision: 3, action: 'answer' },
       failed: true,
     });
-    const revisedHtml = renderShelf([revisedRequest]);
+    const revisedHtml = renderAnswerComposer(revisedRequest);
     const revisedButtons = buttonsIn(revisedHtml);
     expect(revisedButtons.find((b) => b.label === 'Retry')?.disabled).toBe(false);
     expect(revisedButtons.find((b) => b.label === 'Edit this draft')?.disabled).toBe(false);
@@ -251,26 +317,10 @@ afterEach(() => {
   questionDrafts.put(questionKey(answeredRequest));
 });
 
-const findTextarea = (node: unknown): React.ReactElement<React.ComponentProps<'textarea'>> | null => {
-  if (!node || typeof node !== 'object') return null;
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      const found = findTextarea(child);
-      if (found) return found;
-    }
-    return null;
-  }
-  const element = node as { type?: unknown; props?: { children?: unknown } };
-  if (element.type === 'textarea') {
-    return element as unknown as React.ReactElement<React.ComponentProps<'textarea'>>;
-  }
-  return findTextarea(element.props?.children);
-};
-
-describe('QuestionsShelf button spacing, keyboard submit, and failed-send history guard', () => {
-  test('wraps Send and Withdraw question in a flex gap container without standalone mt-2 on child buttons', () => {
+describe('QuestionsShelf action layout, history fold, and submit helper', () => {
+  test('wraps Answer and Withdraw question in a flex gap container without standalone mt-2 on child buttons', () => {
     ensureRenderableGlobals();
-    questionDrafts.put(questionKey(pendingRequest), { text: 'Keep' });
+    questionDrafts.put(questionKey(pendingRequest), { text: '', picked: ['Keep'] });
 
     const html = renderToStaticMarkup(
       <QuestionsShelf
@@ -285,7 +335,7 @@ describe('QuestionsShelf button spacing, keyboard submit, and failed-send histor
     );
     expect(containerMatch).not.toBeNull();
     const containerInner = containerMatch![1];
-    expect(containerInner).toContain('>Send</button>');
+    expect(containerInner).toContain('>Answer</button>');
     expect(containerInner).toContain('>Withdraw question</button>');
     for (const buttonTag of [...containerInner.matchAll(/<button\b[^>]*>/g)].map((m) => m[0])) {
       expect(buttonTag).not.toContain('mt-2');
@@ -296,104 +346,6 @@ describe('QuestionsShelf button spacing, keyboard submit, and failed-send histor
     expect(html).not.toMatch(/<details[^>]*\bopen\b[^>]*>\s*<summary[^>]*>Answered and closed/);
   });
 
-  test('keeps the action wrapper when appending follow-up context on an answered question', () => {
-    ensureRenderableGlobals();
-    questionDrafts.put(questionKey(answeredRequest), {
-      text: 'Extra context after review',
-      accepted: 'Yes, dry run first.',
-      adding: true,
-    });
-
-    const html = renderToStaticMarkup(
-      <QuestionsShelf
-        requests={[answeredRequest]}
-        sessionId="16"
-        onAnswer={async () => true}
-      />
-    );
-
-    const containerMatch = html.match(
-      /<div class="mt-2 flex flex-wrap items-center gap-2">([\s\S]*?)<\/div>/
-    );
-    expect(containerMatch).not.toBeNull();
-    expect(containerMatch![1]).toContain('>Send</button>');
-    expect(containerMatch![1]).not.toContain('Withdraw question');
-  });
-
-  test('Mod+Enter (Ctrl+Enter / Cmd+Enter) on textarea submits answer when pending and context when adding', () => {
-    const submitted: Array<'answer' | 'context'> = [];
-
-    const renderComposer = (overrides: Partial<React.ComponentProps<typeof QuestionComposer>> = {}) => {
-      const tree = QuestionComposer({
-        id: 'q1',
-        question: 'Keep the migration backup?',
-        options: [{ label: 'Keep' }],
-        text: 'Keep until verified',
-        pending: true,
-        busy: false,
-        disabled: false,
-        hasMutation: false,
-        onSelectOption: () => {},
-        onTextChange: () => {},
-        onSubmit: (action) => submitted.push(action),
-        onWithdraw: () => {},
-        ...overrides,
-      });
-      const textarea = findTextarea(tree);
-      expect(textarea).not.toBeNull();
-      return textarea!;
-    };
-
-    // Ctrl+Enter while pending -> submits 'answer' and prevents default.
-    let prevented = false;
-    renderComposer({ pending: true }).props.onKeyDown!({
-      key: 'Enter',
-      ctrlKey: true,
-      metaKey: false,
-      preventDefault: () => { prevented = true; },
-    } as unknown as React.KeyboardEvent<HTMLTextAreaElement>);
-    expect(prevented).toBe(true);
-    expect(submitted).toEqual(['answer']);
-
-    // Cmd+Enter while adding context (pending: false) -> submits 'context' and prevents default.
-    prevented = false;
-    renderComposer({ pending: false }).props.onKeyDown!({
-      key: 'Enter',
-      ctrlKey: false,
-      metaKey: true,
-      preventDefault: () => { prevented = true; },
-    } as unknown as React.KeyboardEvent<HTMLTextAreaElement>);
-    expect(prevented).toBe(true);
-    expect(submitted).toEqual(['answer', 'context']);
-
-    // Plain Enter inserts a newline rather than submitting.
-    prevented = false;
-    renderComposer({ pending: true }).props.onKeyDown!({
-      key: 'Enter',
-      ctrlKey: false,
-      metaKey: false,
-      preventDefault: () => { prevented = true; },
-    } as unknown as React.KeyboardEvent<HTMLTextAreaElement>);
-    expect(prevented).toBe(false);
-    expect(submitted).toHaveLength(2);
-
-    // Whitespace-only draft or disabled textarea never submits on Mod+Enter.
-    for (const ignored of [
-      { text: '   ', disabled: false },
-      { text: 'Keep', disabled: true },
-    ]) {
-      prevented = false;
-      renderComposer(ignored).props.onKeyDown!({
-        key: 'Enter',
-        ctrlKey: true,
-        metaKey: false,
-        preventDefault: () => { prevented = true; },
-      } as unknown as React.KeyboardEvent<HTMLTextAreaElement>);
-      expect(prevented).toBe(false);
-      expect(submitted).toHaveLength(2);
-    }
-  });
-
   test('only opens Answered and closed history when onAnswer resolves true', async () => {
     let historyOpened = 0;
 
@@ -401,17 +353,23 @@ describe('QuestionsShelf button spacing, keyboard submit, and failed-send histor
       async () => false,
       pendingRequest,
       [['Keep']],
-      () => { historyOpened += 1; }
+      () => {
+        historyOpened += 1;
+      }
     );
     expect(failedResult).toBe(false);
     expect(historyOpened).toBe(0);
 
     await expect(
-      submitQuestionAnswer(
-        async () => { throw new Error('network down'); },
+      submitQuestionMutation(
+        async () => {
+          throw new Error('network down');
+        },
         pendingRequest,
         [['Keep']],
-        () => { historyOpened += 1; }
+        () => {
+          historyOpened += 1;
+        }
       )
     ).rejects.toThrow('network down');
     expect(historyOpened).toBe(0);
@@ -420,7 +378,9 @@ describe('QuestionsShelf button spacing, keyboard submit, and failed-send histor
       async () => true,
       pendingRequest,
       [['Keep']],
-      () => { historyOpened += 1; }
+      () => {
+        historyOpened += 1;
+      }
     );
     expect(okResult).toBe(true);
     expect(historyOpened).toBe(1);
