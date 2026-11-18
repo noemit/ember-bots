@@ -1,5 +1,8 @@
-import type { PiEndpoint } from '../types';
+import type { Instance, PiEndpoint } from '../types';
 import { portableConnection } from './instanceAlignment';
+
+export const SINGLE_KILN_SHARING_GUIDANCE =
+  'Add another Kiln in Settings → Computers and Containers, then return here to share provider credentials between them.';
 
 /** Metadata only: never add credential material to these review types. */
 export type ConfigIdentity = { id: string; name: string; baseUrl: string; modelIds: string[] };
@@ -94,4 +97,78 @@ export function sharingHostMessage(host: SharingHost): string {
   if (host.state === 'unsupported') return `${host.endpoint.label} does not support reviewed provider sharing yet. Update Kiln there, then compare again.`;
   if (host.state === 'unavailable') return `${host.endpoint.label} did not answer. Check its connection in Computers and Containers, then compare again.`;
   return `${host.endpoint.label} answered. Provider metadata is ready to review.`;
+}
+
+export function sharingCandidates(endpoints: readonly PiEndpoint[], instances: readonly Instance[]): PiEndpoint[] {
+  return [
+    ...endpoints,
+    ...instances
+      .filter(instance => instance.kind === 'pi' && !endpoints.some(endpoint => endpoint.id === instance.id))
+      .map(instance => ({ id: instance.id, label: instance.label, url: instance.url ?? '', token: '' })),
+  ];
+}
+
+export function sharingSetupGuidance(candidates: readonly PiEndpoint[]): string | null {
+  return candidates.length < 2 ? SINGLE_KILN_SHARING_GUIDANCE : null;
+}
+
+export type ShareResultRow = { id: string; ok: boolean; keys?: number };
+export type ShareResponse = { ok: boolean; status?: number; data?: { results?: ShareResultRow[] } };
+export type ShareWizardState = {
+  hosts: SharingHost[] | null;
+  step: number;
+  source: string;
+  destination: string;
+  selected: Set<string>;
+  experimental: boolean;
+  notice: string;
+};
+
+export async function runProviderShare(options: {
+  state: ShareWizardState;
+  targets: ShareTarget[];
+  send: (source: string, targets: ShareTarget[]) => Promise<ShareResponse>;
+  onProviderChange?: (id: string) => void;
+}): Promise<{ state: ShareWizardState; succeeded: boolean }> {
+  const { state, targets, send, onProviderChange } = options;
+  const sourceLabel = state.hosts?.find(host => host.endpoint.id === state.source)?.endpoint.label ?? 'The source Kiln';
+  try {
+    const response = await send(state.source, targets);
+    if (!response.ok || !Array.isArray(response.data?.results)) {
+      const notice = `${sourceLabel} could not finish sharing. Check its connection, then try again.`;
+      return { state: { ...state, notice }, succeeded: false };
+    }
+    const results = response.data.results;
+    let allSucceeded = true;
+    const summaries = targets.map(target => {
+      const result = results.find(row => row.id === target.id);
+      if (result?.ok && typeof result.keys === 'number' && Number.isFinite(result.keys)) {
+        onProviderChange?.(target.id);
+        const added = Math.max(0, result.keys);
+        return `${target.label}: ${added} ${added === 1 ? 'credential' : 'credentials'} added.`;
+      }
+      allSucceeded = false;
+      return `${target.label} could not finish. Check its connection and update Kiln if needed, then try again.`;
+    });
+    if (allSucceeded) {
+      const notice = `${summaries.join(' ')} Existing credentials and model defaults were kept. Compare again to see the current availability.`;
+      return {
+        state: {
+          hosts: null,
+          step: 0,
+          source: '',
+          destination: '',
+          selected: new Set(),
+          experimental: false,
+          notice,
+        },
+        succeeded: true,
+      };
+    }
+    const notice = `${summaries.join(' ')} Existing credentials and model defaults were kept.`;
+    return { state: { ...state, notice }, succeeded: false };
+  } catch {
+    const notice = `${sourceLabel} did not answer. Check its connection, then try again.`;
+    return { state: { ...state, notice }, succeeded: false };
+  }
 }

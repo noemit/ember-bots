@@ -1,14 +1,36 @@
 import * as React from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
-import { parseSharingProviders, selectedTargets, selectionKey, sharingBlock, sharingHostMessage, experimentalSignIn, destinationProviders, sameDefinition, type SharingHost, type ConfigIdentity } from '../lib/providerSharing';
+import {
+  parseSharingProviders,
+  selectedTargets,
+  selectionKey,
+  sharingBlock,
+  sharingCandidates,
+  sharingHostMessage,
+  sharingSetupGuidance,
+  experimentalSignIn,
+  destinationProviders,
+  runProviderShare,
+  sameDefinition,
+  type SharingHost,
+  type ConfigIdentity,
+  type ShareWizardState,
+} from '../lib/providerSharing';
 import type { Instance, PiEndpoint } from '../types';
 
 export type ProviderSharingProps = {
   endpoints: PiEndpoint[];
   instances: Instance[];
   onProviderChange?: (id: string) => void;
+  defaultOpen?: boolean;
+  initialWizard?: Partial<ShareWizardState>;
 };
+
+const selectControlClass =
+  'min-w-0 max-w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
+const checkboxControlClass =
+  'mt-0.5 size-3.5 shrink-0 rounded border border-input bg-background accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
 function ConfigReview({ config, label }: { config: ConfigIdentity; label: string }) {
   return <div className="mt-2 break-words text-muted-foreground"><p className="font-medium">{label}</p><dl aria-label={label}>
@@ -20,32 +42,36 @@ function ConfigReview({ config, label }: { config: ConfigIdentity; label: string
 }
 
 /** Shared review surface. Provider credentials travel host-to-host, never through this component. */
-export default function ProviderSharing({ endpoints, instances, onProviderChange }: ProviderSharingProps) {
-  const [open, setOpen] = React.useState(false);
+export default function ProviderSharing({ endpoints, instances, onProviderChange, defaultOpen = false, initialWizard }: ProviderSharingProps) {
+  const [open, setOpen] = React.useState(defaultOpen);
   const [busy, setBusy] = React.useState(false);
-  const [hosts, setHosts] = React.useState<SharingHost[] | null>(null);
-  const [step, setStep] = React.useState(0);
-  const [destination, setDestination] = React.useState('');
+  const [hosts, setHosts] = React.useState<SharingHost[] | null>(initialWizard?.hosts ?? null);
+  const [step, setStep] = React.useState(initialWizard?.step ?? 0);
+  const [destination, setDestination] = React.useState(initialWizard?.destination ?? '');
   const stepHeading = React.useRef<HTMLHeadingElement>(null);
   React.useEffect(() => { stepHeading.current?.focus(); }, [step]);
-  const [source, setSource] = React.useState('');
-  const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const [experimental, setExperimental] = React.useState(false);
-  const [notice, setNotice] = React.useState('');
-  const reviewed = React.useRef('');
+  const [source, setSource] = React.useState(initialWizard?.source ?? '');
+  const [selected, setSelected] = React.useState<Set<string>>(() => new Set(initialWizard?.selected));
+  const [experimental, setExperimental] = React.useState(initialWizard?.experimental ?? false);
+  const [notice, setNotice] = React.useState(initialWizard?.notice ?? '');
+  const reviewed = React.useRef(initialWizard?.hosts ? JSON.stringify(endpoints) : '');
   const latest = React.useRef(endpoints);
   latest.current = endpoints;
   const desktop = endpoints.every(endpoint => endpoint.hasToken === undefined);
-  const candidates = [...endpoints, ...instances.filter(instance => instance.kind === 'pi' && !endpoints.some(endpoint => endpoint.id === instance.id)).map(instance => ({ id: instance.id, label: instance.label, url: instance.url ?? '', token: '' }))];
+  const candidates = sharingCandidates(endpoints, instances);
+  const canCompare = candidates.length >= 2;
+  const guidance = sharingSetupGuidance(candidates);
+  const hasBridge = typeof window !== 'undefined' && Boolean(window.ember?.piRequest);
   const inspect = async () => {
-    if (!desktop || !window.ember.piRequest) return;
+    if (!desktop || !canCompare || typeof window === 'undefined' || !window.ember?.piRequest) return;
+    const piRequest = window.ember.piRequest;
     setBusy(true); setNotice(''); setHosts(null); setSelected(new Set()); setSource(''); setExperimental(false); setDestination(''); setStep(0);
     const config = JSON.stringify(endpoints);
     reviewed.current = config;
     try {
       const rows = await Promise.all(candidates.map(async (endpoint: PiEndpoint): Promise<SharingHost> => {
         try {
-          const response = await window.ember.piRequest!<unknown>(endpoint.id, '/alignment');
+          const response = await piRequest<unknown>(endpoint.id, '/alignment');
           if (!response.ok) return { endpoint, state: [404, 405, 501].includes(response.status) ? 'unsupported' : 'unavailable', providers: [] };
           const providers = parseSharingProviders(response.data);
           return { endpoint, state: providers ? 'ready' : 'unsupported', providers: providers ?? [] };
@@ -56,33 +82,33 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
     } finally { setBusy(false); }
   };
   const share = async () => {
-    if (!desktop || !hosts || !window.ember.piRequest) return;
+    if (!desktop || !hosts || typeof window === 'undefined' || !window.ember?.piRequest) return;
+    const piRequest = window.ember.piRequest;
     if (reviewed.current !== JSON.stringify(latest.current)) {
-      setHosts(null); setSelected(new Set()); setNotice('Your Kiln connections changed. Compare again before sharing providers.'); return;
+      setHosts(null); setSelected(new Set()); setExperimental(false); setSource(''); setDestination(''); setStep(0);
+      setNotice('Your Kiln connections changed. Compare again before sharing providers.'); return;
     }
     const targets = selectedTargets(hosts, source, selected, experimental).filter(target => target.id === destination);
     if (step !== 3) return;
     if (!targets.length) return;
     setBusy(true); setNotice('');
-    const sourceLabel = hosts.find(host => host.endpoint.id === source)?.endpoint.label ?? 'The source Kiln';
     try {
-      const response = await window.ember.piRequest<{ results: Array<{ id: string; ok: boolean; keys?: number }> }>(source, '/alignment/share', { method: 'POST', body: { targets } });
-      if (!response.ok || !Array.isArray(response.data?.results)) {
-        setNotice(`${sourceLabel} could not finish sharing. Check its connection, then compare again before retrying.`); return;
-      }
-      const results = response.data.results;
-      const summaries = targets.map(target => {
-        const result = results.find(row => row.id === target.id);
-        if (result?.ok && typeof result.keys === 'number' && Number.isFinite(result.keys)) {
-          onProviderChange?.(target.id);
-          const added = Math.max(0, result.keys);
-          return `${target.label}: ${added} ${added === 1 ? 'credential' : 'credentials'} added.`;
-        }
-        return `${target.label} could not finish. Check its connection and update Kiln if needed, then compare again.`;
+      const outcome = await runProviderShare({
+        state: { hosts, step, source, destination, selected, experimental, notice: '' },
+        targets,
+        send: (sourceId, shareTargets) => piRequest<{ results: Array<{ id: string; ok: boolean; keys?: number }> }>(sourceId, '/alignment/share', { method: 'POST', body: { targets: shareTargets } }),
+        onProviderChange,
       });
-      setNotice(`${summaries.join(' ')} Existing credentials and model defaults were kept. Compare again to see the current availability.`);
-    } catch { setNotice(`${sourceLabel} did not answer. Check its connection, then compare again before retrying.`); }
-    finally { setBusy(false); setSelected(new Set()); setHosts(null); }
+      if (outcome.succeeded) {
+        setHosts(null);
+        setSelected(new Set());
+        setExperimental(false);
+        setSource('');
+        setDestination('');
+        setStep(0);
+      }
+      setNotice(outcome.state.notice);
+    } finally { setBusy(false); }
   };
   const sourceHost = hosts?.find(host => host.endpoint.id === source);
   const sourceProviders = sourceHost?.providers.filter(provider => provider.hasCredential) ?? [];
@@ -99,9 +125,9 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
     {open ? <div className="mt-3 flex flex-col gap-3 text-xs">
       {!desktop ? <p>Provider sharing is available in the Ember desktop app. Open Settings → Providers there to review your Kilns.</p> : <>
         <p className="text-muted-foreground">Existing credentials and model defaults stay unchanged. Credentials travel directly between Kilns; Ember reads metadata only.</p>
-        <Button size="xs" variant="outline" disabled={busy || !candidates.length || !window.ember.piRequest} onClick={() => void inspect()}>{busy ? <Loader2 className="animate-spin" /> : null}Compare providers</Button>
-        {!candidates.length ? <p>Add a Kiln in Settings → Computers and Containers, then return here to compare providers.</p> : null}
-        {hosts ? <>
+        <Button size="xs" variant="outline" disabled={busy || !canCompare || !hasBridge} onClick={() => void inspect()}>{busy ? <Loader2 className="animate-spin" /> : null}Compare providers</Button>
+        {guidance ? <p>{guidance}</p> : null}
+        {canCompare && hosts ? <>
           <nav aria-label="Sharing steps" className="flex flex-wrap gap-2">{['Source', 'Destination', 'Providers', 'Review'].map((label, index) => <Button key={label} size="xs" variant={step === index ? 'secondary' : 'ghost'} disabled={busy || index > step} aria-current={step === index ? 'step' : undefined} onClick={() => setStep(index)}>{index + 1}. {label}</Button>)}</nav>
           <h4 ref={stepHeading} tabIndex={-1} className="font-medium">{['Choose the source Kiln', 'Choose the destination Kiln', 'Choose providers to share', 'Review before sharing'][step]}</h4>
           <details><summary className="cursor-pointer">Compare all provider metadata</summary>
@@ -120,12 +146,12 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
             {!hosts.some(host => host.providers.length) ? <p>No provider credentials were reported. Add a key or sign in on a Kiln, then compare again.</p> : null}
           </div>
           </details>
-          {step === 0 ? <><label className="flex flex-wrap items-center gap-2">Source Kiln<select aria-label="Provider sharing source" className="min-w-0 rounded border bg-background p-1" disabled={busy} value={source} onChange={event => { setSource(event.target.value); setSelected(new Set()); setExperimental(false); setDestination(''); }}>
+          {step === 0 ? <><label className="flex flex-wrap items-center gap-2">Source Kiln<select aria-label="Provider sharing source" className={selectControlClass} disabled={busy} value={source} onChange={event => { setSource(event.target.value); setSelected(new Set()); setExperimental(false); setDestination(''); }}>
             <option value="">Choose a source</option>{hosts.filter(host => host.state === 'ready').map(host => <option value={host.endpoint.id} key={host.endpoint.id}>{host.endpoint.label}</option>)}
           </select></label>
           {sourceHost ? <p className="break-all text-muted-foreground">{sourceHost.endpoint.label} · {sourceHost.endpoint.url}</p> : null}
           <Button size="xs" disabled={busy || !sourceHost} onClick={() => setStep(1)}>Continue to destination</Button></> : null}
-          {step === 1 ? <><label className="flex flex-wrap items-center gap-2">Destination Kiln<select aria-label="Provider sharing destination" className="min-w-0 max-w-full rounded border bg-background p-1" disabled={busy} value={destination} onChange={event => { setDestination(event.target.value); setSelected(new Set()); setExperimental(false); }}>
+          {step === 1 ? <><label className="flex flex-wrap items-center gap-2">Destination Kiln<select aria-label="Provider sharing destination" className={selectControlClass} disabled={busy} value={destination} onChange={event => { setDestination(event.target.value); setSelected(new Set()); setExperimental(false); }}>
             <option value="">Choose a destination</option>{hosts.filter(host => host.endpoint.id !== source).map(host => <option value={host.endpoint.id} key={host.endpoint.id}>{host.endpoint.label}</option>)}
           </select></label>
           {destinationHost ? <><p className="break-all text-muted-foreground">Kiln address: {destinationHost.endpoint.url}</p><p>{sharingHostMessage(destinationHost)}</p></> : null}
@@ -136,7 +162,7 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
               {sourceProviders.filter(provider => provider.configIdentity).map(provider => <ConfigReview key={provider.providerId} config={provider.configIdentity!} label={`Source configuration for ${provider.providerId}`} />)}
             </details> : null}
             {step === 2 && sourceProviders.some(experimentalSignIn) ? <div className="rounded border p-2">
-              <label className="flex items-start gap-2"><input type="checkbox" checked={experimental} disabled={busy} onChange={event => { setExperimental(event.target.checked); setSelected(new Set()); }} />Enable experimental Codex and Antigravity sign-in sharing</label>
+              <label className="flex items-start gap-2"><input type="checkbox" className={checkboxControlClass} checked={experimental} disabled={busy} onChange={event => { setExperimental(event.target.checked); setSelected(new Set()); }} />Enable experimental Codex and Antigravity sign-in sharing</label>
               <p className="mt-1 text-muted-foreground">Independent Kilns refresh sign-in tokens separately, which can sign out either Kiln or conflict with provider policies. Signing in on each Kiln separately is safer.</p>
             </div> : null}
             {!sourceProviders.length ? <p>{sourceHost.endpoint.label} has no provider credentials to share. Add a key or sign in there, then compare again.</p> : null}
@@ -148,7 +174,7 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
                 const blocked = sharingBlock(provider, host, experimental);
                 const destinationMatches = destinationProviders(provider, host);
                 const destinationReview = destinationMatches.length ? destinationMatches : host.providers.filter(row => row.configIdentity && (row.providerId === provider.providerId || row.configIdentity.name === provider.configIdentity?.name));
-                return <div key={key} className="py-1"><label className="flex items-start gap-2"><input type="checkbox" aria-label={`Share ${provider.providerId} to ${host.endpoint.label}`} disabled={Boolean(blocked)} checked={!blocked && selected.has(key)} onChange={event => setSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(key); else next.delete(key); return next; })} /><span>{provider.providerId} · {provider.source === 'environment' ? 'Environment key' : provider.type === 'oauth' ? 'Subscription sign-in' : 'API key'}</span></label>
+                return <div key={key} className="py-1"><label className="flex items-start gap-2"><input type="checkbox" className={checkboxControlClass} aria-label={`Share ${provider.providerId} to ${host.endpoint.label}`} disabled={Boolean(blocked)} checked={!blocked && selected.has(key)} onChange={event => setSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(key); else next.delete(key); return next; })} /><span>{provider.providerId} · {provider.source === 'environment' ? 'Environment key' : provider.type === 'oauth' ? 'Subscription sign-in' : 'API key'}</span></label>
                   <p className="ml-5 text-muted-foreground">{blocked ?? 'Missing — selected credentials will be added only if still missing.'}</p>
                   {provider.configIdentity ? <div className="ml-5">
                     <ConfigReview config={provider.configIdentity} label={`Source ${sourceHost.endpoint.label} configuration for ${provider.providerId}`} />
