@@ -12,6 +12,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AuthOperationOptions, Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
+import { tightenPermissions } from "./permissions";
 // The store interfaces are exported by `models.d.ts` only as a return/option type, so they are
 // read off `createModels` rather than imported from a module path the package does not export.
 type ModelsStore = NonNullable<Parameters<typeof import("@earendil-works/pi-ai").createModels>[0]>["modelsStore"] extends
@@ -104,9 +105,12 @@ export class FileCredentialStore implements CredentialStore {
   }
 
   private persist(): void {
-    mkdirSync(dirname(this.file), { recursive: true });
+    const directory = dirname(this.file);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    tightenPermissions(directory, 0o700);
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(Object.fromEntries(this.credentials), null, 2)}\n`, { mode: 0o600 });
+    tightenPermissions(tmp, 0o600);
     renameSync(tmp, this.file);
   }
 
@@ -240,9 +244,12 @@ export class FileModelsStore implements ModelsStore {
   }
 
   private persist(): void {
-    mkdirSync(dirname(this.file), { recursive: true });
+    const directory = dirname(this.file);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    tightenPermissions(directory, 0o700);
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(Object.fromEntries(this.entries), null, 2)}\n`, { mode: 0o600 });
+    tightenPermissions(tmp, 0o600);
     renameSync(tmp, this.file);
   }
 

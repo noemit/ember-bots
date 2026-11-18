@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tightenPermissions } from './permissions';
 
 /**
  * Where Ember keeps everything it owns: `~/.ember`.
@@ -22,6 +23,17 @@ export const emberDataDir = (
 ): string => {
   const override = env.EMBER_DATA_DIR && env.EMBER_DATA_DIR.trim();
   return override ? path.resolve(override) : path.join(homedir, '.ember');
+};
+
+/** Ensure Ember's data directory exists with `0o700` owner-only permissions. */
+export const ensureEmberDataDir = (
+  directory: string,
+  io: typeof import('node:fs') = fs
+): void => {
+  io.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (typeof io.chmodSync === 'function') {
+    tightenPermissions(directory, 0o700, io.chmodSync.bind(io));
+  }
 };
 
 /** The pre-1.4 location, read once so an existing install keeps its settings. */
@@ -74,7 +86,7 @@ export const migrateLegacyDataDir = (input: {
     }
   };
   try {
-    io.mkdirSync(input.to, { recursive: true });
+    ensureEmberDataDir(input.to, io);
   } catch {
     return [];
   }

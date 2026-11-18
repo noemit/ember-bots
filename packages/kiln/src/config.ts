@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import packageInfo from "../package.json";
+import { tightenPermissions } from "./permissions";
 import { generateToken, isUsableToken } from "./token";
 
 /**
@@ -85,33 +86,42 @@ export const ensureToken = (config: HearthConfig): string => {
     try {
       const existing = readFileSync(candidate, "utf8").trim();
       if (isUsableToken(existing)) {
+        tightenPermissions(config.home, 0o700);
         if (candidate !== config.tokenPath) {
           writeFileSync(config.tokenPath, `${existing}\n`, { mode: 0o600 });
+          tightenPermissions(config.tokenPath, 0o600);
         }
+        tightenPermissions(candidate, 0o600);
         return existing;
       }
     } catch {
       // not there yet — try next or generate below
     }
   }
-  mkdirSync(config.home, { recursive: true });
+  mkdirSync(config.home, { recursive: true, mode: 0o700 });
+  tightenPermissions(config.home, 0o700);
   // Four words, not 64 hex characters: this value is copied between machines by hand.
   const token = generateToken();
   writeFileSync(config.tokenPath, `${token}\n`, { mode: 0o600 });
+  tightenPermissions(config.tokenPath, 0o600);
   writeFileSync(emberTokenPath, `${token}\n`, { mode: 0o600 });
+  tightenPermissions(emberTokenPath, 0o600);
   return token;
 };
 
 /** Ensure the data home exists; returns whether this is a fresh start. */
 export const ensureHome = (config: HearthConfig): boolean => {
   const fresh = !existsSync(config.databasePath);
-  mkdirSync(config.home, { recursive: true });
+  mkdirSync(config.home, { recursive: true, mode: 0o700 });
+  tightenPermissions(config.home, 0o700);
+  const bindDefaultPath = join(config.home, "kiln-bind-default");
   try {
     // Never persist an explicit environment override as the implicit default.
-    writeFileSync(join(config.home, "kiln-bind-default"), `${defaultBind(config.home)}\n`, { flag: "wx", mode: 0o600 });
+    writeFileSync(bindDefaultPath, `${defaultBind(config.home)}\n`, { flag: "wx", mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
+  tightenPermissions(bindDefaultPath, 0o600);
   return fresh;
 };
 

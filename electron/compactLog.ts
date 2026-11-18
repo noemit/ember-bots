@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { tightenPermissions } from './permissions';
 
 /**
  * `ember-compact.log`: one line per manual compaction, next to `app-icon.log`.
@@ -17,7 +18,9 @@ export const appendCompactLog = (file: string, line: string): void => {
   const text = line.replace(/\s+/g, ' ').trim();
   if (!text) return;
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const directory = path.dirname(file);
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    tightenPermissions(directory, 0o700);
     let previous = '';
     try {
       previous = fs.readFileSync(file, 'utf8');
@@ -26,6 +29,7 @@ export const appendCompactLog = (file: string, line: string): void => {
     }
     const kept = previous.length > MAX_BYTES ? previous.slice(previous.length - MAX_BYTES) : previous;
     fs.writeFileSync(file, `${kept}${text}\n`, { mode: 0o600 });
+    tightenPermissions(file, 0o600);
   } catch {
     // A diagnostic that throws would be worse than the silence it is chasing.
   }

@@ -26,6 +26,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tightenPermissions } from './permissions';
 import { createServer } from 'node:net';
 import { generateToken } from './tokenWords';
 
@@ -114,8 +115,11 @@ export const isProcessAlive = (pid: number): boolean => {
 
 const writeLock = (home: string, pid: number, at: number): void => {
   try {
-    fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(lockPathFor(home), `${JSON.stringify({ pid, startedAt: at })}\n`, { mode: 0o600 });
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    tightenPermissions(home, 0o700);
+    const lockFile = lockPathFor(home);
+    fs.writeFileSync(lockFile, `${JSON.stringify({ pid, startedAt: at })}\n`, { mode: 0o600 });
+    tightenPermissions(lockFile, 0o600);
   } catch {
     // A missing lock is a smaller problem than refusing to start: it only weakens the "never two
     // of them" guard, which is still enforced by the port probe.
@@ -243,15 +247,11 @@ export const resolveHarnessBinary = (options: LocalHarnessOptions): string =>
  */
 export const writeHarnessToken = (home: string, token: string): void => {
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  tightenPermissions(home, 0o700);
   for (const name of ['hearth.token', 'ember.token']) {
     const file = path.join(home, name);
     fs.writeFileSync(file, token + '\n', { encoding: 'utf8', mode: 0o600 });
-    try {
-      // Windows has no POSIX mode bits, and an existing file keeps its old mode through a write.
-      fs.chmodSync(file, 0o600);
-    } catch {
-      // Not supported on this platform.
-    }
+    tightenPermissions(file, 0o600);
   }
 };
 
@@ -406,8 +406,10 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
   // 4. Start it, with the log on disk so a failure to boot is readable rather than invisible.
   const logPath = options.logFile ?? path.join(home, 'kiln.log');
   try {
-    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    tightenPermissions(home, 0o700);
     const log = fs.openSync(logPath, 'a', 0o600);
+    tightenPermissions(logPath, 0o600);
     let spawned: ChildProcess;
     try {
       fs.writeSync(log, `\n${new Date(now()).toISOString()} Ember starting the bundled harness\n`);

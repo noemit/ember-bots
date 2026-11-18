@@ -1,5 +1,6 @@
-import { mkdirSync, readdirSync, rmSync, statSync, utimesSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tightenPermissions } from "./permissions";
 import { TAG_ENV } from "./processes";
 
 /**
@@ -30,9 +31,13 @@ export const scratchDirFor = (home: string, conversationId: number): string => j
 
 /** Create (or make sure of) a conversation's scratch directory and mark it as just used. */
 export const ensureScratchDir = (home: string, conversationId: number, now = Date.now()): string | undefined => {
+  const root = scratchRoot(home);
   const dir = scratchDirFor(home, conversationId);
   try {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    tightenPermissions(root, 0o700);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    tightenPermissions(dir, 0o700);
     // The directory's own mtime only changes when an entry is added or removed, and a process that
     // appends to one file for a day would otherwise look abandoned. `pruneScratch` reads mtimes
     // anyway; touching it here keeps a session that is merely *running* out of the reaper's way.
@@ -43,6 +48,15 @@ export const ensureScratchDir = (home: string, conversationId: number, now = Dat
     // TMPDIR rather than failing, so a read-only `HEARTH_HOME` must not break every command.
     return undefined;
   }
+};
+
+/** Write a scratch file privately (`0o600`) inside a `0o700` scratch directory. */
+export const writeScratchFile = (filePath: string, content: string | NodeJS.ArrayBufferView): void => {
+  const directory = dirname(filePath);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  tightenPermissions(directory, 0o700);
+  writeFileSync(filePath, content, { mode: 0o600 });
+  tightenPermissions(filePath, 0o600);
 };
 
 /**
@@ -139,6 +153,7 @@ export const pruneScratch = (
   let entries: string[];
   try {
     entries = readdirSync(root);
+    tightenPermissions(root, 0o700);
   } catch {
     return { removed, bytes };
   }

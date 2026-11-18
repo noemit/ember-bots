@@ -1,8 +1,9 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createProvider, type createModels, type Api, type ApiKeyCredential, type CredentialStore, type Model } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { tightenPermissions } from "./permissions";
 
 export type CustomProvider = { id: string; name: string; baseUrl: string; modelIds: string[]; requiresApiKey?: boolean };
 export type CustomProviderIdentity = Pick<CustomProvider, "id" | "name" | "baseUrl" | "modelIds">;
@@ -258,10 +259,12 @@ export class CustomProviders {
     return discoverCustomModels(target.baseUrl, target.key, guard);
   }
   private persist(entries: CustomProvider[]) {
-    mkdirSync(dirname(this.file), { recursive: true });
+    const directory = dirname(this.file);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    tightenPermissions(directory, 0o700);
     const tmp = this.file + ".tmp";
     writeFileSync(tmp, JSON.stringify(entries, null, 2) + "\n", { mode: 0o600 });
-    chmodSync(tmp, 0o600);
+    tightenPermissions(tmp, 0o600);
     renameSync(tmp, this.file);
     this.entries = entries;
   }

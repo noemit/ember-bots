@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { ShareOwner } from './kilnSharing';
 import { isIP } from 'node:net';
+import { tightenPermissions } from './permissions';
 export type SyncShareOwnerStore = { read: () => ShareOwner | undefined; write: (owner: ShareOwner | undefined) => void };
 export function parseShareOwner(text: string): ShareOwner | undefined {
   try {
@@ -26,12 +27,15 @@ export function fileShareOwnerStore(file: string): SyncShareOwnerStore {
       try { return parseShareOwner(fs.readFileSync(file, 'utf8')); } catch { return undefined; }
     },
     write(owner) {
-      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      const directoryPath = path.dirname(file);
+      fs.mkdirSync(directoryPath, { recursive: true, mode: 0o700 });
+      tightenPermissions(directoryPath, 0o700);
       const temporary = file + '.' + randomBytes(8).toString('hex') + '.tmp';
       try {
         const fd = fs.openSync(temporary, 'wx', 0o600);
         try { fs.writeFileSync(fd, JSON.stringify(owner ?? {})); fs.fsyncSync(fd); }
         finally { fs.closeSync(fd); }
+        tightenPermissions(temporary, 0o600);
         fs.renameSync(temporary, file);
         // Persist receipt invalidation before a daemon mutation can be submitted.
         const directory = fs.openSync(path.dirname(file), fs.constants.O_RDONLY);

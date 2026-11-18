@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tightenPermissions } from "./permissions";
 import type { Context } from "@earendil-works/chord";
 import { bool, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import {
@@ -324,10 +325,12 @@ export const peersMirrorPath = (home: string): string => join(home, PEERS_FILE);
 
 export const writePeersMirror = (home: string, peers: readonly PeerEndpoint[] | undefined): void => {
   try {
-    mkdirSync(home, { recursive: true });
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    tightenPermissions(home, 0o700);
     const path = peersMirrorPath(home);
     const temporary = `${path}.tmp`;
     writeFileSync(temporary, `${JSON.stringify({ peers: peers ?? [] }, null, 2)}\n`, { mode: 0o600 });
+    tightenPermissions(temporary, 0o600);
     renameSync(temporary, path);
   } catch (error) {
     console.error("[hearth] writing peers mirror failed:", error instanceof Error ? error.message : error);
@@ -355,7 +358,8 @@ export const readPeersMirror = (home: string): PeerEndpoint[] => {
  */
 export const writeAgentsMirror = (home: string, snapshot: Readonly<AgentsState> | undefined | null): void => {
   try {
-    mkdirSync(home, { recursive: true });
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    tightenPermissions(home, 0o700);
     const path = agentsMirrorPath(home);
     const temporary = `${path}.tmp`;
     // Bound the mirror by recency (pinned first, then newest updatedAt) so `<home>/agents.json`
@@ -367,6 +371,7 @@ export const writeAgentsMirror = (home: string, snapshot: Readonly<AgentsState> 
     }
     const mirror = { entries: boundedEntries };
     writeFileSync(temporary, `${JSON.stringify(mirror, null, 2)}\n`, { mode: 0o600 });
+    tightenPermissions(temporary, 0o600);
     renameSync(temporary, path);
   } catch (error) {
     console.error("[hearth] writing agents mirror failed:", error instanceof Error ? error.message : error);

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { tightenPermissions } from "./permissions";
 
 const KEEP = 30;
 
@@ -13,16 +14,20 @@ const dayKey = (at = new Date()): string =>
  * existing file keeps it to one backup per day; old ones prune to KEEP.
  */
 export const backupDatabase = (sourcePath: string, backupsDir: string): string => {
-  mkdirSync(backupsDir, { recursive: true });
+  mkdirSync(backupsDir, { recursive: true, mode: 0o700 });
+  tightenPermissions(backupsDir, 0o700);
   const target = join(backupsDir, `hearth-${dayKey()}.sqlite`);
   if (!existsSync(target)) {
     const db = new DatabaseSync(sourcePath);
     try {
       db.exec("PRAGMA busy_timeout = 5000;");
       db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+      tightenPermissions(target, 0o600);
     } finally {
       db.close();
     }
+  } else {
+    tightenPermissions(target, 0o600);
   }
   const backups = readdirSync(backupsDir)
     .filter((name) => /^hearth-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name))

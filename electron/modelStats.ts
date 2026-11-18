@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { tightenPermissionsAsync } from './permissions';
 
 export type ModelObservation = {
   id: string;
@@ -166,9 +167,12 @@ export class ModelStatsStore {
     const revision = ++this.saveRevision;
     const contents = JSON.stringify({ clearedAt: this.clearedAt, observations: [...this.records.values()] });
     this.writes = this.writes.catch(() => {}).then(async () => {
-      await fs.mkdir(path.dirname(this.file), { recursive: true });
+      const directory = path.dirname(this.file);
+      await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+      await tightenPermissionsAsync(directory, 0o700);
       const temporary = `${this.file}.${process.pid}.tmp`;
       await fs.writeFile(temporary, contents, { mode: 0o600 });
+      await tightenPermissionsAsync(temporary, 0o600);
       await fs.rename(temporary, this.file);
       if (revision === this.saveRevision) this.dirty = false;
     });

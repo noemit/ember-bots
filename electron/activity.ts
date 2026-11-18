@@ -13,6 +13,7 @@ import * as fs from 'node:fs/promises';
 import * as syncFs from 'node:fs';
 import * as path from 'node:path';
 import type { EmberEvent } from './eventStream';
+import { tightenPermissions, tightenPermissionsAsync } from './permissions';
 
 export type ActivityEntry = {
   id: string;
@@ -221,7 +222,8 @@ export class ActivityLog {
     const pending = this.buffer;
     this.buffer = [];
     try {
-      await fs.mkdir(this.directory, { recursive: true });
+      await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
+      await tightenPermissionsAsync(this.directory, 0o700);
       const byDay = new Map<string, ActivityEntry[]>();
       for (const entry of pending) {
         const day = dayKeyOf(entry.at);
@@ -244,7 +246,8 @@ export class ActivityLog {
     const pending = this.buffer;
     this.buffer = [];
     try {
-      syncFs.mkdirSync(this.directory, { recursive: true });
+      syncFs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+      tightenPermissions(this.directory, 0o700);
       const byDay = new Map<string, ActivityEntry[]>();
       for (const entry of pending) {
         const day = dayKeyOf(entry.at);
@@ -279,7 +282,10 @@ export class ActivityLog {
       size += Buffer.byteLength(line, 'utf8');
       lines.push(line);
     }
-    if (lines.length > 0) await fs.appendFile(file, lines.join(''), { encoding: 'utf8', mode: 0o600 });
+    if (lines.length > 0) {
+      await fs.appendFile(file, lines.join(''), { encoding: 'utf8', mode: 0o600 });
+      await tightenPermissionsAsync(file, 0o600);
+    }
     if (truncated) await this.noteTruncation(file, day);
   }
 
@@ -302,10 +308,16 @@ export class ActivityLog {
       size += Buffer.byteLength(line, 'utf8');
       lines.push(line);
     }
-    if (lines.length > 0) syncFs.appendFileSync(file, lines.join(''), { encoding: 'utf8', mode: 0o600 });
+    if (lines.length > 0) {
+      syncFs.appendFileSync(file, lines.join(''), { encoding: 'utf8', mode: 0o600 });
+      tightenPermissions(file, 0o600);
+    }
     if (truncated) {
       const note = `${JSON.stringify(this.truncationNote(day))}\n`;
-      if (!this.truncatedDays.has(day)) syncFs.appendFileSync(file, note, { encoding: 'utf8', mode: 0o600 });
+      if (!this.truncatedDays.has(day)) {
+        syncFs.appendFileSync(file, note, { encoding: 'utf8', mode: 0o600 });
+        tightenPermissions(file, 0o600);
+      }
       this.truncatedDays.add(day);
     }
   }
@@ -315,6 +327,7 @@ export class ActivityLog {
     this.truncatedDays.add(day);
     const note = `${JSON.stringify(this.truncationNote(day))}\n`;
     await fs.appendFile(file, note, { encoding: 'utf8', mode: 0o600 });
+    await tightenPermissionsAsync(file, 0o600);
   }
 
   private truncationNote(day: string): ActivityEntry {

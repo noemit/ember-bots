@@ -1,8 +1,9 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { createModels } from '@earendil-works/pi-ai';
 import { customBaseUrl } from './custom-providers';
 import { LOCAL_RUNTIME_DEFAULTS, localRuntimeBaseUrl, ollamaProvider, probeLocalRuntime, type LocalRuntimeProbe } from './local-models';
+import { tightenPermissions } from './permissions';
 
 /** A root service address, not the OpenAI /v1 endpoint. Shares custom endpoint URL safety rules. */
 export function ollamaAddress(value: unknown): string {
@@ -67,10 +68,11 @@ export class OllamaSettings {
   save(value: unknown, reset = false) {
     const next = this.chain.then(async () => {
       const address = reset ? undefined : ollamaAddress(value);
-      mkdirSync(this.home, { recursive: true });
+      mkdirSync(this.home, { recursive: true, mode: 0o700 });
+      tightenPermissions(this.home, 0o700);
       const tmp = this.file + '.tmp';
       writeFileSync(tmp, JSON.stringify(address ? { baseUrl: address } : {}) + '\n', { mode: 0o600 });
-      chmodSync(tmp, 0o600);
+      tightenPermissions(tmp, 0o600);
       renameSync(tmp, this.file);
       this.override = address;
       return this.refresh();

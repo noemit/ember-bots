@@ -1,7 +1,8 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Models } from '@earendil-works/pi-ai';
 import type { CompactionSettings as PiCompactionSettings } from '@earendil-works/pi-durable';
+import { tightenPermissions } from './permissions';
 
 /** Confirmed against pi-durable 1.5.0's compiled agent.js, not README examples. */
 export const PI_COMPACTION_DEFAULTS = { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000, backgroundTokens: 32768 };
@@ -65,11 +66,12 @@ export class CompactionSettings {
   }
   save(value: unknown) {
     const preference = validateCompactionPreference(value);
-    mkdirSync(this.home, { recursive: true });
+    mkdirSync(this.home, { recursive: true, mode: 0o700 });
+    tightenPermissions(this.home, 0o700);
     const tmp = this.file + '.tmp';
     try {
       writeFileSync(tmp, JSON.stringify(preference ?? null) + '\n', { mode: 0o600 });
-      chmodSync(tmp, 0o600);
+      tightenPermissions(tmp, 0o600);
       renameSync(tmp, this.file);
     } catch { throw new Error('Kiln could not write its compaction settings. Check its data-folder permissions, then try Save again.'); }
     this.preference = preference;

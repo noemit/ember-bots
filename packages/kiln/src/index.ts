@@ -16,6 +16,7 @@ import { startCrewSupervisor } from "./crew";
 import { buildMcpTools, mcpNamespaces, mcpSection, readMcpConfig } from "./mcp";
 import { prepareScopeShell, SHELL_SLICE } from "./shell";
 import { pruneScratch, sessionEnv } from "./scratch";
+import { tightenSqlitePermissions } from "./permissions";
 import { attestPermissionEnvironment, attestPermissionHost } from "./permissionRules";
 
 /**
@@ -115,6 +116,7 @@ export const runKiln = async (): Promise<void> => {
   const token = ensureToken(config);
 
   const storage = await openNodeSqliteStorage(config.databasePath);
+  tightenSqlitePermissions(config.databasePath);
   const { models, seeded, store, localRuntimes, customProviders, ollamaSettings } = await hearthModels(join(config.home, "auth.json"));
   // Restore the last dynamic catalogs before recovered work resumes, but do no network I/O here:
   // a slow provider must not keep /health down. The network refresh starts after the server listens.

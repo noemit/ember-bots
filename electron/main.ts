@@ -51,7 +51,8 @@ import {
 import { startRemoteServer } from './remoteServer';
 import { parseRemoteProxyOrigin } from './remoteProxy';
 import { appendCompactLog } from './compactLog';
-import { initializeFirstRunSettings, quarantineCorruptSettings } from './settingsFile';
+import { appendAppIconLog, initializeFirstRunSettings, quarantineCorruptSettings, writePrivateJson } from './settingsFile';
+import { tightenPermissions } from './permissions';
 import { RemoteListener, type StartOutcome } from './remoteListener';
 import { EventStreamManager, type EmberEvent, type StreamStatus } from './eventStream';
 import { hashRemotePassword, MAX_REMOTE_PASSWORD_LENGTH, MIN_REMOTE_PASSWORD_LENGTH, verifyRemotePassword } from './remoteAuth';
@@ -148,12 +149,23 @@ const emberHome = ((): string => {
   if (moved.length > 0) console.log('[ember] moved settings from ~/.config/ember:', moved.join(', '));
   return current;
 })();
+try {
+  dataDir.ensureEmberDataDir(emberHome);
+} catch {
+  // Best-effort: a read-only home must not stop Ember from opening.
+}
 const canaryBuild = Boolean(process.env.EMBER_DATA_DIR && process.env.EMBER_DATA_DIR.trim());
 const displayName = canaryBuild ? 'Ember Canary' : 'Ember';
 app.setName(displayName);
 if (canaryBuild) {
   // Chromium storage and the single-instance lock must follow the selected profile too.
-  app.setPath('userData', path.join(emberHome, 'chromium'));
+  const canaryUserData = path.join(emberHome, 'chromium');
+  try {
+    dataDir.ensureEmberDataDir(canaryUserData);
+  } catch {
+    // Best-effort before Chromium opens its profile directory.
+  }
+  app.setPath('userData', canaryUserData);
   app.setPath('sessionData', app.getPath('userData'));
 }
 
@@ -305,16 +317,7 @@ const readOpenchamberSettings = (): Record<string, unknown> => {
   return root;
 };
 
-const writeJson = async (file: string, data: unknown): Promise<void> => {
-  await fs.promises.mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    await fs.promises.writeFile(temporary, JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 });
-    await fs.promises.rename(temporary, file);
-  } finally {
-    await fs.promises.unlink(temporary).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
-  }
-};
+const writeJson = (file: string, data: unknown): Promise<void> => writePrivateJson(file, data);
 
 const hostId = (host: StoredHost, index: number): string => String(host.id || `host-${index}`);
 
@@ -738,7 +741,10 @@ const loadInstances = async (refresh = true): Promise<Instance[]> => {
     onboardedStamped = true;
     try {
       root.onboardedAt = Date.now();
-      fs.writeFileSync(emberSettingsPath(), `${JSON.stringify(root, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      dataDir.ensureEmberDataDir(emberHome);
+      const settingsFile = emberSettingsPath();
+      fs.writeFileSync(settingsFile, `${JSON.stringify(root, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      tightenPermissions(settingsFile, 0o600);
       // The renderer reads settings on its own schedule; a hint costs one broadcast and saves it
       // from showing the guide for a frame after the first healthy probe.
       broadcast({ instanceId: '*', type: 'ember:instances-updated' });
@@ -1252,15 +1258,7 @@ const record = (result: { ok: boolean; reason?: string }, bytes: number): typeof
     // Append, with a small cap: the sequence around a launch is the useful part (attempt, then done or
     // failed), and overwriting kept only the last line. A diagnostic log should not need a rotation
     // policy, hence the 8 KB ceiling.
-    const file = path.join(app.getPath('userData'), 'app-icon.log');
-    let previous = '';
-    try {
-      previous = fs.readFileSync(file, 'utf8');
-    } catch {
-      // First write.
-    }
-    fs.writeFileSync(file, `${previous.length > 8_000 ? '' : previous}${line}
-`);
+    appendAppIconLog(path.join(app.getPath('userData'), 'app-icon.log'), line);
   } catch {
     // A diagnostic that throws would be worse than the bug it is chasing.
   }
