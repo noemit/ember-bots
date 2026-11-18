@@ -18,6 +18,7 @@ import {
 import { ApprovalsDoc } from "./approvals";
 import { QuestionsDoc } from "./ask";
 import { MetaDoc } from "./meta";
+import { settleStopStateOnInputInTx } from "./stopQueueHandoff";
 import {
   submitCrewMessage,
   findCrewTarget,
@@ -773,15 +774,27 @@ export const createAgentsTool = (home: string) =>
             `Agent ${name} is gone (conversation ${found.conversationId}); ask a human to register a replacement.`
           );
         }
-        await handle.submit(
-          {
-            type: "input",
-            content: message,
-            whenBusy: followUp === true ? "followUp" : "steer",
-            requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
-          },
-          context
-        );
+        const targetId = found.conversationId as ConversationId;
+        const draft = {
+          type: "input" as const,
+          content: message,
+          whenBusy: followUp === true ? ("followUp" as const) : ("steer" as const),
+          requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
+        };
+        await api.commit(async (tx) => {
+          const prior = await tx.submissionByRequest(targetId, draft.requestId);
+          const liveBefore = await tx.doc(LiveDoc, targetId);
+          const wasBusy = liveBefore.run !== undefined;
+          const wasFailed = Boolean(liveBefore.runFailure);
+          const submissionId = await handle.submit(tx, draft);
+          if (!prior) {
+            await settleStopStateOnInputInTx(tx, targetId, {
+              submissionId,
+              wasBusy,
+              wasFailed,
+            });
+          }
+        }, context);
         await chargeBudget();
         return reply(`Sent to ${name}.`, found.conversationId);
       }
@@ -807,15 +820,26 @@ export const createAgentsTool = (home: string) =>
         const match = byTitle[0];
         const handle = await api.conversation(match.id, context);
         if (handle) {
-          await handle.submit(
-            {
-              type: "input",
-              content: message,
-              whenBusy: followUp === true ? "followUp" : "steer",
-              requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
-            },
-            context
-          );
+          const draft = {
+            type: "input" as const,
+            content: message,
+            whenBusy: followUp === true ? ("followUp" as const) : ("steer" as const),
+            requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
+          };
+          await api.commit(async (tx) => {
+            const prior = await tx.submissionByRequest(match.id, draft.requestId);
+            const liveBefore = await tx.doc(LiveDoc, match.id);
+            const wasBusy = liveBefore.run !== undefined;
+            const wasFailed = Boolean(liveBefore.runFailure);
+            const submissionId = await handle.submit(tx, draft);
+            if (!prior) {
+              await settleStopStateOnInputInTx(tx, match.id, {
+                submissionId,
+                wasBusy,
+                wasFailed,
+              });
+            }
+          }, context);
           await chargeBudget();
           return reply(`Sent to ${match.title}.`, match.id as number);
         }

@@ -19,6 +19,7 @@ import {
 import { AutoAcceptDoc, clearPendingApprovals, pendingApprovals } from "./approvals";
 import { clearPendingQuestions, pendingQuestions, QuestionsDoc } from "./ask";
 import { MetaDoc, type HearthMeta } from "./meta";
+import { settleStopStateOnInputInTx } from "./stopQueueHandoff";
 import { recordRetrieved, resultRetrieved, threadTask } from "./threadResults";
 import { registerAgentWithSuffix } from "./agents";
 
@@ -578,10 +579,21 @@ export const submitCrewMessage = async (
     const current = doc.items[owner.key];
     if (!current || current.conversationId !== entry.conversationId || (expectedTask !== undefined && threadTask(current) !== expectedTask)) return false;
     if (current.lastMessageRequestId === requestId) return false;
+    const prior = await tx.submissionByRequest(entry.conversationId, requestId);
+    const liveBefore = await tx.doc(LiveDoc, entry.conversationId);
+    const wasBusy = liveBefore.run !== undefined;
+    const wasFailed = Boolean(liveBefore.runFailure);
     await rearmWorker(tx, owner.conversationId, owner.key, entry.conversationId, Date.now());
     const direction = current.taskLifecycle === "explicit" ? message + "\n\nTask assignment version: " + threadTask(current) + ". Complete or report only this version; use session status without a name to review it." : message;
-    await handle.submit(tx, { type: "input", content: direction,
+    const submissionId = await handle.submit(tx, { type: "input", content: direction,
       whenBusy: followUp ? "followUp" : "steer", requestId });
+    if (!prior) {
+      await settleStopStateOnInputInTx(tx, entry.conversationId, {
+        submissionId,
+        wasBusy,
+        wasFailed,
+      });
+    }
     if (current) current.lastMessageRequestId = requestId;
     return true;
   }, context);

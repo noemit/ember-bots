@@ -1,5 +1,5 @@
 import type { CompactionSettings } from "./compaction-settings";
-import { StopQueueDoc, prepareStopQueueHandoff, resumeStopQueueHandoff } from './stopQueueHandoff';
+import { StopQueueDoc, prepareStopQueueHandoff, resumeStopQueueHandoff, settleStopStateOnInputInTx } from './stopQueueHandoff';
 import type { OllamaSettings } from "./ollama-settings";
 import type { CustomProviders } from "./custom-providers";
 import { alignmentProviders, importCredentials, importApiKeys, mergePeers, portablePeer, shareApiKeys, type ShareTarget, type AlignmentConfig } from "./alignment";
@@ -1803,15 +1803,46 @@ const server = Bun.serve<{
           return notFound(`agent "${brief(name, 100)}" conversation ${targetId} is gone`);
         }
         const content = formatForeignAgentMessage(senderHost, senderName, message);
-        await handle.submit(
-          {
-            type: "input",
-            content,
-            whenBusy: followUp ? "followUp" : "steer",
-            ...(requestId ? { requestId } : {}),
-          },
-          context
-        );
+        const draft = {
+          type: "input" as const,
+          content,
+          whenBusy: followUp ? ("followUp" as const) : ("steer" as const),
+          ...(requestId ? { requestId } : {}),
+        };
+        const finishHandoff = new Error("Finish the pending stop before admitting an idle input");
+        const admit = () =>
+          harness.commit(async (tx) => {
+            const prior = draft.requestId === undefined ? undefined : await tx.submissionByRequest(targetId, draft.requestId);
+            const stopQueue = await tx.doc(StopQueueDoc, targetId);
+            const meta = await tx.doc(MetaDoc, targetId);
+            const liveBefore = await tx.doc(LiveDoc, targetId);
+            const wasBusy = liveBefore.run !== undefined;
+            const wasFailed = Boolean(liveBefore.runFailure);
+            if (!prior && stopQueue.pending && !wasBusy && meta.stoppedAt === stopQueue.pending.stoppedAt) {
+              throw finishHandoff;
+            }
+            const submissionId = await handle.submit(tx, draft);
+            if (!prior) {
+              await settleStopStateOnInputInTx(tx, targetId, {
+                submissionId,
+                wasBusy,
+                wasFailed,
+              });
+            }
+            return submissionId;
+          }, context);
+        try {
+          await admit();
+        } catch (error) {
+          if (error !== finishHandoff) throw error;
+          await resumeStopQueueHandoff(harness, targetId, context);
+          try {
+            await admit();
+          } catch (retryError) {
+            if (retryError === finishHandoff) return busyRefusal(targetId);
+            throw retryError;
+          }
+        }
         return json({ ok: true, name: resolvedLabel, conversationId: targetId }, 201);
       }
 
@@ -2259,8 +2290,6 @@ const server = Bun.serve<{
             const text = inputTextOf(draft.content);
             if (text.trim()) await injectContextForInput(harness, conversationId, text, context);
           }
-          const restartingFailure = draft.type === "input" && Boolean((await harness.snapshot(LiveDoc, conversationId, context))?.runFailure);
-          const restartingStop = draft.type === "input" && Boolean((await harness.snapshot(MetaDoc, conversationId, context))?.stoppedAt);
           const toPlace = attempt?.key === undefined ? draft : { ...draft, requestId: attempt.key };
           // `Conversation.submit` has two overloads (a draft and a context, or a transaction and a
           // draft); `ReturnType` takes the last, which returns an id.
@@ -2270,13 +2299,15 @@ const server = Bun.serve<{
             const admit = () => harness.commit(async tx => {
               const prior = toPlace.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, toPlace.requestId);
               const stopQueue = await tx.doc(StopQueueDoc, conversationId);
+              const meta = await tx.doc(MetaDoc, conversationId);
               const liveBefore = await tx.doc(LiveDoc, conversationId);
               const inboxBefore = await tx.doc(InboxDoc, conversationId);
               const wasBusy = liveBefore.run !== undefined;
+              const wasFailed = Boolean(liveBefore.runFailure);
               if (draft.type === "input" && !prior && stopQueue.pending && !wasBusy &&
-                  (await tx.doc(MetaDoc, conversationId)).stoppedAt === stopQueue.pending.stoppedAt) throw finishHandoff;
+                  meta.stoppedAt === stopQueue.pending.stoppedAt) throw finishHandoff;
               if (draft.type === "input" && !prior) {
-                const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, await tx.doc(MetaDoc, conversationId));
+                const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, meta);
                 if (assignment && (explicitSettled(assignment.entry) || (assignment.entry.taskLifecycle === "explicit" &&
                     (assignment.entry.state === "failed" || assignment.entry.state === "stopped")))) {
                   await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
@@ -2299,18 +2330,13 @@ const server = Bun.serve<{
               if (draft.type === "input" && !prior && !wasBusy && (await tx.doc(LiveDoc, conversationId)).run !== undefined) {
                 await applyRunQueueConfigsInTx(tx, conversationId);
               }
-              if (draft.type === "input" && !prior && stopQueue.pending) {
-                const queued = (await tx.doc(InboxDoc, conversationId)).items.find(item => item.id === submissionId);
-                // Admissions while abort winds down must survive that abort too. Record their
-                // canonical id in the same commit, not from a later snapshot that can miss them.
-                if (queued && queued.mode !== 'write' && !queued.entry && !stopQueue.pending.items.some(item => item.id === String(submissionId))) {
-                  stopQueue.pending.items.push({
-                    id: String(submissionId),
-                    mode: queued.mode,
-                    content: queued.content,
-                    ...(sendConfig !== undefined ? { sendConfig } : {}),
-                  });
-                }
+              if (draft.type === "input" && !prior) {
+                await settleStopStateOnInputInTx(tx, conversationId, {
+                  submissionId,
+                  wasBusy,
+                  wasFailed,
+                  sendConfig,
+                });
               }
               return submissionId;
             }, context);
@@ -2329,13 +2355,6 @@ const server = Bun.serve<{
             if (!(error instanceof ConversationBusy)) throw error;
             return busyRefusal(conversationId);
           }
-          if (restartingStop || restartingFailure) await harness.commit(async tx => {
-            const meta = await tx.doc(MetaDoc, conversationId);
-            if (meta.stoppedAt || restartingFailure) {
-              for (const q of Object.values((await tx.doc(QuestionsDoc, conversationId)).items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
-              if (!(await tx.doc(StopQueueDoc, conversationId)).pending) delete meta.stoppedAt;
-            }
-          }, context);
           // The full status set, not just the happy two: `queued` (waiting behind a turn),
           // `placed` (in the transcript, a run owns it), `done` (a write entry appended) and
           // `unanswered` (settled without an answer — `reason` says why: aborted, stale, a provider

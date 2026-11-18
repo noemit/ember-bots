@@ -1,6 +1,7 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { Context, JsonValue } from '@earendil-works/chord';
 import { defineDoc, InboxDoc, LiveDoc, type ConversationId, type Harness, type SubmissionId, type Tx } from '@earendil-works/pi-durable';
+import { QuestionsDoc } from './ask';
 import { MetaDoc } from './meta';
 import { parkedInputs, parkInputs } from './parking';
 import { applyRunQueueConfigsInTx, QueueConfigDoc, type QueueSendConfig } from './queueConfig';
@@ -101,7 +102,17 @@ const finish = async (harness: Harness, id: ConversationId, token: string, conte
       if (doc.pending?.token !== token || meta.stoppedAt !== doc.pending.stoppedAt) throw superseded;
       return change(tx);
     }, context), id, unplaced);
-  } catch (error) { if (error === superseded) return 0; throw error; }
+  } catch (error) {
+    if (error === superseded) {
+      await harness.commit(async tx => {
+        const doc = await tx.doc(StopQueueDoc, id);
+        const meta = await tx.doc(MetaDoc, id);
+        if (doc.pending?.token === token && meta.stoppedAt !== doc.pending.stoppedAt) delete doc.pending;
+      }, context);
+      return 0;
+    }
+    throw error;
+  }
   return harness.commit(async tx => {
     const doc = await tx.doc(StopQueueDoc, id);
     const meta = await tx.doc(MetaDoc, id);
@@ -113,8 +124,9 @@ const finish = async (harness: Harness, id: ConversationId, token: string, conte
     const human = inbox.items.filter(item => item.mode !== 'write' && !item.entry);
     if (!human.length) { delete doc.pending; return 0; }
     // Internal answers have a separate hold/receipt lifecycle. A handoff must never admit one
-    // alongside the human input. Normally abort has already withdrawn all such SDK inputs.
-    if (inbox.items.some(item => item.mode !== 'write' && item.entry)) return 0;
+    // alongside the human input. Normally abort has already withdrawn all such SDK inputs; if one
+    // remains in the inbox, clear `doc.pending` so an explicit human send is never wedged on 409.
+    if (inbox.items.some(item => item.mode !== 'write' && item.entry)) { delete doc.pending; return 0; }
     // The old turn has no tool boundary left for a pending steer. Treat it as the next normal
     // human turn; normal SDK FIFO then places one message at each subsequent turn boundary.
     for (const item of inbox.items) if (item.mode === 'steer') item.mode = 'followUp';
@@ -125,4 +137,55 @@ const finish = async (harness: Harness, id: ConversationId, token: string, conte
     delete doc.pending;
     return count;
   }, context);
+};
+
+/**
+ * Reconcile stop/handoff and async-question state inside the same commit that admits a new input.
+ *
+ * - On an idle conversation (`!wasBusy`), the new input restarts the conversation, so any stale
+ *   `StopQueueDoc.pending` and `meta.stoppedAt` are cleared and async questions require explicit
+ *   resume if restarting from a stop or failure.
+ * - On a busy conversation whose desktop Stop is still winding down (`wasBusy && stopQueue.pending`),
+ *   record the newly queued plain input on `stopQueue.pending.items` so the finishing abort keeps it.
+ */
+export const settleStopStateOnInputInTx = async (
+  tx: Tx,
+  id: ConversationId,
+  options: {
+    submissionId: SubmissionId;
+    wasBusy: boolean;
+    wasFailed: boolean;
+    sendConfig?: QueueSendConfig;
+  }
+): Promise<void> => {
+  const { submissionId, wasBusy, wasFailed, sendConfig } = options;
+  const stopQueue = await tx.doc(StopQueueDoc, id);
+  const meta = await tx.doc(MetaDoc, id);
+  if (wasBusy && stopQueue.pending) {
+    const queued = (await tx.doc(InboxDoc, id)).items.find(item => item.id === submissionId);
+    // Admissions while abort winds down must survive that abort too. Record their
+    // canonical id in the same commit, not from a later snapshot that can miss them.
+    if (queued && queued.mode !== 'write' && !queued.entry && !stopQueue.pending.items.some(item => item.id === String(submissionId))) {
+      stopQueue.pending.items.push({
+        id: String(submissionId),
+        mode: queued.mode,
+        content: queued.content,
+        ...(sendConfig !== undefined ? { sendConfig } : {}),
+      });
+    }
+  }
+  if (meta.stoppedAt || wasFailed) {
+    for (const q of Object.values((await tx.doc(QuestionsDoc, id)).items)) {
+      if (q.mode === 'async') {
+        q.resumeRequired = true;
+        if (q.mutation?.action === 'resume') delete q.mutation;
+      }
+    }
+  }
+  if (!wasBusy) {
+    delete stopQueue.pending;
+    delete meta.stoppedAt;
+  } else if (!stopQueue.pending) {
+    delete meta.stoppedAt;
+  }
 };
