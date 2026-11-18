@@ -34,6 +34,7 @@ import type { StopProcessesResult } from './components/SessionProcessesNotice';
 import ArchiveSessionDialog from './components/ArchiveSessionDialog';
 import PromoteWorkerDialog from './components/PromoteWorkerDialog';
 import { ImageViewerContext, type ImageViewerApi } from './components/imageViewerContext';
+import { DocumentPreviewDialogHost } from './components/DocumentPreviewDialog';
 import type { ViewerImage } from './lib/gallery';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { applyTheme, themeById } from './themes';
@@ -6285,6 +6286,7 @@ export default function App() {
         />
       </React.Suspense>
     ) : null}
+    <DocumentPreviewDialogHost />
     </ImageViewerContext.Provider>
     </AvatarSizeContext.Provider>
   );

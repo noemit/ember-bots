@@ -42,7 +42,7 @@ describe('private PWA shell', () => {
     const h = harness();
     await h.dispatch('install');
     expect([...h.stored.keys()]).toEqual(['/assets/app-abc.js', '/offline.html']);
-    for (const path of ['/remote/api', '/remote/pi', '/remote/events', '/remote/login', '/remote/logout', '/remote/settings', '/remote/model-stats', '/private.png', '/assets/unlisted.js', '/assets/app-abc.js?private=1']) {
+    for (const path of ['/remote/api', '/remote/pi', '/remote/events', '/remote/login', '/remote/logout', '/remote/settings', '/remote/model-stats', '/conversations/1/documents/read', '/conversations/1/documents/resolve', '/?docPopout=1&popoutId=popout_1234', '/private.png', '/assets/unlisted.js', '/assets/app-abc.js?private=1']) {
       expect(h.intercepts(path)).toBe(false);
     }
     expect(h.intercepts('/assets/app-abc.js')).toBe(true);

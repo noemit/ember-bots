@@ -9,15 +9,33 @@ import { useImageViewer, type ImageViewerApi } from './imageViewerContext';
 import CopyButton from './CopyButton';
 import { rehypeQuotePositions } from '../lib/quoteMarkdown';
 import { registerQuoteMarkdown, unregisterQuoteMarkdown } from '../lib/quoteDom';
+import {
+  isExternalWebHref,
+  parseDocCandidate,
+  tokenizeProseDocCandidates,
+  useDocumentExploration,
+  type DocumentExplorationContextValue,
+} from '../lib/documentExploration';
 
 const SKIP_TAGS = new Set(['a', 'code', 'pre']);
+const InsidePreContext = React.createContext(false);
 
-/**
- * rehype plugin: turn bare local paths inside prose into links. remark-gfm already
- * autolinks URLs, so this only needs to catch what Linkify would — paths — and leave
- * code and existing anchors alone.
- */
-const rehypeLinkPaths = () => (tree: Root, file: { value: unknown }) => {
+const hasActiveTextSelection = (): boolean => {
+  if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
+  const sel = window.getSelection();
+  return Boolean(sel && !sel.isCollapsed && sel.toString().trim().length > 0);
+};
+
+const collectHastText = (node: Element | undefined): string => {
+  if (!node) return '';
+  return node.children
+    .map((child) => (child.type === 'text' ? child.value : child.type === 'element' ? collectHastText(child) : ''))
+    .join('');
+};
+
+const rehypeSplitTextLeaves = (
+  tokenize: (value: string) => Array<{ type: 'text' | 'link'; value: string; proseDoc?: boolean }>
+) => () => (tree: Root, file: { value: unknown }) => {
   const visit = (node: Root | Element) => {
     node.children = node.children.flatMap((child): RootContent[] => {
       if (child.type === 'element') {
@@ -25,7 +43,7 @@ const rehypeLinkPaths = () => (tree: Root, file: { value: unknown }) => {
         return [child];
       }
       if (child.type !== 'text') return [child];
-      const tokens = tokenizeLinks(child.value);
+      const tokens = tokenize(child.value);
       if (tokens.every((token) => token.type === 'text')) return [child];
       if (child.position && String(file.value).slice(child.position.start.offset, child.position.end.offset) !== child.value) return [child];
       let consumed = 0;
@@ -40,7 +58,7 @@ const rehypeLinkPaths = () => (tree: Root, file: { value: unknown }) => {
           : {
               type: 'element',
               tagName: 'a',
-              properties: { href: token.value },
+              properties: token.proseDoc ? { href: token.value, 'data-doc-prose': 'true' } : { href: token.value },
               children: [{ type: 'text', value: token.value, position }],
             };
       });
@@ -48,6 +66,26 @@ const rehypeLinkPaths = () => (tree: Root, file: { value: unknown }) => {
   };
   visit(tree);
 };
+
+/**
+ * rehype plugin: turn bare local paths inside prose into links. remark-gfm already
+ * autolinks URLs, so this only needs to catch what Linkify would — paths — and leave
+ * code and existing anchors alone.
+ */
+const rehypeLinkPaths = rehypeSplitTextLeaves(tokenizeLinks);
+
+/**
+ * rehype plugin: wrap bare document references (`.md`, `.markdown`, `.mdx`, `.html`, `.htm`)
+ * in `data-doc-prose` anchors while keeping exact source offsets; `buildComponents` only
+ * renders them as clickable links when Kiln has verified them for the session.
+ */
+const rehypeLinkDocPaths = rehypeSplitTextLeaves((value) =>
+  tokenizeProseDocCandidates(value).map((token) =>
+    token.type === 'doc'
+      ? { type: 'link', value: token.value, proseDoc: true }
+      : { type: 'text', value: token.value }
+  )
+);
 
 const openLink = (event: React.MouseEvent<HTMLAnchorElement>) => {
   const href = event.currentTarget.getAttribute('href');
@@ -78,39 +116,145 @@ export const codeSource = (node: Element | undefined): string => {
   return code ? collect(code) : '';
 };
 
-const buildComponents = (viewer: ImageViewerApi | null, openThread: ThreadLinks | null): Components => ({
+const InlineCodeSpan = ({
+  node,
+  children,
+  docs,
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLElement> & {
+  node?: Element;
+  docs: DocumentExplorationContextValue | null;
+}) => {
+  const insidePre = React.useContext(InsidePreContext);
+  if (insidePre || !docs?.supported) {
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  }
+  const rawText = collectHastText(node);
+  const candidate = rawText && rawText.trim() === rawText ? parseDocCandidate(rawText) : null;
+  const hit = candidate ? docs.lookup(rawText) : null;
+  if (!hit) {
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  }
+  return (
+    <code className={className} {...props}>
+      <a
+        href={hit.resolved.resolvedPath}
+        data-doc-link="true"
+        title={`Preview ${hit.resolved.resolvedPath}`}
+        onClick={(event) => {
+          event.preventDefault();
+          if (hasActiveTextSelection()) return;
+          event.stopPropagation();
+          docs.openResolved(hit.resolved, hit.fragment);
+        }}
+        className="cursor-pointer underline decoration-current/50 underline-offset-2 hover:decoration-current"
+      >
+        {children}
+      </a>
+    </code>
+  );
+};
+
+const buildComponents = (
+  viewer: ImageViewerApi | null,
+  openThread: ThreadLinks | null,
+  docs: DocumentExplorationContextValue | null
+): Components => ({
   // A fenced block gets its own Copy, positioned against the block rather than the message, so a
   // block scrolled sideways does not carry its button off-screen. The control is always visible:
   // unlike a message's footer there is nothing else on a code block to press, and hiding the only
   // affordance behind a hover is a thing people fail to find.
   pre: ({ node, children }) => (
     <div className="group/code relative my-2">
-      <pre className="overflow-x-auto rounded-md bg-background/70 px-3 py-2 leading-relaxed">{children}</pre>
+      <InsidePreContext.Provider value={true}>
+        <pre className="overflow-x-auto rounded-md bg-background/70 px-3 py-2 leading-relaxed">{children}</pre>
+      </InsidePreContext.Provider>
       <div className="absolute right-1.5 top-1.5">
         <CopyButton text={() => codeSource(node)} label="Copy code" done="Copied code" alwaysVisible />
       </div>
     </div>
   ),
+  code: ({ node, children, className, ...props }) => (
+    <InlineCodeSpan node={node} docs={docs} className={className} {...props}>
+      {children}
+    </InlineCodeSpan>
+  ),
   a: ({ node: _node, children, ...props }) => {
-    const threadId = threadIdFromLink(props.href);
+    const proseGenerated = (props as Record<string, unknown>)['data-doc-prose'] === 'true';
+    const { ['data-doc-prose']: _dropProse, ...anchorProps } = props as typeof props & {
+      'data-doc-prose'?: string;
+    };
+    const href = anchorProps.href;
+    const threadId = threadIdFromLink(href);
     if (threadId !== null && !openThread?.has(threadId)) {
       return <span title="Open the parent chat’s Threads tab to find this source.">{children}</span>;
     }
-    return <a
-      {...props}
-      onClick={(event) => {
-        const id = threadIdFromLink(props.href);
-        if (id !== null) {
-          event.preventDefault();
-          event.stopPropagation();
-          openThread?.open(id);
-        } else openLink(event);
-      }}
-      title={props.href}
-      className="cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current"
-    >
-      {children}
-    </a>;
+    if (threadId !== null) {
+      return (
+        <a
+          {...anchorProps}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openThread?.open(threadId);
+          }}
+          title={href}
+          className="cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current"
+        >
+          {children}
+        </a>
+      );
+    }
+
+    if (proseGenerated || (typeof href === 'string' && !isExternalWebHref(href) && parseDocCandidate(href))) {
+      const hit = typeof href === 'string' && docs?.supported ? docs.lookup(href) : null;
+      if (!hit) {
+        return <React.Fragment>{children}</React.Fragment>;
+      }
+      return (
+        <a
+          {...anchorProps}
+          href={hit.resolved.resolvedPath}
+          data-doc-link="true"
+          title={`Preview ${hit.resolved.resolvedPath}`}
+          onClick={(event) => {
+            event.preventDefault();
+            if (hasActiveTextSelection()) return;
+            event.stopPropagation();
+            docs?.openResolved(hit.resolved, hit.fragment);
+          }}
+          className="cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current"
+        >
+          {children}
+        </a>
+      );
+    }
+
+    return (
+      <a
+        {...anchorProps}
+        onClick={(event) => {
+          if (hasActiveTextSelection()) {
+            event.preventDefault();
+            return;
+          }
+          openLink(event);
+        }}
+        title={href}
+        className="cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current"
+      >
+        {children}
+      </a>
+    );
   },
   // Images from the model are untrusted; no width/height hints, just bounded. A renderable image
   // opens in the lightbox (there is no message gallery for prose, so it opens on its own).
@@ -140,8 +284,8 @@ const buildComponents = (viewer: ImageViewerApi | null, openThread: ThreadLinks 
 });
 
 const remarkPlugins = [remarkGfm];
-const settledRehypePlugins = [rehypeLinkPaths, rehypeQuotePositions];
-const streamingRehypePlugins = [rehypeLinkPaths];
+const settledRehypePlugins = [rehypeLinkPaths, rehypeLinkDocPaths, rehypeQuotePositions];
+const streamingRehypePlugins = [rehypeLinkPaths, rehypeLinkDocPaths];
 
 type Props = {
   text: string;
@@ -153,7 +297,8 @@ type Props = {
 function Markdown({ text, className, streaming = false }: Props) {
   const viewer = useImageViewer();
   const openThread = React.useContext(ThreadLinkContext);
-  const components = React.useMemo(() => buildComponents(viewer, openThread), [viewer, openThread]);
+  const docs = useDocumentExploration();
+  const components = React.useMemo(() => buildComponents(viewer, openThread, docs), [viewer, openThread, docs]);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const latestRef = React.useRef({ text, streaming });
   latestRef.current = { text, streaming };

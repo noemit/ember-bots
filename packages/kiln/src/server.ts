@@ -122,6 +122,7 @@ import { sendFrame } from "./stream";
 import { attachFrames, framesOf } from "./frames";
 import { createStreamLimiter, STREAM_LIMITS } from "./streamLimit";
 import { hostMemory, megabytes, scanLeftovers, type LeftProcess } from "./processes";
+import { MAX_RESOLVE_CANDIDATES, readConversationDocument, resolveConversationDocuments } from "./documents";
 
 const context: Context = BACKGROUND_CONTEXT;
 
@@ -1208,6 +1209,8 @@ const CONVERSATION_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   events: ["GET"],
   processes: ["GET"],
   "processes/stop": ["POST"],
+  "documents/resolve": ["POST"],
+  "documents/read": ["POST"],
 };
 
 const methodsSpoken = (methods: readonly string[]): string =>
@@ -2953,6 +2956,58 @@ const server = Bun.serve<{
           if (typeof body.enabled !== "boolean") return badRequest("enabled must be boolean");
           await setAutoAccept(harness, conversationId, body.enabled, context);
           return json({ ok: true });
+        }
+
+        if (action === "documents/resolve" && request.method === "POST") {
+          const body = await readBody(request);
+          if (!Array.isArray(body.candidates)) {
+            return badRequest("candidates must be a list of document paths or filenames");
+          }
+          if (body.candidates.length > MAX_RESOLVE_CANDIDATES) {
+            return badRequest(`too many document candidates: send at most ${MAX_RESOLVE_CANDIDATES} per request`);
+          }
+          if (body.candidates.some((item) => typeof item !== "string")) {
+            return badRequest("each document candidate must be a string");
+          }
+          if (body.basePath !== undefined && typeof body.basePath !== "string") {
+            return badRequest("basePath must be a string path");
+          }
+          const result = await resolveConversationDocuments(
+            { storage, harness, configHome: config.home },
+            conversationId,
+            {
+              candidates: body.candidates,
+              ...(typeof body.basePath === "string" ? { basePath: body.basePath } : {}),
+            },
+            context
+          );
+          if (!result.ok) {
+            return json({ error: result.error }, result.status);
+          }
+          return json({ resolved: result.resolved });
+        }
+
+        if (action === "documents/read" && request.method === "POST") {
+          const body = await readBody(request);
+          if (typeof body.path !== "string" || !body.path.trim()) {
+            return badRequest("path is required to read a conversation document");
+          }
+          if (body.basePath !== undefined && typeof body.basePath !== "string") {
+            return badRequest("basePath must be a string path");
+          }
+          const result = await readConversationDocument(
+            { storage, harness, configHome: config.home },
+            conversationId,
+            {
+              path: body.path,
+              ...(typeof body.basePath === "string" ? { basePath: body.basePath } : {}),
+            },
+            context
+          );
+          if (!result.ok) {
+            return json({ error: result.error }, result.status);
+          }
+          return json(result.document);
         }
 
         return noConversationAction(conversationId, request.method, action);

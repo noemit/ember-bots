@@ -47,9 +47,9 @@ self.addEventListener('message', event => {
 });
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+  // Never intercept auth, SSE, document preview/popout routes or any remote data, including private images.
+  if (url.pathname.startsWith('/remote/') || url.pathname.startsWith('/conversations/') || url.pathname.includes('/documents/') || url.searchParams.has('docPopout')) return;
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.search) return;
-  // Never intercept auth, SSE or any remote data, including private images.
-  if (url.pathname.startsWith('/remote/')) return;
   if (event.request.mode === 'navigate') {
     // Navigation HTML is always network-only. Offline fallback is a static, secret-free page.
     if (url.pathname === '/') event.respondWith(fetch(event.request).catch(async () =>

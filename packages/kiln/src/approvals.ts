@@ -13,7 +13,9 @@ import {
   type Wrap,
 } from "@earendil-works/pi-durable";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
+import { CODEMODE_TOOL_NAME } from "@earendil-works/pi-durable/codemode";
 import { createViewTool } from "./view";
+import { withCodemodeProvenance, withFileToolProvenance } from "./documents";
 import { withAbortRace } from "./interrupt";
 import { createHash } from "node:crypto";
 import { PermissionRulesDoc, storedRules, permissionHostCapability, bindingForCall, bindPermission, samePermission, validBinding, publicPolicy, publicRule, executePermission, ruleFor, type BoundPermission, type PermissionPreview } from "./permissionRules";
@@ -186,6 +188,9 @@ export const gateTool = (
 const gate = (tool: ToolRegistration, requiresApproval?: (args: unknown) => boolean): Wrap =>
   wrapTool(tool, (installed) => gateTool(withAbortRace(installed), requiresApproval));
 
+const gateFileTool = (tool: ToolRegistration): Wrap =>
+  wrapTool(tool, (installed) => gateTool(withAbortRace(withFileToolProvenance(installed))));
+
 const gateByName = (name: string, requiresApproval?: (args: unknown) => boolean): Wrap => ({
   tool: name,
   wrap: (installed: ToolRegistration) => gateTool(withAbortRace(installed), requiresApproval),
@@ -194,17 +199,18 @@ const gateByName = (name: string, requiresApproval?: (args: unknown) => boolean)
 /**
  * Gate coding tools, mutating `schedule` actions, and `agents` `send` behind approval. Wraps match
  * by tool name, wherever they come from (including nested `codemode` calls).
- * Each tool is first made abort-interruptible (`withAbortRace`): a step that ignores the run's
- * cancellation can no longer pin `POST /abort`, so stopping is immediate.
+ * Each tool is first made abort-interruptible (`withAbortRace`), and file tools record structured
+ * provenance (`details.provenance`) upon success so document links can verify paths safely.
  */
 export const Approvals = defineExtension({
   name: "approvals",
   wraps: [
-    gate(createReadTool()),
-    gate(createViewTool()),
-    gate(createWriteTool()),
-    gate(createEditTool()),
+    gateFileTool(createReadTool()),
+    gateFileTool(createViewTool()),
+    gateFileTool(createWriteTool()),
+    gateFileTool(createEditTool()),
     gate(createBashTool()),
+    { tool: CODEMODE_TOOL_NAME, wrap: (installed: ToolRegistration) => withCodemodeProvenance(installed) },
     gateByName("schedule", requiresScheduleApproval),
     gateByName("agents", requiresAgentsApproval),
   ],

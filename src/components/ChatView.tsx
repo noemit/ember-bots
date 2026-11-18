@@ -1,4 +1,8 @@
 import { questionFollowups, questionSourceMessage } from '../lib/asyncQuestions';
+import {
+  DocumentExplorationProvider,
+  invalidateSessionDocuments,
+} from '../lib/documentExploration';
 import type { AnnotationGuard } from '../lib/annotationNavigation';
 import { isRemoteBrowser, isRemoteExpired, remoteAuxiliaryDrafts, setRemoteDraftBlocker } from '../lib/remoteLifecycle';
 import QuestionsShelf from './QuestionsShelf';
@@ -2205,8 +2209,17 @@ function ChatView({
     };
   }, [threadTargets, threadRows, onOpenWorker]);
 
+  const prevReloadingDocsRef = React.useRef(reloading);
+  React.useEffect(() => {
+    if (prevReloadingDocsRef.current && !reloading && instance && session) {
+      invalidateSessionDocuments(instance.id, session.id);
+    }
+    prevReloadingDocsRef.current = reloading;
+  }, [reloading, instance, session]);
+
   return (
     <ThreadLinkContext.Provider value={threadLinks}>
+    <DocumentExplorationProvider instance={instance} session={session} messages={messages}>
     <main
       ref={columnRef}
       className="relative flex min-w-0 flex-1 overflow-hidden"
@@ -3578,6 +3591,7 @@ function ChatView({
         </div>
       ) : null}
     </main>
+    </DocumentExplorationProvider>
     </ThreadLinkContext.Provider>
   );
 }

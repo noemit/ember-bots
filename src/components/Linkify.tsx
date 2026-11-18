@@ -1,5 +1,11 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import {
+  isExternalWebHref,
+  parseDocCandidate,
+  tokenizeProseDocCandidates,
+  useDocumentExploration,
+} from '../lib/documentExploration';
 
 /**
  * URLs plus absolute POSIX paths under the roots agents usually mention. `localhost:3000`
@@ -40,34 +46,127 @@ type Props = {
   className?: string;
 };
 
-/** Renders text with URLs and local paths as links that open via the Ember bridge. */
+const hasActiveTextSelection = (): boolean => {
+  if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
+  const sel = window.getSelection();
+  return Boolean(sel && !sel.isCollapsed && sel.toString().trim().length > 0);
+};
+
+/** Renders text with URLs, local paths, and Kiln-verified document references as links. */
 export default function Linkify({ text, className }: Props) {
+  const docs = useDocumentExploration();
   const tokens = React.useMemo(() => tokenizeLinks(text), [text]);
+
+  const docCandidates = React.useMemo(() => {
+    if (!docs?.supported) return [];
+    const found = new Set<string>();
+    for (const token of tokens) {
+      if (token.type === 'link') {
+        if (!isExternalWebHref(token.value)) {
+          const parsed = parseDocCandidate(token.value);
+          if (parsed) found.add(parsed.requestPath);
+        }
+      } else {
+        for (const sub of tokenizeProseDocCandidates(token.value)) {
+          if (sub.type === 'doc') found.add(sub.candidate.requestPath);
+        }
+      }
+    }
+    return [...found];
+  }, [tokens, docs?.supported]);
+
+  React.useEffect(() => {
+    if (docs?.supported && docCandidates.length > 0) {
+      docs.requestResolve(docCandidates);
+    }
+  }, [docs, docCandidates]);
 
   return (
     <>
-      {tokens.map((token, index) =>
-        token.type === 'link' ? (
-          <a
-            key={index}
-            href={token.value}
-            title={token.value.startsWith('http') ? token.value : `Reveal in Finder: ${token.value}`}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void window.ember.openExternal(token.value);
-            }}
-            className={cn(
-              'cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current',
-              className
-            )}
-          >
-            {token.value}
-          </a>
-        ) : (
-          <React.Fragment key={index}>{token.value}</React.Fragment>
-        )
-      )}
+      {tokens.map((token, index) => {
+        if (token.type === 'link') {
+          const docHit =
+            docs?.supported && !isExternalWebHref(token.value) ? docs.lookup(token.value) : null;
+          if (docHit) {
+            return (
+              <a
+                key={index}
+                href={docHit.resolved.resolvedPath}
+                data-doc-link="true"
+                title={`Preview ${docHit.resolved.resolvedPath}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (hasActiveTextSelection()) return;
+                  event.stopPropagation();
+                  docs?.openResolved(docHit.resolved, docHit.fragment);
+                }}
+                className={cn(
+                  'cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current',
+                  className
+                )}
+              >
+                {token.value}
+              </a>
+            );
+          }
+          return (
+            <a
+              key={index}
+              href={token.value}
+              title={isExternalWebHref(token.value) ? token.value : `Reveal in Finder: ${token.value}`}
+              onClick={(event) => {
+                if (hasActiveTextSelection()) {
+                  event.preventDefault();
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                void window.ember.openExternal(token.value);
+              }}
+              className={cn(
+                'cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current',
+                className
+              )}
+            >
+              {token.value}
+            </a>
+          );
+        }
+
+        const subTokens = docs?.supported ? tokenizeProseDocCandidates(token.value) : [{ type: 'text' as const, value: token.value }];
+        return (
+          <React.Fragment key={index}>
+            {subTokens.map((sub, subIndex) => {
+              if (sub.type === 'doc') {
+                const hit = docs?.lookup(sub.value);
+                if (hit) {
+                  return (
+                    <a
+                      key={subIndex}
+                      href={hit.resolved.resolvedPath}
+                      data-doc-link="true"
+                      title={`Preview ${hit.resolved.resolvedPath}`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (hasActiveTextSelection()) return;
+                        event.stopPropagation();
+                        docs?.openResolved(hit.resolved, hit.fragment);
+                      }}
+                      className={cn(
+                        'cursor-pointer break-all underline decoration-current/50 underline-offset-2 hover:decoration-current',
+                        className
+                      )}
+                    >
+                      {sub.value}
+                    </a>
+                  );
+                }
+              }
+              return <React.Fragment key={subIndex}>{sub.value}</React.Fragment>;
+            })}
+          </React.Fragment>
+        );
+      })}
     </>
   );
 }

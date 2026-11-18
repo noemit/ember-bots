@@ -12,6 +12,7 @@ import { createKilnSharing } from './kilnSharing';
 import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
 import { fileUrlToLocalPath, openTarget as openTargetWithShell } from './openTarget';
+import { isAllowedDocPopoutUrl } from './docPopout';
 import { unlockEndpointSecrets, canCacheUnlockedEndpoints, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
 import {
   discoverLocalPiEndpoint,
@@ -935,10 +936,41 @@ const createWindow = (): BrowserWindow => {
       event.preventDefault();
     }
   });
-  // A link opened in a new window (Cmd/middle-click, window.open) goes to the browser too.
+  // A link opened in a new window (Cmd/middle-click, window.open) goes to the browser too,
+  // except Ember's own `?docPopout=1` document preview shell, which spawns in a locked child window.
   win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedDocPopoutUrl(url, rendererFile())) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 980,
+          height: 760,
+          minWidth: 520,
+          minHeight: 420,
+          title: `${displayName} — Document Preview`,
+          backgroundColor: '#151413',
+          webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false,
+          },
+        },
+      };
+    }
     void openTarget(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', (childWindow) => {
+    childWindow.webContents.on('will-navigate', (event, url) => {
+      if (!isAllowedDocPopoutUrl(url, rendererFile())) event.preventDefault();
+    });
+    childWindow.webContents.setWindowOpenHandler(({ url }) => {
+      void openTarget(url);
+      return { action: 'deny' };
+    });
+    childWindow.webContents.session.setPermissionCheckHandler(() => false);
+    childWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   });
   // Electron ships no default context menu: links get open/copy, editable fields the
   // usual edit roles, and any other selection a plain Copy.
