@@ -36,17 +36,7 @@ export type CrewCost = {
   partial: boolean;
 };
 
-/**
- * @param session  the session whose badge this is
- * @param hasRun   whether its own transcript has entries (a never-run session has spent nothing)
- * @param sessions every known session, on every instance — workers included
- */
-export const crewCostOf = (
-  session: Session,
-  hasRun: boolean,
-  sessions: readonly Session[]
-): CrewCost | null => {
-  const rootKey = sessionKey(session);
+const buildChildrenByParent = (sessions: readonly Session[]): Map<string, Session[]> => {
   const children = new Map<string, Session[]>();
   for (const candidate of sessions) {
     if (!candidate.lead || !isWorker(candidate)) continue;
@@ -55,14 +45,77 @@ export const crewCostOf = (
     if (list) list.push(candidate);
     else children.set(parent, [candidate]);
   }
+  return children;
+};
+
+const finishCrewCost = (
+  session: Session,
+  hasRun: boolean,
+  workers: number,
+  crew: number,
+  partial: boolean
+): CrewCost | null => {
+  const own = typeof session.cost === 'number' && Number.isFinite(session.cost) && session.cost > 0
+    ? session.cost
+    : undefined;
+  const resolvedPartial = own === undefined && hasRun ? true : partial;
+  if (own === undefined && crew === 0 && !resolvedPartial) return null;
+  return { own, crew, workers, partial: resolvedPartial };
+};
+
+type SubtreeAggregate = {
+  workers: number;
+  crew: number;
+  partial: boolean;
+};
+
+const aggregateChildren = (
+  list: readonly Session[],
+  memo: ReadonlyMap<string, SubtreeAggregate>
+): SubtreeAggregate => {
+  let workers = 0;
+  let crew = 0;
+  let partial = false;
+  for (const worker of list) {
+    workers += 1;
+    const cost = worker.cost;
+    if (typeof cost === 'number' && Number.isFinite(cost) && cost > 0) crew += cost;
+    else partial = true;
+    const sub = memo.get(sessionKey(worker));
+    if (sub) {
+      workers += sub.workers;
+      crew += sub.crew;
+      if (sub.partial) partial = true;
+    }
+  }
+  return { workers, crew, partial };
+};
+
+/**
+ * @param session          the session whose badge this is
+ * @param hasRun           whether its own transcript has entries (a never-run session has spent nothing)
+ * @param sessions         every known session, on every instance — workers included
+ * @param childrenByParent optional pre-built parent→workers index to avoid scanning `sessions` repeatedly
+ */
+export const crewCostOf = (
+  session: Session,
+  hasRun: boolean,
+  sessions: readonly Session[],
+  childrenByParent: ReadonlyMap<string, readonly Session[]> = buildChildrenByParent(sessions)
+): CrewCost | null => {
+  const rootKey = sessionKey(session);
+  const direct = childrenByParent.get(rootKey);
+  if (!direct || direct.length === 0) {
+    return finishCrewCost(session, hasRun, 0, 0, false);
+  }
 
   let workers = 0;
   let crew = 0;
   let partial = false;
   const seen = new Set<string>([rootKey]);
-  const queue = [...(children.get(rootKey) ?? [])];
-  while (queue.length > 0) {
-    const worker = queue.shift() as Session;
+  const queue: Session[] = [...direct];
+  for (let head = 0; head < queue.length; head += 1) {
+    const worker = queue[head]!;
     const key = sessionKey(worker);
     // A worker is one conversation: count it once even if a malformed chain reaches it twice.
     if (seen.has(key)) continue;
@@ -73,15 +126,89 @@ export const crewCostOf = (
     // A worker with no priced turn (zero, or no cost at all) has spent something the badge cannot
     // count, so the family total is a floor rather than the bill.
     else partial = true;
-    for (const child of children.get(key) ?? []) queue.push(child);
+    const next = childrenByParent.get(key);
+    if (next) {
+      for (const child of next) queue.push(child);
+    }
   }
 
-  const own = typeof session.cost === 'number' && Number.isFinite(session.cost) && session.cost > 0
-    ? session.cost
-    : undefined;
-  if (own === undefined && hasRun) partial = true;
-  if (own === undefined && crew === 0 && !partial) return null;
-  return { own, crew, workers, partial };
+  return finishCrewCost(session, hasRun, workers, crew, partial);
+};
+
+/**
+ * Compute `crewCostState(crewCostOf(session, hasRun(session), sessions))` for every session in
+ * `sessions` in `O(N)` time: builds `childrenByParent` once, aggregates acyclic subtrees bottom-up,
+ * and falls back to `crewCostOf` only when malformed data contains cycles or duplicate worker keys.
+ */
+export const crewCostsByKey = (
+  sessions: readonly Session[],
+  hasRun: (session: Session) => boolean
+): Map<string, CrewCostState> => {
+  const childrenByParent = new Map<string, Session[]>();
+  const parentOfWorker = new Map<string, string>();
+  let hasDuplicateWorkerKey = false;
+
+  for (const candidate of sessions) {
+    if (!candidate.lead || !isWorker(candidate)) continue;
+    const workerKey = sessionKey(candidate);
+    const parentKey = sessionKey(candidate.lead);
+    if (parentOfWorker.has(workerKey)) hasDuplicateWorkerKey = true;
+    else parentOfWorker.set(workerKey, parentKey);
+    const list = childrenByParent.get(parentKey);
+    if (list) list.push(candidate);
+    else childrenByParent.set(parentKey, [candidate]);
+  }
+
+  const memo = new Map<string, SubtreeAggregate>();
+  if (!hasDuplicateWorkerKey && childrenByParent.size > 0) {
+    const pending = new Map<string, number>();
+    const ready: string[] = [];
+    for (const [parentKey, list] of childrenByParent) {
+      let unresolved = 0;
+      for (const child of list) {
+        if (childrenByParent.has(sessionKey(child))) unresolved += 1;
+      }
+      if (unresolved === 0) {
+        memo.set(parentKey, aggregateChildren(list, memo));
+        ready.push(parentKey);
+      } else {
+        pending.set(parentKey, unresolved);
+      }
+    }
+    for (let head = 0; head < ready.length; head += 1) {
+      const resolvedKey = ready[head]!;
+      const parentKey = parentOfWorker.get(resolvedKey);
+      if (parentKey === undefined) continue;
+      const left = (pending.get(parentKey) ?? 0) - 1;
+      if (left === 0) {
+        pending.delete(parentKey);
+        const list = childrenByParent.get(parentKey);
+        if (list) {
+          memo.set(parentKey, aggregateChildren(list, memo));
+          ready.push(parentKey);
+        }
+      } else {
+        pending.set(parentKey, left);
+      }
+    }
+  }
+
+  const result = new Map<string, CrewCostState>();
+  for (const session of sessions) {
+    const key = sessionKey(session);
+    const ran = hasRun(session);
+    if (!childrenByParent.has(key)) {
+      result.set(key, crewCostState(finishCrewCost(session, ran, 0, 0, false)));
+      continue;
+    }
+    const sub = memo.get(key);
+    if (sub) {
+      result.set(key, crewCostState(finishCrewCost(session, ran, sub.workers, sub.crew, sub.partial)));
+    } else {
+      result.set(key, crewCostState(crewCostOf(session, ran, sessions, childrenByParent)));
+    }
+  }
+  return result;
 };
 
 export type CrewCostState =

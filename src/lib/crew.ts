@@ -200,10 +200,10 @@ export const taskStatusSignal = (worker: Session, state?: BallState): CrewBrickS
 export const leaderNeedsInput = (
   leader: Session,
   sessions: readonly Session[],
-  ownNeedsInput: boolean = leader.needsInput === true
+  ownNeedsInput: boolean = leader.needsInput === true,
+  crews: ReadonlyMap<string, readonly Session[]> = crewByLeader(sessions)
 ): boolean => {
   if (ownNeedsInput) return true;
-  const crews = crewByLeader(sessions);
   const visited = new Set<string>([sessionKey(leader)]);
   const stack = [sessionKey(leader)];
   while (stack.length) {
@@ -222,13 +222,61 @@ export const leaderNeedsInput = (
 };
 
 /**
+ * Every session key in `sessions` that needs input directly (`session.needsInput === true`) or
+ * transitively through its crew (`leaderNeedsInput`), computed in `O(N)` from a single crew map.
+ */
+export const crewNeedsInputKeySet = (
+  sessions: readonly Session[],
+  crews: ReadonlyMap<string, readonly Session[]> = crewByLeader(sessions)
+): Set<string> => {
+  const parentsByChild = new Map<string, string[]>();
+  const descendantNeedsInput = new Set<string>();
+  const queue: string[] = [];
+
+  for (const [parentKey, children] of crews) {
+    for (const child of children) {
+      const childKey = sessionKey(child);
+      const parents = parentsByChild.get(childKey);
+      if (parents) parents.push(parentKey);
+      else parentsByChild.set(childKey, [parentKey]);
+
+      if (child.needsInput === true && !descendantNeedsInput.has(parentKey)) {
+        descendantNeedsInput.add(parentKey);
+        queue.push(parentKey);
+      }
+    }
+  }
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const key = queue[head]!;
+    for (const parentKey of parentsByChild.get(key) ?? []) {
+      if (descendantNeedsInput.has(parentKey)) continue;
+      descendantNeedsInput.add(parentKey);
+      queue.push(parentKey);
+    }
+  }
+
+  const keys = new Set<string>();
+  for (const session of sessions) {
+    const key = sessionKey(session);
+    if (session.needsInput === true || descendantNeedsInput.has(key)) {
+      keys.add(key);
+    }
+  }
+  return keys;
+};
+
+/**
  * How deep a session sits in its crew: 0 for a plain/lead session, 1 for a leader's worker, 2 for a
  * worker's worker, and so on. Walks the same `lead` chain `leaderNeedsInput` does, with the same
  * visited set, so a cycle (a spawn loop, or malformed data) stops instead of recursing forever —
  * a session caught in one is reported at whatever depth the walk first reached it.
  */
-export const crewDepth = (session: Session, sessions: readonly Session[]): number => {
-  const byKey = new Map(sessions.map((entry) => [sessionKey(entry), entry]));
+export const crewDepth = (
+  session: Session,
+  sessions: readonly Session[],
+  byKey: ReadonlyMap<string, Session> = new Map(sessions.map((entry) => [sessionKey(entry), entry]))
+): number => {
   const visited = new Set<string>([sessionKey(session)]);
   let depth = 0;
   let lead = session.lead;
@@ -264,14 +312,14 @@ export type BlockedWorker = {
  */
 export const blockedWorkersUnder = (
   leader: Session,
-  sessions: readonly Session[]
+  sessions: readonly Session[],
+  crews: ReadonlyMap<string, readonly Session[]> = crewByLeader(sessions)
 ): BlockedWorker[] => {
-  const crews = crewByLeader(sessions);
   const visited = new Set<string>([sessionKey(leader)]);
   const blocked: BlockedWorker[] = [];
   const queue: Array<{ key: string; depth: number }> = [{ key: sessionKey(leader), depth: 0 }];
-  while (queue.length) {
-    const { key, depth } = queue.shift() as { key: string; depth: number };
+  for (let head = 0; head < queue.length; head += 1) {
+    const { key, depth } = queue[head]!;
     for (const child of crews.get(key) ?? []) {
       const childKey = sessionKey(child);
       if (visited.has(childKey)) continue;
@@ -295,12 +343,13 @@ export const blockedWorkersUnder = (
  * Order: shallowest first, then most recent, so a direct sub-agent outranks a nested one.
  */
 export const blockedWorkersAmong = (sessions: readonly Session[]): BlockedWorker[] => {
-  const depthByKey = new Map(sessions.map((session) => [sessionKey(session), crewDepth(session, sessions)]));
-  return sessions
-    .filter((session) => isWorker(session) && session.needsInput === true)
+  const blocked = sessions.filter((session) => isWorker(session) && session.needsInput === true);
+  if (blocked.length === 0) return [];
+  const byKey = new Map(sessions.map((session) => [sessionKey(session), session]));
+  return blocked
     .map((worker) => ({
       worker,
-      depth: depthByKey.get(sessionKey(worker)) ?? 1,
+      depth: crewDepth(worker, sessions, byKey),
       title: worker.title?.trim() || `Worker ${worker.id}`,
     }))
     .sort((a, b) => a.depth - b.depth || (b.worker.updated ?? 0) - (a.worker.updated ?? 0));

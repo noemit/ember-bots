@@ -133,7 +133,7 @@ import {
   consumeCompactionFailure,
   type ObservedCompactions,
 } from '@/lib/compaction';
-import { crewCostOf, crewCostState } from '@/lib/crewCost';
+import { crewCostsByKey } from '@/lib/crewCost';
 import { reconcileOutageDismissals, silentInstances, type SilentInstance } from '@/lib/instanceHealth';
 import { needsOnboarding, type OnboardingState } from '@/lib/onboarding';
 import { ReadCoordinator } from '@/lib/readCoordinator';
@@ -186,7 +186,7 @@ import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups
 import { upsertGroup } from './lib/sessionGroups';
 import { recoverStrandedNotes } from './lib/notes';
 import { addNote, removeNote, updateNote } from './lib/noteStore';
-import { crewByLeader, isWorker, leaderNeedsInput, threadRows, threadSourcesFor, workerKeySet } from './lib/crew';
+import { crewByLeader, crewNeedsInputKeySet, isWorker, threadRows, threadSourcesFor, workerKeySet } from './lib/crew';
 import { processesToStopOnHide } from './lib/hideProcesses';
 import { hideElsewhereNote, hideForceStopAsk, hideStopFailure, refusedPids } from './lib/hideStopCopy';
 import { InvalidationQueue, invalidationsFor, parseEmberEvent, sessionIsLoaded, type Invalidation } from '@/lib/invalidation';
@@ -1226,19 +1226,19 @@ export default function App() {
    * What each session has actually cost, its crew included (`lib/crewCost`). Keyed by session, so a
    * column can look its own up without walking the tree again on every render of the list.
    */
-  const crewCostByKey = React.useMemo(() => {
-    const map = new Map<string, ReturnType<typeof crewCostState>>();
-    for (const session of everyKnownSession) {
-      // "Has this run at all?" — the summary's newest entry id answers it without a transcript read;
-      // a priced ledger or a cached transcript covers the instances that send no entry ids.
-      const hasRun =
-        session.lastEntryId !== undefined ||
-        (typeof session.cost === 'number' && session.cost > 0) ||
-        (messageCacheRef.current.get(sessionKey(session))?.length ?? 0) > 0;
-      map.set(sessionKey(session), crewCostState(crewCostOf(session, hasRun, everyKnownSession)));
-    }
-    return map;
-  }, [everyKnownSession]);
+  const crewCostByKey = React.useMemo(
+    () =>
+      crewCostsByKey(
+        everyKnownSession,
+        (session) =>
+          // "Has this run at all?" — the summary's newest entry id answers it without a transcript read;
+          // a priced ledger or a cached transcript covers the instances that send no entry ids.
+          session.lastEntryId !== undefined ||
+          (typeof session.cost === 'number' && session.cost > 0) ||
+          (messageCacheRef.current.get(sessionKey(session))?.length ?? 0) > 0
+      ),
+    [everyKnownSession]
+  );
 
   /**
    * Configured hosts that are not answering, with the sessions Ember still lists from each one's
@@ -1265,18 +1265,19 @@ export default function App() {
     handleSettings({ dismissedOutages: next });
   }, [instances, handleSettings, settingsRef]);
 
+  const allInstanceSessions = React.useMemo(
+    () => Object.values(sessionsByInstance).flat(),
+    [sessionsByInstance]
+  );
+
   /**
    * Crew workers grouped by their leader's key. Workers ride the session list (they are hidden
    * from the rail, not from the fetch), so the strip and the rollup need no extra reads. Built
    * from every known instance, not the recency window, so a busy worker never ages out of view.
    */
   const crewWorkers = React.useMemo(
-    () =>
-      crewByLeader(
-        Object.values(sessionsByInstance)
-          .flat()
-      ),
-    [sessionsByInstance]
+    () => crewByLeader(allInstanceSessions),
+    [allInstanceSessions]
   );
 
   /**
@@ -1284,15 +1285,10 @@ export default function App() {
    * a worker that is itself a leader (transitive), and a worker's own summary flag. A pending
    * worker question is a decision the leader is accountable for, so it rolls all the way up.
    */
-  const crewNeedsInputKeys = React.useMemo(() => {
-    const keys = new Set<string>();
-    const all = Object.values(sessionsByInstance).flat();
-    for (const session of all) {
-      if (session.needsInput !== true && !leaderNeedsInput(session, all)) continue;
-      keys.add(sessionKey(session));
-    }
-    return keys;
-  }, [sessionsByInstance]);
+  const crewNeedsInputKeys = React.useMemo(
+    () => crewNeedsInputKeySet(allInstanceSessions, crewWorkers),
+    [allInstanceSessions, crewWorkers]
+  );
 
   const permissions = React.useMemo(
     () => Object.values(permissionsByInstance).flat(),
