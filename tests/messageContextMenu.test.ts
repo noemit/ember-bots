@@ -18,7 +18,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isMessageRead, markUnreadFrom } from '../src/lib/readState';
 
-const transcript = fs.readFileSync(path.join(import.meta.dir, '../src/components/Transcript.tsx'), 'utf8');
+const transcript = [
+  fs.readFileSync(path.join(import.meta.dir, '../src/components/transcript/MessageRow.tsx'), 'utf8'),
+  fs.readFileSync(path.join(import.meta.dir, '../src/components/transcript/MessageMetadata.tsx'), 'utf8'),
+].join('\n');
 const chatView = fs.readFileSync(path.join(import.meta.dir, '../src/components/ChatView.tsx'), 'utf8');
 
 describe('the reply context menu', () => {
