@@ -25,7 +25,7 @@ import Blob from '../blob/Blob';
 import { useStableCallback } from '@/lib/useStableCallback';
 import { splitSnoozedRail } from '@/lib/snoozedRail';
 import { isWorker } from '@/lib/crew';
-import { groupNewAgentTarget } from '@/lib/railStrip';
+import { groupNewAgentTarget, wideRailStripWidth } from '@/lib/railStrip';
 import { endpointState, instanceReady, railEmptyCopy } from '@/lib/instanceHealth';
 import {
   buildRailEntries,
@@ -206,6 +206,34 @@ export default function LeftRail({
   }, [docked, mode, selectedKey]);
   const dockCentre = Math.max(composerConnection.metrics?.centre ?? 64, dockHeight / 2);
   const dockBandHeight = Math.max(composerConnection.metrics?.height ?? 128, dockCentre + dockHeight / 2);
+  const [scrollerWidth, setScrollerWidth] = React.useState<number | null>(null);
+  React.useLayoutEffect(() => {
+    const element = scroller.current;
+    if (mode !== 'wide' || !element) return;
+    const measure = (entries?: ResizeObserverEntry[]) => {
+      const raw =
+        element.clientWidth > 0
+          ? element.clientWidth
+          : Math.floor(entries?.[0]?.contentRect.width ?? 0);
+      const next = raw > 0 ? raw : null;
+      setScrollerWidth((previous) => (previous === next ? previous : next));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return () => setScrollerWidth(null);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      setScrollerWidth(null);
+    };
+  }, [mode]);
+  const wideStripWidth =
+    mode === 'wide'
+      ? wideRailStripWidth(
+          scrollerWidth,
+          typeof window === 'undefined' ? undefined : window.innerWidth
+        )
+      : undefined;
   const focusDock = React.useRef(false);
   const followBottom = React.useRef(true);
   React.useLayoutEffect(() => {
@@ -586,9 +614,9 @@ export default function LeftRail({
         unreadKeys={unreadKeys}
         quietKeys={quietKeys}
         onQuietChange={quietChange}
-        // The strip gets the extra room the widened rail bought (roughly: half the window, less
-        // the rail's own padding), so a project's blobs spread out instead of huddling left.
-        stripWidth={mode === 'wide' ? 660 : undefined}
+        // Measure the widened rail's scroll container instead of assuming 660px so viewports
+        // below 1392px fit only the 56px slots + `+N` overflow chip that genuinely clear the card.
+        stripWidth={wideStripWidth}
       />
     );
   };

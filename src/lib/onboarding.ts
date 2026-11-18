@@ -133,4 +133,8 @@ export const workspaceHint = (root: string | null): string => {
 export const onboardingModelReady = (model: ModelRef | undefined, models: ModelOption[]): boolean =>
   Boolean(model && models.some((entry) => modelRefKey(entry) === modelRefKey(model)));
 
+/** Fresh setup requires a chosen default model before dismissing via Skip or Escape. */
+export const canDismissOnboarding = (startAtWelcome: boolean, modelReady: boolean): boolean =>
+  !startAtWelcome || modelReady;
+
 export const OPENCODE_ONBOARDING_TIP = 'No provider account yet? You can sign in or sign up on OpenCode’s website, which may offer free models. Availability and pricing can change; not every model is free. Copy an API key from OpenCode, paste it into OpenCode Zen below and select Save, then choose a model.';

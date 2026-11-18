@@ -105,7 +105,14 @@ import {
   type PromptInput,
   type ScheduledTask,
 } from './api';
-import { buildScheduledRuns, countUnseenScheduledRuns, scheduledReadSessions } from './lib/scheduledView';
+import {
+  applyScheduledModelSelection,
+  buildScheduledRuns,
+  countUnseenScheduledRuns,
+  scheduledModelConfirmLabel,
+  scheduledReadSessions,
+  type ScheduledModelTarget,
+} from './lib/scheduledView';
 import { isPiInstance, piLoadModels, piRefreshModels } from './piApi';
 import { emptyHomeTarget, newSessionTarget } from './lib/emptyHome';
 import { useStableCallback } from '@/lib/useStableCallback';
@@ -229,7 +236,6 @@ import type {
   MessagesStatus,
   MessageQueueSession,
   Instance,
-  ModelRef,
   PermissionReply,
   PermissionRequest,
   Project,
@@ -408,7 +414,7 @@ export default function App() {
   const [scheduledTaskNames, setScheduledTaskNames] = React.useState<Record<string, string>>({});
   const [scheduledTasksByKey, setScheduledTasksByKey] = React.useState<Record<string, ScheduledTask>>({});
   const [runningScheduledKeys, setRunningScheduledKeys] = React.useState<Set<string>>(() => new Set());
-  const [scheduledModelTarget, setScheduledModelTarget] = React.useState<ScheduledTask | null>(null);
+  const [scheduledModelTarget, setScheduledModelTarget] = React.useState<ScheduledModelTarget | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [instancesLoaded, setInstancesLoaded] = React.useState(false);
   // Width of the column area, measured with a ResizeObserver; how many columns fit depends on it.
@@ -2647,41 +2653,34 @@ export default function App() {
     }
   });
 
+  /** Update a scheduled plan's configured model without launching an immediate run. */
   const handleChangeScheduledTaskModel = useStableCallback((task: ScheduledTask) =>
-    setScheduledModelTarget(task)
+    setScheduledModelTarget({ task, runImmediately: false })
   );
 
-  /**
-   * Persist a task's new model, then run it — the point of the flow is to fix an errored task and
-   * retry it with a working model. The task's own JSON is replayed so schedule/prompt survive.
-   */
-  const handleScheduledModelSelect = async (task: ScheduledTask, key: string, variant: string) => {
-    const models = modelsByInstance[task.instanceId];
-    let model: ModelRef | null = null;
-    if (key === DEFAULT_MODEL) {
-      const fallback = models?.models.find((option) => modelRefKey(option) === models.defaultModelId);
-      if (fallback) model = { providerID: fallback.providerID, modelID: fallback.modelID };
-    } else {
-      const slash = key.indexOf('/');
-      if (slash > 0) model = { providerID: key.slice(0, slash), modelID: key.slice(slash + 1) };
-    }
-    if (!model) {
-      showActionError('Pick a concrete model for the scheduled task.');
-      return;
-    }
-    if (variant) model.variant = variant;
-    const result = await updateScheduledTaskModel(task.instanceId, task, model);
-    if (!result.ok) {
-      showActionError(result.error ?? `Could not update “${task.name}”.`);
-      return;
-    }
-    const updated = result.task ?? { ...task, model };
-    setScheduledTasksByKey((prev) => ({ ...prev, [updated.key]: updated }));
-    setActionNotice({
-      message: `Updated “${task.name}” to ${model.providerID}/${model.modelID} — starting a run.`,
+  /** Update a scheduled plan's model and immediately launch a retry run ("Change model & run…"). */
+  const handleChangeAndRunScheduledTaskModel = useStableCallback((task: ScheduledTask) =>
+    setScheduledModelTarget({ task, runImmediately: true })
+  );
+
+  const handleScheduledModelSelect = async (
+    target: ScheduledModelTarget,
+    key: string,
+    variant: string,
+  ) => {
+    await applyScheduledModelSelection({
+      target,
+      key,
+      variant,
+      models: modelsByInstance[target.task.instanceId],
+      updateModel: updateScheduledTaskModel,
+      onUpdated: (updated) =>
+        setScheduledTasksByKey((prev) => ({ ...prev, [updated.key]: updated })),
+      onNotice: (message) => setActionNotice({ message }),
+      onError: showActionError,
+      onRefreshScheduled: (instanceId) => void refreshScheduled([instanceId]),
+      onRunTask: (updated) => void handleRunScheduledTask(updated),
     });
-    void refreshScheduled([task.instanceId]);
-    void handleRunScheduledTask(updated);
   };
 
   // ---- Event streams: hints invalidate, refreshers refetch. ----
@@ -5887,7 +5886,7 @@ export default function App() {
               scheduledTaskBySession={scheduledTaskBySession}
               runningScheduledKeys={runningScheduledKeys}
               onRunScheduledTask={(task) => void handleRunScheduledTask(task)}
-              onChangeScheduledTaskModel={handleChangeScheduledTaskModel}
+              onChangeScheduledTaskModel={handleChangeAndRunScheduledTaskModel}
               onOpenArchive={() => navigateWithAnnotations(() => setArchiveOpen(true))}
               onSelectSession={(session) => {
                 if (session.archived) void handleRestoreAndOpen(session);
@@ -6254,15 +6253,16 @@ export default function App() {
             <React.Suspense fallback={null}>
               <ModelPicker
                 open
-                models={modelsByInstance[scheduledModelTarget.instanceId]?.models ?? []}
-                recentModels={recentModelsByInstance[scheduledModelTarget.instanceId] ?? []}
-                value={scheduledModelTarget.model ? modelRefKey(scheduledModelTarget.model) : ''}
-                variant={scheduledModelTarget.model?.variant ?? ''}
-                defaultModelId={modelsByInstance[scheduledModelTarget.instanceId]?.defaultModelId ?? null}
-                instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[scheduledModelTarget.instanceId], modelsByInstance[scheduledModelTarget.instanceId]?.defaultModelId)}
-                onSetInstanceDefault={(model) => setInstanceDefaultModel(scheduledModelTarget.instanceId, model)}
+                models={modelsByInstance[scheduledModelTarget.task.instanceId]?.models ?? []}
+                recentModels={recentModelsByInstance[scheduledModelTarget.task.instanceId] ?? []}
+                value={scheduledModelTarget.task.model ? modelRefKey(scheduledModelTarget.task.model) : ''}
+                variant={scheduledModelTarget.task.model?.variant ?? ''}
+                defaultModelId={modelsByInstance[scheduledModelTarget.task.instanceId]?.defaultModelId ?? null}
+                instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[scheduledModelTarget.task.instanceId], modelsByInstance[scheduledModelTarget.task.instanceId]?.defaultModelId)}
+                onSetInstanceDefault={(model) => setInstanceDefaultModel(scheduledModelTarget.task.instanceId, model)}
                 collapseProviders
-                onRefresh={() => refreshModels(scheduledModelTarget.instanceId, { upstream: true })}
+                onRefresh={() => refreshModels(scheduledModelTarget.task.instanceId, { upstream: true })}
+                confirmLabel={scheduledModelConfirmLabel(scheduledModelTarget.runImmediately)}
                 onSelect={(key, variant) => void handleScheduledModelSelect(scheduledModelTarget, key, variant)}
                 onOpenChange={(open) => {
                   if (!open) setScheduledModelTarget(null);

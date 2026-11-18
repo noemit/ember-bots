@@ -1,6 +1,7 @@
 import type { ProjectUsage } from '../lib/projectUsage';
 import * as React from 'react';
-import { ArrowLeftRight, Boxes, Cpu, Laptop, Monitor, ArrowRight, Check, CircleAlert, FolderOpen, KeyRound, Loader2, PlugZap, Sparkles } from 'lucide-react';
+import { Dialog as DialogPrimitive } from 'radix-ui';
+import { ArrowLeftRight, Boxes, Cpu, Laptop, Monitor, ArrowRight, Check, CircleAlert, FolderOpen, KeyRound, Loader2, PlugZap, RefreshCw, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import OnboardingPrivacy from './OnboardingPrivacy';
 import Blob from '../blob/Blob';
@@ -14,6 +15,7 @@ import ProjectPicker from './ProjectPicker';
 import { withInstanceDefaultModel } from '@/lib/instanceDefaultModel';
 import { cn } from '@/lib/utils';
 import {
+  canDismissOnboarding,
   canFinish,
   onboardingModelReady,
   OPENCODE_ONBOARDING_TIP,
@@ -42,7 +44,7 @@ type Props = {
   onDismiss: () => void;
   onRetryLocal: () => Promise<void>;
   onRefreshInstances: () => void;
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onStartAgent: (input: { instanceId: string; directory: string | null }) => void;
   loadToken?: (options?: { rotate?: boolean }) => Promise<LocalHarnessToken>;
 };
@@ -93,8 +95,11 @@ export default function OnboardingWizard({
   loadToken,
 }: Props) {
   const steps = React.useMemo(() => stepsFor(state), [state]);
-  const [active, setActive] = React.useState<OnboardingStepId>('welcome');
+  const initialStep: OnboardingStepId = startAtWelcome ? 'welcome' : state.localReady ? 'providers' : 'connection';
+  const [active, setActive] = React.useState<OnboardingStepId>(initialStep);
   const [retrying, setRetrying] = React.useState(false);
+  const returnFocus = React.useRef<HTMLElement | null>(null);
+  const activeStepButton = React.useRef<HTMLButtonElement | null>(null);
   const marks = stepStates(state, localProblem);
   const target = state.targetInstanceId;
   const [projectChoice, setProjectChoice] = React.useState<{ instanceId: string | null; directory: string }>({ instanceId: null, directory: '' });
@@ -108,7 +113,7 @@ export default function OnboardingWizard({
     instances.find((instance) => instance.id === target)?.kind !== 'pi'
   ));
   const modelReady = providersReady && onboardingModelReady(defaultModel, models);
-  const canDismiss = !startAtWelcome || modelReady;
+  const canDismiss = canDismissOnboarding(startAtWelcome, modelReady);
   if (modelReady) marks.providers = { kind: 'done' };
 
   const hasOpened = React.useRef(false);
@@ -116,20 +121,13 @@ export default function OnboardingWizard({
     if (!open) { hasOpened.current = false; return; }
     if (hasOpened.current) return;
     hasOpened.current = true;
-    setActive(startAtWelcome ? 'welcome' : state.localReady ? 'providers' : 'connection');
-  }, [open, startAtWelcome, state.localReady]);
+    setActive(initialStep);
+  }, [open, initialStep]);
 
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented && canDismiss) {
-        event.preventDefault();
-        onDismiss();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onDismiss, canDismiss]);
+    activeStepButton.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [open, active]);
 
   if (!open) return null;
 
@@ -154,174 +152,222 @@ export default function OnboardingWizard({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="onboarding-title"
-      data-testid="onboarding"
-      className="fixed inset-0 z-50 isolate overflow-hidden bg-background text-base [&_button]:text-base"
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && canDismiss) onDismiss();
+      }}
     >
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-        style={{ backgroundImage: `radial-gradient(ellipse at 100% 0%, color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 10%, transparent), transparent 55%), radial-gradient(ellipse at 0% 100%, color-mix(in oklab, ${blobColor('crystal', 'onboarding-crystalglow')} 10%, transparent), transparent 50%)` }}>
-        <div
-          data-testid="onboarding-lava-glow"
-          className="absolute -right-24 -top-24 size-[400px] rotate-12 rounded-full opacity-15"
-          style={{
-            backgroundImage: `radial-gradient(circle at 46% 52%, color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 65%, #fbbf24), color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 80%, #ea580c) 38%, transparent 70%)`,
-          }}
-        />
-        <div className="absolute -bottom-24 -left-20 -rotate-12 opacity-10 blur-[40px]">
-          <Blob style="crystal" seed="onboarding-crystalglow" size={340} mood="idle" interactive={false} />
-        </div>
-      </div>
-      <div data-testid="onboarding-surface" className="flex h-full w-full flex-col">
-        <div className="flex items-center justify-between gap-4 border-b border-border/60 bg-background/65 px-6 py-[26px] backdrop-blur-xl">
-          <h2 id="onboarding-title" className="text-base font-semibold">
-            Setting up Ember Bots
-          </h2>
-          <div className="flex items-center gap-2">
-            <span className="text-base text-muted-foreground">
-              Step {index + 1} of {steps.length}
-            </span>
-            <Button size="sm" variant="ghost" onClick={onDismiss} disabled={!canDismiss} title={!canDismiss ? "Choose a default model in Choose an AI before finishing setup" : undefined}>
-              Skip for now
-            </Button>
+      <DialogPrimitive.Content
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
+        data-testid="onboarding"
+        onEscapeKeyDown={(event) => {
+          if (!canDismiss) event.preventDefault();
+        }}
+        onInteractOutside={(event) => event.preventDefault()}
+        onOpenAutoFocus={() => {
+          if (typeof document !== 'undefined') {
+            returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          }
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (typeof document !== 'undefined' && document.activeElement && document.activeElement !== document.body) {
+            return;
+          }
+          const previous = returnFocus.current;
+          if (previous?.isConnected && previous !== document.body) previous.focus();
+        }}
+        className="fixed inset-0 z-50 isolate overflow-hidden bg-background text-base outline-none [&_button]:text-base"
+      >
+        <DialogPrimitive.Description asChild>
+          <span className="sr-only">Set up Kiln, AI providers, and your workspace in Ember Bots.</span>
+        </DialogPrimitive.Description>
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+          style={{ backgroundImage: `radial-gradient(ellipse at 100% 0%, color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 10%, transparent), transparent 55%), radial-gradient(ellipse at 0% 100%, color-mix(in oklab, ${blobColor('crystal', 'onboarding-crystalglow')} 10%, transparent), transparent 50%)` }}>
+          <div
+            data-testid="onboarding-lava-glow"
+            className="absolute -right-24 -top-24 size-[400px] rotate-12 rounded-full opacity-15"
+            style={{
+              backgroundImage: `radial-gradient(circle at 46% 52%, color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 65%, #fbbf24), color-mix(in oklab, ${blobColor('lava', 'onboarding-fireglow')} 80%, #ea580c) 38%, transparent 70%)`,
+            }}
+          />
+          <div className="absolute -bottom-24 -left-20 -rotate-12 opacity-10 blur-[40px]">
+            <Blob style="crystal" seed="onboarding-crystalglow" size={340} mood="idle" interactive={false} />
           </div>
         </div>
+        <div data-testid="onboarding-surface" className="flex h-full w-full flex-col">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border/60 bg-background/65 px-4 py-3.5 backdrop-blur-xl md:flex-nowrap md:gap-4 md:px-6 md:py-[26px]">
+            <DialogPrimitive.Title id="onboarding-title" className="text-base font-semibold">
+              Setting up Ember Bots
+            </DialogPrimitive.Title>
+            <div className="flex items-center gap-2">
+              <span className="text-base text-muted-foreground">
+                Step {index + 1} of {steps.length}
+              </span>
+              <Button size="sm" variant="ghost" onClick={onDismiss} disabled={!canDismiss} title={!canDismiss ? "Choose a default model in Choose an AI before finishing setup" : undefined}>
+                Skip for now
+              </Button>
+            </div>
+          </div>
 
-        <div className="flex min-h-0 flex-1">
-          {/* The plan, not tabs: a tick means done, a dot means not yet, and a warning is the one
-              step whose failure changes what the rest of the list means. */}
-          <ol className="flex w-[260px] flex-none flex-col gap-0.5 border-r border-border/60 bg-background/45 p-3 backdrop-blur-xl" aria-label="Setup steps">
-            {steps.map((entry: OnboardingStep, position) => {
-              const mark = marks[entry.id];
-              const Icon = stepIcon(entry.id);
-              const current = entry.id === step.id;
-              return (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    onClick={() => setActive(entry.id)}
-                    aria-current={current ? 'step' : undefined}
-                    className={cn(
-                      'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-                      current ? 'bg-background shadow-sm' : 'hover:bg-background/60'
-                    )}
-                  >
-                    <span className="mt-0.5 flex-none">
-                      {mark.kind === 'done' ? (
-                        <Check className="size-3.5 text-success" />
-                      ) : mark.kind === 'failed' ? (
-                        <CircleAlert className="size-3.5 text-destructive" />
-                      ) : (
-                        <Icon className={cn('size-3.5', current ? 'text-foreground' : 'text-muted-foreground')} />
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+            {/* The plan, not tabs: a tick means done, a dot means not yet, and a warning is the one
+                step whose failure changes what the rest of the list means. */}
+            <ol
+              className="flex w-full flex-none flex-row gap-1.5 overflow-x-auto border-b border-border/60 bg-background/45 px-3 py-2 backdrop-blur-xl md:w-[240px] md:flex-col md:gap-0.5 md:overflow-y-auto md:overflow-x-hidden md:border-r md:border-b-0 md:p-3 lg:w-[260px]"
+              aria-label="Setup steps"
+            >
+              {steps.map((entry: OnboardingStep, position) => {
+                const mark = marks[entry.id];
+                const Icon = stepIcon(entry.id);
+                const current = entry.id === step.id;
+                return (
+                  <li key={entry.id} className="flex-none md:w-full">
+                    <button
+                      ref={current ? activeStepButton : undefined}
+                      type="button"
+                      onClick={() => setActive(entry.id)}
+                      aria-current={current ? 'step' : undefined}
+                      className={cn(
+                        'flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-1.5 text-left transition-colors md:w-full md:items-start md:whitespace-normal md:rounded-md md:px-2',
+                        current ? 'bg-background shadow-sm ring-1 ring-border/60 md:ring-0' : 'hover:bg-background/60'
                       )}
-                    </span>
-                    <span className="flex min-w-0 flex-col">
-                      <span className={cn('text-base', current ? 'font-medium text-foreground' : 'text-muted-foreground')}>
-                        {position + 1}. {entry.title}
+                    >
+                      <span className="flex-none md:mt-0.5">
+                        {mark.kind === 'done' ? (
+                          <Check className="size-3.5 text-success" />
+                        ) : mark.kind === 'failed' ? (
+                          <CircleAlert className="size-3.5 text-destructive" />
+                        ) : (
+                          <Icon className={cn('size-3.5', current ? 'text-foreground' : 'text-muted-foreground')} />
+                        )}
                       </span>
-                      <span className="text-base leading-snug text-muted-foreground">{entry.summary}</span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+                      <span className="flex min-w-0 flex-col">
+                        <span className={cn('text-base', current ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+                          {position + 1}. {entry.title}
+                        </span>
+                        <span className="hidden text-base leading-snug text-muted-foreground md:block">{entry.summary}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background/50">
-            <div className="min-h-0 flex-1 overflow-y-auto px-8 py-7">
-              {step.id === 'welcome' ? <Welcome /> : null}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background/50">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-8 md:py-7">
+                {step.id === 'welcome' ? <Welcome /> : null}
 
-              {step.id === 'connection' ? (
-                <Connection
-                  state={state}
-                  problem={localProblem}
-                  retrying={retrying}
-                  onRetry={retry}
-                  endpoints={endpoints}
-                  instances={instances}
-                  onChange={onChange}
-                  onAdded={onRefreshInstances}
-                />
-              ) : null}
+                {step.id === 'connection' ? (
+                  <Connection
+                    state={state}
+                    problem={localProblem}
+                    retrying={retrying}
+                    onRetry={retry}
+                    endpoints={endpoints}
+                    instances={instances}
+                    onChange={onChange}
+                    onAdded={onRefreshInstances}
+                  />
+                ) : null}
 
-              {step.id === 'token' ? (
-                <Token state={state} compact={isCompactStep('token', state)} loadToken={loadToken} />
-              ) : null}
+                {step.id === 'token' ? (
+                  <Token state={state} compact={isCompactStep('token', state)} loadToken={loadToken} />
+                ) : null}
 
-              {step.id === 'providers' && providersReady ? (
-                <div className="mb-6 flex flex-col gap-2">
-                  <label htmlFor="onboarding-default-model" className="font-semibold">Default model for {instances.find((instance) => instance.id === target)?.label ?? 'this instance'}</label>
-                  <p className="text-muted-foreground">Choose the model Ember will use for new bots on this instance. This does not change Kiln’s own default or existing conversations.</p>
-                  <select id="onboarding-default-model" className="h-10 rounded-md border bg-background px-3" value={defaultModel ? modelRefKey(defaultModel) : ''} onChange={(event) => {
-                    const model = models.find((entry) => modelRefKey(entry) === event.target.value);
-                    if (!target || !model) return;
-                    onChange({ instanceDefaults: { ...instanceDefaults, [target]: withInstanceDefaultModel(instanceDefaults[target], model) } });
-                  }}>
-                    <option value="" disabled>Choose a default model</option>
-                    {defaultModel && !modelReady ? <option value={modelRefKey(defaultModel)} disabled>{modelRefKey(defaultModel)} (unavailable)</option> : null}
-                    {models.map((model) => <option key={modelRefKey(model)} value={modelRefKey(model)}>{model.label}</option>)}
-                  </select>
-                  {!modelReady ? <p className="text-muted-foreground">Choose an available model, then select Continue. If a model is missing, refresh models or connect another provider below.</p> : null}
-                  <Button variant="ghost" onClick={() => { if (target) onRefreshModels(target); }} disabled={!target}>Refresh models</Button>
-                </div>
-              ) : null}
-
-              {step.id === 'providers' ? (
-                <>
-                  {!target ? (
-                    <div className="mb-6 flex flex-col items-start gap-2 text-muted-foreground">
-                      <p>Ember needs a connected Kiln before it can list providers or models. Retry this computer or connect another host.</p>
-                      <Button variant="secondary" onClick={() => setActive('connection')}>Where to run Kiln</Button>
+                {step.id === 'providers' && providersReady ? (
+                  <div className="mb-6 flex flex-col gap-3 rounded-xl border border-border/80 bg-card/60 p-4 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label htmlFor="onboarding-default-model" className="text-base font-semibold">
+                        Default model for {instances.find((instance) => instance.id === target)?.label ?? 'this instance'}
+                      </label>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => { if (target) onRefreshModels(target); }}
+                        disabled={!target}
+                      >
+                        <RefreshCw className="size-3.5" />
+                        Refresh models
+                      </Button>
                     </div>
-                  ) : null}
-                  <Providers instanceDefaults={instanceDefaults} state={state} endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onRefreshInstances} onRefreshModels={onRefreshModels} onProviderCatalog={(id, providers) => setProviderCatalog({ id, providers })} providersReady={providersReady} />
-                </>
-              ) : null}
+                    <p className="text-base text-muted-foreground">Choose the model Ember will use for new bots on this instance. This does not change Kiln’s own default or existing conversations.</p>
+                    <select
+                      id="onboarding-default-model"
+                      className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-base shadow-xs transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                      value={defaultModel ? modelRefKey(defaultModel) : ''}
+                      onChange={(event) => {
+                        const model = models.find((entry) => modelRefKey(entry) === event.target.value);
+                        if (!target || !model) return;
+                        onChange({ instanceDefaults: { ...instanceDefaults, [target]: withInstanceDefaultModel(instanceDefaults[target], model) } });
+                      }}
+                    >
+                      <option value="" disabled>Choose a default model</option>
+                      {defaultModel && !modelReady ? <option value={modelRefKey(defaultModel)} disabled>{modelRefKey(defaultModel)} (unavailable)</option> : null}
+                      {models.map((model) => <option key={modelRefKey(model)} value={modelRefKey(model)}>{model.label}</option>)}
+                    </select>
+                    {!modelReady ? <p className="text-base text-muted-foreground">Choose an available model, then select Continue. If a model is missing, refresh models or connect another provider below.</p> : null}
+                  </div>
+                ) : null}
 
-              {step.id === 'first-agent' ? (
-                <FirstAgent
-                  key={state.targetInstanceId}
-                  instanceDefaults={instanceDefaults}
-                  projectUsageByInstance={projectUsageByInstance}
-                  state={state}
-                  instances={instances}
-                  onChange={onChange}
-                  onStart={next}
-                  project={project}
-                  setProject={setProject}
-                  modelReady={modelReady}
-                />
-              ) : null}
-              {step.id === 'privacy' ? <OnboardingPrivacy /> : null}
-            </div>
+                {step.id === 'providers' ? (
+                  <>
+                    {!target ? (
+                      <div className="mb-6 flex flex-col items-start gap-2 text-muted-foreground">
+                        <p>Ember needs a connected Kiln before it can list providers or models. Retry this computer or connect another host.</p>
+                        <Button variant="secondary" onClick={() => setActive('connection')}>Where to run Kiln</Button>
+                      </div>
+                    ) : null}
+                    <Providers instanceDefaults={instanceDefaults} state={state} endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onRefreshInstances} onRefreshModels={onRefreshModels} onProviderCatalog={(id, providers) => setProviderCatalog({ id, providers })} providersReady={providersReady} />
+                  </>
+                ) : null}
 
-            <div className="flex items-center gap-2 border-t border-border/60 bg-background/65 px-6 py-4 backdrop-blur-xl">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setActive(steps[Math.max(0, index - 1)]?.id ?? 'welcome')}
-                disabled={index === 0}
-              >
-                Back
-              </Button>
-              <div className="flex-1" />
-              {last && !modelReady ? <span className="text-base text-muted-foreground">Choose a default model in Choose an AI before finishing setup.</span> : null}
-              {last || (canFinish(state) && step.id === 'first-agent') ? null : (
-                <span className="text-base text-muted-foreground">
-                  {step.id === 'providers' && !providersReady ? 'Connect a provider first' : step.id === 'providers' && !modelReady ? 'Choose a default model to continue' : marks[step.id]?.kind === 'pending' ? 'Continue when you’re ready' : ''}
-                </span>
-              )}
-              <Button size="sm" disabled={(last || step.id === 'providers' || step.id === 'first-agent') && !modelReady} onClick={last ? finish : next} data-testid="onboarding-next">
-                {last ? 'Finish' : canFinish(state) && step.id === 'providers' ? 'Continue' : 'Next'}
-                <ArrowRight />
-              </Button>
+                {step.id === 'first-agent' ? (
+                  <FirstAgent
+                    key={state.targetInstanceId}
+                    instanceDefaults={instanceDefaults}
+                    projectUsageByInstance={projectUsageByInstance}
+                    state={state}
+                    instances={instances}
+                    onChange={onChange}
+                    onStart={next}
+                    project={project}
+                    setProject={setProject}
+                    modelReady={modelReady}
+                  />
+                ) : null}
+                {step.id === 'privacy' ? <OnboardingPrivacy /> : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-background/65 px-4 py-3 backdrop-blur-xl md:flex-nowrap md:px-6 md:py-4">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setActive(steps[Math.max(0, index - 1)]?.id ?? 'welcome')}
+                  disabled={index === 0}
+                >
+                  Back
+                </Button>
+                <div className="flex-1" />
+                {last && !modelReady ? <span className="text-sm text-muted-foreground md:text-base">Choose a default model in Choose an AI before finishing setup.</span> : null}
+                {last || (canFinish(state) && step.id === 'first-agent') ? null : (
+                  <span className="text-sm text-muted-foreground md:text-base">
+                    {step.id === 'providers' && !providersReady ? 'Connect a provider first' : step.id === 'providers' && !modelReady ? 'Choose a default model to continue' : marks[step.id]?.kind === 'pending' ? 'Continue when you’re ready' : ''}
+                  </span>
+                )}
+                <Button size="sm" disabled={(last || step.id === 'providers' || step.id === 'first-agent') && !modelReady} onClick={last ? finish : next} data-testid="onboarding-next">
+                  {last ? 'Finish' : canFinish(state) && step.id === 'providers' ? 'Continue' : 'Next'}
+                  <ArrowRight />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Root>
   );
 }
 
@@ -374,7 +420,7 @@ function KilnDiagram() {
 function Welcome() {
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-4">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:gap-4">
         <div className="flex-none p-2">
           <Blob style="buddy" seed="onboarding" size={56} mood="thinking" />
         </div>
@@ -514,12 +560,12 @@ function Token({
 function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
   endpoints: PiEndpoint[];
   instances: Instance[];
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onAdded: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-base text-muted-foreground">Connect to another computer with its Kiln URL and bearer token. Ember’s included Kiln can be shared deliberately from Settings → Instances → Share this Kiln on that computer. Tinder runs a standalone Kiln independently of Ember.</p>
+      <p className="text-base text-muted-foreground">Connect to another computer with its Kiln URL and bearer token. Ember’s included Kiln can be shared deliberately from Settings → Remote access → Share this Kiln on that computer. Tinder runs a standalone Kiln independently of Ember.</p>
       <EndpointsInline endpoints={endpoints} instances={instances} onChange={onChange} onAdded={onAdded} />
     </div>
   );
@@ -533,7 +579,7 @@ function EndpointsInline({
 }: {
   endpoints: PiEndpoint[];
   instances: Instance[];
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onAdded: () => void;
 }) {
   const EndpointsSettings = React.lazy(() => import('./EndpointsSettings'));
@@ -575,7 +621,7 @@ function Providers({
         computer, then choose Test / Refresh in the Ollama section below. Or connect an AI service
         such as OpenAI or Anthropic by signing in or pasting its API key.
       </p>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
         <span aria-hidden="true" className="relative inline-flex size-20 flex-none">
           <Blob style="buddy" seed={tipSeed} size={80} mood="thinking" />
           <svg viewBox="0 0 100 100" className="pointer-events-none absolute inset-0 size-full"><MoodBadge mood="question" /></svg>
@@ -586,6 +632,7 @@ function Providers({
         </aside>
       </div>
       <ProvidersSettings
+        onboarding
         onProviderCatalog={onProviderCatalog}
         endpoints={endpoints}
         instances={instances}

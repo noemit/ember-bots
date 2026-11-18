@@ -71,7 +71,7 @@ type Props = {
   projectUsageByInstance?: Record<string, ProjectUsage[]>;
   modelsByInstance: Record<string, ModelList>;
   recentModelsByInstance: Record<string, string[]>;
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onOpenChange: (open: boolean) => void;
   onViewChange: (view: SettingsView) => void;
   /** Reprobe instances after the endpoint list changes, so a new Hearth attaches promptly. */
@@ -135,6 +135,45 @@ const BLOB_STYLE_COPY = {
 };
 const BLOB_STYLES = ACTIVE_BLOB_STYLES.map(id => ({ id, ...BLOB_STYLE_COPY[id] }));
 
+export const allInstancesBypassEnabled = (
+  instances: readonly Pick<Instance, 'id'>[],
+  instanceDefaults: Record<string, InstanceDefaults>,
+): boolean => instances.length > 0 && instances.every((instance) => instanceDefaults[instance.id]?.bypass === true);
+
+export const applyDefaultsToAllInstances = (
+  instances: readonly Pick<Instance, 'id'>[],
+  instanceDefaults: Record<string, InstanceDefaults>,
+  patch: Partial<InstanceDefaults>,
+): Record<string, InstanceDefaults> => {
+  const next: Record<string, InstanceDefaults> = { ...instanceDefaults };
+  for (const instance of instances) next[instance.id] = { ...(next[instance.id] ?? {}), ...patch };
+  return next;
+};
+
+export const toggleFleetYoloAction = (
+  instances: readonly Pick<Instance, 'id'>[],
+  instanceDefaults: Record<string, InstanceDefaults>,
+): { confirming: boolean; nextDefaults?: Record<string, InstanceDefaults> } => {
+  if (allInstancesBypassEnabled(instances, instanceDefaults)) {
+    return {
+      confirming: false,
+      nextDefaults: applyDefaultsToAllInstances(instances, instanceDefaults, { bypass: false }),
+    };
+  }
+  return { confirming: true };
+};
+
+export const confirmFleetYoloOn = (
+  instances: readonly Pick<Instance, 'id'>[],
+  instanceDefaults: Record<string, InstanceDefaults>,
+): Record<string, InstanceDefaults> =>
+  applyDefaultsToAllInstances(instances, instanceDefaults, { bypass: true });
+
+export const fleetYoloConfirmationCopy = (instances: readonly Pick<Instance, 'id' | 'label'>[]): string =>
+  instances.length === 1
+    ? `Enable YOLO mode by default on ${instances[0].label}? New conversations there will approve every tool call automatically. Existing chats keep their settings.`
+    : `Enable YOLO mode by default across all ${instances.length} computers and containers? New conversations on each Kiln will approve every tool call automatically. Existing chats keep their settings.`;
+
 /**
  * Defaults for starting work, one row per instance.
  *
@@ -143,7 +182,7 @@ const BLOB_STYLES = ACTIVE_BLOB_STYLES.map(id => ({ id, ...BLOB_STYLE_COPY[id] }
  * pick the next, set it again. A table makes every instance visible at once, and the row above the
  * fold sets them all in one go.
  */
-const InstanceDefaultsSettings = ({
+export const InstanceDefaultsSettings = ({
   instances,
   projectsByInstance,
   projectUsageByInstance,
@@ -152,9 +191,13 @@ const InstanceDefaultsSettings = ({
   settings,
   onChange,
   onRefreshModels,
-}: Pick<Props, 'instances' | 'projectsByInstance' | 'projectUsageByInstance' | 'modelsByInstance' | 'recentModelsByInstance' | 'settings' | 'onChange' | 'onRefreshModels'>) => {
+  initialConfirmingYoloAll = false,
+}: Pick<Props, 'instances' | 'projectsByInstance' | 'projectUsageByInstance' | 'modelsByInstance' | 'recentModelsByInstance' | 'settings' | 'onChange' | 'onRefreshModels'> & {
+  initialConfirmingYoloAll?: boolean;
+}) => {
   const [editing, setEditing] = React.useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
+  const [confirmingYoloAll, setConfirmingYoloAll] = React.useState(initialConfirmingYoloAll);
 
   if (instances.length === 0) {
     return (
@@ -176,10 +219,11 @@ const InstanceDefaultsSettings = ({
 
   /** Write the same patch to every instance — the "same everywhere" affordance. */
   const updateAll = (patch: Partial<InstanceDefaults>) => {
-    const next: Record<string, InstanceDefaults> = { ...settings.instanceDefaults };
-    for (const instance of instances) next[instance.id] = { ...(next[instance.id] ?? {}), ...patch };
-    onChange({ instanceDefaults: next });
+    onChange({ instanceDefaults: applyDefaultsToAllInstances(instances, settings.instanceDefaults, patch) });
   };
+
+  const allYoloOn = allInstancesBypassEnabled(instances, settings.instanceDefaults);
+  const showYoloConfirm = confirmingYoloAll && !allYoloOn;
 
   // What every instance already agrees on, so a bulk control can show the shared value rather than
   // an arbitrary one instance's.
@@ -239,12 +283,46 @@ const InstanceDefaultsSettings = ({
             variant="outline"
             size="sm"
             className="text-xs font-normal"
-            onClick={() => updateAll({ bypass: !instances.every((instance) => defaultsFor(instance.id).bypass === true) })}
+            onClick={() => {
+              const outcome = toggleFleetYoloAction(instances, settings.instanceDefaults);
+              setConfirmingYoloAll(outcome.confirming);
+              if (outcome.nextDefaults) onChange({ instanceDefaults: outcome.nextDefaults });
+            }}
           >
             <ShieldCheck className="size-3.5" />
-            {instances.every((instance) => defaultsFor(instance.id).bypass === true) ? 'Turn YOLO off' : 'Turn YOLO on'}
+            {allYoloOn ? 'Turn YOLO off' : 'Turn YOLO on'}
           </Button>
         </div>
+        {showYoloConfirm ? (
+          <div
+            className="flex flex-col gap-2 border-t pt-2 text-xs"
+            role="group"
+            aria-label="Turn YOLO on across computers and containers"
+          >
+            <p className="text-muted-foreground">{fleetYoloConfirmationCopy(instances)}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="xs"
+                variant="destructive"
+                onClick={() => {
+                  setConfirmingYoloAll(false);
+                  onChange({ instanceDefaults: confirmFleetYoloOn(instances, settings.instanceDefaults) });
+                }}
+              >
+                Confirm YOLO on all
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={() => setConfirmingYoloAll(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col divide-y rounded-lg border">

@@ -22,7 +22,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import GroupRow from '../src/components/GroupRow';
 import { TooltipProvider } from '../src/components/ui/tooltip';
-import type { GroupEntry } from '../src/lib/projectGroups';
+import { buildRailEntries, type GroupEntry } from '../src/lib/projectGroups';
 import type { Session } from '../src/types';
 
 /**
@@ -95,12 +95,56 @@ describe('a group card', () => {
     expect(render(entryOf())).not.toContain('data-blob-label');
   });
 
-  test('the header carries the count, not a name', () => {
+  test('unnamed groups draw the bot count in the header without repeating member titles', () => {
     const shown = text(render(entryOf()));
     expect(shown).toContain('2 bots');
-    // "Group" is this entry's name; it must not be drawn in the header. It survives as the row's
-    // accessible name, which is not visible text and so does not appear here.
+    // "Group" is the placeholder fallback; it must not be drawn in the header.
     expect(shown.startsWith('2 bots')).toBe(true);
+
+    const sessions = [
+      member('a', 'Habit onboarding QA · copy pass'),
+      member('b', 'Habit onboarding QA · icons'),
+    ];
+    const [unnamed] = buildRailEntries(sessions, {}, [
+      { id: 'g-empty', name: '', keys: ['pi:hearth::a', 'pi:hearth::b'] },
+    ]);
+    if (unnamed?.kind !== 'group') throw new Error('expected group entry');
+    const unnamedShown = text(render(unnamed));
+    expect(unnamedShown.startsWith('2 bots')).toBe(true);
+    expect(unnamedShown.split('Habit onboarding QA · copy pass').length - 1).toBe(1);
+  });
+
+  test('explicit custom group names render visibly in the header alongside a muted member count', () => {
+    const sessions = [
+      member('a', 'Habit onboarding QA · copy pass'),
+      member('b', 'Habit onboarding QA · icons'),
+    ];
+    const [named] = buildRailEntries(sessions, {}, [
+      { id: 'g-release', name: 'Frontend Release', keys: ['pi:hearth::a', 'pi:hearth::b'] },
+    ]);
+    if (named?.kind !== 'group') throw new Error('expected group entry');
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <GroupRow
+          entry={named}
+          instanceLabels={{ 'pi:hearth': 'hearth' }}
+          avatarIdentities={{}}
+          moods={{}}
+          visibleKeys={new Set()}
+          blobStyle="buddy"
+          onOpen={() => {}}
+          onOpenSession={() => {}}
+          onReload={() => {}}
+          onArchive={() => {}}
+          onArchiveMany={() => {}}
+          onCustomizeAppearance={() => {}}
+        />
+      </TooltipProvider>
+    );
+    const shown = text(html);
+    expect(shown.startsWith('Frontend Release 2')).toBe(true);
+    expect(shown).not.toContain('2 bots');
+    expect(html).toContain('aria-label="Open group Frontend Release"');
   });
 
   test('a group named after a member does not repeat that name in the header', () => {

@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ContextCompactionSettings from '../src/components/ContextCompactionSettings';
 import {
   compactionFailureMessage,
   compactionLogLine,
@@ -160,5 +163,40 @@ test('background compaction failure names the affected session and host, and off
     expect(message).toContain('Tower');
     expect(message).toMatch(/try again/i);
     expect(message).not.toMatch(/undefined|null|!|HTTP \d/i);
+  }
+});
+
+test('ContextCompactionSettings renders Kiln select and token inputs with consistent Ember control classes', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ContextCompactionSettings, {
+      instances: [{ id: 'pi:tower', kind: 'pi', label: 'Tower', status: 'ready', attachable: true }],
+      initialValue: {
+        preference: { compactAtTokens: 70000, keepRecentTokens: 5000 },
+        defaults: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000, backgroundTokens: 32768 },
+        models: [],
+      },
+    }),
+  );
+
+  expect(html).toContain('aria-label="Compaction Kiln"');
+  expect(html).toContain('Compact at tokens');
+  expect(html).toContain('Keep recent tokens');
+
+  const controls = html.match(/<(?:select|input)\b[^>]*>/g) ?? [];
+  expect(controls).toHaveLength(3);
+  for (const control of controls) {
+    for (const token of [
+      'border-input',
+      'bg-background',
+      'rounded-md',
+      'px-2.5',
+      'py-1.5',
+      'text-xs',
+      'focus-visible:outline-none',
+      'focus-visible:ring-2',
+      'focus-visible:ring-ring',
+    ]) {
+      expect(control).toContain(token);
+    }
   }
 });

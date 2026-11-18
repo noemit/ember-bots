@@ -13,7 +13,7 @@ test('approved task-first copy preserves connection and model-choice controls', 
   await wizard.getByRole('button', { name: /2\. Where to run Kiln/ }).click();
   await expect(wizard).toContainText(/recommend.*separate place/s);
   await expect(wizard).toContainText(/stops when you quit Ember/);
-  await expect(wizard).toContainText(/Settings.*Instances.*Share this Kiln/s);
+  await expect(wizard).toContainText(/Settings.*Remote access.*Share this Kiln/s);
   await expect(wizard).toContainText(/Tinder.*independently of Ember/s);
   await page.screenshot({ path: testInfo.outputPath('preserved-sharing.png') });
   await wizard.getByRole('button', { name: /5\. First bot/ }).click();

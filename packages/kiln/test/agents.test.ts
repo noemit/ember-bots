@@ -495,7 +495,6 @@ describe('agents tool crew messaging', () => {
     }
   }, 20_000);
 
-<<<<<<< HEAD
   test('peer directory and send reject loopback/link-local/plain-HTTP hosts and never follow HTTP redirects', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'hearth-agents-ssrf-'));
     let outboundCalls = 0;

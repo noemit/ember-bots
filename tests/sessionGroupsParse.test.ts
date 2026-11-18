@@ -10,9 +10,11 @@ describe('parseSessionGroups', () => {
   test('keeps well-formed groups and resolves the primary to a real member', () => {
     const groups = parseSessionGroups([
       { id: 'g', name: 'Release train', keys: ['local::a', 'studio::b'], primaryKey: 'studio::b' },
+      { id: 'unnamed', name: '', keys: ['local::c', 'studio::d'] },
     ]);
     expect(groups).toEqual([
       { id: 'g', name: 'Release train', keys: ['local::a', 'studio::b'], primaryKey: 'studio::b' },
+      { id: 'unnamed', name: '', keys: ['local::c', 'studio::d'], primaryKey: 'local::c' },
     ]);
     // A primary that is not a member falls back to the first key.
     expect(parseSessionGroups([{ id: 'g', name: 'n', keys: ['a::1', 'a::2'], primaryKey: 'x::9' }])[0].primaryKey).toBe('a::1');

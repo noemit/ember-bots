@@ -1,5 +1,6 @@
 import { projectForSession, projectIdentityKey } from '../blob/seed';
 import { isWorker } from './crew';
+import { customGroupName, defaultGroupName } from './sessionGroups';
 import { sessionKey } from '../types';
 import type { Project, Session, SessionGroup } from '../types';
 
@@ -30,7 +31,14 @@ export type SessionEntry = {
 export type GroupEntry = {
   kind: 'group';
   id: string;
+  /** Accessible label for the group: `customName` when set, otherwise `defaultGroupName`. */
   name: string;
+  /**
+   * Explicit user-authored group name when one was set on `SessionGroup.name`; `null` when the
+   * group is unnamed (or only held a synthesized default), so `GroupRow` knows whether to draw the
+   * name visibly or show `{N} bots`.
+   */
+  customName?: string | null;
   /**
    * The group's configured keys, exactly as saved — including ones that resolve to no session right
    * now (an unreachable instance, a session outside the loaded window). Never derived from
@@ -65,14 +73,24 @@ export type GroupDraftSeed = {
 /**
  * Seed the Manage panel from a rail entry. The configured key list is copied as it stands: a member
  * whose instance is not answering has no session to resolve to, and rebuilding the list from
- * `members` is what used to drop it (and then save the shorter list back).
+ * `members` is what used to drop it (and then save the shorter list back). Unnamed groups seed an
+ * empty input so the placeholder stays a hint rather than becoming a saved title.
  */
-export const groupDraftFromEntry = (entry: GroupEntry): GroupDraftSeed => ({
-  id: entry.id,
-  name: entry.name,
-  keys: [...entry.keys],
-  primaryKey: entry.primaryKey,
-});
+export const groupDraftFromEntry = (entry: GroupEntry): GroupDraftSeed => {
+  const customName =
+    entry.customName !== undefined
+      ? entry.customName?.trim() || null
+      : (customGroupName(
+          entry.name,
+          entry.members.map((member) => member.title?.trim() || member.id)
+        ) ?? null);
+  return {
+    id: entry.id,
+    name: customName ?? '',
+    keys: [...entry.keys],
+    primaryKey: entry.primaryKey,
+  };
+};
 
 const byRecency = (a: Session, b: Session) => (b.updated ?? 0) - (a.updated ?? 0);
 
@@ -137,11 +155,14 @@ export const buildRailEntries = (
       .sort(byRecency);
     // A group whose members are all gone (or archived out of `sessions`) has nothing to show.
     if (members.length === 0) return [];
+    const memberTitles = members.map((member) => member.title?.trim() || member.id);
+    const customName = customGroupName(group.name, memberTitles) ?? null;
     return [
       {
         kind: 'group' as const,
         id: group.id,
-        name: group.name,
+        name: customName ?? defaultGroupName(memberTitles),
+        customName,
         keys: [...group.keys],
         members,
         instanceIds: [...new Set(members.map((member) => member.instanceId))],

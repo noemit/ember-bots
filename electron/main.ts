@@ -58,7 +58,6 @@ import {
   initializeFirstRunSettings,
   readJson,
   readJsonRoot,
-  resolveEffectivePiEndpoints,
   resolvePersistedPiEndpoints,
   stripUndefinedKeys,
 } from './settingsFile';

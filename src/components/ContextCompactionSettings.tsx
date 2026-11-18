@@ -8,16 +8,27 @@ export type CompactionSettingsState = {
   models: { provider: string; modelId: string; contextWindow: number; compactAtTokens: number; keepRecentTokens: number; blockingAtTokens: number; custom: boolean; supported: boolean }[];
 };
 
+const selectControlClass =
+  'min-w-0 max-w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const inputControlClass =
+  'mt-1 block w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
+
 /** Host-owned settings: no Ember preference writes and no conversation configuration. */
-export default function ContextCompactionSettings({ instances }: { instances: Instance[] }) {
+export default function ContextCompactionSettings({
+  instances,
+  initialValue,
+}: {
+  instances: Instance[];
+  initialValue?: CompactionSettingsState;
+}) {
   const kilns = instances.filter(instance => instance.kind === 'pi');
   const [chosen, setChosen] = React.useState('');
   const instance = kilns.find(kiln => kiln.id === chosen) ?? kilns[0];
   const instanceId = instance?.id;
   const instanceLabel = instance?.label;
-  const [value, setValue] = React.useState<CompactionSettingsState>();
-  const [at, setAt] = React.useState('70000');
-  const [keep, setKeep] = React.useState('5000');
+  const [value, setValue] = React.useState<CompactionSettingsState | undefined>(initialValue);
+  const [at, setAt] = React.useState(() => String(initialValue?.preference?.compactAtTokens ?? 70000));
+  const [keep, setKeep] = React.useState(() => String(initialValue?.preference?.keepRecentTokens ?? 5000));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
@@ -63,7 +74,7 @@ export default function ContextCompactionSettings({ instances }: { instances: In
     <h3 className="text-sm font-medium">Context &amp; compaction</h3>
     <p className="text-xs text-muted-foreground">Automatically summarizes older turns while keeping recent messages in full. Full history stays in the transcript. Applies to all chats on the selected Kiln.</p>
     {kilns.length ? <label className="flex items-center gap-3 text-sm">Kiln
-      <select aria-label="Compaction Kiln" value={instance?.id ?? ''} onChange={event => setChosen(event.target.value)} className="rounded border bg-background p-2">
+      <select aria-label="Compaction Kiln" value={instance?.id ?? ''} onChange={event => setChosen(event.target.value)} className={selectControlClass}>
         {kilns.map(kiln => <option key={kiln.id} value={kiln.id}>{kiln.label}</option>)}
       </select></label> : <p className="text-sm text-muted-foreground">Connect a Kiln in Computers and Containers to configure automatic compaction.</p>}
     {instance ? <>
@@ -71,8 +82,8 @@ export default function ContextCompactionSettings({ instances }: { instances: In
       {value ? <>
         <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">How defaults and smaller models work</summary><p className="mt-2">By default, automatic compaction is on and keeps 20,000 recent tokens. Background compaction starts 49,152 tokens below the model window; generation waits at 16,384 below it.</p><p className="mt-2">With custom targets, smaller models compact earlier to leave 16,384 tokens free. The retained tail is capped at half the effective target, leaving room for the summary and instructions. Models with a window of 16,385 tokens or less, or an unknown window, use default targets.</p></details>
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1 text-sm">Compact at tokens<input className="block w-full rounded border bg-background px-3 py-2" type="number" min="1024" max="10000000" step="1" value={at} onChange={event => setAt(event.target.value)} disabled={busy} /></label>
-          <label className="space-y-1 text-sm">Keep recent tokens<input className="block w-full rounded border bg-background px-3 py-2" type="number" min="1" step="1" value={keep} onChange={event => setKeep(event.target.value)} disabled={busy} /></label>
+          <label className="space-y-1 text-sm">Compact at tokens<input className={inputControlClass} type="number" min="1024" max="10000000" step="1" value={at} onChange={event => setAt(event.target.value)} disabled={busy} /></label>
+          <label className="space-y-1 text-sm">Keep recent tokens<input className={inputControlClass} type="number" min="1" step="1" value={keep} onChange={event => setKeep(event.target.value)} disabled={busy} /></label>
         </div>
         <p className="text-xs text-muted-foreground">Compaction starts before the next model request above your target, when older context can be summarized. It runs in the background until the model’s safety boundary, where generation waits. This is a threshold, not a hard cap. Recent messages are kept whole, so the retained token count is approximate.</p>
         <div className="flex flex-wrap gap-2"><Button size="sm" disabled={busy} onClick={() => void save()}>Save compaction settings</Button><Button size="sm" variant="outline" disabled={busy || !value.preference} onClick={() => void save(true)}>Reset to defaults</Button></div>
