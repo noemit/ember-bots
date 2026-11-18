@@ -428,23 +428,50 @@ const NestedCallsSection = ({ calls }: { calls: NestedCall[] }) => (
 const panelClass =
   'overflow-x-auto rounded-md bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all';
 
-const DiffView = ({ diff }: { diff: string }) => (
-  <pre className={panelClass}>
-    {diff.split('\n').map((line, index) => (
-      <span
-        key={index}
-        className={cn(
-          'block',
-          line.startsWith('+') && !line.startsWith('+++') && 'bg-emerald-500/15 text-diff-add',
-          line.startsWith('-') && !line.startsWith('---') && 'bg-red-500/15 text-diff-del',
-          line.startsWith('@@') && 'text-muted-foreground'
-        )}
+export const DIFF_INITIAL_LINE_CAP = 300;
+
+export const DiffView = ({ diff, storageKey }: { diff: string; storageKey?: string }) => {
+  const saved = React.useContext(ExpansionContext);
+  const [expandedFor, setExpandedFor] = React.useState<string | null>(() =>
+    storageKey && saved?.get(storageKey) ? diff : null
+  );
+  const lines = React.useMemo(() => diff.split('\n'), [diff]);
+  const capped = lines.length > DIFF_INITIAL_LINE_CAP && expandedFor !== diff;
+  const visibleLines = capped ? lines.slice(0, DIFF_INITIAL_LINE_CAP) : lines;
+  const content = (
+    <pre className={panelClass}>
+      {visibleLines.map((line, index) => (
+        <span
+          key={index}
+          className={cn(
+            'block',
+            line.startsWith('+') && !line.startsWith('+++') && 'bg-emerald-500/15 text-diff-add',
+            line.startsWith('-') && !line.startsWith('---') && 'bg-red-500/15 text-diff-del',
+            line.startsWith('@@') && 'text-muted-foreground'
+          )}
+        >
+          {line || ' '}
+        </span>
+      ))}
+    </pre>
+  );
+  if (!capped) return content;
+  return (
+    <div className="flex flex-col gap-1">
+      {content}
+      <button
+        type="button"
+        onClick={() => {
+          if (storageKey) saved?.set(storageKey, true);
+          setExpandedFor(diff);
+        }}
+        className="self-start rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
       >
-        {line || ' '}
-      </span>
-    ))}
-  </pre>
-);
+        Show all {lines.length} lines
+      </button>
+    </div>
+  );
+};
 
 const ExpansionContext = React.createContext<Map<string, boolean> | null>(null);
 const useExpansion = (key: string, initial: boolean) => {
@@ -604,7 +631,7 @@ const ToolRow = ({
             <pre className={panelClass}>{describeInput(call.input)}</pre>
           ) : null}
           {nested.length > 0 ? <NestedCallsSection calls={nested} /> : null}
-          {call.diff ? <DiffView diff={call.diff} /> : null}
+          {call.diff ? <DiffView diff={call.diff} storageKey={`diff:${call.id}`} /> : null}
           {/* Why it failed, one line; the output below it is the whole retained log either way. */}
           {call.error ? <pre className={cn(panelClass, 'text-destructive')}>{call.error}</pre> : null}
           {/* The host keeps a tail (2 000 lines / 50 KB) and says so; without this a short log reads

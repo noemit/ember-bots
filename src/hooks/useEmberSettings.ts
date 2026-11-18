@@ -74,27 +74,59 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
   const assignmentWritesRef = React.useRef(new AvatarAssignmentWrites());
   const writesRef = React.useRef<Promise<unknown>>(Promise.resolve());
   const pendingDraftsRef = React.useRef(new Map<string, { revision: number; value: import('../lib/composerDrafts').DraftChanges[string] }>());
+  const hydratedRef = React.useRef(false);
+  const pendingHarnessRefreshRef = React.useRef(false);
   // Live copy for callbacks that must read the latest value without re-subscribing.
   const settingsRef = React.useRef(settings);
   settingsRef.current = settings;
 
+  const refreshHarnessSettings = React.useCallback(async () => {
+    if (!window.ember?.getSettings) return settingsRef.current;
+    const startRevision = revisionRef.current;
+    const wasHydrated = hydratedRef.current;
+    const stored = await window.ember.getSettings();
+    if (!hydratedRef.current) {
+      pendingHarnessRefreshRef.current = true;
+      return stored;
+    }
+    const current = settingsRef.current;
+    const keepLocalEndpoints = !wasHydrated || revisionRef.current !== startRevision;
+    const nextPiEndpoints = keepLocalEndpoints ? current.piEndpoints : stored.piEndpoints;
+    const nextOnboardedAt = stored.onboardedAt ?? current.onboardedAt;
+    if (
+      JSON.stringify(current.piEndpoints) === JSON.stringify(nextPiEndpoints) &&
+      JSON.stringify(current.remoteAccessState) === JSON.stringify(stored.remoteAccessState) &&
+      JSON.stringify(current.localHarnessState) === JSON.stringify(stored.localHarnessState) &&
+      current.localHarnessCanRotate === stored.localHarnessCanRotate &&
+      current.onboardedAt === nextOnboardedAt
+    ) {
+      return stored;
+    }
+    const next: EmberSettings = {
+      ...current,
+      piEndpoints: nextPiEndpoints,
+      remoteAccessState: stored.remoteAccessState,
+      localHarnessState: stored.localHarnessState,
+      localHarnessCanRotate: stored.localHarnessCanRotate,
+      ...(nextOnboardedAt !== undefined ? { onboardedAt: nextOnboardedAt } : {}),
+    };
+    settingsRef.current = next;
+    setSettings(next);
+    return stored;
+  }, []);
+
   const hydrateSettings = React.useCallback((stored: Partial<EmberSettings>) => {
     assignmentWritesRef.current.acknowledge(stored.avatarAssignments);
     const next = { ...DEFAULT_SETTINGS, ...stored, avatarAssignments: assignmentWritesRef.current.visible() };
+    hydratedRef.current = true;
     settingsRef.current = next;
     setSettings(next);
     setSettingsLoaded(true);
-  }, []);
-
-  const refreshHarnessSettings = React.useCallback(async () => {
-    const stored = await window.ember.getSettings();
-    setSettings((current) => ({
-      ...current,
-      localHarnessState: stored.localHarnessState,
-      localHarnessCanRotate: stored.localHarnessCanRotate,
-    }));
-    return stored;
-  }, []);
+    if (pendingHarnessRefreshRef.current) {
+      pendingHarnessRefreshRef.current = false;
+      void refreshHarnessSettings().catch(() => {});
+    }
+  }, [refreshHarnessSettings]);
 
   const markSettingsLoaded = React.useCallback(() => setSettingsLoaded(true), []);
 

@@ -61,14 +61,17 @@ import { PiClient } from './piClient';
 import * as dataDir from './dataDir';
 import {
   availableHarnessPort,
+  bootLocalHarness,
   canManageLocalToken,
   defaultHarnessHome,
   localHarnessEndpoint,
+  localHarnessUrl,
   generateHarnessToken,
   harnessTokenOnDisk,
   LOCAL_HARNESS_PORT,
   localHarnessNotice,
   mergeLocalHarnessEndpoint,
+  startingLocalHarnessStatus,
   startLocalHarness,
   writeHarnessToken,
   type LocalHarnessOptions,
@@ -312,6 +315,7 @@ const hostId = (host: StoredHost, index: number): string => String(host.id || `h
  * they cannot explain. It carries no token: the renderer only needs the state and the address.
  */
 let localHarnessState: LocalHarnessState = { kind: 'disabled' };
+let isLocalHarnessStarting: () => boolean = () => false;
 const localHarnessReport = (): { kind: LocalHarnessState['kind']; url?: string; version?: string; notice: string | null } => ({
   kind: localHarnessState.kind,
   ...('url' in localHarnessState ? { url: localHarnessState.url } : {}),
@@ -629,157 +633,186 @@ const probeHealth = async (url: string, headers: Record<string, string>): Promis
 /** Set once this launch has checked (and possibly written) `onboardedAt`. */
 let onboardedStamped = false;
 let instanceSnapshot: Instance[] = [];
+let hasInstanceSnapshot = false;
 let probeGeneration = 0;
+let activeInstanceLoad: Promise<Instance[]> | null = null;
 const loadInstances = async (refresh = true): Promise<Instance[]> => {
-  if (!refresh) return instanceSnapshot;
-  const generation = ++probeGeneration;
-  const root = readOpenchamberSettings();
-  const hosts = Array.isArray(root.desktopHosts) ? (root.desktopHosts as StoredHost[]) : [];
-  const sshInstances = Array.isArray(root.desktopSshInstances)
-    ? (root.desktopSshInstances as StoredSshInstance[])
-    : [];
-
-  const hostIds = new Set(hosts.map((host, index) => hostId(host, index)));
-  const candidates: Array<{ instance: Instance; headers: Record<string, string> }> = [];
-  const local = localHost(root);
-  if (local) {
-    hostIds.add('local');
-    candidates.push({
-      instance: {
-        id: 'local',
-        label: 'Local',
-        kind: 'local',
-        url: local.url,
-        status: 'checking',
-        attachable: false,
-      },
-      headers: hostHeaders(local, root),
-    });
+  if (!refresh) {
+    if (hasInstanceSnapshot) return instanceSnapshot;
+    if (activeInstanceLoad) return activeInstanceLoad;
   }
+  const generation = ++probeGeneration;
+  const run = (async (): Promise<Instance[]> => {
+    const root = readOpenchamberSettings();
+    const hosts = Array.isArray(root.desktopHosts) ? (root.desktopHosts as StoredHost[]) : [];
+    const sshInstances = Array.isArray(root.desktopSshInstances)
+      ? (root.desktopSshInstances as StoredSshInstance[])
+      : [];
 
-  hosts.forEach((host, index) => {
-    const url = hostUrl(host);
-    const rawUrl = typeof host.url === 'string' ? host.url : '';
-    const isRelay = rawUrl.startsWith('relay://') || Boolean(host.relay);
-    const id = hostId(host, index);
-    const sshMatch = sshInstances.find((entry) => String(entry.id || '') === id);
-    const kind: Instance['kind'] = isRelay
-      ? 'relay'
-      : sshMatch
-        ? 'ssh'
-        : isLocalHttpUrl(url)
-          ? 'local'
-          : 'remote';
-    const usable = !isRelay && Boolean(resolveApiUrl(url, '/api/session'));
-
-    candidates.push({
-      instance: {
-        id,
-        label: host.label || (isRelay ? rawUrl : url) || id,
-        kind,
-        url: usable ? url : undefined,
-        status: usable ? 'checking' : 'unsupported',
-        attachable: false,
-      },
-      headers: hostHeaders(host, root),
-    });
-  });
-
-  sshInstances.forEach((entry, index) => {
-    const id = String(entry.id || `ssh-${index}`);
-    if (hostIds.has(id)) return;
-
-    candidates.push({
-      instance: {
-        id,
-        label: entry.nickname || entry.sshParsed?.destination || entry.host || id,
-        kind: 'ssh',
-        status: 'unsupported',
-        attachable: false,
-      },
-      headers: {},
-    });
-  });
-
-  // Hearth endpoints ride along in the same instance list; they are already probed (their
-  // auth makes the OpenChamber health probe below useless), so the probe loop skips them.
-  const piInstances = await piInstanceRecords(piEndpoints());
-  piInstances.forEach((instance) => candidates.push({ instance, headers: {} }));
-
-  const previous = new Map(instanceSnapshot.map((instance) => [instance.id, instance]));
-  // Broadcast only when the visible snapshot actually changed; the 60s watchdog runs this
-  // function on a timer and shouldn't flicker "checking" badges for identical results.
-  const snapshotSignature = (list: Instance[]): string =>
-    list.map((entry) => `${entry.id}:${entry.status}:${entry.attachable}:${entry.label}:${entry.url ?? ''}`).join('|');
-  const previousSignature = snapshotSignature(instanceSnapshot);
-  const announceIfChanged = () => {
-    if (snapshotSignature(instanceSnapshot) !== previousSignature) {
-      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+    const hostIds = new Set(hosts.map((host, index) => hostId(host, index)));
+    const candidates: Array<{ instance: Instance; headers: Record<string, string> }> = [];
+    const local = localHost(root);
+    if (local) {
+      hostIds.add('local');
+      candidates.push({
+        instance: {
+          id: 'local',
+          label: 'Local',
+          kind: 'local',
+          url: local.url,
+          status: 'checking',
+          attachable: false,
+        },
+        headers: hostHeaders(local, root),
+      });
     }
-  };
 
-  /**
-   * Stamp `onboardedAt` the first time anything answers.
-   *
-   * The guide asks "is this install set up?", and for someone upgrading from a build that had no
-   * guide the honest answer is *yes* — they have been using Ember for months. Their local harness
-   * may be attached, or turned off in favour of a container that is currently asleep, so the live
-   * state cannot tell the difference between them and a first launch.
-   *
-   * So it is recorded once, when a host actually answers, and read forever after. Writing from main
-   * (rather than letting a window claim it) is what stops a stale renderer from suppressing the
-   * guide on a genuinely fresh install.
-   */
-  const noteOnboarded = (): void => {
-    if (onboardedStamped) return;
-    const root = readJson(emberSettingsPath());
-    if (positiveNumberOrUndefined(root.onboardingStartedAt)) return;
-    if (positiveNumberOrUndefined(root.onboardedAt)) {
+    hosts.forEach((host, index) => {
+      const url = hostUrl(host);
+      const rawUrl = typeof host.url === 'string' ? host.url : '';
+      const isRelay = rawUrl.startsWith('relay://') || Boolean(host.relay);
+      const id = hostId(host, index);
+      const sshMatch = sshInstances.find((entry) => String(entry.id || '') === id);
+      const kind: Instance['kind'] = isRelay
+        ? 'relay'
+        : sshMatch
+          ? 'ssh'
+          : isLocalHttpUrl(url)
+            ? 'local'
+            : 'remote';
+      const usable = !isRelay && Boolean(resolveApiUrl(url, '/api/session'));
+
+      candidates.push({
+        instance: {
+          id,
+          label: host.label || (isRelay ? rawUrl : url) || id,
+          kind,
+          url: usable ? url : undefined,
+          status: usable ? 'checking' : 'unsupported',
+          attachable: false,
+        },
+        headers: hostHeaders(host, root),
+      });
+    });
+
+    sshInstances.forEach((entry, index) => {
+      const id = String(entry.id || `ssh-${index}`);
+      if (hostIds.has(id)) return;
+
+      candidates.push({
+        instance: {
+          id,
+          label: entry.nickname || entry.sshParsed?.destination || entry.host || id,
+          kind: 'ssh',
+          status: 'unsupported',
+          attachable: false,
+        },
+        headers: {},
+      });
+    });
+
+    // Hearth endpoints ride along in the same instance list; they are already probed (their
+    // auth makes the OpenChamber health probe below useless), so the probe loop skips them.
+    const piInstances = await piInstanceRecords(piEndpoints());
+    if (generation !== probeGeneration) return activeInstanceLoad ?? instanceSnapshot;
+    piInstances.forEach((instance) => candidates.push({ instance, headers: {} }));
+    if (isLocalHarnessStarting() && !candidates.some((entry) => entry.instance.id === 'pi:local')) {
+      candidates.unshift({
+        instance: {
+          id: 'pi:local',
+          label: 'This computer',
+          kind: 'pi',
+          url: localHarnessUrl(localHarness.options.port),
+          status: 'checking',
+          attachable: false,
+        },
+        headers: {},
+      });
+    }
+
+    const previous = new Map(instanceSnapshot.map((instance) => [instance.id, instance]));
+    // Broadcast only when the visible snapshot actually changed; the 60s watchdog runs this
+    // function on a timer and shouldn't flicker "checking" badges for identical results.
+    const snapshotSignature = (list: Instance[]): string =>
+      list.map((entry) => `${entry.id}:${entry.status}:${entry.attachable}:${entry.label}:${entry.url ?? ''}`).join('|');
+    const previousSignature = snapshotSignature(instanceSnapshot);
+    const announceIfChanged = () => {
+      if (snapshotSignature(instanceSnapshot) !== previousSignature) {
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      }
+    };
+
+    /**
+     * Stamp `onboardedAt` the first time anything answers.
+     *
+     * The guide asks "is this install set up?", and for someone upgrading from a build that had no
+     * guide the honest answer is *yes* — they have been using Ember for months. Their local harness
+     * may be attached, or turned off in favour of a container that is currently asleep, so the live
+     * state cannot tell the difference between them and a first launch.
+     *
+     * So it is recorded once, when a host actually answers, and read forever after. Writing from main
+     * (rather than letting a window claim it) is what stops a stale renderer from suppressing the
+     * guide on a genuinely fresh install.
+     */
+    const noteOnboarded = (): void => {
+      if (onboardedStamped) return;
+      const settingsRoot = readJson(emberSettingsPath());
+      if (positiveNumberOrUndefined(settingsRoot.onboardingStartedAt)) return;
+      if (positiveNumberOrUndefined(settingsRoot.onboardedAt)) {
+        onboardedStamped = true;
+        return;
+      }
+      if (!candidates.some((candidate) => candidate.instance.status === 'ready' || candidate.instance.attachable)) return;
       onboardedStamped = true;
-      return;
-    }
-    if (!candidates.some((candidate) => candidate.instance.status === 'ready' || candidate.instance.attachable)) return;
-    onboardedStamped = true;
-    try {
-      root.onboardedAt = Date.now();
-      fs.writeFileSync(emberSettingsPath(), `${JSON.stringify(root, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-      // The renderer reads settings on its own schedule; a hint costs one broadcast and saves it
-      // from showing the guide for a frame after the first healthy probe.
-      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
-    } catch (error) {
-      // Not fatal: the guide reads `onboardedAt` on the next launch instead. A settings file we
-      // cannot write is already reported elsewhere.
-      console.warn('[ember] could not record onboardedAt:', error instanceof Error ? error.message : error);
-    }
-  };
-  noteOnboarded();
-  instanceSnapshot = candidates.map(({ instance }) => {
-    if (instance.status === 'checking') instance.attachable = previous.get(instance.id)?.attachable ?? false;
-    return instance;
-  });
-  announceIfChanged();
-  await Promise.all(
-    candidates.map(async (candidate) => {
-      const url = candidate.instance.url;
-      if (!url || candidate.instance.status === 'unsupported' || candidate.instance.kind === 'pi') return;
-      const probe = await probeHealth(url, candidate.headers);
-      if (generation !== probeGeneration) return;
-      candidate.instance.status = probe === 'v2' ? 'ready' : probe === 'v1' ? 'unsupported' : 'unreachable';
-      candidate.instance.attachable = probe === 'v2';
-      eventStreams.sync(
-        instanceSnapshot.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id)
-      );
-      announceIfChanged();
-    })
-  );
+      try {
+        settingsRoot.onboardedAt = Date.now();
+        fs.writeFileSync(emberSettingsPath(), `${JSON.stringify(settingsRoot, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+        // The renderer reads settings on its own schedule; a hint costs one broadcast and saves it
+        // from showing the guide for a frame after the first healthy probe.
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      } catch (error) {
+        // Not fatal: the guide reads `onboardedAt` on the next launch instead. A settings file we
+        // cannot write is already reported elsewhere.
+        console.warn('[ember] could not record onboardedAt:', error instanceof Error ? error.message : error);
+      }
+    };
+    noteOnboarded();
+    instanceSnapshot = candidates.map(({ instance }) => {
+      if (instance.status === 'checking') instance.attachable = previous.get(instance.id)?.attachable ?? false;
+      return instance;
+    });
+    hasInstanceSnapshot = true;
+    announceIfChanged();
+    await Promise.all(
+      candidates.map(async (candidate) => {
+        const url = candidate.instance.url;
+        if (!url || candidate.instance.status === 'unsupported' || candidate.instance.kind === 'pi') return;
+        const probe = await probeHealth(url, candidate.headers);
+        if (generation !== probeGeneration) return;
+        candidate.instance.status = probe === 'v2' ? 'ready' : probe === 'v1' ? 'unsupported' : 'unreachable';
+        candidate.instance.attachable = probe === 'v2';
+        eventStreams.sync(
+          instanceSnapshot.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id)
+        );
+        announceIfChanged();
+      })
+    );
+    if (generation !== probeGeneration) return activeInstanceLoad ?? instanceSnapshot;
 
-  const instances = instanceSnapshot;
-  // Every probe re-syncs the event streams, so an instance that comes online starts streaming
-  // and one that's removed from OpenChamber stops. Pi endpoints keep their own WebSocket
-  // watches (conversation event streams + the task graph) in step with the settings.
-  eventStreams.sync(instances.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id));
-  void piClient.syncEndpoints(piEndpoints());
-  return instances;
+    const instances = instanceSnapshot;
+    // Every probe re-syncs the event streams, so an instance that comes online starts streaming
+    // and one that's removed from OpenChamber stops. Pi endpoints keep their own WebSocket
+    // watches (conversation event streams + the task graph) in step with the settings.
+    eventStreams.sync(instances.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id));
+    void piClient.syncEndpoints(piEndpoints());
+    return instances;
+  })();
+  activeInstanceLoad = run;
+  try {
+    return await run;
+  } finally {
+    if (activeInstanceLoad === run) activeInstanceLoad = null;
+  }
 };
 
 /** Best-effort display label for an instance id, without probing health (error paths only). */
@@ -893,13 +926,14 @@ const piEndpoints = (): PiEndpoint[] =>
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>
   Promise.all(
     endpoints.map(async (endpoint) => {
+      const startingLocal = isLocalHarnessStarting() && endpoint.id === 'pi:local';
       const info = await piClient.probe(endpoint);
       return {
         id: endpoint.id,
         label: endpoint.label,
         kind: 'pi' as const,
         url: endpoint.url,
-        status: info.healthy ? ('ready' as const) : ('unreachable' as const),
+        status: startingLocalHarnessStatus(info.healthy, startingLocal),
         attachable: info.healthy,
         ...(info.version || info.commit ? { version: info.version ?? info.commit } : {}),
       };
@@ -1534,14 +1568,15 @@ app.on('second-instance', () => {
 if (primaryInstance) app.whenReady().then(async () => {
   initializeFirstRunSettings(emberSettingsPath(), path.join(emberHome, 'hearth.sqlite'));
   activityLog.start();
-  // Start (or adopt) the harness this app ships before the window paints, so the first launch has a
-  // host to show instead of an empty rail and instructions to go and find one.
+  // Start (or adopt) the bundled harness concurrently so `createWindow()` opens at once; while the
+  // launch is in flight `pi:local` reports `'checking'`, then `loadInstances(true)` announces ready.
   const launchOptions: LocalHarnessOptions = {
     resourcesDir: process.resourcesPath,
     ...(!app.isPackaged ? { developmentDir: app.getAppPath() } : {}),
     ...(process.env.EMBER_DATA_DIR?.trim() ? { port: await availableHarnessPort() } : {}),
     onExit: (reason) => {
       localHarnessState = { kind: 'failed', reason };
+      void loadInstances(true);
       broadcast({ instanceId: '*', type: 'ember:instances-updated' });
     },
     // One directory for the app and its harness: `~/.ember` (or the canary's own tree).
@@ -1552,12 +1587,32 @@ if (primaryInstance) app.whenReady().then(async () => {
     disabled: readJson(emberSettingsPath()).localHarnessEnabled === false,
   };
   localHarness = { home: emberHome, options: launchOptions };
-  const startedHarness = await runHarnessOperation(() => startLocalHarness(launchOptions));
-  localHarnessState = startedHarness.state;
-  if (localHarnessNotice(startedHarness.state)) {
-    console.warn('[ember] local harness:', localHarnessNotice(startedHarness.state));
-  }
-  localHarnessStop = startedHarness.stop;
+  const harnessBoot = bootLocalHarness({
+    options: launchOptions,
+    runOperation: runHarnessOperation,
+    onState: (startedHarness) => {
+      localHarnessState = startedHarness.state;
+      const notice = localHarnessNotice(startedHarness.state);
+      if (notice) console.warn('[ember] local harness:', notice);
+      localHarnessStop = startedHarness.stop;
+    },
+    onSettled: async () => {
+      if (harnessQuitPending) return;
+      let announced = false;
+      const unsubscribe = subscribeEvents((event) => {
+        if (event.type === 'ember:instances-updated') announced = true;
+      });
+      try {
+        await loadInstances(true);
+      } finally {
+        unsubscribe();
+      }
+      if (!announced && !harnessQuitPending) {
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      }
+    },
+  });
+  isLocalHarnessStarting = harnessBoot.isStarting;
   refreshRemoteServer();
   createWindow();
   let stableDistribution = false;

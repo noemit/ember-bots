@@ -42,6 +42,8 @@ type Props = {
   onCustomizeAppearance: (session: Session) => void;
 };
 
+export const HIDDEN_SESSIONS_INITIAL_CAP = 50;
+
 /** Global archive: every archived session as an individual row, newest first, with restore. */
 export default function ArchiveDialog({
   open,
@@ -61,6 +63,19 @@ export default function ArchiveDialog({
   onArchive,
   onCustomizeAppearance,
 }: Props) {
+  const [showAll, setShowAll] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) setShowAll(false);
+  }, [open]);
+
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) setShowAll(false);
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange]
+  );
+
   const instanceById = React.useMemo(
     () => Object.fromEntries(instances.map((instance) => [instance.id, instance])),
     [instances]
@@ -74,6 +89,11 @@ export default function ArchiveDialog({
     () => [...sessions].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0)),
     [sessions]
   );
+  const visibleSessions = React.useMemo(
+    () => (open && showAll ? ordered : ordered.slice(0, HIDDEN_SESSIONS_INITIAL_CAP)),
+    [open, ordered, showAll]
+  );
+  const remainingCount = Math.max(0, ordered.length - visibleSessions.length);
 
   const renderSession = (session: Session) => {
     const key = sessionKey(session);
@@ -102,7 +122,7 @@ export default function ArchiveDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Hidden sessions</DialogTitle>
@@ -117,7 +137,18 @@ export default function ArchiveDialog({
               {archiveEmptyCopy({ state: connection, endpointCount: instances.length })}
             </p>
           ) : (
-            <div className="flex flex-col gap-0.5">{ordered.map(renderSession)}</div>
+            <div className="flex flex-col gap-0.5">
+              {visibleSessions.map(renderSession)}
+              {remainingCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="mt-1 rounded-md px-3 py-2 text-center text-[12px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  Show {remainingCount} older hidden {remainingCount === 1 ? 'session' : 'sessions'}
+                </button>
+              ) : null}
+            </div>
           )}
         </div>
       </DialogContent>

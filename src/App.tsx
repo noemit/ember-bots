@@ -1091,11 +1091,16 @@ export default function App() {
   const onboardingFixture =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fixture') === 'onboarding';
 
+  const instancesSettled =
+    instancesLoaded && !instances.some((instance) => instance.status === 'checking');
   const onboardingOpen =
     settingsLoaded &&
     !settings.onboardedAt &&
     !settings.onboardingDismissedAt &&
-    (onboardingFixture || needsOnboarding(onboardingState, settings.onboardingDismissedAt, settings.onboardingStartedAt));
+    (onboardingFixture ||
+      Boolean(settings.onboardingStartedAt) ||
+      (instancesSettled &&
+        needsOnboarding(onboardingState, settings.onboardingDismissedAt, settings.onboardingStartedAt)));
 
   /** What the wizard reports when the local harness did not start; null when it did. */
   const onboardingProblem =
@@ -2722,6 +2727,7 @@ export default function App() {
       const event = parseEmberEvent(raw);
       if (event?.type === 'ember:instances-updated') {
         void readInstances(false).catch(() => {});
+        void refreshHarnessSettings().catch(() => {});
         return;
       }
       if (!event) return;

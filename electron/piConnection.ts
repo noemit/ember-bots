@@ -106,10 +106,9 @@ export const testPiEndpoint = async (
       try { return { body: await readConnectionJson(response, 1024 * 1024, Math.max(1, deadline - Date.now())) }; }
       catch (error) { return { outcome: connectionFailure(error) === 'timeout' ? 'timeout' : 'wrong-service' }; }
     };
-    const health = await read('/health');
+    const [health, ready] = await Promise.all([read('/health'), read('/conversations?limit=1')]);
     if (health.outcome) return result(health.outcome, health.authLayer);
     if (!isRecord(health.body) || health.body.ok !== true || !['hearth', 'kiln'].includes(String(health.body.service))) return result('wrong-service');
-    const ready = await read('/conversations?limit=1');
     if (ready.outcome) return result(ready.outcome, ready.authLayer);
     if (!isRecord(ready.body) || !Array.isArray(ready.body.conversations)) return result('wrong-service');
     // Only bounded build identifiers are allowed out of the health response.

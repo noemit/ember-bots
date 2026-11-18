@@ -151,6 +151,45 @@ describe('verified readiness and safe diagnostics', () => {
     try { expect((await testPiEndpoint(endpoint, { timeoutMs: 10 })).outcome).toBe('timeout'); }
     finally { server.stop(true); }
   });
+
+  test('/health and /conversations?limit=1 probes run concurrently instead of sequentially', async () => {
+    const inFlight = new Set<string>();
+    let bothConcurrent = false;
+    let releaseBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      releaseBarrier = resolve;
+    });
+    const { server, endpoint } = fixture(async (request) => {
+      const url = new URL(request.url);
+      const route = `${url.pathname}${url.search}`;
+      inFlight.add(route);
+      if (inFlight.has('/health') && inFlight.has('/conversations?limit=1')) {
+        bothConcurrent = true;
+        releaseBarrier();
+      }
+      await barrier;
+      await Bun.sleep(40);
+      return Response.json(
+        url.pathname === '/health'
+          ? { ok: true, service: 'kiln', version: '1.9.0', commit: 'abcdef12' }
+          : { conversations: [] }
+      );
+    });
+    try {
+      const startedAt = performance.now();
+      const outcome = await testPiEndpoint(endpoint, { timeoutMs: 2_000 });
+      const elapsedMs = performance.now() - startedAt;
+      expect(bothConcurrent).toBe(true);
+      expect(outcome.outcome).toBe('ready');
+      expect(outcome.version).toBe('1.9.0');
+      expect(outcome.commit).toBe('abcdef12');
+      // Sequential probes would deadlock on `barrier` (and take >= 80ms without it).
+      expect(elapsedMs).toBeLessThan(500);
+    } finally {
+      releaseBarrier();
+      server.stop(true);
+    }
+  });
 });
 
 describe('authenticated WebSocket transport', () => {
