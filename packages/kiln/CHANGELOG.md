@@ -1,3 +1,41 @@
+## 1.13.0 — 2026-11-18
+
+### Added
+- Conversation-bound document resolution and reading (`POST /conversations/:id/documents/resolve`
+  and `POST /conversations/:id/documents/read`) with structured `read`, `write`, `edit`, `view` and
+  `codemode` tool provenance (`details.provenance = { absolutePath, cwd }`), wide-root directory
+  walk guards, case-insensitive secret-segment denylists, and TOCTOU-free `O_NOFOLLOW` descriptor
+  reads capped at 2 MB.
+- Dynamic upstream model catalog discovery (`POST /models/refresh`) across 12 API-key and local
+  providers (`anthropic`, `openai`, `google`, `xai`, `mistral`, `groq`, `cerebras`, `cohere`,
+  `deepinfra`, `togetherai`, `perplexity`, `moonshotai`, `fireworks`, plus Ollama and LM Studio
+  reprobing) with 30-minute disk cache TTL and offline fallback.
+- Durable per-submission queue configuration (`QueueConfigDoc`) isolating queued follow-up `model`
+  and `thinkingLevel` from active turns and applying each item's configuration at turn boundaries.
+- Server-computed `nextRunAt` epochs on `GET /scheduled-tasks` and `LiveDoc.runFailure`
+  reconciliation so failed scheduled LLM turns surface `lastStatus: "error"` and `lastError`.
+
+### Fixed
+- Gated mutating `schedule` actions (`create`, `update`, `delete`, `run`), `agents send`, and
+  non-read-only MCP tools behind the conversation's approval policy.
+- Hardened `PUT /directory/peers`, `fetchPeerDirectory`, and `sendToPeer` with `portablePeer`
+  validation and `redirect: "error"`, rejecting loopback, link-local, wildcard, and non-private
+  plain-HTTP peer URLs while supporting tokens up to 4,096 characters.
+- Hardened `exact-argv-v1` command permission matching to refuse automatic `'allow'` matches on
+  unquoted `<`/`>` redirections or dangerous execution/write flags (`find -exec`/`-delete`,
+  `git -c`/`--exec-path`/`--upload-pack`, `tar --to-command`/`--checkpoint-action`, `sed -i`,
+  `awk -i inplace`).
+- Enforced `0o700` directory permissions and `0o600` file permissions across Kiln data homes,
+  SQLite databases (`-wal`/`-shm`), `VACUUM INTO` backups, scratch files, and credential stores.
+- Capped HTTP and WebSocket request payloads (`1 MB` default JSON body cap, `32 MB` on `/submit`
+  and `/context-rules`, `64 KB` WebSocket frame cap), removed `?token=` query-string authentication,
+  rejected browser `Origin` headers on mutating HTTP and WebSocket routes with HTTP `403`, and
+  confined workspace `/directories` via `realpathSync`.
+- Allowed `POST /conversations/:id/promote` to reclaim a spawned worker's own default agent name,
+  removed stale unpinned worker aliases on rename, cleared inherited `WORKER_INSTRUCTIONS` on the
+  promoted peer, cleared `StopQueueDoc.pending` when custom inbox entries sit alongside parked human
+  messages after Stop, and quarantined malformed `compaction.json` files on boot.
+
 ## 1.12.0 — 2026-11-15
 
 ### Added

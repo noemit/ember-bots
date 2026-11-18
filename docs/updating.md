@@ -205,15 +205,16 @@ Before publishing a release:
 
 ## Next-contract macOS commands
 
-After the owner authorizes and tags the next release (example `v1.24.0`), with the signing and
-notarization prerequisites above already configured privately:
+After the owner authorizes and tags the next release (example `v1.25.0`), with the signing and
+notarization prerequisites above (`APPLE_ID`, `APPLE_PASSWORD` or `APPLE_APP_SPECIFIC_PASSWORD`,
+and `APPLE_TEAM_ID`) already configured privately:
 
 ```sh
 # From your existing repository; leave its branch and working files untouched.
-git fetch origin tag v1.24.0
+git fetch origin tag v1.25.0
 mkdir -p "$HOME/.ember-worktrees"
-git worktree add --detach "$HOME/.ember-worktrees/ember-release-1.24.0" v1.24.0
-cd "$HOME/.ember-worktrees/ember-release-1.24.0"
+git worktree add --detach "$HOME/.ember-worktrees/ember-release-1.25.0" v1.25.0
+cd "$HOME/.ember-worktrees/ember-release-1.25.0"
 test "$(uname -m)" = arm64
 bun install --frozen-lockfile
 (cd packages/kiln && bun install --frozen-lockfile)
@@ -233,7 +234,7 @@ xcrun stapler validate "$ZIP_CHECK/Ember.app"
 file "$ZIP_CHECK/Ember.app/Contents/Resources/kiln"
 EMBER_PACKAGED_EXECUTABLE="$ZIP_CHECK/Ember.app/Contents/MacOS/Ember" \
   bunx --no-install playwright test --config playwright.packaged.config.ts
-node scripts/release-assets.mjs checksums release macos 1.24.0 manual
+node scripts/release-assets.mjs checksums release macos 1.25.0 manual
 ```
 
 Confirm both `file` results are Mach-O arm64 and the packaged stable marker is present. Upload only

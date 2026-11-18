@@ -58,9 +58,9 @@ including checking the macOS ZIP as well as the DMG. Give the owner Mac commands
 Generate each platform's manifest (example next release; only after separate release authorization):
 
 ```sh
-node scripts/release-assets.mjs checksums release macos 1.24.0 manual
-node scripts/release-assets.mjs checksums release windows 1.24.0 manual
-node scripts/release-assets.mjs checksums release linux 1.24.0 manual
+node scripts/release-assets.mjs checksums release macos 1.25.0 manual
+node scripts/release-assets.mjs checksums release windows 1.25.0 manual
+node scripts/release-assets.mjs checksums release linux 1.25.0 manual
 ```
 
 Run each command on that platform's staging directory, not with absent platforms. For signed Windows
@@ -68,14 +68,14 @@ use `signed` consistently instead of `manual`. Stage only intended assets; unsig
 must exclude generated `latest.yml`. The Windows CI workflow produces manual/test artifacts without
 publishing or enabling updates; native checks and owner approval still precede distribution.
 
-Create an authorized draft with `gh release create v1.24.0 --draft --title 'Ember 1.24.0' --latest=false`
+Create an authorized draft with `gh release create v1.25.0 --draft --title 'Ember 1.25.0' --latest=false`
 and upload the complete verified set without replacing any existing asset. Assemble/download it into
 one otherwise-empty directory and run:
 
 ```sh
-node scripts/release-assets.mjs audit staging 1.24.0 manual
+node scripts/release-assets.mjs audit staging 1.25.0 manual
 # Only after native verification and explicit publication approval:
-node scripts/release-assets.mjs promote 1.24.0 manual
+node scripts/release-assets.mjs promote 1.25.0 manual
 ```
 
 Promotion downloads the **actual draft**, verifies required files, metadata SHA-512/size/URLs and all

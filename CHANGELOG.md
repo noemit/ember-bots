@@ -1,3 +1,57 @@
+## 1.25.0 — 2026-11-18
+
+### Added
+- Composer-integrated Questions answering: answer active questions directly in the composer zone
+  with high-contrast multi-choice pills above an optional note, per-question paging, `Back to chat`
+  and `Escape` draft restoration, child-task connection detachment, and unsent-draft reload
+  protection across desktop and remote browsers.
+- Verified clickable Markdown and static HTML document previews: Markdown links, inline code file
+  references and prose paths that resolve to conversation-evidenced or project files open in an
+  in-app preview dialog (or read-only popout window) with Rendered/Source toggle, refresh,
+  download, external-image privacy toggle, and Triple-Lock static HTML isolation (`DOMParser`
+  sanitizer, inner `default-src 'none'` CSP, and `sandbox=""` `srcdoc` with copy-only prompts when
+  scripts are detected).
+- Dynamic model catalog refresh (`POST /models/refresh`) across 12 cloud and local providers,
+  including post-share catalog refresh on destination Kilns and keyboard navigation (`ArrowUp`,
+  `ArrowDown`, `Enter`, double-click commit, and smart initial provider expansion) in the model
+  picker.
+- Per-submission queued follow-up model and reasoning-effort isolation, so changing models for a
+  queued message never mutates the active turn's tool loop or overwrites earlier queued items.
+- Search filtering and bounded initial row rendering in Hidden sessions (`ArchiveDialog`), plus
+  bounded initial diff rendering in `DiffView`.
+
+### Changed
+- Mosaic thinking and working trails use approved seeded pixel profiles with bounded LRU plan and
+  stylesheet caching, resting crew leader alternation between busy and thinking appearances, and
+  memoized `LavaBlob` filters.
+- Cold-boot window creation opens immediately while the local Kiln starts in the background;
+  `GET /conversations` polling is deduplicated, streaming deltas coalesce per animation frame, and
+  crew cost / needs-input graphs compute in linear time.
+- Onboarding adapts cleanly to mobile viewports with modal focus trapping, unified default-model
+  selection, and zero-filter background glow; custom group names render visibly in rail group
+  headers; and remote endpoint removal and fleet-wide YOLO require explicit confirmation.
+- Includes Kiln 1.13.0. `build/notarize.js` accepts `APPLE_PASSWORD` or
+  `APPLE_APP_SPECIFIC_PASSWORD`.
+
+### Fixed
+- Hardened approvals, transport and filesystem boundaries: gated mutating `schedule`, `agents send`
+  and MCP tools behind Approvals; removed automatic peer bearer-token broadcast; canonicalized
+  `/remote/pi` and `PiClient` relative paths; hardened bash permission-rule matching and
+  `openTarget` `file:` handling; added `/remote/login` `scrypt` concurrency limiting, 4 KB body
+  caps and security headers; enforced `0o700` directory and `0o600` SQLite/backup file modes;
+  removed `?token=` query auth; rejected browser `Origin` headers on mutating/WebSocket routes; and
+  confined workspace `/directories` against symlink escapes.
+- Fixed crew worker promotion when keeping a worker's default name and cleared inherited worker
+  instructions on promoted standalone peers.
+- Fixed `ReadCoordinator` queued follow-up premature resolution, `handOffPendingCreate` multi-message
+  FIFO staging and failure safety, `stopQueueHandoff` HTTP 409 idle wedges, `QuestionsShelf`
+  same-revision failed-mutation lockouts, scheduler run-failure status reporting and timezone
+  countdowns, `useMessageQueue` 409 rollbacks, first-compaction status pills, and Electron settings
+  `mtimeMs` cache invalidation.
+- Vertically centered small (`40px`) and standard (`55px`) rail blobs beside their session and group
+  text stacks while keeping hover actions in their top clearance band, and measured wide-rail
+  container width dynamically so project blob strips never clip.
+
 ## 1.24.0 — 2026-11-15
 
 ### Added
