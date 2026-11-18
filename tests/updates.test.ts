@@ -236,3 +236,23 @@ test('saved check results restore without advertising an unverified update after
   controller.restoreCheckResult(NaN, 'failed');
   expect(controller.snapshot().lastCheckedAt).toBe(1234);
 });
+
+test('exposes isBusy while downloading so automatic daily checks can defer without burning their window', async () => {
+  const updater = new MockUpdater();
+  let releaseDownload!: (files: string[]) => void;
+  updater.downloadUpdate = () => new Promise(resolve => { releaseDownload = resolve; });
+  const { controller } = setup(updater);
+  expect(controller.isBusy()).toBe(false);
+  await controller.action('check');
+  expect(controller.isBusy()).toBe(false);
+
+  const downloading = controller.action('download');
+  await Promise.resolve();
+  expect(controller.isBusy()).toBe(true);
+  expect(controller.snapshot().phase).toBe('downloading');
+
+  releaseDownload(['update.zip']);
+  await downloading;
+  expect(controller.isBusy()).toBe(false);
+  expect(controller.snapshot().phase).toBe('downloaded');
+});

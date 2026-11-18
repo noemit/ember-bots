@@ -108,10 +108,12 @@ import {
   createScheduledTask,
   deleteScheduledTask,
   listScheduledTasks,
+  nextOccurrence,
   parseScheduledTaskInput,
   parseScheduledTaskPatch,
   runScheduledTaskNow,
   updateScheduledTask,
+  type ScheduledTask,
 } from "./scheduler";
 import type { HearthConfig } from "./config";
 import { ensureConditionalProviders, refreshLiveCatalog, type HearthDefault } from "./models";
@@ -1957,16 +1959,29 @@ const server = Bun.serve<{
       // ---- scheduled tasks --------------------------------------------------------------
       // Due-times live in a session doc; the tick loop (see index.ts) submits them to their
       // conversations. `timezone` is the process zone, for clients that display the times.
+      const withWireNextRunAt = (
+        task: ScheduledTask,
+        now = Date.now(),
+        hostTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      ): ScheduledTask & { nextRunAt?: number } => {
+        const nextRunAt = task.enabled ? nextOccurrence(task.schedule, now, hostTimezone) : undefined;
+        return nextRunAt !== undefined ? { ...task, nextRunAt } : task;
+      };
       if (path === "/scheduled-tasks") {
         if (request.method === "GET") {
+          const hostTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const now = Date.now();
           const state = await listScheduledTasks(harness, context);
-          return json({ tasks: state.tasks, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+          return json({
+            tasks: state.tasks.map((task) => withWireNextRunAt(task, now, hostTimezone)),
+            timezone: hostTimezone,
+          });
         }
         if (request.method === "POST") {
           const body = await readBody(request);
           const input = parseScheduledTaskInput(body);
           if (!input) return badRequest(scheduledTaskRefusal(body));
-          return json(await createScheduledTask(harness, input, context), 201);
+          return json(withWireNextRunAt(await createScheduledTask(harness, input, context)), 201);
         }
         return noRoute(request.method, path, routeMethods(path));
       }
@@ -1985,7 +2000,7 @@ const server = Bun.serve<{
         if (!action && request.method === "PATCH") {
           const updated = await updateScheduledTask(harness, id, parseScheduledTaskPatch(await readBody(request)), context);
           if (!updated) return notFound(`there is no scheduled task "${brief(id, 100)}"`);
-          return json(updated);
+          return json(withWireNextRunAt(updated));
         }
         if (!action && request.method === "DELETE") {
           return (await deleteScheduledTask(harness, id, context))

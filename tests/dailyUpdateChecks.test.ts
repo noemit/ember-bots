@@ -80,3 +80,67 @@ test('corrupt or far-future jitter cannot suppress checks indefinitely; no early
   expect(updateCheckDue(last, last + DAY + JITTER, last + DAY + JITTER)).toBe(true);
   for (const next of [NaN, Infinity, 'future', last + DAY * 100, last - 1]) expect(updateCheckDue(last, last + DAY, next)).toBe(true);
 });
+
+test('skipping an automatic check while an update download is busy does not burn the 24h window', async () => {
+  let now = DAY * 10;
+  let last = 0;
+  let next = 0;
+  let busy = true;
+  let checkCalls = 0;
+  let recordCalls = 0;
+  const runner = new DailyUpdateChecks({
+    enabled: () => true,
+    busy: () => busy,
+    lastAttempt: () => last,
+    nextAttempt: () => next,
+    now: () => now,
+    random: () => 0.5,
+    recordAttempt: async (at, due) => {
+      recordCalls++;
+      last = at;
+      next = due;
+    },
+    check: async () => {
+      checkCalls++;
+      return { phase: busy ? 'downloading' : 'idle', supported: true, currentVersion: '1.0.0' };
+    },
+  });
+
+  // Automatic check while download is busy skips cleanly without persisting an attempt receipt.
+  expect(await runner.check()).toBeUndefined();
+  expect(recordCalls).toBe(0);
+  expect(checkCalls).toBe(0);
+  expect(last).toBe(0);
+  expect(next).toBe(0);
+
+  // Once the busy download finishes (e.g. failed), the automatic check runs immediately without waiting 24h.
+  busy = false;
+  now += 60_000;
+  await runner.check();
+  expect(recordCalls).toBe(1);
+  expect(checkCalls).toBe(1);
+  expect(last).toBe(now);
+  expect(next).toBe(now + DAY + JITTER / 2);
+
+  // Also rolls back the window if a download starts concurrently while `recordAttempt` is flushing.
+  const prevLast = last;
+  const prevNext = next;
+  now = next;
+  const raceRunner = new DailyUpdateChecks({
+    enabled: () => true,
+    lastAttempt: () => last,
+    nextAttempt: () => next,
+    now: () => now,
+    random: () => 0.25,
+    recordAttempt: async (at, due) => {
+      last = at;
+      next = due;
+    },
+    check: async () => ({ phase: 'downloading', progress: 50, supported: true, currentVersion: '1.0.0' }),
+  });
+  const skipped = await raceRunner.check();
+  expect(skipped?.phase).toBe('downloading');
+  expect(last).toBe(prevLast);
+  expect(next).toBe(prevNext);
+  expect(updateCheckDue(last, now, next)).toBe(true);
+});

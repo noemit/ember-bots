@@ -1516,6 +1516,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     updateController.restoreCheckResult(priorCheck.lastCheckedAt, priorCheck.lastCheckResult);
     dailyUpdateChecks = new DailyUpdateChecks({
       enabled: () => readEmberSettings().automaticUpdateChecks !== false,
+      busy: () => updateController?.isBusy() === true,
       lastAttempt: () => readJson(attemptsPath).lastAttemptAt,
       nextAttempt: () => readJson(attemptsPath).nextAttemptAt,
       recordAttempt: (at, next) => writeJson(attemptsPath, { ...readJson(attemptsPath), lastAttemptAt: at, nextAttemptAt: next }),

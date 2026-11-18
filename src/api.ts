@@ -546,7 +546,8 @@ const toScheduledTask = (
 const mapPiScheduledTask = (
   instanceId: string,
   task: PiScheduledTask,
-  projects: Project[]
+  projects: Project[],
+  hostTimezone?: string
 ): ScheduledTask => {
   const projectId = task.cwd ?? 'hearth';
   const project = projects.find((entry) => entry.path === projectId || entry.id === projectId);
@@ -576,8 +577,12 @@ const mapPiScheduledTask = (
       lastStatus: task.lastStatus,
       lastError: task.lastError,
       lastRunAt: task.lastRunAt,
+      ...(typeof task.nextRunAt === 'number' && Number.isFinite(task.nextRunAt) ? { nextRunAt: task.nextRunAt } : {}),
     },
-    raw: task as unknown as Record<string, unknown>,
+    raw: {
+      ...(task as unknown as Record<string, unknown>),
+      ...(hostTimezone ? { timezone: hostTimezone } : {}),
+    },
   };
 };
 
@@ -588,7 +593,7 @@ const loadPiScheduledIdentityData = async (
   const data = await piLoadScheduledTasks(instanceId);
   const bindings: Record<string, string> = {};
   const taskNames: Record<string, string> = {};
-  const tasks = (data?.tasks ?? []).map((task) => mapPiScheduledTask(instanceId, task, projects));
+  const tasks = (data?.tasks ?? []).map((task) => mapPiScheduledTask(instanceId, task, projects, data?.timezone));
   tasks.forEach((task) => {
     taskNames[task.key] = task.name;
     for (const id of new Set([...(task.state.runSessionIds ?? []), task.state.lastSessionId])) {

@@ -206,14 +206,68 @@ export const unreadScheduledRunsByTask = (runs: readonly ScheduledRunRow[]): Rec
   return result;
 };
 
+const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+const wallClockInZone = (
+  epochMs: number,
+  timeZone: string
+): { year: number; month: number; day: number; hour: number; minute: number; second: number; weekday: number } => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    weekday: 'short',
+  }).formatToParts(new Date(epochMs));
+  const get = (type: string): string => parts.find((part) => part.type === type)?.value ?? '';
+  return {
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    hour: Number(get('hour')) % 24,
+    minute: Number(get('minute')),
+    second: Number(get('second')),
+    weekday: WEEKDAY_INDEX[get('weekday')] ?? 0,
+  };
+};
+
+const wallClockToEpochInZone = (
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string
+): number => {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const first = wallClockInZone(guess, timeZone);
+  const firstDelta =
+    Date.UTC(first.year, first.month - 1, first.day, first.hour, first.minute, first.second) - guess;
+  const second = wallClockInZone(guess - firstDelta, timeZone);
+  const secondDelta =
+    Date.UTC(second.year, second.month - 1, second.day, second.hour, second.minute, second.second) -
+    (guess - firstDelta);
+  return guess - secondDelta;
+};
+
 /**
  * Derive the next run timestamp (epoch ms) from a task's state or its `schedule` object when
  * possible, or `null` when the task is paused or the schedule has no future occurrence.
  */
 export const deriveNextRunAt = (task: ScheduledTask, now: number = Date.now()): number | null => {
   if (!task.enabled) return null;
-  if (typeof task.state.nextRunAt === 'number' && Number.isFinite(task.state.nextRunAt) && task.state.nextRunAt > now) {
-    return task.state.nextRunAt;
+  const stateNext =
+    typeof task.state.nextRunAt === 'number' && Number.isFinite(task.state.nextRunAt)
+      ? task.state.nextRunAt
+      : typeof task.raw?.nextRunAt === 'number' && Number.isFinite(task.raw.nextRunAt)
+        ? task.raw.nextRunAt
+        : undefined;
+  if (stateNext !== undefined && stateNext > now) {
+    return stateNext;
   }
   const raw = task.raw?.schedule;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -228,19 +282,42 @@ export const deriveNextRunAt = (task: ScheduledTask, now: number = Date.now()): 
     const targetMinute = Number(match[2]);
     const weekdays =
       spec.kind === 'weekly' && Array.isArray(spec.weekdays)
-        ? new Set(spec.weekdays.filter((d): d is number => typeof d === 'number' && d >= 0 && d <= 6))
+        ? new Set(spec.weekdays.filter((d): d is number => typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 6))
         : null;
     if (weekdays && weekdays.size === 0) return null;
 
-    const candidate = new Date(now);
-    candidate.setSeconds(0, 0);
-    candidate.setHours(targetHour, targetMinute, 0, 0);
-    for (let offset = 0; offset < 8; offset += 1) {
-      const check = new Date(candidate.getTime() + offset * 24 * 60 * 60 * 1000);
-      if (check.getTime() <= now) continue;
-      if (!weekdays || weekdays.has(check.getDay())) {
-        return check.getTime();
+    const explicitZone =
+      spec.timezone !== undefined
+        ? spec.timezone
+        : typeof task.raw?.timezone === 'string' && task.raw.timezone.trim()
+          ? task.raw.timezone.trim()
+          : undefined;
+    let timeZone: string;
+    if (explicitZone !== undefined) {
+      if (typeof explicitZone !== 'string' || !explicitZone.trim()) return null;
+      timeZone = explicitZone.trim();
+    } else {
+      timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+
+    try {
+      const today = wallClockInZone(now, timeZone);
+      for (let offset = 0; offset < 8; offset += 1) {
+        const candidateWeekday = (today.weekday + offset) % 7;
+        if (weekdays && !weekdays.has(candidateWeekday)) continue;
+        const candidateDate = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
+        const epoch = wallClockToEpochInZone(
+          candidateDate.getUTCFullYear(),
+          candidateDate.getUTCMonth() + 1,
+          candidateDate.getUTCDate(),
+          targetHour,
+          targetMinute,
+          timeZone
+        );
+        if (epoch > now) return epoch;
       }
+    } catch {
+      return null;
     }
   }
   return null;

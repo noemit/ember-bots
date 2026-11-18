@@ -1272,6 +1272,7 @@ export type PiScheduledTask = {
   thinkingLevel?: string;
   createdAt: number;
   lastRunAt?: number;
+  nextRunAt?: number;
   lastSessionId?: number;
   lastStatus?: string;
   lastError?: string;

@@ -89,6 +89,46 @@ describe('buildScheduledRuns and notification counter', () => {
     const paused = makeTask('paused', { enabled: false, raw: { schedule: { kind: 'once', at: now + 60_000 } } });
     expect(deriveNextRunAt(paused, now)).toBeNull();
   });
+
+  test('prefers server-computed nextRunAt and falls back to schedule/host timezone across zones', () => {
+    // 2026-11-08T08:30:00Z (Sunday): 09:00 Europe/Berlin (08:00Z) has passed, while 09:00 America/New_York (14:00Z) is ahead.
+    const now = Date.UTC(2026, 10, 8, 8, 30, 0);
+    const serverComputed = Date.UTC(2026, 10, 8, 17, 0, 0);
+    const withServerNext = makeTask('server-next', {
+      state: { nextRunAt: serverComputed },
+      raw: { schedule: { kind: 'daily', time: '09:00', timezone: 'America/Los_Angeles' } },
+    });
+    expect(deriveNextRunAt(withServerNext, now)).toBe(serverComputed);
+    expect(deriveNextRunAt({ ...withServerNext, enabled: false }, now)).toBeNull();
+
+    const berlinDaily = makeTask('berlin-daily', {
+      raw: { schedule: { kind: 'daily', time: '09:00', timezone: 'Europe/Berlin' } },
+    });
+    expect(deriveNextRunAt(berlinDaily, now)).toBe(Date.UTC(2026, 10, 9, 8, 0, 0));
+
+    const nyDaily = makeTask('ny-daily', {
+      raw: { schedule: { kind: 'daily', time: '09:00', timezone: 'America/New_York' } },
+    });
+    expect(deriveNextRunAt(nyDaily, now)).toBe(Date.UTC(2026, 10, 8, 14, 0, 0));
+
+    // Weekly schedule in Asia/Tokyo (UTC+9): at 08:30Z Sunday (17:30 Sunday Tokyo), Monday 09:00 Tokyo is Monday 00:00Z.
+    const tokyoWeekly = makeTask('tokyo-weekly', {
+      raw: { schedule: { kind: 'weekly', time: '09:00', weekdays: [1], timezone: 'Asia/Tokyo' } },
+    });
+    expect(deriveNextRunAt(tokyoWeekly, now)).toBe(Date.UTC(2026, 10, 9, 0, 0, 0));
+
+    // Remote host timezone fallback when `schedule.timezone` and `state.nextRunAt` are omitted (or stale).
+    const remoteHostZone = makeTask('remote-host-zone', {
+      state: { nextRunAt: now - 1000 },
+      raw: { timezone: 'America/New_York', schedule: { kind: 'daily', time: '09:00' } },
+    });
+    expect(deriveNextRunAt(remoteHostZone, now)).toBe(Date.UTC(2026, 10, 8, 14, 0, 0));
+
+    const invalidZone = makeTask('invalid-zone', {
+      raw: { schedule: { kind: 'daily', time: '09:00', timezone: 'Mars/Olympus_Mons' } },
+    });
+    expect(deriveNextRunAt(invalidZone, now)).toBeNull();
+  });
 });
 
 

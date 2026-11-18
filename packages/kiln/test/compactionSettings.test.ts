@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
@@ -86,3 +86,35 @@ test('authenticated host settings persist, affect real automatic generation and 
     expect(new CompactionSettings(home, models).settings()).toEqual({});
   } finally { await server.close(); await harness.close(context); await rm(home, { recursive: true, force: true }); }
 }, 15000);
+
+test('malformed compaction.json is quarantined aside and falls back to Pi defaults instead of crashing Kiln on boot', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'kiln-compaction-corrupt-'));
+  const models = createModels();
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(' '));
+  };
+  try {
+    const file = join(home, 'compaction.json');
+    const corruptBytes = '{"compactAtTokens": 70000, broken-json';
+    writeFileSync(file, corruptBytes, { mode: 0o600 });
+
+    const settings = new CompactionSettings(home, models);
+    expect(settings.state().preference).toBeNull();
+    expect(settings.settings()).toEqual({});
+    expect(existsSync(file)).toBe(false);
+
+    const quarantined = readdirSync(home).filter(name => name.startsWith('compaction.json.corrupt-'));
+    expect(quarantined).toHaveLength(1);
+    expect(readFileSync(join(home, quarantined[0]), 'utf8')).toBe(corruptBytes);
+    expect(warnings.some(line => line.includes('Kiln') && line.includes('compaction.json'))).toBe(true);
+
+    // Subsequent saves still succeed cleanly.
+    settings.save(preference);
+    expect(new CompactionSettings(home, models).state().preference).toEqual(preference);
+  } finally {
+    console.warn = originalWarn;
+    await rm(home, { recursive: true, force: true });
+  }
+});

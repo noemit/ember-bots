@@ -215,7 +215,7 @@ export default function ScheduledView({
                   const schedule = formatPlanSummary(task);
                   const nextRunAt = deriveNextRunAt(task);
                   const running = runningTaskKeys.has(task.key);
-                  const failed = task.state.lastStatus === 'error' || Boolean(task.state.lastError);
+                  const failed = !running && (task.state.lastStatus === 'error' || Boolean(task.state.lastError));
                   const hostLabel = instanceLabels.get(task.instanceId);
                   return (
                     <div
