@@ -71,6 +71,9 @@ import {
   loadSessionInstructions,
   setSessionInstructions,
   loadMessageTail,
+  loadMessageTailPage,
+  MESSAGE_TAIL_LIMIT,
+  OPEN_MESSAGE_TAIL_LIMIT,
   loadPermissions,
   loadQuestions,
   loadSessions,
@@ -2149,7 +2152,13 @@ export default function App() {
           const [projects, models] = await Promise.all([loadAllProjects([id]), loadModels(id)]);
           if (cancelled) return;
           // An instance that failed to answer is absent from these maps; keep its previous data.
-          setProjectsByInstance((prev) => ({ ...prev, ...projects }));
+          if (Object.keys(projects).length > 0) {
+            projectsByInstanceRef.current = { ...projectsByInstanceRef.current, ...projects };
+            setProjectsByInstance((prev) => ({ ...prev, ...projects }));
+            if (!isPiInstance(id) && (projects[id]?.length ?? 0) > 0) {
+              void refreshScheduled([id]);
+            }
+          }
           if (models) setModelsByInstance((prev) => ({ ...prev, [id]: models }));
         }));
       } catch (err) {
@@ -2335,9 +2344,6 @@ export default function App() {
   };
 
   const transcriptReads = React.useRef(new ReadCoordinator());
-  const fullReadAt = React.useRef(new Map<string, number>());
-  /** When each column first went on screen, so "no full read yet" has a sane baseline. */
-  const columnOpenedAt = React.useRef(new Map<string, number>());
   const loadAndCommitMessages = useStableCallback((ref: SessionRef, mode: 'tail' | 'full', directory?: string, afterCurrent: boolean = false) => {
     const key = sessionKey(ref);
     return transcriptReads.current.run(key, mode, async () => {
@@ -2369,45 +2375,50 @@ export default function App() {
             return;
           }
         }
-      }
-      if (mode === 'full') {
-        // A full read is a *paged* walk of the entries route, not the snapshot: the snapshot serves
-        // the active window, so after a compaction it is a fraction of the history (measured live:
-        // 39 of 872 entries on one conversation). `complete` says whether the walk reached the
-        // start; a cap or a short answer leaves it false and the transcript says so.
-        const history = await loadMessageHistory(ref.instanceId, ref.sessionId);
-        // The walk landed, so the session is not one the breaker has to hold back. A success here is
-        // the only evidence that counts: a transient timeout clears on the next attempt anyway.
-        if (repairBudget.current.halt(ref)) {
-          repairBudget.current.succeeded(ref);
-          setRepairHalts((prev) => {
-            if (!prev[key]) return prev;
-            const next = { ...prev };
-            delete next[key];
-            return next;
-          });
-        }
-        const messages = history.supported
-          ? history.messages
-          : await loadMessages(ref.instanceId, ref.sessionId, directory ?? meta.directory);
-        commitFetchedTranscript(key, messages, 'full', meta.updated);
-        observeModels(observationsFor(ref.instanceId, ref.sessionId, directory ?? meta.directory, messages));
-        fullReadAt.current.set(key, Date.now());
-        // Legacy instances have no cursor: their own paged read is complete by construction (or by
-        // their documented ceiling, which this client cannot see). Do not claim either way for a
-        // read that did not come from the Hearth walk.
-        const historyComplete = history.supported ? history.complete : true;
+        const tailLimit = held.length === 0 ? OPEN_MESSAGE_TAIL_LIMIT : MESSAGE_TAIL_LIMIT;
+        const tail = await loadMessageTailPage(ref.instanceId, ref.sessionId, directory ?? meta.directory, tailLimit);
+        commitFetchedTranscript(key, tail.messages, 'tail', meta.updated);
+        observeModels(observationsFor(ref.instanceId, ref.sessionId, directory ?? meta.directory, tail.messages));
         setTranscripts((prev) => {
           const current = prev[key];
           if (!current) return prev;
+          const historyComplete = current.historyComplete === true || tail.complete;
           if (current.historyComplete === historyComplete) return prev;
           return { ...prev, [key]: { ...current, historyComplete } };
         });
         return;
       }
-      const messages = await loadMessageTail(ref.instanceId, ref.sessionId, directory ?? meta.directory);
-      commitFetchedTranscript(key, messages, mode, meta.updated);
+      // A full read is a *paged* walk of the entries route, not the snapshot: the snapshot serves
+      // the active window, so after a compaction it is a fraction of the history (measured live:
+      // 39 of 872 entries on one conversation). `complete` says whether the walk reached the
+      // start; a cap or a short answer leaves it false and the transcript says so.
+      const history = await loadMessageHistory(ref.instanceId, ref.sessionId);
+      // The walk landed, so the session is not one the breaker has to hold back. A success here is
+      // the only evidence that counts: a transient timeout clears on the next attempt anyway.
+      if (repairBudget.current.halt(ref)) {
+        repairBudget.current.succeeded(ref);
+        setRepairHalts((prev) => {
+          if (!prev[key]) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
+      const messages = history.supported
+        ? history.messages
+        : await loadMessages(ref.instanceId, ref.sessionId, directory ?? meta.directory);
+      commitFetchedTranscript(key, messages, 'full', meta.updated);
       observeModels(observationsFor(ref.instanceId, ref.sessionId, directory ?? meta.directory, messages));
+      // Legacy instances have no cursor: their own paged read is complete by construction (or by
+      // their documented ceiling, which this client cannot see). Do not claim either way for a
+      // read that did not come from the Hearth walk.
+      const historyComplete = history.supported ? history.complete : true;
+      setTranscripts((prev) => {
+        const current = prev[key];
+        if (!current) return prev;
+        if (current.historyComplete === historyComplete) return prev;
+        return { ...prev, [key]: { ...current, historyComplete } };
+      });
     }, afterCurrent);
   });
 
@@ -2462,12 +2473,23 @@ export default function App() {
     }
   });
 
-  /** Bounded tail refresh for a visible column while a turn streams. */
+  /** Bounded tail refresh for a visible column on open and while a turn streams. */
   const refreshMessageTail = useStableCallback(async (ref: SessionRef) => {
+    const key = sessionKey(ref);
     try {
       await loadAndCommitMessages(ref, 'tail');
     } catch (err) {
       console.error('Failed to load message tail', err);
+      setTranscripts((prev) => {
+        const current = prev[key];
+        if (current?.status === 'ready') return prev;
+        const failure = current?.failure === 'reload' ? 'reload' : 'tail';
+        const messages = current?.messages ?? messageCacheRef.current.get(key) ?? [];
+        if (current && current.messages === messages && current.status === 'error' && current.failure === failure) {
+          return prev;
+        }
+        return { ...prev, [key]: { messages, status: 'error', failure } };
+      });
     }
   });
 
@@ -2694,7 +2716,7 @@ export default function App() {
             instanceId,
             resource: 'messages',
             sessionId: ref.sessionId,
-            messageMode: 'full',
+            messageMode: 'tail',
           });
         }
       });
@@ -2714,9 +2736,16 @@ export default function App() {
         const connected = event.connected === true;
         const wasConnected = liveInstancesRef.current[event.instanceId] === true;
         if (wasConnected === connected) return;
+        if (!connected && wasConnected) disconnectedStreamsRef.current.add(event.instanceId);
         liveInstancesRef.current = { ...liveInstancesRef.current, [event.instanceId]: connected };
         setLiveInstances(liveInstancesRef.current);
-        if (connected && readySet.has(event.instanceId)) catchUp(event.instanceId);
+        if (connected && readySet.has(event.instanceId)) {
+          const reconnected = disconnectedStreamsRef.current.delete(event.instanceId);
+          const bootstrappedAt = bootstrappedReadyIdsRef.current.get(event.instanceId) ?? 0;
+          if (reconnected || Date.now() - bootstrappedAt >= 1_000) {
+            catchUp(event.instanceId);
+          }
+        }
         return;
       }
       if (!readySet.has(event.instanceId)) return;
@@ -2795,9 +2824,9 @@ export default function App() {
   const readyIdsRef = React.useRef(readyIds);
   readyIdsRef.current = readyIds;
 
-  const refreshListFor = async (ids: string[]) => {
+  const refreshListFor = useStableCallback(async (ids: string[]) => {
     await Promise.all([refreshSessions(ids), refreshAutoAccept(ids)]);
-  };
+  });
   const refreshStateFor = useStableCallback(async (ids: string[]) => {
     await Promise.all(ids.map((id) => Promise.all([
       refreshStates([id]), refreshQueues([id]),
@@ -2809,20 +2838,33 @@ export default function App() {
       refreshPermissions([id]), refreshQuestions([id]),
     ])));
   });
+  const bootstrappedReadyIdsRef = React.useRef(new Map<string, number>());
+  const disconnectedStreamsRef = React.useRef(new Set<string>());
   React.useEffect(() => {
-    readyIds.forEach((id) => { void refreshSessions([id]); void refreshStateFor([id]); });
+    const activeReady = new Set(readyIds);
+    for (const id of bootstrappedReadyIdsRef.current.keys()) {
+      if (!activeReady.has(id)) bootstrappedReadyIdsRef.current.delete(id);
+    }
+    const newlyReady = readyIds.filter((id) => !bootstrappedReadyIdsRef.current.has(id));
+    if (newlyReady.length === 0) return;
+    const at = Date.now();
+    newlyReady.forEach((id) => {
+      bootstrappedReadyIdsRef.current.set(id, at);
+      void refreshListFor([id]);
+      void refreshStateFor([id]);
+      void refreshPromptsFor([id]);
+    });
     // Hearth scheduled tasks are one aggregate request, so load them as soon as a pi instance
-    // is ready (the OpenChamber path stays on its rare poll to avoid the per-project fan-out).
-    const piIds = instances
-      .filter((instance) => instance.kind === 'pi' && readyIds.includes(instance.id))
-      .map((instance) => instance.id);
+    // is ready (the OpenChamber path loads once projects arrive, then stays on its rare poll).
+    const piIds = newlyReady.filter((id) => isPiInstance(id));
     if (piIds.length > 0) void refreshScheduled(piIds);
-  }, [readyIds, instances, refreshSessions, refreshStateFor, refreshScheduled]);
-  usePoll(() => refreshListFor(deadIdsRef.current), SESSION_POLL_MS, deadIds.length > 0);
-  usePoll(() => refreshListFor(liveIdsRef.current), SESSION_POLL_LIVE_MS, liveIds.length > 0);
-  usePoll(() => refreshStateFor(deadIdsRef.current), STATE_POLL_MS, deadIds.length > 0);
-  usePoll(() => refreshStateFor(liveIdsRef.current), STATE_POLL_LIVE_MS, liveIds.length > 0);
-  usePoll(() => refreshPromptsFor(readyIdsRef.current), PROMPT_POLL_MS, readyIds.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds
+  }, [readyKey, refreshListFor, refreshStateFor, refreshPromptsFor, refreshScheduled]);
+  usePoll(() => refreshListFor(deadIdsRef.current), SESSION_POLL_MS, deadIds.length > 0, { immediate: false });
+  usePoll(() => refreshListFor(liveIdsRef.current), SESSION_POLL_LIVE_MS, liveIds.length > 0, { immediate: false });
+  usePoll(() => refreshStateFor(deadIdsRef.current), STATE_POLL_MS, deadIds.length > 0, { immediate: false });
+  usePoll(() => refreshStateFor(liveIdsRef.current), STATE_POLL_LIVE_MS, liveIds.length > 0, { immediate: false });
+  usePoll(() => refreshPromptsFor(readyIdsRef.current), PROMPT_POLL_MS, readyIds.length > 0, { immediate: false });
 
 
   // Reads for a session the user just brought on screen. Preview warming waits for them so a burst
@@ -2947,37 +2989,23 @@ export default function App() {
   }, [sessions, commitFetchedTranscript, refreshPromptsFor]);
 
   /**
-   * Bring an on-screen transcript up to date. Cached messages render first; a cached session gets
-   * a bounded tail (which repairs itself with a full read when it no longer overlaps), an uncached
-   * one a full read.
+   * Bring an on-screen transcript up to date via a bounded tail/append read.
+   *
+   * Opening a session must stay fast even when its JSONL file is tens of megabytes: a real long
+   * session can carry 45MB of tool output where the tail page is ~24KB and paints immediately.
+   * When older messages remain on the host (`historyComplete` is false), Transcript renders the
+   * sticky "Earlier messages aren't loaded yet" strip above the scroller and loads the full history
+   * lazily on demand ("Load them", Find, or quote jumps).
    */
+  const shownTranscriptThisTick = React.useRef(new Set<string>());
   const showTranscript = useStableCallback((ref: SessionRef) => {
     const key = sessionKey(ref);
-    if (!columnOpenedAt.current.has(key)) columnOpenedAt.current.set(key, Date.now());
-    // Opening a session always starts with the tail, never the full read.
-    //
-    // The full read is the whole conversation in one response, and a real long session is enormous:
-    // one here is 45MB of JSON, of which 44.7MB is tool output and only 0.9MB is the assistant text
-    // you actually read. Fetching that on open is what made chats fail to appear — the tail for the
-    // same session is 24KB, roughly 1900x smaller, and it is enough to render the screen
-    // immediately. Older history is a separate, lazy concern (see ), not something
-    // to block the first paint on.
+    if (shownTranscriptThisTick.current.has(key)) return;
+    shownTranscriptThisTick.current.add(key);
+    queueMicrotask(() => shownTranscriptThisTick.current.delete(key));
     const read = refreshMessageTail(ref);
     priorityReads.current.add(read);
-    void read
-      .finally(() => priorityReads.current.delete(read))
-      .then(() => {
-        // The tail paints the screen; it is not the whole conversation. Without this the column
-        // showed roughly the last ten messages and nothing else, so scrolling back was impossible
-        // and Find could not reach anything older — the transcript looked truncated rather than
-        // lazy. Backfill in the background, after the first paint, so opening stays fast *and* the
-        // history is really there.
-        const key2 = sessionKey(ref);
-        if (transcriptsRef.current[key2]?.historyComplete === true) return;
-        if (fullRepairInFlight.current.has(key2)) return;
-        fullRepairInFlight.current.add(key2);
-        void refreshMessages(ref);
-      });
+    void read.finally(() => priorityReads.current.delete(read));
     // A prompt raised while this column was off screen would otherwise not appear until the next
     // poll or reload: the question list is fetched per directory on hints, and switching to a
     // session is not a hint. Ask for it as the column comes on screen.
@@ -3026,20 +3054,15 @@ export default function App() {
         watchedSessionKeysRef.current.map((key) => {
           const ref = parseSessionKey(key);
           if (!ref || document.hidden || !(sessionsByInstanceRef.current[ref.instanceId] ?? []).some((session) => session.id === ref.sessionId)) return Promise.resolve();
-          const busy = states[key] === 'active';
-          // A live instance needs a full repair every five minutes; an unreachable one, or a turn
-          // in flight, every minute. Per column, so one dead instance stops penalising the rest.
-          const repairInterval = busy || !columnIsLive(ref) ? 60_000 : 5 * 60_000;
-          // With no full read yet the baseline is when the column opened, not 0: otherwise the
-          // first poll treats a session that has only ever had a tail as overdue for a repair and
-          // immediately fetches the whole conversation, which is the thing we are avoiding.
-          const lastFull = fullReadAt.current.get(key) ?? columnOpenedAt.current.get(key) ?? Date.now();
-          return Date.now() - lastFull >= repairInterval ? refreshMessages(ref) : refreshMessageTail(ref);
+          // Bounded incremental/tail refresh (`loadMessageAppend` / `reconcileTranscriptTail`);
+          // `commitFetchedTranscript` requests a full repair only when a tail cannot safely overlap.
+          return refreshMessageTail(ref);
         })
       );
     },
     anyColumnBusy || !columnsLive ? STATE_POLL_MS : MESSAGES_POLL_LIVE_MS,
-    watchedSessionKeys.length > 0
+    watchedSessionKeys.length > 0,
+    { immediate: false }
   );
 
   const toggleInstance = (instanceId: string) => {
@@ -4923,8 +4946,8 @@ export default function App() {
   // one aggregate request and has no project list, so pi instances count as known too.
   const projectsKnown =
     Object.keys(projectsByInstance).length > 0 || instances.some((instance) => instance.kind === 'pi');
-  usePoll(() => refreshScheduled(deadIdsRef.current), SCHEDULE_POLL_MS, projectsKnown && deadIds.length > 0);
-  usePoll(() => refreshScheduled(liveIdsRef.current), SCHEDULE_POLL_LIVE_MS, projectsKnown && liveIds.length > 0);
+  usePoll(() => refreshScheduled(deadIdsRef.current), SCHEDULE_POLL_MS, projectsKnown && deadIds.length > 0, { immediate: false });
+  usePoll(() => refreshScheduled(liveIdsRef.current), SCHEDULE_POLL_LIVE_MS, projectsKnown && liveIds.length > 0, { immediate: false });
 
   const handleComposerDraftsChange = (changes: DraftChanges) => {
     const drafts = mergeDraftChanges(settingsRef.current.composerDrafts, changes);
