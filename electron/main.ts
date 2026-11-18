@@ -11,7 +11,7 @@ import type { UpdateAction } from './updates';
 import { createKilnSharing } from './kilnSharing';
 import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
-import { unlockEndpointSecrets, lockEndpointSecrets, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
+import { unlockEndpointSecrets, canCacheUnlockedEndpoints, persistEndpointSecrets, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
 import {
   discoverLocalPiEndpoint,
   isLocalHttpUrl,
@@ -51,7 +51,7 @@ import { startRemoteServer } from './remoteServer';
 import { parseRemoteProxyOrigin } from './remoteProxy';
 import { appendCompactLog } from './compactLog';
 import { createAppIconDiagnosticLogger } from './appIconLog';
-import { initializeFirstRunSettings, quarantineCorruptSettings } from './settingsFile';
+import { createSettingsFileCache, initializeFirstRunSettings, quarantineCorruptSettings, stripUndefinedKeys } from './settingsFile';
 import { RemoteListener, type StartOutcome } from './remoteListener';
 import { EventStreamManager, type EmberEvent, type StreamStatus } from './eventStream';
 import { hashRemotePassword, MAX_REMOTE_PASSWORD_LENGTH, MIN_REMOTE_PASSWORD_LENGTH, verifyRemotePassword } from './remoteAuth';
@@ -261,30 +261,17 @@ const readJson = (file: string): Record<string, unknown> => readJsonRoot(file) ?
  * parse is what stops one bad read from emptying the instance list — to the rail, an empty
  * `piEndpoints` means the instance is gone, and it stays gone until a reprobe.
  */
-let emberSettingsCache: { mtimeMs: number; root: Record<string, unknown> } | null = null;
-const readEmberSettingsFile = (): Record<string, unknown> => {
-  const file = emberSettingsPath();
-  let mtimeMs = -1;
-  try {
-    mtimeMs = fs.statSync(file).mtimeMs;
-  } catch {
-    // Missing: cached under -1, and a previous good value keeps the app configured until it lands.
-  }
-  if (emberSettingsCache && emberSettingsCache.mtimeMs === mtimeMs) return emberSettingsCache.root;
-  const parsed = readJsonRoot(file);
-  if (parsed === undefined && mtimeMs !== -1) {
-    // The file exists and does not parse. Move it aside so the next save writes a fresh file and
-    // the user's copy is still on disk to salvage; keep the last good parse in memory meanwhile.
-    try {
-      quarantineSettingsFile(file);
-    } catch {
-      // Keep serving the last good parse; `settingsQuarantineFailed` refuses the next write.
-    }
-  }
-  const root = parsed ?? emberSettingsCache?.root ?? {};
-  emberSettingsCache = { mtimeMs: parsed === undefined && settingsRecoveredFrom ? -1 : mtimeMs, root };
-  return root;
-};
+type StaticEmberSettings = Omit<
+  EmberSettings,
+  'piEndpoints' | 'remoteAccessState' | 'localHarnessCanRotate' | 'localHarnessState' | 'settingsRecovered'
+>;
+const emberSettingsCache = createSettingsFileCache<StaticEmberSettings, PiEndpoint>({
+  filePath: emberSettingsPath,
+  readRoot: readJsonRoot,
+  onCorrupt: quarantineSettingsFile,
+  isQuarantined: () => settingsRecoveredFrom !== null,
+});
+const readEmberSettingsFile = (): Record<string, unknown> => emberSettingsCache.readEntry().root;
 
 // OpenChamber's settings are consulted on every proxied API request (several per second
 // across instances). Re-parse only when the file's mtime moves; a stat is far cheaper.
@@ -440,8 +427,10 @@ ipcMain.handle('ember:local-harness-token', (event, options: { rotate?: boolean 
 const positiveNumberOrUndefined = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 
-const readEmberSettings = (): EmberSettings => {
-  const root = readEmberSettingsFile();
+const stripLegacyQuietFromReadMarks = (marks: EmberSettings['readMarks']): EmberSettings['readMarks'] =>
+  Object.fromEntries(Object.entries(marks).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark]));
+
+const parseStaticEmberSettings = (root: Record<string, unknown>): StaticEmberSettings => {
   // Older builds stored one theme per instance; fall back to the first of those.
   const legacyThemes =
     root.instanceThemes && typeof root.instanceThemes === 'object'
@@ -478,7 +467,7 @@ const readEmberSettings = (): EmberSettings => {
     delegatorModels: parseDelegatorModels(root.delegatorModels),
     sessionNotes: parseSessionNotes(root.sessionNotes),
     quoteLinks: parseQuoteLinks(root.quoteLinks),
-    readMarks: Object.fromEntries(Object.entries(parseReadMarks(root.readMarks)).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark])),
+    readMarks: stripLegacyQuietFromReadMarks(parseReadMarks(root.readMarks)),
     mutedSessions: parseMutedSessions(root.mutedSessions, root.readMarks),
     snoozedSessions: parseSnoozedSessions(root.snoozedSessions),
     readSince: typeof root.readSince === 'number' && Number.isFinite(root.readSince) && root.readSince > 0 ? root.readSince : undefined,
@@ -499,8 +488,31 @@ const readEmberSettings = (): EmberSettings => {
         ? root.activeSession
         : null,
     minimizedSessions: parseStringArray(root.minimizedSessions),
+    remoteAccessEnabled: root.remoteAccessEnabled === true,
+    // Keep invalid stored values for startRemoteServer to reject rather than exposing direct HTTP.
+    remoteAccessProxyOrigin: root.remoteAccessProxyOrigin === undefined ? undefined : String(root.remoteAccessProxyOrigin),
+    remotePasswordConfigured: typeof root.remotePasswordHash === 'string' && root.remotePasswordHash.length > 0,
+    localHarnessEnabled: root.localHarnessEnabled !== false,
+    onboardingStartedAt: positiveNumberOrUndefined(root.onboardingStartedAt),
+    onboardingDismissedAt: positiveNumberOrUndefined(root.onboardingDismissedAt),
+    onboardedAt: positiveNumberOrUndefined(root.onboardedAt),
+  };
+};
+
+const readEmberSettings = (): EmberSettings => {
+  const entry = emberSettingsCache.readEntry();
+  const root = entry.root;
+  const staticSettings = (entry.staticSettings ??= parseStaticEmberSettings(root));
+  return {
+    ...staticSettings,
     piEndpoints: (() => {
-      const configured = parsePiEndpoints(unlockEndpointSecrets(root.piEndpoints, safeStorage));
+      const configured =
+        entry.configuredPiEndpoints ??
+        (() => {
+          const unlocked = parsePiEndpoints(unlockEndpointSecrets(root.piEndpoints, safeStorage));
+          if (canCacheUnlockedEndpoints(unlocked)) entry.configuredPiEndpoints = unlocked;
+          return unlocked;
+        })();
       const discovered: PiEndpoint[] =
         configured.length > 0 || Array.isArray(root.piEndpoints) || canaryBuild
           ? configured
@@ -531,16 +543,8 @@ const readEmberSettings = (): EmberSettings => {
         endpoint.id === 'pi:local' && endpoint.label === 'Local' ? { ...endpoint, label: 'This computer' } : endpoint
       );
     })(),
-    remoteAccessEnabled: root.remoteAccessEnabled === true,
-    // Keep invalid stored values for startRemoteServer to reject rather than exposing direct HTTP.
-    remoteAccessProxyOrigin: root.remoteAccessProxyOrigin === undefined ? undefined : String(root.remoteAccessProxyOrigin),
-    remotePasswordConfigured: typeof root.remotePasswordHash === 'string' && root.remotePasswordHash.length > 0,
     remoteAccessState: remoteListenerState,
-    localHarnessEnabled: root.localHarnessEnabled !== false,
     localHarnessCanRotate: canManageLocalToken(localHarnessState),
-    onboardingStartedAt: positiveNumberOrUndefined(root.onboardingStartedAt),
-    onboardingDismissedAt: positiveNumberOrUndefined(root.onboardingDismissedAt),
-    onboardedAt: positiveNumberOrUndefined(root.onboardedAt),
     localHarnessState: localHarnessReport(),
     settingsRecovered: settingsRecoveredFrom !== null,
   };
@@ -870,7 +874,7 @@ const harnessHome = (): string => emberHome;
 const localHarnessEndpointInfo = (root?: Record<string, unknown>): { url: string; token: string } | null =>
   localHarnessEndpoint({
     state: localHarnessState,
-    enabled: (root ?? readJson(emberSettingsPath())).localHarnessEnabled !== false,
+    enabled: (root ?? readEmberSettingsFile()).localHarnessEnabled !== false,
     home: harnessHome(),
     port: localHarness.options.port,
   });
@@ -1053,7 +1057,7 @@ ipcMain.handle('ember:activity:search', (event, query: unknown, range: unknown) 
 ipcMain.handle('ember:activity:days', (event) => { assertTrustedSender(event); return activityLog.days(); });
 ipcMain.handle('ember:activity:clear', (event) => { assertTrustedSender(event); return activityLog.clear(); });
 
-let refreshRemoteServer: () => void = () => {};
+let refreshRemoteServer: (current?: EmberSettings) => void = () => {};
 
 const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (settingsQuarantineFailed) {
@@ -1064,7 +1068,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   const value = patch && typeof patch === 'object'
     ? (patch as Partial<EmberSettings> & { remotePassword?: unknown; composerDraftChanges?: unknown })
     : {};
-  const root = readJson(emberSettingsPath());
+  const root = readEmberSettingsFile();
   const settings = readEmberSettings();
   const previousRemoteAccessEnabled = settings.remoteAccessEnabled;
   const previousRemoteProxyOrigin = settings.remoteAccessProxyOrigin;
@@ -1168,11 +1172,38 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   }
   settings.remotePasswordConfigured = Boolean(remotePasswordHash);
   if (!remotePasswordHash) settings.remoteAccessEnabled = false;
-  await writeJson(emberSettingsPath(), {
+  const settingsFile = emberSettingsPath();
+  const persistedEndpoints = persistEndpointSecrets(
+    settings.piEndpoints,
+    root.piEndpoints,
+    safeStorage,
+    value.piEndpoints !== undefined
+  );
+  const nextRoot = stripUndefinedKeys({
     ...persistedSettings(settings),
-    piEndpoints: lockEndpointSecrets(settings.piEndpoints, root.piEndpoints, safeStorage),
+    piEndpoints: persistedEndpoints,
     ...(remotePasswordHash ? { remotePasswordHash } : {}),
   });
+  await writeJson(settingsFile, nextRoot);
+  const nextConfigured = parsePiEndpoints(
+    (settings.piEndpoints as PiEndpoint[]).map((endpoint) =>
+      endpoint.access?.clientSecret ? { ...endpoint, hasAccessSecret: true } : endpoint
+    )
+  );
+  const {
+    piEndpoints: _pi,
+    remoteAccessState: _remoteState,
+    localHarnessCanRotate: _canRotate,
+    localHarnessState: _harnessState,
+    settingsRecovered: _recovered,
+    ...nextStatic
+  } = settings;
+  emberSettingsCache.recordWrite(
+    settingsFile,
+    nextRoot,
+    { ...nextStatic, readMarks: stripLegacyQuietFromReadMarks(settings.readMarks) },
+    canCacheUnlockedEndpoints(nextConfigured) ? nextConfigured : undefined
+  );
   if (
     settings.remoteAccessEnabled !== previousRemoteAccessEnabled ||
     remotePasswordHash !== previousRemotePasswordHash ||
@@ -1180,7 +1211,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   ) {
     // A changed password or trust boundary invalidates every cookie and open event stream.
     remoteListener.dispose();
-    refreshRemoteServer();
+    refreshRemoteServer(settings);
   }
   void dailyUpdateChecks?.check().catch(() => {});
   return maskEndpointSecrets(settings);
@@ -1478,9 +1509,8 @@ const remoteListener = new RemoteListener(
   }
 );
 
-refreshRemoteServer = () => {
-  const settings = readEmberSettings();
-  remoteListener.configure(settings.remoteAccessEnabled && settings.remotePasswordConfigured);
+refreshRemoteServer = (current = readEmberSettings()) => {
+  remoteListener.configure(current.remoteAccessEnabled && current.remotePasswordConfigured);
 };
 
 /**

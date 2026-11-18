@@ -85,20 +85,23 @@ const QuestionRow = ({ request, followups, onAnswer, onOpenSource, hostLabel }: 
   </article>;
 };
 
-export default function QuestionsShelf({ requests, sessionId, onAnswer, onOpenSource, hostLabel = 'Kiln' }: {
+function QuestionsShelf({ requests, sessionId, onAnswer, onOpenSource, hostLabel = 'Kiln' }: {
   requests: QuestionRequest[]; sessionId: string; hostLabel?: string; onAnswer: Answer;
   onOpenSource?: (request: QuestionRequest) => void;
 }) {
   const [limit, setLimit] = React.useState(20);
   const [historyOpen, setHistoryOpen] = React.useState(false);
-  const roots = requests.filter(request => !request.replyTo);
-  const active = roots.filter(request => request.status === 'pending');
-  const history = roots.filter(request => request.status !== 'pending').sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  const answer: Answer = async (request, answers) => {
+  const roots = React.useMemo(() => requests.filter(request => !request.replyTo), [requests]);
+  const active = React.useMemo(() => roots.filter(request => request.status === 'pending'), [roots]);
+  const history = React.useMemo(
+    () => roots.filter(request => request.status !== 'pending').sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
+    [roots]
+  );
+  const answer = React.useCallback<Answer>(async (request, answers) => {
     const ok = await onAnswer(request, answers);
     setHistoryOpen(true);
     return ok;
-  };
+  }, [onAnswer]);
   const render = (rows: QuestionRequest[]) => {
     const groups = new Map<string, QuestionRequest[]>();
     rows.forEach(request => { const name = questionSupervisor(request, sessionId); groups.set(name, [...(groups.get(name) ?? []), request]); });
@@ -110,3 +113,5 @@ export default function QuestionsShelf({ requests, sessionId, onAnswer, onOpenSo
     {history.length ? <details open={historyOpen} onToggle={event => setHistoryOpen(event.currentTarget.open)}><summary className="cursor-pointer py-2 text-xs text-muted-foreground">Answered and closed ({history.length})</summary>{render(history.slice(0, limit))}{history.length > limit ? <Button size="sm" variant="ghost" onClick={() => setLimit(value => value + 20)}>Show 20 more questions</Button> : null}</details> : null}
   </div>;
 }
+
+export default React.memo(QuestionsShelf);

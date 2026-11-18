@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { lockEndpointSecrets, unlockEndpointSecrets, maskEndpointSecrets, restoreEndpointSecrets, type SecretStore } from '../electron/endpointSecrets';
+import {
+  canCacheUnlockedEndpoints,
+  lockEndpointSecrets,
+  unlockEndpointSecrets,
+  maskEndpointSecrets,
+  persistEndpointSecrets,
+  restoreEndpointSecrets,
+  type SecretStore,
+} from '../electron/endpointSecrets';
 import { parsePiEndpoints, redactRemoteSettings } from '../electron/transport';
 const store: SecretStore = {
   isEncryptionAvailable: () => true,
@@ -47,5 +55,28 @@ describe('Access credential boundaries', () => {
     const without = { id: endpoint.id, label: endpoint.label, url: endpoint.url, token: endpoint.token };
     const locked = lockEndpointSecrets([without], lockEndpointSecrets([endpoint], [], store), store);
     expect(locked).toEqual([without]);
+  });
+  test('unrelated settings writes reuse stored ciphertext with zero keyring calls', () => {
+    const locked = lockEndpointSecrets([endpoint], [], store);
+    const unlocked = parsePiEndpoints(unlockEndpointSecrets(locked, store));
+    expect(canCacheUnlockedEndpoints(unlocked)).toBe(true);
+
+    let keyringCalls = 0;
+    const countingStore: SecretStore = {
+      isEncryptionAvailable: () => { keyringCalls += 1; return true; },
+      getSelectedStorageBackend: () => 'gnome_libsecret',
+      encryptString: (value) => { keyringCalls += 1; return store.encryptString(value); },
+      decryptString: (value) => { keyringCalls += 1; return store.decryptString(value); },
+    };
+    const localEndpoint = { id: 'pi:local', label: 'This computer', url: 'http://127.0.0.1:3002/', token: 'local-tok' };
+    const persisted = persistEndpointSecrets([localEndpoint, ...unlocked], locked, countingStore, false);
+    expect(keyringCalls).toBe(0);
+    expect(persisted).toEqual([localEndpoint, ...locked]);
+
+    // Locked-keyring placeholder is recognized as uncacheable so later reads retry once unlocked.
+    const lockedKeyringParsed = parsePiEndpoints(
+      unlockEndpointSecrets(locked, { ...store, isEncryptionAvailable: () => false })
+    );
+    expect(canCacheUnlockedEndpoints(lockedKeyringParsed)).toBe(false);
   });
 });

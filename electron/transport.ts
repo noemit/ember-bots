@@ -312,39 +312,78 @@ export type StoredSessionNote = {
 
 const MAX_SESSION_NOTES = 100;
 const MAX_QUOTE_LINKS = 5000;
+const MAX_QUOTE_LINKS_SIZE = 2_000_000;
 
-const toStoredQuoteLink = (raw: unknown): StoredQuoteLink | null => {
+const nonNegativeIntDigits = (value: number): number =>
+  value < 10 ? 1 : value < 100 ? 2 : value < 1000 ? 3 : value < 10_000 ? 4 : 5;
+
+/**
+ * Deterministic serialized-size estimate over `link`'s validated fields, avoiding up to 5,000
+ * synchronous `JSON.stringify(link)` allocations on settings reads and saves.
+ */
+export const quoteLinkSerializedSize = (link: StoredQuoteLink): number => {
+  let total =
+    108 +
+    link.id.length +
+    link.source.sessionKey.length +
+    link.source.quote.length +
+    link.destination.kind.length +
+    link.destination.sessionKey.length +
+    link.destination.id.length;
+  const spans = link.source.spans;
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index];
+    if (index > 0) total += 1;
+    total +=
+      65 +
+      span.messageId.length +
+      span.partId.length +
+      span.quote.length +
+      span.text.length +
+      nonNegativeIntDigits(span.start) +
+      nonNegativeIntDigits(span.end);
+  }
+  return total;
+};
+
+const toStoredQuoteLink = (raw: unknown, seenIds?: ReadonlySet<string>): StoredQuoteLink | null => {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;
-  if (typeof value.id !== 'string' || !/^[a-z0-9_-]{1,120}$/i.test(value.id)) return null;
+  if (typeof value.id !== 'string' || seenIds?.has(value.id) || !/^[a-z0-9_-]{1,120}$/i.test(value.id)) return null;
   const source = value.source && typeof value.source === 'object' ? value.source as Record<string, unknown> : null;
   const destination = value.destination && typeof value.destination === 'object' ? value.destination as Record<string, unknown> : null;
   if (!source || !destination || typeof source.sessionKey !== 'string' || !source.sessionKey || source.sessionKey.length > 500 || typeof source.quote !== 'string' || !source.quote.trim() || source.quote.length > 4000) return null;
   const kind = destination.kind;
   if (kind !== 'message' && kind !== 'queue' && kind !== 'note') return null;
   if (typeof destination.sessionKey !== 'string' || !destination.sessionKey || destination.sessionKey.length > 500 || typeof destination.id !== 'string' || !destination.id || destination.id.length > 500 || !Array.isArray(source.spans) || source.spans.length < 1 || source.spans.length > 20) return null;
-  const spans = source.spans.flatMap((rawSpan) => {
-    if (!rawSpan || typeof rawSpan !== 'object') return [];
+  const spans: StoredQuoteLink['source']['spans'] = [];
+  for (let index = 0; index < source.spans.length; index += 1) {
+    const rawSpan = source.spans[index];
+    if (!rawSpan || typeof rawSpan !== 'object') return null;
     const span = rawSpan as Record<string, unknown>;
-    if (typeof span.messageId !== 'string' || !span.messageId || span.messageId.length > 500 || typeof span.partId !== 'string' || !span.partId || span.partId.length > 500 || typeof span.quote !== 'string' || !span.quote || span.quote.length > 4000 || typeof span.text !== 'string' || span.text.length > 20000 || !Number.isInteger(span.start) || !Number.isInteger(span.end) || Number(span.start) < 0 || Number(span.end) <= Number(span.start) || Number(span.end) > span.text.length || span.text.slice(Number(span.start), Number(span.end)) !== span.quote) return [];
-    return [{ messageId: span.messageId, partId: span.partId, quote: span.quote, text: span.text, start: Number(span.start), end: Number(span.end) }];
-  });
-  if (spans.length !== source.spans.length) return null;
+    const start = Number(span.start);
+    const end = Number(span.end);
+    if (typeof span.messageId !== 'string' || !span.messageId || span.messageId.length > 500 || typeof span.partId !== 'string' || !span.partId || span.partId.length > 500 || typeof span.quote !== 'string' || !span.quote || span.quote.length > 4000 || typeof span.text !== 'string' || span.text.length > 20000 || !Number.isInteger(span.start) || !Number.isInteger(span.end) || start < 0 || end <= start || end > span.text.length || span.text.slice(start, end) !== span.quote) return null;
+    spans.push({ messageId: span.messageId, partId: span.partId, quote: span.quote, text: span.text, start, end });
+  }
   return { id: value.id, source: { sessionKey: source.sessionKey, spans, quote: source.quote }, destination: { kind, sessionKey: destination.sessionKey, id: destination.id } };
 };
 
 export const parseQuoteLinks = (value: unknown): StoredQuoteLink[] => {
-  if (!Array.isArray(value)) return [];
+  if (!Array.isArray(value) || value.length === 0) return [];
   const ids = new Set<string>();
+  const kept: StoredQuoteLink[] = [];
+  const minIndex = Math.max(0, value.length - MAX_QUOTE_LINKS);
   let size = 0;
-  return value.slice(-MAX_QUOTE_LINKS).reverse().flatMap((entry) => {
-    const link = toStoredQuoteLink(entry);
-    if (!link || ids.has(link.id)) return [];
-    size += JSON.stringify(link).length;
-    if (size > 2_000_000) return [];
+  for (let index = value.length - 1; index >= minIndex; index -= 1) {
+    const link = toStoredQuoteLink(value[index], ids);
+    if (!link) continue;
+    size += quoteLinkSerializedSize(link);
+    if (size > MAX_QUOTE_LINKS_SIZE) break;
     ids.add(link.id);
-    return [link];
-  }).reverse();
+    kept.push(link);
+  }
+  return kept.reverse();
 };
 
 const toStoredSessionNote = (value: unknown, fallbackId: string): StoredSessionNote | null => {

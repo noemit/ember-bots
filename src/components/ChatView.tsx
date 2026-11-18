@@ -87,7 +87,7 @@ import { COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE, hostReportsCost, sessionCostSta
 import { crewCostLabel, crewCostTitle, type CrewCostState } from '../lib/crewCost';
 import ViewMenu from './ViewMenu';
 import CrewStrip from './CrewStrip';
-import ComposerShelf, { type ShelfSectionId } from './ComposerShelf';
+import ComposerShelf, { type ShelfSection, type ShelfSectionId } from './ComposerShelf';
 import SessionProcessesNotice, {
   processesNeedAttention,
   processesSectionLabel,
@@ -464,6 +464,15 @@ const readAttachment = (file: File): Promise<FileAttachment> =>
     reader.readAsDataURL(file);
   });
 
+const EMPTY_STRINGS: readonly string[] = Object.freeze([]);
+const EMPTY_QUESTIONS: QuestionRequest[] = Object.freeze([]) as unknown as QuestionRequest[];
+const EMPTY_PERMISSIONS: PermissionRequest[] = Object.freeze([]) as unknown as PermissionRequest[];
+const EMPTY_SESSIONS: Session[] = Object.freeze([]) as unknown as Session[];
+const EMPTY_THREAD_ROWS: ThreadRow[] = Object.freeze([]) as unknown as ThreadRow[];
+const EMPTY_QUOTE_LINK_LIST: QuoteLink[] = Object.freeze([]) as unknown as QuoteLink[];
+const EMPTY_QUEUE_ITEMS: NonNullable<MessageQueueSession['items']> = Object.freeze([]) as unknown as NonNullable<MessageQueueSession['items']>;
+const PENDING_CREATE_LABELS = Object.freeze({ retry: 'Try again', discard: 'Edit' });
+
 function ChatView({
   session,
   instance,
@@ -477,7 +486,7 @@ function ChatView({
   onDelegatorModelsChange,
   newSessionPrefill,
   instances,
-  mentionNames = [],
+  mentionNames = EMPTY_STRINGS,
   projectsByInstance,
   seed,
   identity,
@@ -499,7 +508,7 @@ function ChatView({
   permissions,
   questions,
   threadQuestions,
-  asyncQuestions = [],
+  asyncQuestions = EMPTY_QUESTIONS,
   models,
   defaultModelId,
   instanceDefaultModelId,
@@ -577,9 +586,9 @@ function ChatView({
   onPromote,
   onRename,
   active = true,
-  crew = [],
+  crew = EMPTY_SESSIONS,
   crewCost,
-  threadRows = [],
+  threadRows = EMPTY_THREAD_ROWS,
   workerState,
   threadTargets,
   workerAutoAcceptByKey,
@@ -930,10 +939,14 @@ function ChatView({
   // stop button becomes a disabled spinner so a second press can't be lost, and the composer
   // stays read-only until the abort reconciles.
   const stoppingNow = Boolean(stopping);
-  const offerReload = Boolean(
-    session &&
-      !sending &&
-      shouldOfferSessionReload(state, messagesStatus, session.updated, messages, now, transcriptFailure)
+  const offerReload = React.useMemo(
+    () =>
+      Boolean(
+        session &&
+          !sending &&
+          shouldOfferSessionReload(state, messagesStatus, session.updated, messages, now, transcriptFailure)
+      ),
+    [session, sending, state, messagesStatus, messages, now, transcriptFailure]
   );
   // The transcript's empty pane renders this instead of deciding for itself whether an `'error'`
   // status is something to alarm about.
@@ -1198,12 +1211,15 @@ function ChatView({
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
-  const queueItems = queue?.items ?? [];
+  const queueItems = queue?.items ?? EMPTY_QUEUE_ITEMS;
   /**
    * Whether the crew is waiting on the human: a worker that asked a question, or one further down
    * the delegation chain that is blocked. It is what puts the dot on the shelf's Crew tab.
    */
-  const threadStatus = threadShelfStatus(threadRows.map((row) => row.worker), [], workerState);
+  const threadStatus = React.useMemo(
+    () => threadShelfStatus(threadRows.map((row) => row.worker), [], workerState),
+    [threadRows, workerState]
+  );
   const crewNeedsInput = threadStatus.needsHuman > 0;
   /**
    * New things bring their own section forward — a queued message opens Queue, a saved note opens
@@ -1616,6 +1632,45 @@ function ChatView({
 
   const stablePermission = useStableCallback(onPermission);
   const stableQuestion = useStableCallback(onQuestion);
+  const stableNavigateQuote = useStableCallback(navigateQuote);
+  const stableParkQueuedItem = useStableCallback(parkQueuedItem);
+  const stableSendNote = useStableCallback(sendNote);
+  const stableBringBackNote = useStableCallback(bringBackNote);
+  const stableUpdateNote = useStableCallback(
+    (note: SessionNote, patch: { text?: string; modelId?: string; variant?: string }) => {
+      if (notesKey) onUpdateNote(notesKey, note.id, patch);
+    }
+  );
+  const stableDeleteNote = useStableCallback((note: SessionNote) => {
+    if (notesKey) onDeleteNote(notesKey, note.id);
+  });
+  const stableExtendProcesses = useStableCallback(() => {
+    if (session) onExtendProcesses?.(session);
+  });
+  const stableStopProcesses = useStableCallback(
+    (pids: number[], options: { force?: boolean }): Promise<StopProcessesResult> =>
+      session && onStopProcesses
+        ? onStopProcesses(session, pids, options)
+        : Promise.resolve({ ok: false })
+  );
+  const stableOpenInstructions = useStableCallback(openInstructions);
+  const stableQuietChange = useStableCallback((quietNext: boolean) => {
+    if (session) onQuietChange?.(session, quietNext);
+  });
+  const handleMarkMessageRead = useStableCallback((message: ChatMessage) => {
+    if (session) onMarkMessageRead?.(session, message);
+  });
+  const handleUndoMarkMessageRead = useStableCallback((message: ChatMessage) => {
+    if (session) onUndoMarkMessageRead?.(session, message);
+  });
+  const handleMarkMessageUnread = useStableCallback((message: ChatMessage) => {
+    if (session) onMarkMessageUnread?.(session, message);
+  });
+  const handleMarkAllRead = useStableCallback(() => {
+    if (session) onMarkAllRead?.(session);
+  });
+  const stableRetryPendingCreate = useStableCallback(retryPendingCreate);
+  const stableEditPendingCreate = useStableCallback(editPendingCreate);
   const replyToMessage = useStableCallback((message: ChatMessage) => {
     onActivate?.();
     setReplyContext(message);
@@ -1625,10 +1680,26 @@ function ChatView({
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   });
 
-  const jumpToMessage = (messageId: string) => {
+  const jumpToMessage = React.useCallback((messageId: string) => {
     setFocusMessageId(messageId);
     setFocusRequest((request) => request + 1);
-  };
+  }, []);
+  const stableOpenQuestionSource = useStableCallback((request: QuestionRequest) => {
+    const messageId = questionSourceMessage(request);
+    if (session && request.sessionId === session.id) {
+      if (messageId) jumpToMessage(messageId);
+      return;
+    }
+    onOpenWorker?.(
+      {
+        id: request.sessionId,
+        instanceId: request.instanceId,
+        title: 'Question source',
+        kind: request.ancestry?.length ? 'worker' : undefined,
+      } as Session,
+      messageId
+    );
+  });
 
   // A jump asked for from outside the column (a link's context bar on Home). Token-keyed, so the
   // same message can be asked for again and a fresh request is never swallowed.
@@ -1640,7 +1711,13 @@ function ChatView({
     // Only the request token is a dependency: the id is read through a ref so a parent that hands
     // over a new object identity for the same jump cannot scroll the reader twice.
     jumpToMessage(focusMessageRef.current);
-  }, [focusToken]);
+  }, [focusToken, jumpToMessage]);
+
+  const quoteSessionKey = session ? makeSessionKey(session) : null;
+  const hasMarkMessageRead = Boolean(onMarkMessageRead);
+  const hasUndoMarkMessageRead = Boolean(onUndoMarkMessageRead);
+  const hasMarkMessageUnread = Boolean(onMarkMessageUnread);
+  const hasMarkAllRead = Boolean(onMarkAllRead);
 
   /**
    * One transcript pane, for a session column and for a new agent whose session is being created.
@@ -1650,7 +1727,7 @@ function ChatView({
    * ways out of a failed send. Everything a session supplies but a draft cannot (history, prompts,
    * crew, pins) is simply empty for the draft.
    */
-  const renderTranscript = (pane: {
+  const renderTranscript = React.useCallback((pane: {
     messages: ChatMessage[];
     messagesStatus: MessagesStatus;
     historyComplete?: boolean;
@@ -1702,11 +1779,11 @@ function ChatView({
         showCost={costShown}
         {...(readMark ? { readMark } : {})}
         notificationsMuted={notificationsMuted}
-        {...(onMarkMessageRead && session ? { onMarkRead: (message: ChatMessage) => onMarkMessageRead(session, message) } : {})}
-        {...(onUndoMarkMessageRead && session ? { onUndoMarkRead: (message: ChatMessage) => onUndoMarkMessageRead(session, message) } : {})}
-        {...(onMarkMessageUnread && session ? { onMarkUnread: (message: ChatMessage) => onMarkMessageUnread(session, message) } : {})}
+        {...(hasMarkMessageRead && session ? { onMarkRead: handleMarkMessageRead } : {})}
+        {...(hasUndoMarkMessageRead && session ? { onUndoMarkRead: handleUndoMarkMessageRead } : {})}
+        {...(hasMarkMessageUnread && session ? { onMarkUnread: handleMarkMessageUnread } : {})}
         canManageUnread={Boolean(session && onMarkMessageUnread && onMarkMessageRead)}
-        {...(onMarkAllRead && session ? { onMarkAllRead: () => onMarkAllRead(session) } : {})}
+        {...(hasMarkAllRead && session ? { onMarkAllRead: handleMarkAllRead } : {})}
         onReply={session ? replyToMessage : undefined}
         showMessageDetails={view.showMessageDetails}
         crew={pane.crew ?? crew}
@@ -1717,9 +1794,9 @@ function ChatView({
         focusMessageId={focusMessageId}
         focusRequest={focusRequest}
         quoteLinks={quoteLinks}
-        quoteSessionKey={session ? makeSessionKey(session) : null}
+        quoteSessionKey={quoteSessionKey}
         quoteFocus={quoteFocus}
-        onNavigateQuote={navigateQuote}
+        onNavigateQuote={stableNavigateQuote}
         onRetryPendingSend={pane.onRetryPendingSend}
         onDiscardPendingSend={pane.onDiscardPendingSend}
         pendingSendLabels={pane.pendingSendLabels}
@@ -1727,7 +1804,332 @@ function ChatView({
         onQuestion={stableQuestion}
       />
     </React.Suspense>
+  ), [
+    compacting,
+    costShown,
+    crew,
+    draftInstance?.label,
+    fetchNotice,
+    findRequest,
+    focusMessageId,
+    focusRequest,
+    handleMarkAllRead,
+    handleMarkMessageRead,
+    handleMarkMessageUnread,
+    handleUndoMarkMessageRead,
+    hasMarkAllRead,
+    hasMarkMessageRead,
+    hasMarkMessageUnread,
+    hasUndoMarkMessageRead,
+    hideToolCalls,
+    instanceLabel,
+    notificationsMuted,
+    onMarkMessageRead,
+    onMarkMessageUnread,
+    onOpenWorker,
+    quoteFocus,
+    quoteLinks,
+    quoteSessionKey,
+    readMark,
+    reasoningDisplay,
+    replyToMessage,
+    seed,
+    session,
+    stableNavigateQuote,
+    stablePermission,
+    stableQuestion,
+    threadQuestions,
+    view.autoFollow,
+    view.compactSpacing,
+    view.expandToolCalls,
+    view.showActivityRail,
+    view.showMessageDetails,
+    view.showQuestions,
+    view.toolDisplay,
+    workerState,
+  ]);
+
+  const sessionTranscript = React.useMemo(
+    () =>
+      session
+        ? renderTranscript({
+            messages,
+            messagesStatus,
+            historyComplete,
+            repairHalt,
+            onLoadEarlier: onReload,
+            onCompact,
+            permissions,
+            questions,
+            state,
+            sending,
+            sessionTitle: session.title,
+            onRetryPendingSend,
+            onDiscardPendingSend,
+          })
+        : null,
+    [
+      historyComplete,
+      messages,
+      messagesStatus,
+      onCompact,
+      onDiscardPendingSend,
+      onReload,
+      onRetryPendingSend,
+      permissions,
+      questions,
+      renderTranscript,
+      repairHalt,
+      sending,
+      session,
+      state,
+    ]
   );
+
+  const pendingTranscript = React.useMemo(
+    () =>
+      pending
+        ? renderTranscript({
+            messages: pendingMessages,
+            messagesStatus: 'ready',
+            // The pane holds every message this conversation has: there is no history above it
+            // to load, and the transcript's "earlier messages aren't loaded" line would be a lie.
+            historyComplete: true,
+            permissions: EMPTY_PERMISSIONS,
+            questions: EMPTY_QUESTIONS,
+            state: 'idle',
+            sending: creatingSession,
+            creating: creatingSession,
+            sessionTitle: pending.title,
+            instanceLabel: draftInstance?.label,
+            crew: EMPTY_SESSIONS,
+            showActivityRail: false,
+            onRetryPendingSend: stableRetryPendingCreate,
+            onDiscardPendingSend: stableEditPendingCreate,
+            pendingSendLabels: PENDING_CREATE_LABELS,
+          })
+        : null,
+    [
+      creatingSession,
+      draftInstance?.label,
+      pending,
+      pendingMessages,
+      renderTranscript,
+      stableEditPendingCreate,
+      stableRetryPendingCreate,
+    ]
+  );
+
+  const destinationQuoteLinks = React.useMemo(
+    () =>
+      quoteSessionKey
+        ? quoteLinks.filter((link) => link.destination.sessionKey === quoteSessionKey)
+        : EMPTY_QUOTE_LINK_LIST,
+    [quoteLinks, quoteSessionKey]
+  );
+  const asyncQuestionRootCount = React.useMemo(
+    () => asyncQuestions.filter((request) => !request.replyTo).length,
+    [asyncQuestions]
+  );
+  const asyncQuestionsAlert = React.useMemo(
+    () => asyncQuestions.some((request) => request.status === 'pending'),
+    [asyncQuestions]
+  );
+  const composerLoaded = loadedComposerKey === composerKey;
+  const shelfSections = React.useMemo<ShelfSection[]>(() => {
+    if (!session) return [];
+    const extensionMs = processExtensionFor(session);
+    return [
+      {
+        id: 'queue',
+        label: 'Queue',
+        count: queueItems.length,
+        // A row that failed to enqueue is stuck until someone acts on it.
+        alert: queueItems.some((item) => Boolean(item.error)),
+        content: (
+          <React.Suspense fallback={null}>
+            <QueuedMessageList
+              key={composerKey ?? 'none'}
+              queue={queue}
+              quoteLinks={destinationQuoteLinks}
+              onNavigateQuote={stableNavigateQuote}
+              focusItem={quoteDestinationFocus?.destination?.kind === 'queue' ? quoteItemFocus : null}
+              models={models}
+              instanceId={session.instanceId}
+              defaultModelId={defaultModelId}
+              instanceDefaultModelId={instanceDefaultModelId}
+              onSetInstanceDefault={onSetInstanceDefault}
+              onModelsRefresh={onModelsRefresh}
+              onSendQueued={onSendQueued}
+              onMoveQueued={onMoveQueued}
+              onRemoveQueued={onRemoveQueued}
+              onParkQueued={stableParkQueuedItem}
+              onReplaceQueued={onReplaceQueued}
+              onRetryQueued={onRetryQueued}
+              onDiscardQueued={onDiscardQueued}
+            />
+          </React.Suspense>
+        ),
+      },
+      {
+        id: 'notes',
+        label: 'For later',
+        count: sessionNotes.length,
+        content: (
+          <React.Suspense fallback={null}>
+            <SessionNotes
+              key={`notes-${notesKey || 'none'}`}
+              notes={sessionNotes}
+              quoteLinks={destinationQuoteLinks}
+              onNavigateQuote={stableNavigateQuote}
+              focusItem={quoteDestinationFocus?.destination?.kind === 'note' ? quoteItemFocus : null}
+              canSend={composerLoaded}
+              onSend={stableSendNote}
+              onBringBack={stableBringBackNote}
+              models={models}
+              modelValue={modelId}
+              modelVariant={variant}
+              defaultModelId={defaultModelId}
+              instanceDefaultModelId={instanceDefaultModelId}
+              recentModels={recentModels}
+              onModelsRefresh={onModelsRefresh}
+              onUpdate={stableUpdateNote}
+              onDelete={stableDeleteNote}
+            />
+          </React.Suspense>
+        ),
+      },
+      // What this agent's commands left running, and Ember's deadline for it. Its own
+      // tray rather than a row above the input: a notice that pushes the composer down
+      // moves the thing being typed in, every time a dev server starts or stops.
+      ...(session.processes && session.processes.count > 0 && onStopProcesses
+        ? [
+            {
+              id: 'processes' as const,
+              label: processesSectionLabel,
+              count: session.processes.count,
+              alert: processesNeedAttention(session.processes, session.hostMemory, extensionMs),
+              content: (
+                <SessionProcessesNotice
+                  // Keyed by the session: a refusal belongs to the process it was asked
+                  // about, not to whatever column is open next.
+                  key={`processes-${session.instanceId}::${session.id}`}
+                  processes={session.processes}
+                  {...(session.hostMemory ? { memory: session.hostMemory } : {})}
+                  {...(instanceLabel ? { hostLabel: instanceLabel } : {})}
+                  extensionMs={extensionMs}
+                  {...(onExtendProcesses ? { onExtend: stableExtendProcesses } : {})}
+                  onStop={stableStopProcesses}
+                />
+              ),
+            },
+          ]
+        : []),
+      ...(onOpenWorker
+        ? [
+            {
+              id: 'crew' as const,
+              label: 'Tasks',
+              summary: threadStatus.summary,
+              summaryLabel: threadStatus.detail,
+              count: threadStatus.total,
+              alert: crewNeedsInput,
+              content: (
+                <>
+                  <span className="sr-only" role="status">{threadStatus.detail}</span>
+                  <CrewStrip
+                    rows={threadRows}
+                    onOpenWorker={onOpenWorker}
+                    peerFor={workerPeer}
+                    blobStyle={blobStyle}
+                    stateFor={workerState}
+                    autoAcceptByKey={workerAutoAcceptByKey}
+                    onToggleYolo={onToggleWorkerYolo}
+                    identityFor={identityFor}
+                    // The leader's own blob colour, so the crew's chips read as one family
+                    // without recolouring a worker's blob (that has to keep matching its
+                    // column). `identity` is the exact object the leader's own column
+                    // draws, and it is stable across polls, so the memo holds.
+                    leaderIdentity={identity}
+                    leaderTitle={session.title?.trim() || undefined}
+                  />
+                </>
+              ),
+            },
+          ]
+        : []),
+      {
+        id: 'questions',
+        label: 'Questions',
+        count: asyncQuestionRootCount,
+        alert: asyncQuestionsAlert,
+        content: (
+          <QuestionsShelf
+            hostLabel={instanceLabel}
+            requests={asyncQuestions}
+            sessionId={session.id}
+            onAnswer={stableQuestion}
+            onOpenSource={stableOpenQuestionSource}
+          />
+        ),
+      },
+    ];
+  }, [
+    asyncQuestionRootCount,
+    asyncQuestions,
+    asyncQuestionsAlert,
+    blobStyle,
+    composerKey,
+    composerLoaded,
+    crewNeedsInput,
+    defaultModelId,
+    destinationQuoteLinks,
+    identity,
+    identityFor,
+    instanceDefaultModelId,
+    instanceLabel,
+    modelId,
+    models,
+    notesKey,
+    onDiscardQueued,
+    onExtendProcesses,
+    onModelsRefresh,
+    onMoveQueued,
+    onOpenWorker,
+    onRemoveQueued,
+    onReplaceQueued,
+    onRetryQueued,
+    onSendQueued,
+    onSetInstanceDefault,
+    onStopProcesses,
+    onToggleWorkerYolo,
+    processExtensionFor,
+    queue,
+    queueItems,
+    quoteDestinationFocus?.destination?.kind,
+    quoteItemFocus,
+    recentModels,
+    session,
+    sessionNotes,
+    stableBringBackNote,
+    stableDeleteNote,
+    stableExtendProcesses,
+    stableNavigateQuote,
+    stableOpenQuestionSource,
+    stableParkQueuedItem,
+    stableQuestion,
+    stableSendNote,
+    stableStopProcesses,
+    stableUpdateNote,
+    threadRows,
+    threadStatus.detail,
+    threadStatus.summary,
+    threadStatus.total,
+    variant,
+    workerAutoAcceptByKey,
+    workerPeer,
+    workerState,
+  ]);
 
   /**
    * The wash of colour behind the top-left corner.
@@ -1918,13 +2320,13 @@ function ChatView({
                 cost={costShown ? session?.cost : undefined}
                 costUnknown={costShown && costState.kind === 'unknown'}
                 instructions={session && canEditInstructions ? knownInstructions ?? '' : undefined}
-                onEditInstructions={session && canEditInstructions ? openInstructions : undefined}
+                onEditInstructions={session && canEditInstructions ? stableOpenInstructions : undefined}
                 // A worker is hidden from Home, so a read mark on it is invisible: offering the
                 // switch there would be a control with no observable effect.
                 quiet={notificationsMuted}
                 onQuietChange={
                   session && onQuietChange && session.kind !== 'worker'
-                    ? (quietNext) => onQuietChange(session, quietNext)
+                    ? stableQuietChange
                     : undefined
                 }
               />
@@ -1977,21 +2379,7 @@ function ChatView({
             </header>
 
             <div ref={transcriptRef} className="flex min-h-0 flex-1 flex-col">
-              {renderTranscript({
-                messages,
-                messagesStatus,
-                historyComplete,
-                repairHalt,
-                onLoadEarlier: onReload,
-                onCompact,
-                permissions,
-                questions,
-                state,
-                sending,
-                sessionTitle: session?.title,
-                onRetryPendingSend,
-                onDiscardPendingSend,
-              })}
+              {sessionTranscript}
             </div>
           </motion.div>
         ) : pending ? (
@@ -2028,25 +2416,7 @@ function ChatView({
               ) : null}
             </header>
             <div ref={transcriptRef} className="flex min-h-0 flex-1 flex-col">
-              {renderTranscript({
-                messages: pendingMessages,
-                messagesStatus: 'ready',
-                // The pane holds every message this conversation has: there is no history above it
-                // to load, and the transcript's "earlier messages aren't loaded" line would be a lie.
-                historyComplete: true,
-                permissions: [],
-                questions: [],
-                state: 'idle',
-                sending: creatingSession,
-                creating: creatingSession,
-                sessionTitle: pending.title,
-                instanceLabel: draftInstance?.label,
-                crew: [],
-                showActivityRail: false,
-                onRetryPendingSend: () => retryPendingCreate(),
-                onDiscardPendingSend: () => editPendingCreate(),
-                pendingSendLabels: { retry: 'Try again', discard: 'Edit' },
-              })}
+              {pendingTranscript}
             </div>
           </motion.div>
         ) : (
@@ -2290,144 +2660,7 @@ function ChatView({
                 onActiveChange={setShelfSection}
                 open={shelfOpen}
                 onOpenChange={setShelfOpen}
-                sections={[
-                  {
-                    id: 'queue',
-                    label: 'Queue',
-                    count: queueItems.length,
-                    // A row that failed to enqueue is stuck until someone acts on it.
-                    alert: queueItems.some((item) => Boolean(item.error)),
-                    content: (
-                      <React.Suspense fallback={null}>
-                        <QueuedMessageList
-                          key={composerKey ?? 'none'}
-                          queue={queue}
-                          quoteLinks={quoteLinks.filter((link) => link.destination.sessionKey === makeSessionKey(session))}
-                          onNavigateQuote={navigateQuote}
-                          focusItem={quoteDestinationFocus?.destination?.kind === 'queue' ? quoteItemFocus : null}
-                          models={models}
-                          instanceId={session?.instanceId}
-                          defaultModelId={defaultModelId}
-                          instanceDefaultModelId={instanceDefaultModelId}
-                          onSetInstanceDefault={onSetInstanceDefault}
-                          onModelsRefresh={onModelsRefresh}
-                          onSendQueued={onSendQueued}
-                          onMoveQueued={onMoveQueued}
-                          onRemoveQueued={onRemoveQueued}
-                          onParkQueued={parkQueuedItem}
-                          onReplaceQueued={onReplaceQueued}
-                          onRetryQueued={onRetryQueued}
-                          onDiscardQueued={onDiscardQueued}
-                        />
-                      </React.Suspense>
-                    ),
-                  },
-                  {
-                    id: 'notes',
-                    label: 'For later',
-                    count: sessionNotes.length,
-                    content: (
-                      <React.Suspense fallback={null}>
-                        <SessionNotes
-                          key={`notes-${notesKey || 'none'}`}
-                          notes={sessionNotes}
-                          quoteLinks={quoteLinks.filter((link) => link.destination.sessionKey === makeSessionKey(session))}
-                          onNavigateQuote={navigateQuote}
-                          focusItem={quoteDestinationFocus?.destination?.kind === 'note' ? quoteItemFocus : null}
-                          canSend={loadedComposerKey === composerKey}
-                          onSend={sendNote}
-                          onBringBack={bringBackNote}
-                          models={models}
-                          modelValue={modelId}
-                          modelVariant={variant}
-                          defaultModelId={defaultModelId}
-                          instanceDefaultModelId={instanceDefaultModelId}
-                          recentModels={recentModels}
-                          onModelsRefresh={onModelsRefresh}
-                          onUpdate={(note, patch) => {
-                            if (notesKey) onUpdateNote(notesKey, note.id, patch);
-                          }}
-                          onDelete={(note) => {
-                            if (notesKey) onDeleteNote(notesKey, note.id);
-                          }}
-                        />
-                      </React.Suspense>
-                    ),
-                  },
-                  // What this agent's commands left running, and Ember's deadline for it. Its own
-                  // tray rather than a row above the input: a notice that pushes the composer down
-                  // moves the thing being typed in, every time a dev server starts or stops.
-                  ...(session.processes && session.processes.count > 0 && onStopProcesses
-                    ? [
-                        {
-                          id: 'processes' as const,
-                          label: processesSectionLabel,
-                          count: session.processes.count,
-                          alert: processesNeedAttention(
-                            session.processes,
-                            session.hostMemory,
-                            processExtensionFor(session)
-                          ),
-                          content: (
-                            <SessionProcessesNotice
-                              // Keyed by the session: a refusal belongs to the process it was asked
-                              // about, not to whatever column is open next.
-                              key={`processes-${session.instanceId}::${session.id}`}
-                              processes={session.processes}
-                              {...(session.hostMemory ? { memory: session.hostMemory } : {})}
-                              {...(instanceLabel ? { hostLabel: instanceLabel } : {})}
-                              extensionMs={processExtensionFor(session)}
-                              {...(onExtendProcesses ? { onExtend: () => onExtendProcesses(session) } : {})}
-                              onStop={(pids, options) => onStopProcesses(session, pids, options)}
-                            />
-                          ),
-                        },
-                      ]
-                    : []),
-                  ...(onOpenWorker
-                    ? [
-                        {
-                          id: 'crew' as const,
-                          label: 'Tasks',
-                          summary: threadStatus.summary,
-                          summaryLabel: threadStatus.detail,
-                          count: threadStatus.total,
-                          alert: crewNeedsInput,
-                          content: (
-                            <>
-                            <span className="sr-only" role="status">{threadStatus.detail}</span>
-                            <CrewStrip
-                              rows={threadRows}
-                              onOpenWorker={onOpenWorker}
-                              peerFor={workerPeer}
-                              blobStyle={blobStyle}
-                              stateFor={workerState}
-                              autoAcceptByKey={workerAutoAcceptByKey}
-                              onToggleYolo={onToggleWorkerYolo}
-                              identityFor={identityFor}
-                              // The leader's own blob colour, so the crew's chips read as one family
-                              // without recolouring a worker's blob (that has to keep matching its
-                              // column). `identity` is the exact object the leader's own column
-                              // draws, and it is stable across polls, so the memo holds.
-                              leaderIdentity={identity}
-                              leaderTitle={session.title?.trim() || undefined}
-                            />
-                            </>
-                          ),
-                        },
-                      ]
-                    : []),
-                  {
-                    id: 'questions', label: 'Questions', count: asyncQuestions.filter(request => !request.replyTo).length,
-                    alert: asyncQuestions.some((request) => request.status === 'pending'),
-                    content: <QuestionsShelf hostLabel={instanceLabel} requests={asyncQuestions} sessionId={session.id} onAnswer={onQuestion}
-                      onOpenSource={(request) => {
-                        const messageId = questionSourceMessage(request);
-                        if (request.sessionId === session.id) { if (messageId) jumpToMessage(messageId); return; }
-                        onOpenWorker?.({ id: request.sessionId, instanceId: request.instanceId, title: 'Question source', kind: request.ancestry?.length ? 'worker' : undefined } as Session, messageId);
-                      }} />,
-                  },
-                ]}
+                sections={shelfSections}
               />
             ) : null}
             {session && onAskSideQuestion && (sideQuestionOpen || askingSideQuestion) ? (

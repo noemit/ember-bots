@@ -1,9 +1,22 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initializeFirstRunSettings, quarantineCorruptSettings } from '../electron/settingsFile';
-import { parseStringArray } from '../electron/transport';
+import {
+  createSettingsFileCache,
+  initializeFirstRunSettings,
+  quarantineCorruptSettings,
+  stripUndefinedKeys,
+} from '../electron/settingsFile';
+import {
+  canCacheUnlockedEndpoints,
+  lockEndpointSecrets,
+  persistEndpointSecrets,
+  unlockEndpointSecrets,
+  type SecretStore,
+} from '../electron/endpointSecrets';
+import { parsePiEndpoints, parseStringArray, type PiEndpoint } from '../electron/transport';
 import { DEFAULT_SETTINGS } from '../src/hooks/useEmberSettings';
 
 /**
@@ -127,4 +140,91 @@ test('only a genuinely empty install is marked for first-run setup', async () =>
     initializeFirstRunSettings(file, database);
     expect(await readFile(file, 'utf8').catch(() => null)).toBeNull();
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('write-through settings cache avoids re-reading disk and re-decrypting secrets across draft saves', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ember-settings-cache-'));
+  const file = join(directory, 'settings.json');
+  try {
+    let encryptCalls = 0;
+    let decryptCalls = 0;
+    let diskReads = 0;
+    const store: SecretStore = {
+      isEncryptionAvailable: () => true,
+      getSelectedStorageBackend: () => 'gnome_libsecret',
+      encryptString: (value) => {
+        encryptCalls += 1;
+        return Buffer.from(value, 'utf8');
+      },
+      decryptString: (value) => {
+        decryptCalls += 1;
+        return value.toString('utf8');
+      },
+    };
+    const initialEndpoints = lockEndpointSecrets(
+      [{ id: 'pi:tower', label: 'Tower', url: 'https://tower.example/kiln', token: 'tok', access: { clientId: 'cid', clientSecret: 'csec' } }],
+      [],
+      store
+    );
+    expect(encryptCalls).toBe(1);
+    await writeFile(file, JSON.stringify({ theme: 'stone', composerDrafts: {}, piEndpoints: initialEndpoints }, null, 2));
+
+    const cache = createSettingsFileCache<{ theme: string; composerDrafts: Record<string, { text: string; updatedAt: number }> }, PiEndpoint>({
+      filePath: () => file,
+      readRoot: (target) => {
+        diskReads += 1;
+        return JSON.parse(readFileSync(target, 'utf8')) as Record<string, unknown>;
+      },
+      onCorrupt: () => {},
+      isQuarantined: () => false,
+    });
+
+    const readCachedSettings = () => {
+      const entry = cache.readEntry();
+      const staticSettings = (entry.staticSettings ??= {
+        theme: String(entry.root.theme ?? 'stone'),
+        composerDrafts: (entry.root.composerDrafts as Record<string, { text: string; updatedAt: number }>) ?? {},
+      });
+      const piEndpoints =
+        entry.configuredPiEndpoints ??
+        (() => {
+          const unlocked = parsePiEndpoints(unlockEndpointSecrets(entry.root.piEndpoints, store));
+          if (canCacheUnlockedEndpoints(unlocked)) entry.configuredPiEndpoints = unlocked;
+          return unlocked;
+        })();
+      return { root: entry.root, ...staticSettings, piEndpoints };
+    };
+
+    // Initial read loads from disk once and decrypts once.
+    const first = readCachedSettings();
+    expect(diskReads).toBe(1);
+    expect(decryptCalls).toBe(1);
+    expect(first.piEndpoints[0]?.access).toEqual({ clientId: 'cid', clientSecret: 'csec' });
+
+    // Simulate three consecutive composerDraftChanges saves + post-save reads (e.g. refreshRemoteServer / dailyUpdateChecks).
+    for (const draftText of ['h', 'he', 'hello']) {
+      const current = readCachedSettings();
+      const persistedEndpoints = persistEndpointSecrets(current.piEndpoints, current.root.piEndpoints, store, false);
+      const nextDrafts = { 'pi:tower::1': { text: draftText, updatedAt: 100 } };
+      const nextRoot = stripUndefinedKeys({
+        theme: current.theme,
+        composerDrafts: nextDrafts,
+        piEndpoints: persistedEndpoints,
+        optionalAbsent: undefined,
+      });
+      await writeFile(file, JSON.stringify(nextRoot, null, 2));
+      cache.recordWrite(file, nextRoot, { theme: current.theme, composerDrafts: nextDrafts }, current.piEndpoints);
+      const afterWrite = readCachedSettings();
+      expect(afterWrite.composerDrafts['pi:tower::1']?.text).toBe(draftText);
+      expect(afterWrite.piEndpoints[0]?.access).toEqual({ clientId: 'cid', clientSecret: 'csec' });
+      expect('optionalAbsent' in afterWrite.root).toBe(false);
+    }
+
+    // Zero additional disk reads, zero additional decrypts, and zero re-encrypts across all three patches!
+    expect(diskReads).toBe(1);
+    expect(decryptCalls).toBe(1);
+    expect(encryptCalls).toBe(1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

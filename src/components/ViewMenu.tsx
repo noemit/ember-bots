@@ -84,7 +84,7 @@ const ViewToggle = ({
  * where the old control was a single 3-way cycle. The eye is struck through when something is
  * hidden, so a collapsed view is never a mystery.
  */
-export default function ViewMenu({
+function ViewMenu({
   view,
   onChange,
   cost,
@@ -246,3 +246,5 @@ export default function ViewMenu({
     </DropdownMenu>
   );
 }
+
+export default React.memo(ViewMenu);
