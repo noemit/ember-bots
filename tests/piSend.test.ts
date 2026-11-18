@@ -154,41 +154,43 @@ test('queued-message instructions ride the same shape', async () => {
 });
 
 /**
- * The reasoning level is a conversation setting of its own. A send that picks `high` while the model
- * stays on `Server default` used to skip `/configure` entirely (the old guard was `if (input.model)`),
- * so the level was dropped and the turn ran at whatever the conversation already had.
+ * The reasoning level is a setting of its own. A send that picks `high` while the model stays on
+ * `Server default` carries `thinkingLevel` directly on `/submit` so busy turns are never mutated
+ * mid-flight, and falls back to `/configure` afterwards only for older idle hosts that did not
+ * acknowledge `configured: true`.
  */
-test('a reasoning level alone reaches /configure, with no model', async () => {
+test('a reasoning level alone rides /submit and falls back to /configure on legacy idle hosts', async () => {
   const previous = window.ember;
   const calls: Array<{ path: string; body: unknown }> = [];
   (globalThis as { window?: unknown }).window = {
     ember: {
       piRequest: async (_endpointId: string, path: string, init?: { body?: unknown }) => {
         calls.push({ path, body: init?.body });
-        return { ok: true, status: 201, data: { submissionId: 1 } };
+        return { ok: true, status: 201, data: { submissionId: 1, status: 'placed' } };
       },
     },
   };
   try {
     await sendPrompt('pi:test', '7', { text: 'think hard', selectedModelId: 'default', variant: 'high' });
-    expect(calls[0]).toEqual({
+    expect(calls[0]?.path).toBe('/conversations/7/submit');
+    expect(calls[0]?.body).toMatchObject({ type: 'input', content: 'think hard', thinkingLevel: 'high' });
+    expect(calls[1]).toEqual({
       path: '/conversations/7/configure',
       body: { thinkingLevel: 'high' },
     });
-    expect(calls[1]?.path).toBe('/conversations/7/submit');
   } finally {
     window.ember = previous;
   }
 });
 
-test('a model and a level travel together in one configure call', async () => {
+test('a model and a level travel together on /submit, with at most one legacy fallback configure', async () => {
   const previous = window.ember;
   const calls: Array<{ path: string; body: unknown }> = [];
   (globalThis as { window?: unknown }).window = {
     ember: {
       piRequest: async (_endpointId: string, path: string, init?: { body?: unknown }) => {
         calls.push({ path, body: init?.body });
-        return { ok: true, status: 201, data: { submissionId: 1 } };
+        return { ok: true, status: 201, data: { submissionId: 1, status: 'placed' } };
       },
     },
   };
@@ -204,7 +206,14 @@ test('a model and a level travel together in one configure call', async () => {
       },
       variant: 'high',
     });
-    expect(calls[0]).toEqual({
+    expect(calls[0]?.path).toBe('/conversations/7/submit');
+    expect(calls[0]?.body).toMatchObject({
+      type: 'input',
+      content: 'think hard',
+      model: { provider: 'opencode-go', modelId: 'glm-5.3-flash' },
+      thinkingLevel: 'high',
+    });
+    expect(calls[1]).toEqual({
       path: '/conversations/7/configure',
       body: { model: { provider: 'opencode-go', modelId: 'glm-5.3-flash' }, thinkingLevel: 'high' },
     });
@@ -212,6 +221,46 @@ test('a model and a level travel together in one configure call', async () => {
     expect(calls.filter((call) => call.path.endsWith('/configure'))).toHaveLength(1);
   } finally {
     window.ember = previous;
+  }
+});
+
+test('updated Kilns and busy queued turns never call /configure', async () => {
+  const previous = window.ember;
+  for (const responseData of [
+    { submissionId: 1, status: 'placed', configured: true },
+    { submissionId: 2, status: 'queued', configured: true },
+    { submissionId: 3, status: 'queued' },
+  ]) {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    (globalThis as { window?: unknown }).window = {
+      ember: {
+        piRequest: async (_endpointId: string, path: string, init?: { body?: unknown }) => {
+          calls.push({ path, body: init?.body });
+          return { ok: true, status: 201, data: responseData };
+        },
+      },
+    };
+    try {
+      await sendPrompt('pi:test', '7', {
+        text: 'isolated follow-up',
+        selectedModelId: 'opencode-go/glm-5.3-flash',
+        model: {
+          providerID: 'opencode-go',
+          modelID: 'glm-5.3-flash',
+          label: 'GLM',
+          details: { name: 'GLM', providerName: 'opencode-go', reasoning: true, toolcall: true, attachment: false, inputs: [], variants: ['high'] },
+        },
+        variant: 'high',
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.path).toBe('/conversations/7/submit');
+      expect(calls[0]?.body).toMatchObject({
+        model: { provider: 'opencode-go', modelId: 'glm-5.3-flash' },
+        thinkingLevel: 'high',
+      });
+    } finally {
+      window.ember = previous;
+    }
   }
 });
 

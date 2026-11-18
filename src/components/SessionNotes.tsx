@@ -30,7 +30,7 @@ type Props = {
   defaultModelId?: string | null;
   instanceDefaultModelId?: string | null;
   recentModels: string[];
-  onModelsRefresh?: () => void;
+  onModelsRefresh?: () => Promise<unknown> | void;
 };
 
 const ICON_BUTTON = 'size-5 max-sm:size-8 rounded text-muted-foreground hover:bg-muted hover:text-foreground';

@@ -323,7 +323,11 @@ describe('starting (or adopting) the local harness', () => {
  * at `127.0.0.1:3002`. Adding the started harness as a *second* entry would list one host twice and
  * open its watch set twice — the duplicate-endpoint failure this project already paid for once.
  */
-import { mergeLocalHarnessEndpoint } from '../electron/localHarness';
+import {
+  isSynthesizedLocalEndpoint,
+  mergeLocalHarnessEndpoint,
+  withoutSynthesizedLocalEndpoint,
+} from '../electron/localHarness';
 
 describe('merging the started harness into the configured endpoints', () => {
   const endpoint = (over: Partial<{ id: string; label: string; url: string; token: string }> = {}) => ({
@@ -672,4 +676,43 @@ test('stopping retains the data-home lock until the owned child has exited', asy
   (child as unknown as { exit(code: number): void }).exit(0);
   await stopped;
   expect(fs.existsSync(path.join(home, 'ember-harness.lock'))).toBe(false);
+});
+
+describe('identifying synthesized default pi:local endpoints', () => {
+  test('matches only the unedited default local row (ignoring trailing slash differences)', () => {
+    const synthesized = { url: 'http://127.0.0.1:3002', token: 'local-tok' };
+    expect(
+      isSynthesizedLocalEndpoint(
+        { id: 'pi:local', label: 'This computer', url: 'http://127.0.0.1:3002/', token: 'local-tok' },
+        synthesized
+      )
+    ).toBe(true);
+    expect(
+      isSynthesizedLocalEndpoint(
+        { id: 'pi:local', label: 'Local', url: 'http://127.0.0.1:3002', token: 'local-tok' },
+        synthesized
+      )
+    ).toBe(true);
+    expect(
+      isSynthesizedLocalEndpoint(
+        { id: 'pi:local', label: 'My Mac', url: 'http://127.0.0.1:3002', token: 'local-tok' },
+        synthesized
+      )
+    ).toBe(false);
+    expect(
+      isSynthesizedLocalEndpoint(
+        { id: 'pi:local', label: 'This computer', url: 'http://127.0.0.1:3003', token: 'local-tok' },
+        synthesized
+      )
+    ).toBe(false);
+    expect(
+      withoutSynthesizedLocalEndpoint(
+        [
+          { id: 'pi:local', label: 'This computer', url: 'http://127.0.0.1:3002/', token: 'local-tok' },
+          { id: 'pi:tower', label: 'Tower', url: 'http://100.64.0.2:3002/', token: 'remote-tok' },
+        ],
+        synthesized
+      ).map((entry) => entry.id)
+    ).toEqual(['pi:tower']);
+  });
 });

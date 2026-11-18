@@ -499,7 +499,7 @@ export default function ModelPicker({
               size="sm"
               disabled={refreshing}
               aria-label={refreshing ? 'Refreshing models' : 'Refresh the model list'}
-              title="Re-fetch this instance's model catalogue"
+              title="Check connected providers for newly released models"
               onClick={() => {
                 setRefreshing(true);
                 void Promise.resolve(onRefresh())

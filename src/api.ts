@@ -19,6 +19,7 @@ import {
   piLoadMessages,
   piLoadMessageTail,
   piLoadModels,
+  piRefreshModels,
   piLoadSessionInstructions,
   piLoadPermissions,
   piLoadQuestions,
@@ -359,8 +360,8 @@ export const askSideQuestion = async (
 /**
  * Promote a crew worker to an addressable **peer** (`POST /conversations/:id/promote`, Hearth
  * only). Hearth forks the worker into a new ownerless conversation, registers the name, and keeps
- * the old worker as hidden history. Returns the new peer session, or null when it could not be
- * created (busy, a duplicate name, or an instance that doesn't support it).
+ * the old worker as hidden history. Throws `SessionCreateError` on a host refusal or transport
+ * failure, or returns `null` when the instance does not support promotion.
  */
 export const promoteSession = async (
   session: Session,
@@ -545,7 +546,8 @@ const toScheduledTask = (
 const mapPiScheduledTask = (
   instanceId: string,
   task: PiScheduledTask,
-  projects: Project[]
+  projects: Project[],
+  hostTimezone?: string
 ): ScheduledTask => {
   const projectId = task.cwd ?? 'hearth';
   const project = projects.find((entry) => entry.path === projectId || entry.id === projectId);
@@ -575,8 +577,12 @@ const mapPiScheduledTask = (
       lastStatus: task.lastStatus,
       lastError: task.lastError,
       lastRunAt: task.lastRunAt,
+      ...(typeof task.nextRunAt === 'number' && Number.isFinite(task.nextRunAt) ? { nextRunAt: task.nextRunAt } : {}),
     },
-    raw: task as unknown as Record<string, unknown>,
+    raw: {
+      ...(task as unknown as Record<string, unknown>),
+      ...(hostTimezone ? { timezone: hostTimezone } : {}),
+    },
   };
 };
 
@@ -587,7 +593,7 @@ const loadPiScheduledIdentityData = async (
   const data = await piLoadScheduledTasks(instanceId);
   const bindings: Record<string, string> = {};
   const taskNames: Record<string, string> = {};
-  const tasks = (data?.tasks ?? []).map((task) => mapPiScheduledTask(instanceId, task, projects));
+  const tasks = (data?.tasks ?? []).map((task) => mapPiScheduledTask(instanceId, task, projects, data?.timezone));
   tasks.forEach((task) => {
     taskNames[task.key] = task.name;
     for (const id of new Set([...(task.state.runSessionIds ?? []), task.state.lastSessionId])) {
@@ -1678,6 +1684,20 @@ export const loadModels = async (instanceId: string): Promise<ModelList | null> 
   return parsed;
 };
 
+/**
+ * Force an upstream provider catalog refresh on the target instance (for Kiln, `POST /models/refresh`;
+ * for OpenChamber, re-reads `/api/model`).
+ */
+export const refreshInstanceModels = async (
+  instanceId: string,
+  providers?: readonly string[]
+): Promise<ModelList | null> => {
+  if (isPiInstance(instanceId)) {
+    return piRefreshModels(instanceId, providers);
+  }
+  return loadModels(instanceId);
+};
+
 const optionalNumber = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
@@ -1759,8 +1779,8 @@ export type PromptInput = {
 };
 
 export type QueueMessageInput = Omit<PromptInput, 'model'> & {
-  /** OpenChamber's server-owned queue requires a concrete provider/model. */
-  model: ModelOption;
+  /** OpenChamber's server-owned queue requires a concrete provider/model; Hearth uses session/server default when omitted. */
+  model?: ModelOption;
 };
 
 export const enqueueMessage = async (
@@ -1785,7 +1805,7 @@ export const enqueueMessage = async (
     });
     return { ok: sent.ok, status: sent.status, data: (sent.data as MessageQueueMutation | null) ?? null };
   }
-  if (selectedModelError(selectedModelId, model)) return { ok: false, status: 400, data: null };
+  if (!model || selectedModelError(selectedModelId, model)) return { ok: false, status: 400, data: null };
   const sendConfig: Record<string, string> = {
     providerID: model.providerID,
     modelID: model.modelID,

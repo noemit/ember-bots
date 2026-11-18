@@ -12,7 +12,7 @@ import { createKilnSharing } from './kilnSharing';
 import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
 import { fileUrlToLocalPath, openTarget as openTargetWithShell } from './openTarget';
-import { unlockEndpointSecrets, lockEndpointSecrets, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
+import { maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
 import {
   discoverLocalPiEndpoint,
   isLocalHttpUrl,
@@ -51,7 +51,14 @@ import {
 import { startRemoteServer } from './remoteServer';
 import { parseRemoteProxyOrigin } from './remoteProxy';
 import { appendCompactLog } from './compactLog';
-import { appendAppIconLog, initializeFirstRunSettings, quarantineCorruptSettings, writePrivateJson } from './settingsFile';
+import {
+  appendAppIconLog,
+  createSettingsFileController,
+  initializeFirstRunSettings,
+  readJson,
+  resolveEffectivePiEndpoints,
+  resolvePersistedPiEndpoints,
+} from './settingsFile';
 import { tightenPermissions } from './permissions';
 import { RemoteListener, type StartOutcome } from './remoteListener';
 import { EventStreamManager, type EmberEvent, type StreamStatus } from './eventStream';
@@ -171,24 +178,6 @@ const modelStats = new ModelStatsStore(path.join(emberHome, 'model-stats.json'))
 // The durable activity log: one JSONL file per local day, written from the event stream.
 const activityLog = new ActivityLog(path.join(emberHome, 'activity'));
 
-/** The file's object, or undefined when it is missing or does not parse (not the same as empty). */
-const readJsonRoot = (file: string): Record<string, unknown> | undefined => {
-  try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return undefined;
-  }
-};
-
-/**
- * Set when `settings.json` existed but could not be parsed. The unreadable file is renamed, never
- * overwritten: one bad byte used to reset every setting and then the next save wrote the defaults
- * over the only copy, with nothing said. Read by the renderer so it can say what happened.
- */
-let settingsRecoveredFrom: string | null = null;
-/** Set when the unreadable file could not be moved aside; writes are refused rather than clobbering it. */
-let settingsQuarantineFailed = false;
 /** What the remote listener is actually doing; reported through the settings the renderer reads. */
 let remoteListenerState: RemoteAccessState = { status: 'off', attempts: 0, changedAt: Date.now() };
 /** Stops the bundled harness on quit; a no-op when the harness was already running before launch. */
@@ -236,85 +225,20 @@ const portAnswers = async (handle: LocalHarnessLaunch): Promise<boolean> => {
 };
 
 /**
- * Move an unreadable settings file aside and start from defaults.
- *
- * Deliberately synchronous and best-effort: this runs on the read path, which is called several
- * times a second, so after the rename the file is missing and the whole branch is skipped.
+ * Ember's and OpenChamber's settings files, parsed only when mtime moves and invalidated immediately
+ * after an atomic rename so back-to-back writes in the same coarse mtime tick never read stale data.
  */
-const quarantineSettingsFile = (file: string): void => {
-  if (settingsRecoveredFrom) return;
-  const result = quarantineCorruptSettings(file);
-  if (result.ok) {
-    settingsRecoveredFrom = result.movedTo;
-    console.warn(`Ember settings could not be read; kept the old file at ${result.movedTo}`);
-    return;
-  }
-  // A rename we cannot do (a lock, a read-only directory) must not resurrect the corrupt file as
-  // "settings": remember the failure so the next write is refused instead of clobbering it.
-  settingsRecoveredFrom = file;
-  settingsQuarantineFailed = true;
-  console.error('Ember could not move an unreadable settings file aside', result.error);
-};
-
-const readJson = (file: string): Record<string, unknown> => readJsonRoot(file) ?? {};
-
-/**
- * Ember's own settings, parsed only when the file's mtime moves.
- *
- * `piEndpoints()` is consulted by every proxied request (the resolver in `PiClient.request` falls back
- * to it) and by every probe, and settings are written as they change rather than on a save button, so
- * the file is re-read often and grows: per-session composer drafts ride in it. Parsing 34 KB on the
- * main thread per call is waste at best, and it blocks the thread that answers probes.
- *
- * A file that exists but does not parse is a hiccup, not an empty configuration. Keeping the last good
- * parse is what stops one bad read from emptying the instance list — to the rail, an empty
- * `piEndpoints` means the instance is gone, and it stays gone until a reprobe.
- */
-let emberSettingsCache: { mtimeMs: number; root: Record<string, unknown> } | null = null;
-const readEmberSettingsFile = (): Record<string, unknown> => {
-  const file = emberSettingsPath();
-  let mtimeMs = -1;
-  try {
-    mtimeMs = fs.statSync(file).mtimeMs;
-  } catch {
-    // Missing: cached under -1, and a previous good value keeps the app configured until it lands.
-  }
-  if (emberSettingsCache && emberSettingsCache.mtimeMs === mtimeMs) return emberSettingsCache.root;
-  const parsed = readJsonRoot(file);
-  if (parsed === undefined && mtimeMs !== -1) {
-    // The file exists and does not parse. Move it aside so the next save writes a fresh file and
-    // the user's copy is still on disk to salvage; keep the last good parse in memory meanwhile.
-    try {
-      quarantineSettingsFile(file);
-    } catch {
-      // Keep serving the last good parse; `settingsQuarantineFailed` refuses the next write.
-    }
-  }
-  const root = parsed ?? emberSettingsCache?.root ?? {};
-  emberSettingsCache = { mtimeMs: parsed === undefined && settingsRecoveredFrom ? -1 : mtimeMs, root };
-  return root;
-};
-
-// OpenChamber's settings are consulted on every proxied API request (several per second
-// across instances). Re-parse only when the file's mtime moves; a stat is far cheaper.
-let openchamberSettingsCache: { mtimeMs: number; root: Record<string, unknown> } | null = null;
-const readOpenchamberSettings = (): Record<string, unknown> => {
-  const file = openchamberSettingsPath();
-  let mtimeMs = -1;
-  try {
-    mtimeMs = fs.statSync(file).mtimeMs;
-  } catch {
-    // Missing file: fall through and cache the empty result under mtime -1.
-  }
-  if (openchamberSettingsCache && openchamberSettingsCache.mtimeMs === mtimeMs) {
-    return openchamberSettingsCache.root;
-  }
-  const root = readJson(file);
-  openchamberSettingsCache = { mtimeMs, root };
-  return root;
-};
-
-const writeJson = (file: string, data: unknown): Promise<void> => writePrivateJson(file, data);
+const settingsFiles = createSettingsFileController({
+  emberSettingsPath,
+  openchamberSettingsPath,
+  onRecovered: (movedTo) => {
+    console.warn(`Ember settings could not be read; kept the old file at ${movedTo}`);
+  },
+  onQuarantineFailed: (error) => {
+    console.error('Ember could not move an unreadable settings file aside', error);
+  },
+});
+const { readEmberSettingsFile, readOpenchamberSettings, writeJson } = settingsFiles;
 
 const hostId = (host: StoredHost, index: number): string => String(host.id || `host-${index}`);
 
@@ -363,7 +287,7 @@ ipcMain.handle('ember:local-harness-retry', (event) => {
     if (canaryBuild) localHarness.options.port = await availableHarnessPort();
     const result = await startLocalHarness({
       ...localHarness.options,
-      disabled: readJson(emberSettingsPath()).localHarnessEnabled === false,
+      disabled: readEmberSettingsFile().localHarnessEnabled === false,
     });
     localHarnessState = result.state;
     localHarnessStop = result.stop;
@@ -436,6 +360,19 @@ ipcMain.handle('ember:local-harness-token', (event, options: { rotate?: boolean 
   });
 });
 
+const discoverLegacyLocalPiEndpoint = (): PiEndpoint | null =>
+  discoverLocalPiEndpoint(
+    (tokenPath) => {
+      try {
+        return fs.readFileSync(tokenPath, 'utf8');
+      } catch {
+        return undefined;
+      }
+    },
+    os.homedir(),
+    process.env
+  );
+
 /** A stored timestamp, or undefined. Kept strict so a `0` or a string never counts as "dismissed". */
 const positiveNumberOrUndefined = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
@@ -499,38 +436,13 @@ const readEmberSettings = (): EmberSettings => {
         ? root.activeSession
         : null,
     minimizedSessions: parseStringArray(root.minimizedSessions),
-    piEndpoints: (() => {
-      const configured = parsePiEndpoints(unlockEndpointSecrets(root.piEndpoints, safeStorage));
-      const discovered: PiEndpoint[] =
-        configured.length > 0 || Array.isArray(root.piEndpoints) || canaryBuild
-          ? configured
-          : (() => {
-              // Settings that never held a `piEndpoints` array at all: seed from whatever the CLI or
-              // a previous install already wrote to disk, so an upgrade has a host on first paint.
-              const found = discoverLocalPiEndpoint(
-                (tokenPath) => {
-                  try {
-                    return fs.readFileSync(tokenPath, 'utf8');
-                  } catch {
-                    return undefined;
-                  }
-                },
-                os.homedir(),
-                process.env
-              );
-              return found ? [found] : [];
-            })();
-      // The local harness is merged the same way the instance list merges it: relabelled if an entry
-      // for its address exists, added in front otherwise. Returning only `configured` here is what
-      // left Settings → Instances and Settings → Providers without "This computer" whenever the file
-      // happened to hold a remote endpoint.
-      return mergeLocalHarnessEndpoint(discovered, localHarnessEndpointInfo(root)).map((endpoint) =>
-        // `mergeLocalHarnessEndpoint` only invents a label for a *new* entry; a discovered one keeps
-        // its own ("Local"). The UI calls this host "This computer" everywhere else, so say the same
-        // thing here rather than letting the two spellings leak into a selector.
-        endpoint.id === 'pi:local' && endpoint.label === 'Local' ? { ...endpoint, label: 'This computer' } : endpoint
-      );
-    })(),
+    piEndpoints: resolveEffectivePiEndpoints({
+      root,
+      secretStore: safeStorage,
+      canaryBuild,
+      localHarness: localHarnessEndpointInfo(root),
+      discoverLocal: () => discoverLegacyLocalPiEndpoint(),
+    }),
     remoteAccessEnabled: root.remoteAccessEnabled === true,
     // Keep invalid stored values for startRemoteServer to reject rather than exposing direct HTTP.
     remoteAccessProxyOrigin: root.remoteAccessProxyOrigin === undefined ? undefined : String(root.remoteAccessProxyOrigin),
@@ -542,7 +454,7 @@ const readEmberSettings = (): EmberSettings => {
     onboardingDismissedAt: positiveNumberOrUndefined(root.onboardingDismissedAt),
     onboardedAt: positiveNumberOrUndefined(root.onboardedAt),
     localHarnessState: localHarnessReport(),
-    settingsRecovered: settingsRecoveredFrom !== null,
+    settingsRecovered: settingsFiles.isRecovered(),
   };
 };
 
@@ -622,8 +534,6 @@ const probeHealth = async (url: string, headers: Record<string, string>): Promis
   return 'down';
 };
 
-/** Set once this launch has checked (and possibly written) `onboardedAt`. */
-let onboardedStamped = false;
 let instanceSnapshot: Instance[] = [];
 let probeGeneration = 0;
 const loadInstances = async (refresh = true): Promise<Instance[]> => {
@@ -700,6 +610,7 @@ const loadInstances = async (refresh = true): Promise<Instance[]> => {
   // Hearth endpoints ride along in the same instance list; they are already probed (their
   // auth makes the OpenChamber health probe below useless), so the probe loop skips them.
   const piInstances = await piInstanceRecords(piEndpoints());
+  if (generation !== probeGeneration) return instanceSnapshot;
   piInstances.forEach((instance) => candidates.push({ instance, headers: {} }));
 
   const previous = new Map(instanceSnapshot.map((instance) => [instance.id, instance]));
@@ -714,44 +625,6 @@ const loadInstances = async (refresh = true): Promise<Instance[]> => {
     }
   };
 
-  /**
-   * Stamp `onboardedAt` the first time anything answers.
-   *
-   * The guide asks "is this install set up?", and for someone upgrading from a build that had no
-   * guide the honest answer is *yes* — they have been using Ember for months. Their local harness
-   * may be attached, or turned off in favour of a container that is currently asleep, so the live
-   * state cannot tell the difference between them and a first launch.
-   *
-   * So it is recorded once, when a host actually answers, and read forever after. Writing from main
-   * (rather than letting a window claim it) is what stops a stale renderer from suppressing the
-   * guide on a genuinely fresh install.
-   */
-  const noteOnboarded = (): void => {
-    if (onboardedStamped) return;
-    const root = readJson(emberSettingsPath());
-    if (positiveNumberOrUndefined(root.onboardingStartedAt)) return;
-    if (positiveNumberOrUndefined(root.onboardedAt)) {
-      onboardedStamped = true;
-      return;
-    }
-    if (!candidates.some((candidate) => candidate.instance.status === 'ready' || candidate.instance.attachable)) return;
-    onboardedStamped = true;
-    try {
-      root.onboardedAt = Date.now();
-      dataDir.ensureEmberDataDir(emberHome);
-      const settingsFile = emberSettingsPath();
-      fs.writeFileSync(settingsFile, `${JSON.stringify(root, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-      tightenPermissions(settingsFile, 0o600);
-      // The renderer reads settings on its own schedule; a hint costs one broadcast and saves it
-      // from showing the guide for a frame after the first healthy probe.
-      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
-    } catch (error) {
-      // Not fatal: the guide reads `onboardedAt` on the next launch instead. A settings file we
-      // cannot write is already reported elsewhere.
-      console.warn('[ember] could not record onboardedAt:', error instanceof Error ? error.message : error);
-    }
-  };
-  noteOnboarded();
   instanceSnapshot = candidates.map(({ instance }) => {
     if (instance.status === 'checking') instance.attachable = previous.get(instance.id)?.attachable ?? false;
     return instance;
@@ -771,6 +644,20 @@ const loadInstances = async (refresh = true): Promise<Instance[]> => {
       announceIfChanged();
     })
   );
+
+  // Stamp `onboardedAt` after OpenChamber health probes settle too, serialized through
+  // `settingsWrites` so it never races concurrent settings patches or clobbers quarantined files.
+  const hasHealthyInstance = candidates.some(
+    (candidate) => candidate.instance.status === 'ready' || candidate.instance.attachable
+  );
+  void settingsFiles
+    .noteOnboarded(hasHealthyInstance, () => {
+      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+    })
+    .catch((error) => {
+      console.warn('[ember] could not record onboardedAt:', error instanceof Error ? error.message : error);
+    });
+  if (generation !== probeGeneration) return instanceSnapshot;
 
   const instances = instanceSnapshot;
   // Every probe re-syncs the event streams, so an instance that comes online starts streaming
@@ -873,10 +760,18 @@ const harnessHome = (): string => emberHome;
 const localHarnessEndpointInfo = (root?: Record<string, unknown>): { url: string; token: string } | null =>
   localHarnessEndpoint({
     state: localHarnessState,
-    enabled: (root ?? readJson(emberSettingsPath())).localHarnessEnabled !== false,
+    enabled: (root ?? readEmberSettingsFile()).localHarnessEnabled !== false,
     home: harnessHome(),
     port: localHarness.options.port,
   });
+
+const synthesizedLocalEndpointInfo = (root: Record<string, unknown>): { url: string; token: string } | null => {
+  const harness = localHarnessEndpointInfo(root);
+  if (harness) return harness;
+  if (Array.isArray(root.piEndpoints) || canaryBuild || root.localHarnessEnabled === false) return null;
+  const legacy = discoverLegacyLocalPiEndpoint();
+  return legacy ? { url: legacy.url, token: legacy.token } : null;
+};
 
 /**
  * The endpoints Ember talks to: the configured ones, plus the harness this app started.
@@ -1036,17 +931,25 @@ ipcMain.handle('ember:activity:clear', (event) => { assertTrustedSender(event); 
 
 let refreshRemoteServer: () => void = () => {};
 
+const QUARANTINE_FAILED_ERROR =
+  'Ember could not read settings.json and could not move it aside. Move or repair that file before changing settings.';
+
 const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
-  if (settingsQuarantineFailed) {
+  if (settingsFiles.isQuarantineFailed()) {
     // The old file is unreadable and could not be moved. Writing now would replace the only copy
     // of the user's settings with defaults, so refuse and say what to do about it.
-    throw new Error('Ember could not read settings.json and could not move it aside. Move or repair that file before changing settings.');
+    throw new Error(QUARANTINE_FAILED_ERROR);
   }
   const value = patch && typeof patch === 'object'
     ? (patch as Partial<EmberSettings> & { remotePassword?: unknown; composerDraftChanges?: unknown })
     : {};
-  const root = readJson(emberSettingsPath());
+  const root = readEmberSettingsFile();
   const settings = readEmberSettings();
+  if (settingsFiles.isQuarantineFailed()) {
+    throw new Error(QUARANTINE_FAILED_ERROR);
+  }
+  const previousEffectiveEndpoints = settings.piEndpoints;
+  const synthesizedLocal = synthesizedLocalEndpointInfo(root);
   const previousRemoteAccessEnabled = settings.remoteAccessEnabled;
   const previousRemoteProxyOrigin = settings.remoteAccessProxyOrigin;
   const previousRemotePasswordHash = typeof root.remotePasswordHash === 'string' ? root.remotePasswordHash : undefined;
@@ -1108,7 +1011,13 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
         : null;
   }
   if (value.minimizedSessions !== undefined) settings.minimizedSessions = parseStringArray(value.minimizedSessions);
-  if (value.piEndpoints !== undefined) settings.piEndpoints = parsePiEndpoints(restoreEndpointSecrets(value.piEndpoints, settings.piEndpoints));
+  const persistedEndpoints = resolvePersistedPiEndpoints({
+    rawStored: root.piEndpoints,
+    previousEffective: previousEffectiveEndpoints,
+    patchValue: value.piEndpoints,
+    synthesizedLocal,
+    secretStore: safeStorage,
+  });
   // The guide's dismissal is the person's decision, so a patch may set it. `onboardedAt` is not:
   // that one records a fact main observed (a host answered), and a client claiming it would let a
   // stale window suppress the guide on a genuinely fresh install.
@@ -1149,9 +1058,10 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   }
   settings.remotePasswordConfigured = Boolean(remotePasswordHash);
   if (!remotePasswordHash) settings.remoteAccessEnabled = false;
+  const { piEndpoints: _transientEndpoints, ...persistedWithoutEndpoints } = persistedSettings(settings);
   await writeJson(emberSettingsPath(), {
-    ...persistedSettings(settings),
-    piEndpoints: lockEndpointSecrets(settings.piEndpoints, root.piEndpoints, safeStorage),
+    ...persistedWithoutEndpoints,
+    ...(persistedEndpoints !== undefined ? { piEndpoints: persistedEndpoints } : {}),
     ...(remotePasswordHash ? { remotePasswordHash } : {}),
   });
   if (
@@ -1164,15 +1074,11 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
     refreshRemoteServer();
   }
   void dailyUpdateChecks?.check().catch(() => {});
-  return maskEndpointSecrets(settings);
+  return maskEndpointSecrets(readEmberSettings());
 };
 
-let settingsWrites: Promise<unknown> = Promise.resolve();
-const updateSettings = (patch: unknown): Promise<EmberSettings> => {
-  const result = settingsWrites.catch(() => {}).then(() => applySettingsPatch(patch));
-  settingsWrites = result;
-  return result;
-};
+const updateSettings = (patch: unknown): Promise<EmberSettings> =>
+  settingsFiles.enqueueWrite(() => applySettingsPatch(patch));
 
 ipcMain.handle('ember:settings:set', (event, patch: unknown) => {
   assertTrustedSender(event);
@@ -1384,7 +1290,7 @@ const remoteListener = new RemoteListener(
       activitySearch: (query, range) =>
         activityLog.search(typeof query === 'string' ? query.slice(0, 200) : '', parseActivityQuery(range)),
       activityDays: () => activityLog.days(),
-      verifyPassword: (password) => verifyRemotePassword(password, readJson(emberSettingsPath()).remotePasswordHash),
+      verifyPassword: (password) => verifyRemotePassword(password, readEmberSettingsFile().remotePasswordHash),
       subscribeEvents,
       eventStatus: () => ({ ...eventStreams.snapshot(), ...piClient.status() }),
     }, { proxyOrigin: settings.remoteAccessProxyOrigin });
@@ -1523,6 +1429,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     updateController.restoreCheckResult(priorCheck.lastCheckedAt, priorCheck.lastCheckResult);
     dailyUpdateChecks = new DailyUpdateChecks({
       enabled: () => readEmberSettings().automaticUpdateChecks !== false,
+      busy: () => updateController?.isBusy() === true,
       lastAttempt: () => readJson(attemptsPath).lastAttemptAt,
       nextAttempt: () => readJson(attemptsPath).nextAttemptAt,
       recordAttempt: (at, next) => writeJson(attemptsPath, { ...readJson(attemptsPath), lastAttemptAt: at, nextAttemptAt: next }),
@@ -1564,6 +1471,8 @@ app.on('will-quit', () => {
   dailyUpdateChecks?.dispose();
   updateController?.dispose();
   remoteListener.dispose();
+  piClient.closeAll();
+  eventStreams.stopAll();
 });
 
 let harnessQuitComplete = false;

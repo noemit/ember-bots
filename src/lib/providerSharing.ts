@@ -95,3 +95,38 @@ export function sharingHostMessage(host: SharingHost): string {
   if (host.state === 'unavailable') return `${host.endpoint.label} did not answer. Check its connection in Computers and Containers, then compare again.`;
   return `${host.endpoint.label} answered. Provider metadata is ready to review.`;
 }
+
+export type ModelRefreshOptions = {
+  upstream?: boolean;
+  providers?: readonly string[];
+};
+
+/**
+ * Model refresh strategy for a destination Kiln after `POST /alignment/share` succeeds:
+ * - Newly imported built-in API-key providers trigger a scoped upstream catalog refresh
+ *   (`POST /models/refresh` with `providers`) so dynamic catalogs (`deepinfra`, `moonshotai`,
+ *   `openai`, etc.) populate straight away without rotating shared OAuth tokens or probing custom URLs.
+ * - Custom-only, OAuth-only, or zero-addition imports re-read `GET /models` (`upstream: false`)
+ *   so newly available models appear in the picker without outbound provider requests.
+ */
+export function refreshOptionsForSharedTarget(
+  target: Pick<ShareTarget, 'providers'>,
+  keysAdded: number
+): { upstream: boolean; providers?: string[] } {
+  if (!(keysAdded > 0)) return { upstream: false };
+  const apiKeyProviders = [
+    ...new Set(
+      target.providers
+        .filter(
+          provider =>
+            provider.type === 'api_key' &&
+            !provider.configIdentity &&
+            !provider.providerId.startsWith('custom-') &&
+            provider.providerId !== 'orcarouter'
+        )
+        .map(provider => (provider.providerId === 'fireworks-ai' ? 'fireworks' : provider.providerId))
+    ),
+  ];
+  if (apiKeyProviders.length === 0) return { upstream: false };
+  return { upstream: true, providers: apiKeyProviders };
+}

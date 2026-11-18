@@ -5,22 +5,26 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
-import { InboxDoc, createRegistry, Harness } from "@earendil-works/pi-durable";
+import { InboxDoc, LiveDoc, createRegistry, Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { MetaDoc } from "../src/meta";
 import { AutoAcceptDoc } from "../src/approvals";
+import { hearthConfig } from "../src/config";
+import { startHearthServer } from "../src/server";
 import {
   createScheduledTask,
   deleteScheduledTask,
   isDue,
   listScheduledTasks,
   mostRecentOccurrence,
+  nextOccurrence,
   parseScheduledTaskInput,
   parseScheduledTaskPatch,
   parseSchedule as parseScheduleOf,
   runScheduledTaskNow,
+  runTask,
   SchedulerDoc,
   tick,
   updateScheduledTask,
@@ -412,5 +416,161 @@ describe("scheduler conversations and zones", () => {
     expect(untouched?.lastRunAt).toBeUndefined();
     await deleteScheduledTask(harness, broken.id, context);
     await harness.waitForIdle(context);
+  }, 20_000);
+
+  test("submit or setAutoAccept failure after creating a session archives the orphan and retries without consuming lastRunAt", async () => {
+    const dueAt = Date.now() - 5_000;
+    const created = await createScheduledTask(harness, {
+      model: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+      name: "Retry after submit failure",
+      prompt: "Eventually runs cleanly",
+      schedule: { kind: "once", at: dueAt },
+      enabled: true,
+      cwd: home,
+    });
+
+    // 1. Fault `conversation.submit` after `createConversation` and `setAutoAccept` succeeded.
+    const originalConversation = harness.conversation.bind(harness);
+    let failSubmitOnce = true;
+    let orphanId: ConversationId | undefined;
+    const faultyHarness: Harness = new Proxy(harness, {
+      get(target, prop, receiver) {
+        if (prop === "conversation") {
+          return async (id: ConversationId, ctx = context) => {
+            const conv = await originalConversation(id, ctx);
+            if (!conv || !failSubmitOnce) return conv;
+            orphanId = id;
+            return new Proxy(conv, {
+              get(cTarget, cProp, cReceiver) {
+                if (cProp === "submit" && failSubmitOnce) {
+                  return async () => {
+                    failSubmitOnce = false;
+                    throw new Error("Kiln could not admit the scheduled prompt right now.");
+                  };
+                }
+                const val = Reflect.get(cTarget, cProp, cReceiver);
+                return typeof val === "function" ? val.bind(cTarget) : val;
+              },
+            });
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    expect(await tick(faultyHarness, context)).toBe(0);
+    expect(orphanId).toBeDefined();
+    const afterFailure = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id)!;
+    expect(afterFailure.lastStatus).toBe("error");
+    expect(afterFailure.lastError).toContain("could not admit the scheduled prompt");
+    expect(afterFailure.lastRunAt).toBeUndefined();
+    expect(afterFailure.lastSessionId).toBeUndefined();
+    expect(afterFailure.pendingRun).toBeUndefined();
+    expect(afterFailure.runSessionIds ?? []).not.toContain(orphanId as number);
+    expect((await harness.snapshot(MetaDoc, orphanId!, context))?.archived).toBeGreaterThan(0);
+
+    // 2. Because `lastRunAt` was not consumed, the next tick retries cleanly in a fresh session.
+    faux.setResponses([fauxAssistantMessage("admitted on retry")]);
+    expect(await tick(harness, context)).toBe(1);
+    await harness.waitForIdle(context);
+    const recovered = (await listScheduledTasks(harness, context)).tasks.find((task) => task.id === created.id)!;
+    expect(recovered.lastStatus).toBe("ok");
+    expect(recovered.lastError).toBeUndefined();
+    expect(recovered.lastRunAt).toBe(dueAt);
+    expect(recovered.lastSessionId).toBeDefined();
+    expect(recovered.lastSessionId).not.toBe(orphanId as number);
+    expect(recovered.runSessionIds).toEqual([recovered.lastSessionId!]);
+    await deleteScheduledTask(harness, created.id, context);
+  }, 20_000);
+
+  test("reconciles LiveDoc.runFailure from lastSessionId and serves server-computed nextRunAt on GET /scheduled-tasks", async () => {
+    // Use an isolated harness with retries disabled so a 429/401 turn fails immediately.
+    const subHome = await mkdtemp(join(tmpdir(), "hearth-scheduler-failure-"));
+    const subModels = createModels();
+    const subFaux = fauxProvider();
+    subModels.setProvider(subFaux.provider);
+    const subStorage = await openNodeSqliteStorage(join(subHome, "hearth.sqlite"));
+    const subHarness = await Harness.open(
+      subStorage,
+      {
+        models: subModels,
+        registry: createRegistry(),
+        settings: { retry: { enabled: false } },
+        env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? subHome }),
+      },
+      context
+    );
+    subHarness.resume();
+    const server = startHearthServer({
+      config: hearthConfig({ home: subHome, port: 0, workspace: subHome }),
+      token: "sched-token",
+      storage: subStorage,
+      harness: subHarness,
+      models: subModels,
+      defaultAgent: { model: { provider: subFaux.getModel().provider, modelId: subFaux.getModel().id } },
+    });
+    try {
+      subFaux.setResponses([
+        fauxAssistantMessage("", {
+          stopReason: "error",
+          errorMessage: '401: {"error":{"message":"API key expired for scheduled provider"}}',
+        }),
+      ]);
+      const created = await createScheduledTask(subHarness, {
+        model: { provider: subFaux.getModel().provider, modelId: subFaux.getModel().id },
+        name: "Brief with expired key",
+        prompt: "Summarize overnight alerts",
+        schedule: { kind: "daily", time: "09:00", timezone: "America/New_York" },
+        enabled: true,
+        cwd: subHome,
+      });
+
+      const outcome = await runScheduledTaskNow(subHarness, created.id, context);
+      expect(outcome?.status).toBe("ok");
+      await subHarness.waitForIdle(context);
+
+      // Verify `LiveDoc.runFailure` was recorded on the session by pi-durable.
+      const live = await subHarness.snapshot(LiveDoc, outcome!.sessionId as ConversationId, context);
+      expect(live?.runFailure?.reason).toBe("model_error");
+
+      // Even before the next scheduler tick, `GET /scheduled-tasks` reconciles `lastStatus` & `lastError`
+      // and includes a server-computed `nextRunAt` in the schedule's timezone.
+      const beforeNow = Date.now();
+      const response = await fetch(`${server.url}/scheduled-tasks`, {
+        headers: { authorization: "Bearer sched-token" },
+      });
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        timezone: string;
+        tasks: Array<{ id: string; lastStatus?: string; lastError?: string; nextRunAt?: number }>;
+      };
+      const afterNow = Date.now();
+      const wireTask = payload.tasks.find((entry) => entry.id === created.id)!;
+      expect(wireTask.lastStatus).toBe("error");
+      expect(wireTask.lastError).toBe("401: API key expired for scheduled provider");
+      expect(wireTask.nextRunAt).toBe(
+        nextOccurrence({ kind: "daily", time: "09:00", timezone: "America/New_York" }, beforeNow, payload.timezone) ??
+          nextOccurrence({ kind: "daily", time: "09:00", timezone: "America/New_York" }, afterNow, payload.timezone)
+      );
+
+      // Scheduler tick also persists the reconciled error into `SchedulerDoc`.
+      await tick(subHarness, context);
+      const rawDoc = await subHarness.snapshot(SchedulerDoc, context);
+      const persisted = rawDoc?.tasks.find((entry) => entry.id === created.id);
+      expect(persisted?.lastStatus).toBe("error");
+      expect(persisted?.lastError).toBe("401: API key expired for scheduled provider");
+
+      // Unused export sanity check on `runTask` is unnecessary, keep `nextOccurrence` tested across zones:
+      const refNow = Date.UTC(2026, 10, 8, 8, 30, 0);
+      expect(nextOccurrence({ kind: "daily", time: "09:00" }, refNow, "America/New_York")).toBe(
+        Date.UTC(2026, 10, 8, 14, 0, 0)
+      );
+      expect(runTask).toBeDefined();
+    } finally {
+      await server.close();
+      await subHarness.close(context);
+      await rm(subHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => undefined);
+    }
   }, 20_000);
 });

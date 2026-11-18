@@ -77,6 +77,7 @@ import {
   stopSessionProcesses,
   loadSessionStates,
   loadModels,
+  refreshInstanceModels,
   loadScheduledIdentityData,
   mergePolledSessions,
   rejectQuestion,
@@ -102,18 +103,22 @@ import {
   type ScheduledTask,
 } from './api';
 import { buildScheduledRuns, countUnseenScheduledRuns, scheduledReadSessions } from './lib/scheduledView';
-import { isPiInstance } from './piApi';
+import { isPiInstance, piLoadModels, piRefreshModels } from './piApi';
 import { emptyHomeTarget, newSessionTarget } from './lib/emptyHome';
 import { useStableCallback } from '@/lib/useStableCallback';
 import {
   addPendingNote,
   createPendingCreate,
   failPendingCreate,
+  handOffPendingMessages,
   holdPendingMessage,
   restartPendingCreate,
+  settleStagedFollowUps,
   type PendingCreate,
+  type PendingFirstSendOutcome,
 } from './lib/pendingCreate';
 import { newSessionFailureText, sessionCreateFailureOf } from './lib/newSessionFailure';
+import { promoteFailureText } from './lib/promoteFailure';
 import { applyLiveToolOutput, entryOrdinal, newestEntryId, settleToolResults } from '@/lib/piMapping';
 import type { LiveToolOutput, ToolResultSettlement } from '@/lib/piMapping';
 import { copyText } from '@/lib/clipboard';
@@ -488,6 +493,23 @@ export default function App() {
   const [archiveConfirmKey, setArchiveConfirmKey] = React.useState<string | null>(null);
   /** The crew worker the Promote-to-peer dialog is open for; null when closed. */
   const [promoteTarget, setPromoteTarget] = React.useState<Session | null>(null);
+  const [promoteSubmitting, setPromoteSubmitting] = React.useState(false);
+  const [promoteError, setPromoteError] = React.useState<string | null>(null);
+  const promoteAttemptRef = React.useRef(0);
+
+  const openPromoteDialog = React.useCallback((worker: Session) => {
+    promoteAttemptRef.current += 1;
+    setPromoteSubmitting(false);
+    setPromoteError(null);
+    setPromoteTarget(worker);
+  }, []);
+
+  const closePromoteDialog = React.useCallback(() => {
+    promoteAttemptRef.current += 1;
+    setPromoteSubmitting(false);
+    setPromoteError(null);
+    setPromoteTarget(null);
+  }, []);
   /** The image lightbox: a message's gallery and the open index, or null when closed. */
   const [imageViewer, setImageViewer] = React.useState<{ images: ViewerImage[]; index: number } | null>(
     null
@@ -528,8 +550,14 @@ export default function App() {
   } = useFeedback();
 
   const clearActionError = React.useCallback(() => showActionError(null), [showActionError]);
+  const handleSettingsError = React.useCallback(
+    (message: string, retry: () => void, onDismiss?: () => void) => {
+      showActionError(message, retry, undefined, onDismiss);
+    },
+    [showActionError]
+  );
   const { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings } =
-    useEmberSettings({ onError: showActionError, onBeforeSave: clearActionError });
+    useEmberSettings({ onError: handleSettingsError, onBeforeSave: clearActionError });
   // One effect owns every text-size variable, so the three settings and a theme change can't
   // disagree about who writes the root style properties.
   React.useEffect(() => {
@@ -671,6 +699,9 @@ export default function App() {
   const pendingInputs = React.useRef(
     new Map<string, { target: SessionRef; directory?: string; input: PromptInput }>()
   );
+  // Staged follow-up queue ids held back when a new session's first send failed, keyed by that
+  // failed bubble's id so Send again can resume them in FIFO order once the host accepts it.
+  const heldFollowUpsByTriggerId = React.useRef(new Map<string, string[]>());
   const pendingFor = (key: string): Set<string> => {
     let ids = pendingOptimisticIds.current.get(key);
     if (!ids) {
@@ -2139,11 +2170,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds; refs carry the rest
   }, [readyKey]);
 
-  const refreshModels = useStableCallback(async (instanceId: string) => {
-    const next = await loadModels(instanceId).catch(() => null);
-    if (next) setModelsByInstance((previous) => shareValue(previous, { ...previous, [instanceId]: next }));
-    else showActionError('Could not refresh models. Your model selection has not changed.');
-  });
+  const refreshModels = useStableCallback(
+    async (instanceId: string, options?: { upstream?: boolean; providers?: readonly string[] }) => {
+      const knownPi = isPiInstance(instanceId) || settings.piEndpoints.some((endpoint) => endpoint.id === instanceId);
+      const loader =
+        options?.upstream === false
+          ? () => (knownPi ? piLoadModels(instanceId) : loadModels(instanceId))
+          : () => (knownPi ? piRefreshModels(instanceId, options?.providers) : refreshInstanceModels(instanceId, options?.providers));
+      const next = await loader().catch(() => null);
+      if (next) setModelsByInstance((previous) => shareValue(previous, { ...previous, [instanceId]: next }));
+      else if (options?.upstream !== false) showActionError('Could not refresh models. Your model selection has not changed.');
+    }
+  );
 
   // ---- Refreshers: one per REST resource. Timers and event hints both call these. ----
   // Each takes the instance ids to refresh and merges the result into state, leaving other
@@ -3312,23 +3350,31 @@ export default function App() {
         updatedAt: now,
       },
     });
-    // `sendTo` inserts its optimistic bubble synchronously, so opening the column on the next line
-    // shows the message immediately — the handover has no empty frame.
-    const sent = first
-      ? sendTo(ref, session.directory, { ...first.input, configured: true }, {
+    // `sendToWithOutcome` inserts its optimistic bubble synchronously and `stageMessages` stages
+    // any held follow-ups (`M2..Mn`) into the session's queue synchronously, so opening the column
+    // below has no frame where either the first message or its follow-ups vanish. Follow-ups are
+    // flushed strictly in FIFO order only if `M1` was genuinely accepted by the host.
+    const showing = paneShowsPending(id);
+    const hostLabel = instanceLabelOf(options.instanceId);
+    const target = queueTargetFor(ref, session);
+    void handOffPendingMessages({
+      messages: latest.messages,
+      instanceLabel: hostLabel,
+      stageFollowUps: (followUps) => queue.stageMessages(followUps, target),
+      sendFirst: (input) =>
+        sendToWithOutcome(ref, session.directory, input, {
           retainOnFailure: true,
-          quiet: true,
-        })
-      : Promise.resolve(true);
-    for (const held of latest.messages.slice(1)) {
-      void sent.then((accepted) => {
-        if (accepted) void sendTo(ref, session.directory, held.input, { retainOnFailure: true, quiet: true });
-      });
-    }
+          quiet: showing,
+        }),
+      flushFollowUp: (localId) => queue.flushStagedMessage(localId, target),
+      failFollowUps: (localIds, reason) => queue.failStagedMessages(localIds, target, reason),
+      onRetainFailedTrigger: (messageId, stagedIds) => {
+        heldFollowUpsByTriggerId.current.set(messageId, [...stagedIds]);
+      },
+    });
     // The auto-accept write runs alongside the send rather than in front of it. What must not be
     // raced is the first *tool call*, and a model has to answer before one can exist.
     if (options.bypass) void setYolo(ref, true, session.directory);
-    const showing = paneShowsPending(id);
     dropPendingCreate(id);
     // Only drop the pane reference if it still points at *this* attempt: the person may have
     // started another draft while this one was in flight, and that one is not this one's to close.
@@ -3339,7 +3385,7 @@ export default function App() {
       // Left the draft while it was being created: the session is real, so say so and offer the way
       // in rather than pulling the person off whatever they moved on to.
       setActionNotice({
-        message: `Started “${latest.title}” on ${instanceLabelOf(options.instanceId)}.`,
+        message: `Started “${latest.title}” on ${hostLabel}.`,
         actionLabel: 'Open',
         action: () => openSession(ref, session),
       });
@@ -3502,19 +3548,21 @@ export default function App() {
     modelsByInstance,
     setQueuesByInstance,
     showActionError,
+    refreshQueues,
   });
 
   /**
-   * Send one message. The boolean means "the UI now holds this message": placed, queued, or a
-   * failed bubble that keeps the text with its own Send again. Only a send that left no trace
-   * anywhere returns false, so a composer clears its draft exactly when the message has a home.
+   * Send one message and distinguish `uiHeld` ("the UI holds this message, so the composer may
+   * clear") from `serverAccepted` ("the host genuinely accepted the submission, so dependent
+   * follow-ups may safely proceed"). With `retainOnFailure: true`, a failed send keeps a failed
+   * bubble on screen (`uiHeld: true`) without ever claiming `serverAccepted: true`.
    */
-  const sendTo = async (
+  const sendToWithOutcome = async (
     target: SessionRef,
     directory: string | undefined,
     input: PromptInput,
     options: { retainOnFailure?: boolean; quiet?: boolean; onAccepted?: (receipt: SubmissionReceipt) => Promise<void> } = {}
-  ): Promise<boolean> => {
+  ): Promise<PendingFirstSendOutcome> => {
     showActionError(null);
     const { instanceId, sessionId } = target;
     const { model, text, attachments = [], variant } = input;
@@ -3599,14 +3647,13 @@ export default function App() {
         if (options.retainOnFailure === true) {
           retained = true;
           failSend(reason);
-          return true;
+          return { uiHeld: true, serverAccepted: false, messageId: optimisticId };
         }
         releaseOptimistic(key, [optimisticId]);
         removeOptimistic();
         showActionError(reason, () => void sendTo(target, directory, input));
-        return false;
+        return { uiHeld: false, serverAccepted: false, messageId: optimisticId };
       }
-      accepted = true;
       // Hearth says whether the message actually landed. `queued` means the conversation was
       // busy and it was parked in the inbox — that is NOT a sent message, so it belongs in the
       // queue, never the transcript. A *steer* (Alt+Enter / "send now") is also admitted
@@ -3618,14 +3665,23 @@ export default function App() {
       const outcome = submitOutcomeOf(sent.data, { steer: steered });
       if (outcome.kind === 'failed') {
         // A wire that reports a refused submission in a 2xx body: still a definite failure.
+        retained = true;
         failSend(outcome.error ?? 'The server refused the message.');
-        return false;
+        return { uiHeld: options.retainOnFailure === true, serverAccepted: false, messageId: optimisticId };
       }
+      accepted = true;
       const receipt = submissionReceiptOf(sent.data, Boolean(isPi), isPi ? undefined : optimisticId);
       let adoptedAnnotationQueue = false;
       if (options.onAccepted && receipt?.kind === 'queue' && outcome.queued && !outcome.steer) {
         // The server owns this row regardless of whether Ember can save its source link.
-        queue.adoptQueuedSubmission(target, directory, { id: receipt.id, text: text.trim(), model, variant, mode: input.mode });
+        queue.adoptQueuedSubmission(target, directory, {
+          id: receipt.id,
+          text: text.trim(),
+          model,
+          variant,
+          mode: input.mode,
+          attachments,
+        });
         adoptedAnnotationQueue = true;
         void refreshQueues([instanceId]);
       }
@@ -3673,10 +3729,11 @@ export default function App() {
             model,
             variant,
             mode: input.mode,
+            attachments,
           });
         }
         void refreshQueues([instanceId]);
-        return annotationLinked;
+        return { uiHeld: annotationLinked, serverAccepted: true, messageId: optimisticId };
       }
       // Placed (or steered): the host says it is in the conversation, and the bubble is already on
       // screen from the moment Enter was pressed. That claim is `unconfirmed`, not "sent": the
@@ -3700,7 +3757,7 @@ export default function App() {
       }));
       // The server may not have indexed the user turn yet; reconcile keeps the bubble until it does.
       await loadAndCommitMessages({ instanceId, sessionId }, 'full', directory, true);
-      return annotationLinked;
+      return { uiHeld: annotationLinked, serverAccepted: true, messageId: optimisticId };
     } catch (err) {
       console.error('Send failed', err);
       // Name the underlying failure: a generic "could not be refreshed" hides the real cause
@@ -3714,14 +3771,14 @@ export default function App() {
         if (!options.quiet) showActionError('Ember did not confirm this message. It may already be running. Keep this app open and check the conversation before sending it again.');
         // An annotation needs a durable receipt/source link before its editor may clear.
         // Normal composer sends already have their protected unconfirmed bubble as their home.
-        return !options.onAccepted;
+        return { uiHeld: !options.onAccepted, serverAccepted: false, messageId: optimisticId };
       }
       if (!accepted) {
         const reason = err instanceof Error ? err.message : 'Message could not be sent.';
         if (options.retainOnFailure === true) {
           retained = true;
           failSend(reason);
-          return true;
+          return { uiHeld: true, serverAccepted: false, messageId: optimisticId };
         }
         releaseOptimistic(key, [optimisticId]);
         removeOptimistic();
@@ -3729,7 +3786,7 @@ export default function App() {
       } else if (!options.quiet) {
         showActionError(`Message was sent, but the transcript could not be refreshed yet.${detail}`);
       }
-      return accepted && annotationLinked;
+      return { uiHeld: accepted && annotationLinked, serverAccepted: accepted, messageId: optimisticId };
     } finally {
       // Accepted sends and retained failures keep the id until the server copy or the user's
       // retry/discard settles it (see releaseOptimistic).
@@ -3742,6 +3799,18 @@ export default function App() {
       });
     }
   };
+
+  /**
+   * Send one message. The boolean means "the UI now holds this message": placed, queued, or a
+   * failed bubble that keeps the text with its own Send again. Only a send that left no trace
+   * anywhere returns false, so a composer clears its draft exactly when the message has a home.
+   */
+  const sendTo = async (
+    target: SessionRef,
+    directory: string | undefined,
+    input: PromptInput,
+    options: { retainOnFailure?: boolean; quiet?: boolean; onAccepted?: (receipt: SubmissionReceipt) => Promise<void> } = {}
+  ): Promise<boolean> => (await sendToWithOutcome(target, directory, input, options)).uiHeld;
 
   /**
    * Turn a ghost steer into an honest answer — which now has two shapes.
@@ -3842,6 +3911,8 @@ export default function App() {
   /** Send a failed message again, with exactly the input the first attempt used. */
   const handleRetryPendingSend = (key: string, message: ChatMessage) => {
     const stored = pendingInputs.current.get(message.id);
+    const waitingFollowUps = heldFollowUpsByTriggerId.current.get(message.id);
+    heldFollowUpsByTriggerId.current.delete(message.id);
     forgetPendingSend(key, message.id);
     if (!stored) {
       setActionNotice({ message: 'Removed it. Copy the text out of the transcript to send it again.' });
@@ -3851,6 +3922,29 @@ export default function App() {
       return;
     }
     disposePendingSend(key, message.id);
+    if (waitingFollowUps && waitingFollowUps.length > 0) {
+      const session =
+        (sessionsByInstanceRef.current[stored.target.instanceId] ?? []).find(
+          (entry) => entry.id === stored.target.sessionId
+        ) ?? null;
+      const target = queueTargetFor(stored.target, session);
+      const activeIds = queue.restageMessages(waitingFollowUps, target);
+      const hostLabel = instanceLabelOf(stored.target.instanceId);
+      void sendToWithOutcome(stored.target, stored.directory, stored.input, { retainOnFailure: true }).then(
+        (firstOutcome) =>
+          settleStagedFollowUps({
+            firstOutcome,
+            stagedIds: activeIds,
+            instanceLabel: hostLabel,
+            flushFollowUp: (localId) => queue.flushStagedMessage(localId, target),
+            failFollowUps: (localIds, reason) => queue.failStagedMessages(localIds, target, reason),
+            onRetainFailedTrigger: (messageId, stagedIds) => {
+              heldFollowUpsByTriggerId.current.set(messageId, [...stagedIds]);
+            },
+          })
+      );
+      return;
+    }
     void sendTo(stored.target, stored.directory, stored.input, { retainOnFailure: true });
   };
 
@@ -3864,6 +3958,7 @@ export default function App() {
    * notice says plainly what could not be undone.
    */
   const handleDiscardPendingSend = (key: string, message: ChatMessage) => {
+    heldFollowUpsByTriggerId.current.delete(message.id);
     const ref = parseSessionKey(key);
     if (message.delivery === 'queued' && ref) {
       const items =
@@ -3919,6 +4014,11 @@ export default function App() {
         await handleSettings({ quoteLinks: replaceAnnotationDestinations(settingsRef.current.quoteLinks, sessionKey(ref), [previousQueueId], receipt) });
       } : undefined,
     }),
+    sendDirectFollowUp: async (input) =>
+      (await sendToWithOutcome(ref, session?.directory, input, { retainOnFailure: true })).serverAccepted,
+    onPlaced: () => {
+      void loadAndCommitMessages(ref, 'full', session?.directory, true);
+    },
     onRemoved: async (ids, destination) => {
       await handleSettings({ quoteLinks: replaceAnnotationDestinations(settingsRef.current.quoteLinks, sessionKey(ref), ids, destination) });
     },
@@ -4801,24 +4901,52 @@ export default function App() {
   };
 
   /**
-   * Promote a crew worker to an addressable peer (Hearth forks it). The response is the new peer
-   * session: insert it, mark the worker `promotedTo` so its strip row becomes a peer link before
-   * the next poll, then open the peer. Failure keeps the dialog closed and offers a retry.
+   * Promote a crew worker to an addressable peer (Hearth forks it). The dialog stays open while
+   * the request is in flight so a refusal or network hiccup can explain what happened inline without
+   * discarding the person's typed name or description. On success, close the dialog, insert the new
+   * peer, mark the worker `promotedTo`, and open the peer.
    */
   const handlePromoteWorker = async (
     worker: Session,
     input: { name: string; description?: string; pinned: boolean }
   ) => {
+    if (promoteSubmitting) return;
+    const attempt = ++promoteAttemptRef.current;
+    const instanceLabel =
+      instances.find((entry) => entry.id === worker.instanceId)?.label ?? 'Kiln';
     showActionError(null);
-    const peer = await promoteSession(worker, {
-      name: input.name,
-      description: input.description,
-      pinned: input.pinned,
-    }).catch(() => null);
-    if (!peer) {
-      showActionError('Couldn’t make this bot persistent.', () => void handlePromoteWorker(worker, input));
+    setPromoteError(null);
+    setPromoteSubmitting(true);
+    let peer: Session | null = null;
+    try {
+      peer = await promoteSession(worker, {
+        name: input.name,
+        description: input.description,
+        pinned: input.pinned,
+      });
+    } catch (err) {
+      if (promoteAttemptRef.current !== attempt) return;
+      setPromoteSubmitting(false);
+      setPromoteError(
+        promoteFailureText({
+          failure: sessionCreateFailureOf(err),
+          instanceLabel,
+          name: input.name,
+        })
+      );
       return;
     }
+    if (promoteAttemptRef.current !== attempt) return;
+    if (!peer) {
+      setPromoteSubmitting(false);
+      setPromoteError(
+        `Couldn’t make this bot persistent. ${instanceLabel} didn’t return the new bot — try Make persistent again.`
+      );
+      return;
+    }
+    setPromoteSubmitting(false);
+    setPromoteError(null);
+    setPromoteTarget(null);
     saveNewAvatarAssignment(peer);
     const now = Date.now();
     setSessionsByInstance((prev) => ({
@@ -5315,7 +5443,7 @@ export default function App() {
           asyncQuestions={questionsForSupervisor(session, questions)}
           threadQuestions={questionsFromThreads(threadDescendants(session, crewWorkers), questions.filter((request) => !isAsyncQuestion(request)))}
           models={models?.models ?? []}
-          onModelsRefresh={() => void refreshModels(ref.instanceId)}
+          onModelsRefresh={(options) => refreshModels(ref.instanceId, options)}
           defaultModelId={models?.defaultModelId ?? null}
           instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[ref.instanceId], models?.defaultModelId)}
           onSetInstanceDefault={(model) => setInstanceDefaultModel(ref.instanceId, model)}
@@ -5440,7 +5568,7 @@ export default function App() {
           onPromote={
             !session.promotedTo &&
             (isWorker(session) || [...crewWorkers.values()].some((workers) => workers.some((worker) => sessionKey(worker) === key)))
-              ? () => setPromoteTarget(session)
+              ? () => openPromoteDialog(session)
               : undefined
           }
           workerPeer={(worker) =>
@@ -5748,7 +5876,7 @@ export default function App() {
                   permissions={[]}
                   questions={[]}
                   models={selectedModels?.models ?? []}
-                  onModelsRefresh={() => { if (newSessionInstanceId) void refreshModels(newSessionInstanceId); }}
+                  onModelsRefresh={(options) => (newSessionInstanceId ? refreshModels(newSessionInstanceId, options) : undefined)}
                   defaultModelId={selectedModels?.defaultModelId ?? null}
                   instanceDefaultModelId={effectiveInstanceDefaultModel(modelInstanceId ? settings.instanceDefaults[modelInstanceId] : undefined, selectedModels?.defaultModelId)}
                   onSetInstanceDefault={modelInstanceId ? (model) => setInstanceDefaultModel(modelInstanceId, model) : undefined}
@@ -5883,6 +6011,7 @@ export default function App() {
 
           {promoteTarget ? (
             <PromoteWorkerDialog
+              key={sessionKey(promoteTarget)}
               worker={promoteTarget}
               busy={
                 // Use Kiln's run state: a descendant's question can overlay a running
@@ -5890,11 +6019,14 @@ export default function App() {
                 statesAnswered.has(promoteTarget.instanceId) &&
                 statesByInstance[promoteTarget.instanceId]?.[sessionKey(promoteTarget)] === 'active'
               }
-              onCancel={() => setPromoteTarget(null)}
+              submitting={promoteSubmitting}
+              error={promoteError}
+              instanceLabel={
+                instances.find((entry) => entry.id === promoteTarget.instanceId)?.label
+              }
+              onCancel={closePromoteDialog}
               onConfirm={(input) => {
-                const worker = promoteTarget;
-                setPromoteTarget(null);
-                void handlePromoteWorker(worker, input);
+                void handlePromoteWorker(promoteTarget, input);
               }}
             />
           ) : null}
@@ -5943,7 +6075,7 @@ export default function App() {
                 }}
                 {...(providerEndpointId ? { providerEndpointId } : {})}
                 onRefreshInstances={() => void refreshInstances()}
-                onRefreshModels={(id) => void refreshModels(id)}
+                onRefreshModels={(id, options) => refreshModels(id, { upstream: true, ...options })}
               />
             </React.Suspense>
           ) : null}
@@ -5957,7 +6089,7 @@ export default function App() {
                 state={onboardingState}
                 projectUsageByInstance={projectUsageByInstance}
                 models={modelsByInstance[onboardingState.targetInstanceId ?? ""]?.models ?? []}
-                onRefreshModels={(id) => void refreshModels(id)}
+                onRefreshModels={(id, options) => void refreshModels(id, { upstream: true, ...options })}
                 localProblem={onboardingProblem}
                 instances={instances}
                 endpoints={settings.piEndpoints}
@@ -6037,6 +6169,7 @@ export default function App() {
                 instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[scheduledModelTarget.instanceId], modelsByInstance[scheduledModelTarget.instanceId]?.defaultModelId)}
                 onSetInstanceDefault={(model) => setInstanceDefaultModel(scheduledModelTarget.instanceId, model)}
                 collapseProviders
+                onRefresh={() => refreshModels(scheduledModelTarget.instanceId, { upstream: true })}
                 onSelect={(key, variant) => void handleScheduledModelSelect(scheduledModelTarget, key, variant)}
                 onOpenChange={(open) => {
                   if (!open) setScheduledModelTarget(null);

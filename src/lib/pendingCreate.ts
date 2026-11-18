@@ -230,3 +230,141 @@ export const pendingCreateComposerText = (
     .trim(),
   attachments: pending.messages.flatMap((message) => message.attachments),
 });
+
+/**
+ * Why a held follow-up stayed in the queue when the first message was not accepted by the host.
+ *
+ * Names both actors (Ember and the host), explains that nothing ran out of order, and points at
+ * the two recoveries already on screen: Send again on the failed first message, or Retry here.
+ */
+export const heldFollowUpFailureText = (instanceLabel?: string): string => {
+  const host = instanceLabel?.trim() || 'the host';
+  return `Ember held this follow-up because ${host} did not accept the first message. Select Send again above, or Retry here to send this message on its own.`;
+};
+
+/**
+ * Why later follow-ups paused when an earlier follow-up in the same handoff failed to queue.
+ */
+export const heldBehindFailedQueueText = (instanceLabel?: string): string => {
+  const host = instanceLabel?.trim() || 'the host';
+  return `Ember paused this follow-up because ${host} did not accept the message ahead of it. Retry or cancel the failed message above first, then select Retry here.`;
+};
+
+export type PendingFirstSendOutcome = {
+  /** Whether the UI now holds the message (including a retained failure bubble). */
+  uiHeld: boolean;
+  /** Whether the host genuinely accepted the submission (2xx and not a refused body). */
+  serverAccepted: boolean;
+  /** Client id of the optimistic bubble created for this attempt. */
+  messageId: string;
+};
+
+export type PendingHandoffResult<Id = string> = {
+  firstOutcome: PendingFirstSendOutcome | null;
+  stagedIds: Id[];
+  dispatchedCount: number;
+  /** Index in `stagedIds` where sequential dispatch stopped due to failure, or null when all succeeded. */
+  haltedAtIndex: number | null;
+};
+
+/**
+ * Flush staged follow-ups strictly one at a time in FIFO order after the trigger message was
+ * accepted by the host, or hold them back safely when the trigger was not accepted.
+ */
+export const settleStagedFollowUps = async <Id = string>(params: {
+  firstOutcome: PendingFirstSendOutcome;
+  stagedIds: readonly Id[];
+  instanceLabel?: string;
+  flushFollowUp: (id: Id) => Promise<boolean>;
+  failFollowUps: (ids: readonly Id[], reason: string) => void;
+  onRetainFailedTrigger?: (messageId: string, stagedIds: readonly Id[]) => void;
+}): Promise<PendingHandoffResult<Id>> => {
+  const { firstOutcome, stagedIds, instanceLabel, flushFollowUp, failFollowUps, onRetainFailedTrigger } = params;
+  if (stagedIds.length === 0) {
+    return { firstOutcome, stagedIds: [], dispatchedCount: 0, haltedAtIndex: null };
+  }
+  if (!firstOutcome.serverAccepted) {
+    failFollowUps(stagedIds, heldFollowUpFailureText(instanceLabel));
+    if (firstOutcome.uiHeld) {
+      onRetainFailedTrigger?.(firstOutcome.messageId, stagedIds);
+    }
+    return { firstOutcome, stagedIds: [...stagedIds], dispatchedCount: 0, haltedAtIndex: 0 };
+  }
+  for (let index = 0; index < stagedIds.length; index += 1) {
+    let ok: boolean;
+    try {
+      ok = await flushFollowUp(stagedIds[index]);
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      const remaining = stagedIds.slice(index + 1);
+      if (remaining.length > 0) {
+        failFollowUps(remaining, heldBehindFailedQueueText(instanceLabel));
+      }
+      return {
+        firstOutcome,
+        stagedIds: [...stagedIds],
+        dispatchedCount: index,
+        haltedAtIndex: index,
+      };
+    }
+  }
+  return {
+    firstOutcome,
+    stagedIds: [...stagedIds],
+    dispatchedCount: stagedIds.length,
+    haltedAtIndex: null,
+  };
+};
+
+/**
+ * Hand a `PendingCreate`'s messages `[M1, M2, ...Mn]` to the newly created session:
+ *
+ * 1. Synchronously stages `M2..Mn` in the session's queue before `M1` awaits the network, so
+ *    opening the column in the same commit has no frame where follow-ups vanish.
+ * 2. Synchronously starts `M1` (`configured: true`) so `M1`'s optimistic bubble is also present
+ *    on the first frame.
+ * 3. Waits for `M1`'s genuine host acceptance (`serverAccepted`), never `uiHeld` (which is true
+ *    for `retainOnFailure: true` failures). If `M1` failed, `M2..Mn` are never sent and stay
+ *    visible in the queue with recovery controls.
+ * 4. Dispatches `M2..Mn` strictly sequentially in FIFO order, stopping if any follow-up fails.
+ */
+export const handOffPendingMessages = <Id = string>(params: {
+  messages: readonly PendingCreateMessage[];
+  instanceLabel?: string;
+  stageFollowUps: (followUps: readonly PendingCreateMessage[]) => readonly Id[];
+  sendFirst: (input: PromptInput) => Promise<PendingFirstSendOutcome>;
+  flushFollowUp: (id: Id) => Promise<boolean>;
+  failFollowUps: (ids: readonly Id[], reason: string) => void;
+  onRetainFailedTrigger?: (messageId: string, stagedIds: readonly Id[]) => void;
+}): Promise<PendingHandoffResult<Id>> => {
+  const [first, ...followUps] = params.messages;
+  if (!first) {
+    return Promise.resolve({
+      firstOutcome: null,
+      stagedIds: [],
+      dispatchedCount: 0,
+      haltedAtIndex: null,
+    });
+  }
+  const stagedIds = followUps.length > 0 ? [...params.stageFollowUps(followUps)] : [];
+  let firstPromise: Promise<PendingFirstSendOutcome>;
+  try {
+    firstPromise = params.sendFirst({ ...first.input, configured: true });
+  } catch {
+    firstPromise = Promise.resolve({ uiHeld: false, serverAccepted: false, messageId: first.id });
+  }
+  return firstPromise
+    .catch((): PendingFirstSendOutcome => ({ uiHeld: false, serverAccepted: false, messageId: first.id }))
+    .then((firstOutcome) =>
+      settleStagedFollowUps({
+        firstOutcome,
+        stagedIds,
+        instanceLabel: params.instanceLabel,
+        flushFollowUp: params.flushFollowUp,
+        failFollowUps: params.failFollowUps,
+        onRetainFailedTrigger: params.onRetainFailedTrigger,
+      })
+    );
+};

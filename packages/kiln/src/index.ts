@@ -18,6 +18,7 @@ import { prepareScopeShell, SHELL_SLICE } from "./shell";
 import { pruneScratch, sessionEnv } from "./scratch";
 import { tightenSqlitePermissions } from "./permissions";
 import { attestPermissionEnvironment, attestPermissionHost } from "./permissionRules";
+import { attachQueueConfigTracking } from "./queueConfig";
 
 /**
  * Every line this process writes carries an ISO timestamp.
@@ -171,6 +172,7 @@ export const runKiln = async (): Promise<void> => {
     context
   );
   attestPermissionHost(harness, { home: config.home, scopeRequired: shellPath !== undefined });
+  const queueConfigTracking = attachQueueConfigTracking(harness, context);
   harness.resume();
 
   let server: HearthServer | undefined;
@@ -188,6 +190,7 @@ export const runKiln = async (): Promise<void> => {
     crew?.stop();
     mcp.close();
     await server?.close();
+    await queueConfigTracking.close();
     await harness.close(context);
     process.exit(code);
   };

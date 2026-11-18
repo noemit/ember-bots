@@ -11,6 +11,7 @@ import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite
 import {
   AGENT_MESSAGE_BUDGET,
   AgentsDoc,
+  DuplicateAgentError,
   MAX_MIRROR_AGENTS,
   agentMessageRateLimited,
   agentsMdSection,
@@ -22,6 +23,7 @@ import {
   listAgents,
   mergeDirectory,
   peersMirrorPath,
+  promoteAgent,
   readAgentsMirror,
   readPeersMirror,
   registerAgent,
@@ -493,6 +495,7 @@ describe('agents tool crew messaging', () => {
     }
   }, 20_000);
 
+<<<<<<< HEAD
   test('peer directory and send reject loopback/link-local/plain-HTTP hosts and never follow HTTP redirects', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'hearth-agents-ssrf-'));
     let outboundCalls = 0;
@@ -590,6 +593,56 @@ describe('agents tool crew messaging', () => {
       redirector.stop(true);
       targetServer.stop(true);
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('promoteAgent reclaims a worker own registration, drops unpinned worker aliases, and rejects collisions', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'hearth-promote-agent-'));
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const storage = await openNodeSqliteStorage(join(directory, 'hearth.sqlite'));
+    const harness = await Harness.open(
+      storage,
+      { models, registry: hearthRegistry(directory), env: () => new NodeExecutionEnv({ cwd: directory }) },
+      context
+    );
+    try {
+      await harness.commit(async (tx) => {
+        await registerAgent(tx, 'Worker one', entry(10, { pinned: false }));
+        await registerAgent(tx, 'Worker two', entry(20, { pinned: false }));
+        await registerAgent(tx, 'Pinned alias', entry(20, { pinned: true }));
+        await registerAgent(tx, 'Taken peer', entry(99, { pinned: true }));
+      }, context);
+
+      // Reclaiming the worker's own default name succeeds and redirects it to the promoted peer.
+      await harness.commit(async (tx) => {
+        await promoteAgent(tx, 10, 'Worker one', entry(11, { pinned: true, description: 'Promoted' }));
+      }, context);
+      expect((await harness.snapshot(AgentsDoc, context))?.entries['Worker one']).toMatchObject({
+        conversationId: 11,
+        pinned: true,
+        description: 'Promoted',
+      });
+
+      // Promoting under a new name removes unpinned worker aliases while keeping explicit pinned ones.
+      await harness.commit(async (tx) => {
+        await promoteAgent(tx, 20, 'Renamed two', entry(21, { pinned: true }));
+      }, context);
+      const afterRename = (await harness.snapshot(AgentsDoc, context))?.entries ?? {};
+      expect(afterRename['Renamed two']?.conversationId).toBe(21);
+      expect(afterRename['Worker two']).toBeUndefined();
+      expect(afterRename['Pinned alias']?.conversationId).toBe(20);
+
+      // Colliding with another conversation's name still throws DuplicateAgentError.
+      await expect(
+        harness.commit(async (tx) => {
+          await promoteAgent(tx, 20, 'Taken peer', entry(22, { pinned: true }));
+        }, context)
+      ).rejects.toThrow(DuplicateAgentError);
+    } finally {
+      await harness.close(context);
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   });
 });

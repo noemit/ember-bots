@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { enqueueMessage, loadMessageQueue, removeQueuedMessage, reorderQueuedMessages, takeQueuedMessage } from '../src/api';
+import { enqueueMessage, errorMessageOf, loadMessageQueue, removeQueuedMessage, reorderQueuedMessages, takeQueuedMessage } from '../src/api';
 import { rememberPiInstances } from '../src/piApi';
 import type { ModelOption } from '../src/types';
 
@@ -65,17 +65,94 @@ test('loadMessageQueue maps Hearth /queue onto the OpenChamber snapshot shape', 
   expect(session?.items[0].sendConfig).toEqual({ providerID: 'opencode-go', modelID: 'glm-5.3-flash', variant: 'high' });
 });
 
-test('enqueue submits a follow-up and returns the refreshed queue mutation', async () => {
+test('enqueue submits a follow-up with isolated model config and returns the refreshed queue mutation', async () => {
   calls.length = 0;
+  submits.length = 0;
   const result = await enqueueMessage('pi:test', '51', '', {
     text: 'queued follow-up',
     model,
+    variant: 'low',
     selectedModelId: 'opencode-go/glm-5.3-flash',
   });
   expect(result.ok).toBe(true);
   expect(result.data?.session.sessionId).toBe('51');
   expect(result.data?.itemId).toBe('43');
-  expect(calls.map((entry) => entry.path)).toEqual(['/conversations/51/configure', '/conversations/51/submit', '/queue']);
+  // Never calls /configure before /submit: mutating AgentDoc mid-turn hijacked the active turn.
+  expect(calls.map((entry) => entry.path)).toEqual(['/conversations/51/submit', '/queue']);
+  expect(submits[0]).toMatchObject({
+    type: 'input',
+    content: 'queued follow-up',
+    whenBusy: 'followUp',
+    model: { provider: 'opencode-go', modelId: 'glm-5.3-flash' },
+    thinkingLevel: 'low',
+  });
+});
+
+test('loadMessageQueue preserves distinct per-item model and effort configs from Kiln /queue', async () => {
+  const previous = window.ember.piRequest;
+  (window.ember as { piRequest: unknown }).piRequest = async (_endpointId: string, path: string) => {
+    if (path !== '/queue') return { ok: false, status: 404, data: null };
+    return {
+      ok: true,
+      status: 200,
+      data: {
+        revision: 21,
+        sessions: [
+          {
+            sessionId: '51',
+            directory: '/repo',
+            // Active turn is running Opus at max effort.
+            model: { provider: 'anthropic', modelId: 'claude-opus-4-6' },
+            thinkingLevel: 'max',
+            sendingId: null,
+            items: [
+              {
+                id: 101,
+                mode: 'followUp',
+                text: 'quick lint fix',
+                model: { provider: 'opencode-go', modelId: 'glm-5.3-flash' },
+                thinkingLevel: 'low',
+              },
+              {
+                id: 102,
+                mode: 'followUp',
+                text: 'plain summary without effort',
+                model: { provider: 'openai', modelId: 'gpt-4.1' },
+                thinkingLevel: null,
+              },
+              {
+                id: 103,
+                mode: 'followUp',
+                text: 'inherit active session model',
+              },
+            ],
+          },
+        ],
+      },
+    };
+  };
+  try {
+    const snapshot = await loadMessageQueue('pi:test');
+    const items = snapshot?.sessions[0]?.items ?? [];
+    expect(items).toHaveLength(3);
+    expect(items[0].sendConfig).toEqual({
+      providerID: 'opencode-go',
+      modelID: 'glm-5.3-flash',
+      variant: 'low',
+    });
+    expect(items[1].sendConfig).toEqual({
+      providerID: 'openai',
+      modelID: 'gpt-4.1',
+      variant: undefined,
+    });
+    expect(items[2].sendConfig).toEqual({
+      providerID: 'anthropic',
+      modelID: 'claude-opus-4-6',
+      variant: 'max',
+    });
+  } finally {
+    (window.ember as { piRequest: unknown }).piRequest = previous;
+  }
 });
 
 test('a queued image is submitted as an image content part', async () => {
@@ -371,6 +448,27 @@ test('a queued message writes its reply and queued context before it is submitte
     expect((writes[0].entry as { data: { text: string } }).data.text).toContain('the quoted message');
     expect((writes[1].entry as { data: { text: string } }).data.text).toBe('read this first');
     expect(submitted).toMatchObject({ type: 'input', content: 'queued with context', whenBusy: 'followUp' });
+  } finally {
+    (window.ember as { piRequest: unknown }).piRequest = previous;
+  }
+});
+
+test('a 2xx submit body naming a refused status fails enqueue instead of claiming success', async () => {
+  const previous = window.ember.piRequest;
+  (window.ember as { piRequest: unknown }).piRequest = async (_endpointId: string, path: string) => {
+    if (path.endsWith('/submit')) {
+      return { ok: true, status: 200, data: { status: 'rejected', error: 'inbox is full' } };
+    }
+    return { ok: true, status: 200, data: { ok: true } };
+  };
+  try {
+    const result = await enqueueMessage('pi:test', '51', '', {
+      text: 'refused follow-up',
+      model,
+      selectedModelId: 'opencode-go/glm-5.3-flash',
+    });
+    expect(result.ok).toBe(false);
+    expect(errorMessageOf(result.data)).toBe('inbox is full');
   } finally {
     (window.ember as { piRequest: unknown }).piRequest = previous;
   }

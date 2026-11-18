@@ -106,7 +106,13 @@ type MockConversation = {
   currentContextEpoch?: string;
   approvals: MockApproval[];
   questions: MockQuestion[];
-  inbox: Array<{ id: number; mode: 'steer' | 'followUp'; content: MockContent }>;
+  inbox: Array<{
+    id: number;
+    mode: 'steer' | 'followUp';
+    content: MockContent;
+    model?: { provider: string; modelId: string } | null;
+    thinkingLevel?: string | null;
+  }>;
   nextSubmission: number;
   /** Set while a run is parked on an approval or question. */
   parked?: { kind: 'approval' | 'question'; callId: string; followUp?: () => void };
@@ -814,6 +820,10 @@ const finishRun = (conversation: MockConversation): void => {
   emit(conversation.id, 'usage_changed');
   const next = conversation.inbox.shift();
   if (next) {
+    if (next.model) conversation.model = next.model;
+    if (next.thinkingLevel !== undefined) {
+      conversation.thinkingLevel = next.thinkingLevel === null ? undefined : next.thinkingLevel;
+    }
     emit(conversation.id, 'inbox_update');
     emit(conversation.id, 'submission');
     startRun(conversation, next.content, next.id);
@@ -1307,7 +1317,7 @@ const piRequest = async (
   if (url.pathname.startsWith('/custom-providers/') && method === 'DELETE') {
     customProviders.set(endpointId, custom.filter(provider => provider.id !== url.pathname.split('/').at(-1))); return ok({ ok: true });
   }
-  if (url.pathname === '/models' && method === 'GET') {
+  if ((url.pathname === '/models' && method === 'GET') || (url.pathname === '/models/refresh' && method === 'POST')) {
     // A provider's models appear once its key is saved, the way Hearth's refresh does it: an
     // unkeyed provider contributes nothing to the picker.
     const keyed = (id: string) => providerCredentials.has(id);
@@ -1411,9 +1421,13 @@ const piRequest = async (
             id: String(item.id),
             mode: item.mode,
             text: textOf(item.content),
-            // Real Hearth returns the content parts alongside the preview, so a queued image keeps
-            // its payload for the row and for "send now".
+            // Real Hearth returns the content parts and per-item send config alongside the preview.
             content: item.content,
+            model: 'model' in item && item.model !== undefined ? item.model : conversation.model,
+            thinkingLevel:
+              'thinkingLevel' in item && item.thinkingLevel !== undefined
+                ? item.thinkingLevel
+                : conversation.thinkingLevel,
           })),
         })),
     });
@@ -1700,30 +1714,72 @@ const piRequest = async (
     }
     const content = raw as MockContent;
     const whenBusy = body.whenBusy;
+    const rawModel = body.model as { provider?: string; modelId?: string } | null | undefined;
+    const hasModel = rawModel !== undefined;
+    const hasThinking = body.thinkingLevel !== undefined;
+    const configured = hasModel || hasThinking;
+    const itemConfig = {
+      ...(hasModel
+        ? {
+            model:
+              rawModel && rawModel.provider && rawModel.modelId
+                ? { provider: rawModel.provider, modelId: rawModel.modelId }
+                : null,
+          }
+        : {}),
+      ...(hasThinking
+        ? { thinkingLevel: body.thinkingLevel === null ? null : String(body.thinkingLevel) }
+        : {}),
+    };
     if ((conversation.busy || (staleBusyFixture && whenBusy === 'followUp')) && whenBusy === 'followUp') {
-      conversation.inbox.push({ id: nextSubmissionId(), mode: 'followUp', content });
+      conversation.inbox.push({ id: nextSubmissionId(), mode: 'followUp', content, ...itemConfig });
       emit(conversation.id, 'submission');
       emit(conversation.id, 'inbox_update');
       // Hearth admits a queued submission with `status: "queued"` and names the queue in `mode`,
       // so the client can tell a steer from a follow-up; mirror that exactly.
-      return acknowledge({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'followUp' });
+      return acknowledge({
+        submissionId: conversation.inbox[conversation.inbox.length - 1].id,
+        status: 'queued',
+        mode: 'followUp',
+        ...(configured ? { configured: true } : {}),
+      });
     }
     if (conversation.busy && whenBusy === 'steer') {
       // pi-durable tags a steer in the inbox and places it at the next boundary — it is not a
       // parked follow-up. Keep it in the inbox so `/queue` reports it like real Hearth does (and a
       // client that forgets to filter steers shows the bug).
-      conversation.inbox.push({ id: nextSubmissionId(), mode: 'steer', content });
+      conversation.inbox.push({ id: nextSubmissionId(), mode: 'steer', content, ...itemConfig });
       emit(conversation.id, 'submission');
       emit(conversation.id, 'inbox_update');
-      return acknowledge({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'steer' });
+      return acknowledge({
+        submissionId: conversation.inbox[conversation.inbox.length - 1].id,
+        status: 'queued',
+        mode: 'steer',
+        ...(configured ? { configured: true } : {}),
+      });
     }
     if (conversation.busy) {
-      conversation.inbox.push({ id: nextSubmissionId(), mode: 'followUp', content });
+      conversation.inbox.push({ id: nextSubmissionId(), mode: 'followUp', content, ...itemConfig });
       emit(conversation.id, 'inbox_update');
-      return acknowledge({ submissionId: conversation.inbox[conversation.inbox.length - 1].id, status: 'queued', mode: 'followUp' });
+      return acknowledge({
+        submissionId: conversation.inbox[conversation.inbox.length - 1].id,
+        status: 'queued',
+        mode: 'followUp',
+        ...(configured ? { configured: true } : {}),
+      });
+    }
+    if (itemConfig.model) conversation.model = itemConfig.model;
+    if (itemConfig.thinkingLevel !== undefined) {
+      conversation.thinkingLevel = itemConfig.thinkingLevel === null ? undefined : itemConfig.thinkingLevel;
     }
     const submissionId = startRun(conversation, content);
-    const receipt = { submissionId, entry: mockSubmissionEntries.get(submissionId)?.entry, status: 'placed', mode: whenBusy === 'steer' ? 'steer' : 'followUp' };
+    const receipt = {
+      submissionId,
+      entry: mockSubmissionEntries.get(submissionId)?.entry,
+      status: 'placed',
+      mode: whenBusy === 'steer' ? 'steer' : 'followUp',
+      ...(configured ? { configured: true } : {}),
+    };
     if (body.requestId) mockRequestReceipts.set(requestKey, receipt);
     if (new URLSearchParams(window.location.search).has('unrecognizedSubmit')) return ok({ status: 'unknown' }, 201);
     return ok(receipt, 201);
@@ -1781,6 +1837,10 @@ const piRequest = async (
     emit(conversation.id, 'run_end');
     if (body.continueQueue === true && kept.length && conversation.kind !== 'worker') {
       const next = conversation.inbox.shift()!;
+      if (next.model) conversation.model = next.model;
+      if (next.thinkingLevel !== undefined) {
+        conversation.thinkingLevel = next.thinkingLevel === null ? undefined : next.thinkingLevel;
+      }
       startRun(conversation, next.content, next.id);
     }
     return ok({

@@ -32,9 +32,15 @@ export const useFeedback = () => {
   const [noticePaused, setNoticePaused] = React.useState(false);
   const [statusAnnouncement, setStatusAnnouncement] = React.useState('');
   const announceTimerRef = React.useRef<number | undefined>(undefined);
+  const errorDismissRef = React.useRef<(() => void) | null>(null);
 
   const showActionError = React.useCallback(
-    (message: string | null, retry?: () => void, retryLabel?: string) => {
+    (message: string | null, retry?: () => void, retryLabel?: string, onDismiss?: () => void) => {
+      const previousDismiss = errorDismissRef.current;
+      errorDismissRef.current = message ? (onDismiss ?? null) : null;
+      if (previousDismiss && previousDismiss !== errorDismissRef.current) {
+        previousDismiss();
+      }
       setActionError(message);
       setActionErrorRetry(() => retry ?? null);
       setActionErrorRetryLabel(retry && retryLabel ? retryLabel : null);

@@ -37,7 +37,16 @@ export class CompactionSettings {
     this.file = join(home, 'compaction.json');
     try { this.preference = validateCompactionPreference(JSON.parse(readFileSync(this.file, 'utf8'))); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Kiln could not read its compaction settings. Restore compaction.json from a backup, then restart Kiln.');
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        const quarantined = `${this.file}.corrupt-${Date.now()}`;
+        try {
+          renameSync(this.file, quarantined);
+          console.warn(`[hearth] Kiln could not read compaction.json; kept the unreadable file at ${quarantined} and fell back to Pi defaults.`);
+        } catch {
+          console.warn('[hearth] Kiln could not read compaction.json; falling back to Pi defaults.');
+        }
+        this.preference = undefined;
+      }
     }
   }
   state() {

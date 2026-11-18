@@ -12,7 +12,7 @@ import type { PiQuestion } from './lib/piMapping';
 import { liveToolOutputs, piConversationToSession, piEntriesToMessages, piInboxToQueuedMessages, piModelsToModelList, piApprovalToPermissionRequest, piQuestionToQuestionRequest, toolResultSettlements } from './lib/piMapping';
 import { randomId } from './lib/randomId';
 import type { DirectoryAgent } from './lib/agentDirectory';
-import { abortReceiptOf } from './lib/sendDelivery';
+import { abortReceiptOf, submitOutcomeOf } from './lib/sendDelivery';
 import { SessionCreateError } from './lib/sessionCreateError';
 import type {
   LiveToolOutput,
@@ -103,28 +103,40 @@ const parseListField = <T,>(data: unknown, field: string): T[] | null => {
 };
 
 /**
- * Apply the sticky agent settings a send carries, before its content is submitted.
+ * Wire payload for the per-submission `model` and `thinkingLevel` fields a send carries.
  *
- * The reasoning level is a conversation setting of its own: an Alt+Enter that picks `high` while
- * the model stays on `Server default` still has to reach the host, so `thinkingLevel` alone is a
- * valid configure (Hearth's `parseAgentChange` takes each field independently). Skipping this
- * whenever no model was named meant a reasoning choice made on a default-model session was
- * silently dropped: the message ran at the level the conversation already had.
+ * The reasoning level is a setting of its own: an Alt+Enter or follow-up that picks `high` while
+ * the model stays on `Server default` still has to reach the host, and an explicit `variant: ''`
+ * clears a previous effort via `thinkingLevel: null`.
+ */
+const piSendConfigPayload = (
+  input: Pick<PromptInput, 'model' | 'variant'>
+): { model?: { provider: string; modelId: string }; thinkingLevel?: string | null } | null => {
+  const hasModel = Boolean(input.model?.providerID && input.model?.modelID);
+  const hasVariant = input.variant !== undefined;
+  if (!hasModel && !hasVariant) return null;
+  return {
+    ...(hasModel
+      ? { model: { provider: input.model!.providerID, modelId: input.model!.modelID } }
+      : {}),
+    ...(hasVariant ? { thinkingLevel: input.variant || null } : {}),
+  };
+};
+
+/**
+ * Legacy sticky configure fallback for older remote Kilns that ignore `model`/`thinkingLevel` on
+ * `POST /submit`. Never called before `/submit` or while a turn is queued behind an active run.
  */
 const piConfigureForSend = async (
   endpointId: string,
   conversationId: string,
   input: PromptInput
 ): Promise<{ ok: boolean; status: number; data: unknown } | null> => {
-  if (!input.model && !input.variant) return null;
+  const payload = piSendConfigPayload(input);
+  if (!payload) return null;
   return request(endpointId, `/conversations/${encodeURIComponent(conversationId)}/configure`, {
     method: 'POST',
-    body: {
-      ...(input.model
-        ? { model: { provider: input.model.providerID, modelId: input.model.modelID } }
-        : {}),
-      ...(input.variant !== undefined ? { thinkingLevel: input.variant || null } : {}),
-    },
+    body: payload,
   });
 };
 
@@ -604,22 +616,31 @@ export const piSendPrompt = async (
 ): Promise<{ ok: boolean; status: number; data: unknown }> => {
   const unsupported = nonImageAttachments(input.attachments);
   if (unsupported.length > 0) return unsupportedAttachmentsError(unsupported);
-  // A session created with this model and level already carries them (`piCreateSession` sends both),
-  // so the first send does not need to write them again — one gratuitous round trip in front of the
-  // message that is already on screen.
-  const configure = input.configured ? null : await piConfigureForSend(endpointId, conversationId, input);
-  if (configure && !configure.ok) return configure;
   const context = await piWriteContexts(endpointId, conversationId, input);
   if (context) return context;
+  // Send `model` and `thinkingLevel` directly on `/submit` (`piCreateSession` already applied them
+  // when `input.configured` is set). Updated Kilns apply them immediately when idle and park them
+  // in `QueueConfigDoc` when busy — avoiding a pre-submit `/configure` that would hijack an active
+  // turn's tool loop or clobber earlier queued items.
+  const sendConfig = input.configured ? null : piSendConfigPayload(input);
   // The direct send path queues when the conversation is busy; Alt+Enter (`input.steer`)
   // steers the running turn instead. A stale busy state on the client can therefore never
   // turn a "queue this" into a steer. Idle conversations ignore whenBusy.
-  return submitRequest(endpointId, conversationId, {
+  const submitted = await submitRequest(endpointId, conversationId, {
     type: 'input',
     content: piInputContent(input.text, input.attachments),
     whenBusy: input.steer ? 'steer' : 'followUp',
+    ...(sendConfig ?? {}),
     ...(input.requestId ? { requestId: input.requestId } : {}),
   });
+  if (!submitted.ok || !sendConfig) return submitted;
+  const ack = (submitted.data ?? null) as { status?: unknown; configured?: unknown } | null;
+  const status = typeof ack?.status === 'string' ? ack.status.toLowerCase() : '';
+  if (ack?.configured !== true && status !== 'queued') {
+    const configure = await piConfigureForSend(endpointId, conversationId, input);
+    if (configure && !configure.ok) return configure;
+  }
+  return submitted;
 };
 
 export const piEnqueueMessage = async (
@@ -629,18 +650,33 @@ export const piEnqueueMessage = async (
 ): Promise<{ ok: boolean; status: number; data: unknown }> => {
   const unsupported = nonImageAttachments(input.attachments);
   if (unsupported.length > 0) return unsupportedAttachmentsError(unsupported);
-  const configure = await piConfigureForSend(endpointId, conversationId, input);
-  if (configure && !configure.ok) return configure;
   // The same reply/queued context an immediate send writes: a message parked in the inbox must reach
   // the model with the context it was written with, not silently without it.
   const context = await piWriteContexts(endpointId, conversationId, input);
   if (context) return context;
-  const submitted = await request<{ submissionId?: number; status?: string; entry?: number }>(
+  const sendConfig = input.configured ? null : piSendConfigPayload(input);
+  const submitted = await request<{ submissionId?: number; status?: string; entry?: number; configured?: boolean }>(
     endpointId,
     `/conversations/${encodeURIComponent(conversationId)}/submit`,
-    { method: 'POST', body: { type: 'input', content: piInputContent(input.text, input.attachments), whenBusy: 'followUp' } }
+    {
+      method: 'POST',
+      body: {
+        type: 'input',
+        content: piInputContent(input.text, input.attachments),
+        whenBusy: 'followUp',
+        ...(sendConfig ?? {}),
+      },
+    }
   );
   if (!submitted.ok) return submitted;
+  const outcome = submitOutcomeOf(submitted.data);
+  if (outcome.kind === 'failed') {
+    return {
+      ok: false,
+      status: submitted.status,
+      data: { error: outcome.error ?? 'The server refused the message.' },
+    };
+  }
   // Return the refreshed queue as a mutation so the optimistic local row is replaced by the
   // server item instead of lingering as "pending". If the inbox read races the submit, add the
   // submitted item ourselves (its id is the submission id) so the row still reconciles.
@@ -650,6 +686,10 @@ export const piEnqueueMessage = async (
   // running, and it vanished on the next read as if it had never been queued.
   const status = typeof submitted.data?.status === 'string' ? submitted.data.status.toLowerCase() : '';
   const placed = status === 'placed';
+  if (sendConfig && placed && submitted.data?.configured !== true) {
+    const configure = await piConfigureForSend(endpointId, conversationId, input);
+    if (configure && !configure.ok) return configure;
+  }
   const submitId = placed ? '' : String(submitted.data?.submissionId ?? '');
   const queue = await piLoadMessageQueue(endpointId);
   const session = queue?.sessions.find((entry) => entry.sessionId === conversationId) ?? {
@@ -687,7 +727,14 @@ type PiQueueSession = {
   model?: { provider?: string; modelId?: string };
   thinkingLevel?: string | null;
   sendingId?: string | null;
-  items?: Array<{ id: number | string; mode?: string; text?: string; content?: unknown }>;
+  items?: Array<{
+    id: number | string;
+    mode?: string;
+    text?: string;
+    content?: unknown;
+    model?: { provider?: string; modelId?: string } | null;
+    thinkingLevel?: string | null;
+  }>;
 };
 
 /**
@@ -1015,8 +1062,9 @@ export const piAskSideQuestion = async (
 /**
  * Human promotion: fork an idle worker into a named, ownerless `peer` and
  * register the name locally. Hearth answers 201 with the new peer's conversation summary, or
- * 409 when the worker is busy / 400 when it is not a worker or the local name is taken — every
- * failure maps to `null` so the dialog can say the promotion didn't happen.
+ * 409 when the worker is busy / 400 when it is not a worker or the local name is taken — non-2xx
+ * responses throw `SessionCreateError` carrying the status and host reason so `PromoteWorkerDialog`
+ * stays open and shows calm, actor-named inline guidance.
  */
 export const piPromoteSession = async (
   endpointId: string,
@@ -1035,12 +1083,25 @@ export const piPromoteSession = async (
       },
     }
   );
-  if (!response.ok || !response.data || typeof response.data.id !== 'number') return null;
+  if (!response.ok) {
+    const message = (response.data as unknown as { error?: unknown } | null)?.error;
+    throw new SessionCreateError(
+      response.status,
+      typeof message === 'string' ? message : undefined
+    );
+  }
+  if (!response.data || typeof response.data.id !== 'number') return null;
   return piConversationToSession(endpointId, response.data, Date.now());
 };
 
 
 // ---- Models ---------------------------------------------------------------------------
+
+const parsePiModelsPayload = (data: { models?: PiModel[]; default?: { provider: string; modelId: string } }): ModelList => {
+  const models = Array.isArray(data.models) ? data.models : [];
+  const mapped = piModelsToModelList(models, data.default);
+  return { models: mapped.models, defaultModelId: mapped.defaultModelId };
+};
 
 export const piLoadModels = async (endpointId: string): Promise<ModelList | null> => {
   const response = await request<{ models?: PiModel[]; default?: { provider: string; modelId: string } }>(
@@ -1048,9 +1109,27 @@ export const piLoadModels = async (endpointId: string): Promise<ModelList | null
     '/models'
   );
   if (!response.ok) return null;
-  const models = Array.isArray(response.data.models) ? response.data.models : [];
-  const mapped = piModelsToModelList(models, response.data.default);
-  return { models: mapped.models, defaultModelId: mapped.defaultModelId };
+  return parsePiModelsPayload(response.data);
+};
+
+/**
+ * Ask Kiln to refresh every connected provider's live catalog upstream (`POST /models/refresh`)
+ * and return the updated list. Older Kilns without `/models/refresh` fall back to `GET /models`.
+ */
+export const piRefreshModels = async (
+  endpointId: string,
+  providers?: readonly string[]
+): Promise<ModelList | null> => {
+  const response = await request<{ models?: PiModel[]; default?: { provider: string; modelId: string } }>(
+    endpointId,
+    '/models/refresh',
+    { method: 'POST', body: providers && providers.length > 0 ? { providers } : {} }
+  );
+  if (response.status === 404 || response.status === 405) {
+    return piLoadModels(endpointId);
+  }
+  if (!response.ok) return null;
+  return parsePiModelsPayload(response.data);
 };
 
 // ---- Approvals + questions ------------------------------------------------------------
@@ -1200,6 +1279,7 @@ export type PiScheduledTask = {
   thinkingLevel?: string;
   createdAt: number;
   lastRunAt?: number;
+  nextRunAt?: number;
   lastSessionId?: number;
   lastStatus?: string;
   lastError?: string;

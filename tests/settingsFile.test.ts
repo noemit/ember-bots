@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'bun:test';
+import { statSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initializeFirstRunSettings, quarantineCorruptSettings } from '../electron/settingsFile';
+import { type SecretStore } from '../electron/endpointSecrets';
+import {
+  createSettingsFileController,
+  initializeFirstRunSettings,
+  quarantineCorruptSettings,
+  resolveEffectivePiEndpoints,
+  resolvePersistedPiEndpoints,
+} from '../electron/settingsFile';
 import { parseStringArray } from '../electron/transport';
 import { DEFAULT_SETTINGS } from '../src/hooks/useEmberSettings';
 
@@ -127,4 +135,270 @@ test('only a genuinely empty install is marked for first-run setup', async () =>
     initializeFirstRunSettings(file, database);
     expect(await readFile(file, 'utf8').catch(() => null)).toBeNull();
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+describe('mtimeMs cache invalidation and serialized onboarding writes', () => {
+  test('back-to-back writeJson calls in the same coarse mtimeMs tick never return stale cached settings', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ember-settings-mtime-'));
+    const emberFile = join(directory, 'settings.json');
+    const openchamberFile = join(directory, 'openchamber-settings.json');
+    let statReads = 0;
+    // Simulate a coarse filesystem clock where rapid writes share the exact same mtimeMs tick.
+    const controller = createSettingsFileController({
+      emberSettingsPath: () => emberFile,
+      openchamberSettingsPath: () => openchamberFile,
+      statMtimeMs: (file) => {
+        try {
+          statSync(file);
+          statReads += 1;
+          return 1_700_000_000_000;
+        } catch {
+          return -1;
+        }
+      },
+    });
+    try {
+      await controller.writeJson(emberFile, { theme: 'stone', sessionWindowHours: 48 });
+      expect(controller.readEmberSettingsFile()).toEqual({ theme: 'stone', sessionWindowHours: 48 });
+      // Cache hit with identical mtimeMs returns the same object reference without re-parsing.
+      const cachedRef = controller.readEmberSettingsFile();
+      expect(controller.readEmberSettingsFile()).toBe(cachedRef);
+      expect(statReads).toBeGreaterThanOrEqual(2);
+
+      // Second write in the exact same mtimeMs tick must invalidate the cache immediately on rename.
+      await controller.writeJson(emberFile, { theme: 'clay', sessionWindowHours: 24, splitView: true });
+      expect(controller.readEmberSettingsFile()).toEqual({
+        theme: 'clay',
+        sessionWindowHours: 24,
+        splitView: true,
+      });
+
+      // OpenChamber's settings cache obeys the same invalidation rule.
+      await controller.writeJson(openchamberFile, { desktopLocalPort: 57123 });
+      expect(controller.readOpenchamberSettings()).toEqual({ desktopLocalPort: 57123 });
+      await controller.writeJson(openchamberFile, { desktopLocalPort: 58999 });
+      expect(controller.readOpenchamberSettings()).toEqual({ desktopLocalPort: 58999 });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('noteOnboarded serializes behind queued settings writes and preserves concurrent patches', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ember-onboarded-queue-'));
+    const emberFile = join(directory, 'settings.json');
+    const openchamberFile = join(directory, 'openchamber.json');
+    const controller = createSettingsFileController({
+      emberSettingsPath: () => emberFile,
+      openchamberSettingsPath: () => openchamberFile,
+      // Freeze mtimeMs so any missing cache invalidation would clobber the earlier write!
+      statMtimeMs: (file) => {
+        try {
+          statSync(file);
+          return 1_700_000_000_000;
+        } catch {
+          return -1;
+        }
+      },
+    });
+    try {
+      await controller.writeJson(emberFile, { theme: 'stone' });
+
+      let releasePatch!: () => void;
+      const patchGate = new Promise<void>((resolve) => {
+        releasePatch = resolve;
+      });
+      const patchWrite = controller.enqueueWrite(async () => {
+        await patchGate;
+        const current = controller.readEmberSettingsFile();
+        await controller.writeJson(emberFile, { ...current, theme: 'clay', splitView: true });
+      });
+
+      let broadcasts = 0;
+      const onboardedWrite = controller.noteOnboarded(
+        true,
+        () => {
+          broadcasts += 1;
+        },
+        () => 1_700_000_123_456
+      );
+      // Duplicate probe while the first write is still queued does not enqueue a second write.
+      const duplicate = controller.noteOnboarded(true, () => {
+        broadcasts += 1;
+      });
+
+      releasePatch();
+      await Promise.all([patchWrite, onboardedWrite, duplicate]);
+
+      expect(broadcasts).toBe(1);
+      const persisted = JSON.parse(await readFile(emberFile, 'utf8')) as Record<string, unknown>;
+      expect(persisted).toEqual({
+        theme: 'clay',
+        splitView: true,
+        onboardedAt: 1_700_000_123_456,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('noteOnboarded refuses to write when quarantine failed or onboardingStartedAt is set', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ember-onboarded-guards-'));
+    const emberFile = join(directory, 'settings.json');
+    const openchamberFile = join(directory, 'openchamber.json');
+    try {
+      // 1. Fresh install (`onboardingStartedAt`) keeps the guide until explicitly dismissed.
+      await writeFile(emberFile, JSON.stringify({ onboardingStartedAt: 500 }));
+      const fresh = createSettingsFileController({
+        emberSettingsPath: () => emberFile,
+        openchamberSettingsPath: () => openchamberFile,
+      });
+      expect(await fresh.noteOnboarded(true)).toBe(false);
+      expect(JSON.parse(await readFile(emberFile, 'utf8'))).toEqual({ onboardingStartedAt: 500 });
+
+      // 2. Corrupt file whose quarantine fails (`settingsQuarantineFailed`) is never overwritten.
+      await writeFile(emberFile, '{"valuable": [');
+      const unquarantinable = createSettingsFileController({
+        emberSettingsPath: () => emberFile,
+        openchamberSettingsPath: () => openchamberFile,
+        quarantineSuffix: () => join('missing-subdir', '1'),
+      });
+      expect(await unquarantinable.noteOnboarded(true)).toBe(false);
+      expect(unquarantinable.isQuarantineFailed()).toBe(true);
+      expect(await readFile(emberFile, 'utf8')).toBe('{"valuable": [');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('synthesized pi:local persistence', () => {
+  const secretStore: SecretStore = {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => 'gnome_libsecret',
+    encryptString: (value) => Buffer.from(value.split('').reverse().join('')),
+    decryptString: (value) => value.toString().split('').reverse().join(''),
+  };
+
+  test('unrelated settings patches never bake synthesized pi:local into settings.json or break localHarnessEnabled: false', () => {
+    const synthesized = { url: 'http://127.0.0.1:3002', token: 'local-token' };
+    const effectiveBefore = resolveEffectivePiEndpoints({
+      root: {},
+      secretStore,
+      canaryBuild: false,
+      localHarness: synthesized,
+    });
+    expect(effectiveBefore).toEqual([
+      { id: 'pi:local', label: 'This computer', url: 'http://127.0.0.1:3002', token: 'local-token' },
+    ]);
+
+    // Unrelated patch (e.g. `{ localHarnessEnabled: false }` or `{ theme: 'clay' }`) omits piEndpoints entirely.
+    const persisted = resolvePersistedPiEndpoints({
+      rawStored: undefined,
+      previousEffective: effectiveBefore,
+      patchValue: undefined,
+      synthesizedLocal: synthesized,
+      secretStore,
+    });
+    expect(persisted).toBeUndefined();
+
+    // Once `localHarnessEnabled: false` is saved, neither localHarness nor legacy token discovery resurrects pi:local.
+    const effectiveAfterDisable = resolveEffectivePiEndpoints({
+      root: { localHarnessEnabled: false },
+      secretStore,
+      canaryBuild: false,
+      localHarness: null,
+      discoverLocal: () => ({
+        id: 'pi:local',
+        label: 'Local',
+        url: 'http://127.0.0.1:3002/',
+        token: 'local-token',
+      }),
+    });
+    expect(effectiveAfterDisable).toEqual([]);
+  });
+
+  test('Canary ephemeral port: 0 is not frozen into settings.json when adding a remote endpoint', () => {
+    const launch1Local = { url: 'http://127.0.0.1:51234', token: 'canary-token' };
+    const effectiveLaunch1 = resolveEffectivePiEndpoints({
+      root: {},
+      secretStore,
+      canaryBuild: true,
+      localHarness: launch1Local,
+    });
+    const remote = {
+      id: 'pi:tower',
+      label: 'Tower',
+      url: 'http://100.64.0.2:3002',
+      token: 'tower-token',
+    };
+
+    // EndpointsSettings sends `[...existingEffective, remote]`, which includes the synthesized Canary endpoint.
+    const persisted = resolvePersistedPiEndpoints({
+      rawStored: undefined,
+      previousEffective: effectiveLaunch1,
+      patchValue: [...effectiveLaunch1, remote],
+      synthesizedLocal: launch1Local,
+      secretStore,
+    });
+    expect(persisted).toEqual([
+      { id: 'pi:tower', label: 'Tower', url: 'http://100.64.0.2:3002/', token: 'tower-token' },
+    ]);
+
+    // Launch 2 picks a new ephemeral port: no dead 51234 endpoint lingers, and the new port merges cleanly.
+    const launch2Local = { url: 'http://127.0.0.1:58901', token: 'canary-token' };
+    const effectiveLaunch2 = resolveEffectivePiEndpoints({
+      root: { piEndpoints: persisted },
+      secretStore,
+      canaryBuild: true,
+      localHarness: launch2Local,
+    });
+    expect(effectiveLaunch2.map((entry) => [entry.id, entry.url])).toEqual([
+      ['pi:local', 'http://127.0.0.1:58901'],
+      ['pi:tower', 'http://100.64.0.2:3002/'],
+    ]);
+  });
+
+  test('deliberate user edits to pi:local and encrypted Access secrets on remotes are preserved', () => {
+    const synthesized = { url: 'http://127.0.0.1:3002', token: 'local-token' };
+    const remoteWithAccess = {
+      id: 'pi:tower',
+      label: 'Tower',
+      url: 'https://tower.example/kiln',
+      token: 'bearer-token',
+      access: { clientId: 'cid', clientSecret: 'csecret' },
+    };
+    const customLocal = {
+      id: 'pi:local',
+      label: 'Work MacBook',
+      url: 'http://127.0.0.1:3002',
+      token: 'local-token',
+    };
+    const persisted = resolvePersistedPiEndpoints({
+      rawStored: undefined,
+      previousEffective: [],
+      patchValue: [customLocal, remoteWithAccess],
+      synthesizedLocal: synthesized,
+      secretStore,
+    });
+    expect(persisted).toHaveLength(2);
+    expect((persisted?.[0] as { label?: string })?.label).toBe('Work MacBook');
+    expect(JSON.stringify(persisted)).not.toContain('csecret');
+
+    // Unrelated write with a locked keyring keeps ciphertext intact.
+    const lockedStore: SecretStore = { ...secretStore, isEncryptionAvailable: () => false };
+    const effectiveLocked = resolveEffectivePiEndpoints({
+      root: { piEndpoints: persisted },
+      secretStore: lockedStore,
+      canaryBuild: false,
+      localHarness: synthesized,
+    });
+    const rePersisted = resolvePersistedPiEndpoints({
+      rawStored: persisted,
+      previousEffective: effectiveLocked,
+      patchValue: undefined,
+      synthesizedLocal: synthesized,
+      secretStore: lockedStore,
+    });
+    expect(rePersisted).toEqual(persisted);
+  });
 });

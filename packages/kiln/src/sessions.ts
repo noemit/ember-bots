@@ -19,6 +19,7 @@ import {
 import { AutoAcceptDoc, clearPendingApprovals, pendingApprovals } from "./approvals";
 import { clearPendingQuestions, pendingQuestions, QuestionsDoc } from "./ask";
 import { MetaDoc, type HearthMeta } from "./meta";
+import { settleStopStateOnInputInTx } from "./stopQueueHandoff";
 import { recordRetrieved, resultRetrieved, threadTask } from "./threadResults";
 import { registerAgentWithSuffix } from "./agents";
 
@@ -49,6 +50,18 @@ export const WORKER_DELEGATION_INSTRUCTIONS =
   " When you delegate tasks of your own, give each a concrete outcome title, a self-contained brief, and acceptance criteria. " +
   "All workers share one root supervisor. When you spawn a helper, it joins you as a sibling directly under that root; you retain task access, not ownership of arbitrary siblings. " +
   "Do not spawn to relay a result; finish directly in your own thread. ";
+
+/** True when `instructions` match the standing worker handoff instructions set at spawn. Pure. */
+export const isSpawnedWorkerInstructions = (instructions: string | undefined): boolean => {
+  if (!instructions) return false;
+  const trimmed = instructions.trim();
+  return (
+    instructions === WORKER_INSTRUCTIONS ||
+    instructions === WORKER_INSTRUCTIONS + WORKER_DELEGATION_INSTRUCTIONS ||
+    trimmed === WORKER_INSTRUCTIONS.trim() ||
+    trimmed === (WORKER_INSTRUCTIONS + WORKER_DELEGATION_INSTRUCTIONS).trim()
+  );
+};
 
 /** True when a conversation may lead a crew at all. Pure. */
 export const delegationRefused = (meta: HearthMeta | undefined): boolean => meta?.delegates === false;
@@ -566,10 +579,21 @@ export const submitCrewMessage = async (
     const current = doc.items[owner.key];
     if (!current || current.conversationId !== entry.conversationId || (expectedTask !== undefined && threadTask(current) !== expectedTask)) return false;
     if (current.lastMessageRequestId === requestId) return false;
+    const prior = await tx.submissionByRequest(entry.conversationId, requestId);
+    const liveBefore = await tx.doc(LiveDoc, entry.conversationId);
+    const wasBusy = liveBefore.run !== undefined;
+    const wasFailed = Boolean(liveBefore.runFailure);
     await rearmWorker(tx, owner.conversationId, owner.key, entry.conversationId, Date.now());
     const direction = current.taskLifecycle === "explicit" ? message + "\n\nTask assignment version: " + threadTask(current) + ". Complete or report only this version; use session status without a name to review it." : message;
-    await handle.submit(tx, { type: "input", content: direction,
+    const submissionId = await handle.submit(tx, { type: "input", content: direction,
       whenBusy: followUp ? "followUp" : "steer", requestId });
+    if (!prior) {
+      await settleStopStateOnInputInTx(tx, entry.conversationId, {
+        submissionId,
+        wasBusy,
+        wasFailed,
+      });
+    }
     if (current) current.lastMessageRequestId = requestId;
     return true;
   }, context);

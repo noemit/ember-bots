@@ -16,11 +16,12 @@ import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from '@/lib/i
 import { piLoadProviders, piRemoveProvider, piSetProviderKey, type PiProviderInfo } from '../piApi';
 import { DEFAULT_MODEL, modelRefKey } from '../types';
 import ModelPicker from './ModelPicker';
-import { piLoadModels } from '../piApi';
+import { piRefreshModels } from '../piApi';
 import type { ModelList } from '../api';
 import type { InstanceDefaults, ModelRef, Instance, PiEndpoint } from '../types';
 import ProviderSignInDialog from '@/components/ProviderSignInDialog';
 import ProviderSharing from './ProviderSharing';
+import type { ModelRefreshOptions } from '@/lib/providerSharing';
 import CustomProviders from './CustomProviders';
 import OllamaSetup from './OllamaSetup';
 
@@ -34,7 +35,7 @@ type Props = {
    * kept offering models from a provider whose key had just been removed — and omitting the ones
    * a new key unlocked — until the next poll happened to land.
    */
-  onProviderChange?: (endpointId: string) => void;
+  onProviderChange?: (endpointId: string, options?: ModelRefreshOptions) => Promise<unknown> | void;
   /**
    * Which host to show first. Set when the panel is opened *for* a host — the picker's "Add
    * providers…" from a session names its own instance — so the screen lands on the machine that
@@ -95,7 +96,7 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
   const [signIn, setSignIn] = React.useState<PiProviderInfo | null>(null);
 
   // Stable identity, so the signing dialog's effects don't restart on every parent render.
-  const notifyChanged = useStableCallback((id: string) => onProviderChange?.(id));
+  const notifyChanged = useStableCallback((id: string, options?: ModelRefreshOptions) => onProviderChange?.(id, options));
 
   const notifyCatalog = useStableCallback((id: string, providers: PiProviderInfo[]) => onProviderCatalog?.(id, providers));
 
@@ -132,7 +133,7 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
     if (!mounted.current) return;
     const version = ++defaultReads.current;
     setConfirmation({ endpointId: id, providerName, catalog: null });
-    const catalog = await piLoadModels(id).catch(() => null);
+    const catalog = await piRefreshModels(id).catch(() => null);
     if (!mounted.current || defaultReads.current !== version) return;
     setConfirmation((current) => current?.endpointId === id ? { ...current, catalog } : current);
   };
@@ -243,6 +244,12 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
         <ModelPicker open recentModels={[]} models={confirmation.catalog.models} value={instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : DEFAULT_MODEL} defaultModelId={confirmation.catalog.defaultModelId}
           instanceDefaultModelId={effectiveInstanceDefaultModel(instanceDefaults[confirmation.endpointId], confirmation.catalog.defaultModelId)}
           onSetInstanceDefault={(model) => onDefaultChange(confirmation.endpointId, withInstanceDefaultModel(instanceDefaults[confirmation.endpointId], model).model)}
+          onRefresh={async () => {
+            const next = await piRefreshModels(confirmation.endpointId).catch(() => null);
+            if (!next || !mounted.current) return;
+            setConfirmation((current) => current?.endpointId === confirmation.endpointId ? { ...current, catalog: next } : current);
+            notifyChanged(confirmation.endpointId);
+          }}
           onOpenChange={setChoosingDefault} onSelect={(key, variant) => {
           const model = confirmation.catalog?.models.find((entry) => modelRefKey(entry) === key);
           if (key !== DEFAULT_MODEL && !model) return;
@@ -381,7 +388,7 @@ function HostProvidersSettings({ inventory = false, endpoints, instances, onProv
         notifyChanged(endpointId);
         if (name) await confirmDefault(endpointId, name);
       }} />
-      <ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={(id) => { notifyChanged(id); if (id === endpointId) void load(id); }} />
+      <ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={(id, options) => { void notifyChanged(id, options); if (id === endpointId) void load(id); }} />
 
       {signIn ? (
         <ProviderSignInDialog

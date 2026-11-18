@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { loadScheduledIdentityData, runScheduledTask, updateScheduledTaskModel } from '../src/api';
 import { rememberPiInstances, type PiScheduledTask } from '../src/piApi';
 import { mergeScheduledSessionBindings } from '../src/lib/scheduledBindings';
-import { buildScheduledRuns, scheduledReadSessions, unreadScheduledRunsByTask } from '../src/lib/scheduledView';
+import { buildScheduledRuns, deriveNextRunAt, scheduledReadSessions, unreadScheduledRunsByTask } from '../src/lib/scheduledView';
 import { staleScheduledRuns } from '../src/lib/bulkArchive';
 import type { Session } from '../src/types';
 
@@ -144,6 +144,28 @@ test('a legacy reused conversation is bound without inventing a latest run', asy
     const data = await loadScheduledIdentityData('pi:test', []);
     expect(Object.keys(data.bindings)).toEqual(['pi:test::40']);
     expect(data.tasks[0].state.lastSessionId).toBeUndefined();
+  } finally {
+    taskOverrides = {};
+  }
+});
+
+test('maps server-computed nextRunAt, host timezone fallback, and reconciled LLM turn errors onto Plans', async () => {
+  const now = Date.UTC(2026, 10, 8, 8, 30, 0);
+  const serverNext = Date.UTC(2026, 10, 8, 17, 0, 0);
+  taskOverrides = {
+    nextRunAt: serverNext,
+    lastStatus: 'error',
+    lastError: '429: Rate limit exceeded',
+  };
+  try {
+    const data = await loadScheduledIdentityData('pi:test', []);
+    const task = data.tasks[0];
+    expect(task.state.nextRunAt).toBe(serverNext);
+    expect(task.state.lastStatus).toBe('error');
+    expect(task.state.lastError).toBe('429: Rate limit exceeded');
+    expect(deriveNextRunAt(task, now)).toBe(serverNext);
+    // Once `serverNext` is behind `now`, falls back to the remote host's `UTC` timezone (`09:00Z` next day).
+    expect(deriveNextRunAt(task, serverNext + 1_000)).toBe(Date.UTC(2026, 10, 9, 9, 0, 0));
   } finally {
     taskOverrides = {};
   }

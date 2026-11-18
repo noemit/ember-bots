@@ -8,9 +8,15 @@ import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite
 import { createModels } from '@earendil-works/pi-ai/models';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai/providers/faux';
 import { markWorkerStopped } from '../src/crew';
+import { hearthConfig } from '../src/config';
+import { FileCredentialStore } from '../src/credentials';
+import { registerAgent } from '../src/agents';
 import { MetaDoc } from '../src/meta';
 import { parkInputs } from '../src/parking';
 import { QuestionsDoc } from '../src/ask';
+import { answerQuestion, resumeQuestions } from '../src/questions';
+import { startHearthServer } from '../src/server';
+import { SessionsDoc, submitCrewMessage, type CrewEntry } from '../src/sessions';
 import { StopQueueDoc, prepareStopQueueHandoff, resumeStopQueueHandoff } from '../src/stopQueueHandoff';
 
 const setup = async (storage: Storage = new MemoryStorage()) => {
@@ -143,4 +149,225 @@ describe('desktop Stop queue handoff safety', () => {
       } finally { await recovered.close(context); await rm(directory, { recursive: true, force: true }); }
     });
   }
+
+  test('parked hearth.question-answer alongside parked human message after Stop clears pending handoff and never wedges POST /submit with 409', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kiln-stop-b5-'));
+    const storage = new MemoryStorage();
+    const f = await setup(storage);
+    f.faux.setResponses([
+      fauxAssistantMessage('Handled queued item one'),
+      fauxAssistantMessage('Handled queued item two'),
+      fauxAssistantMessage('Handled new human send'),
+      fauxAssistantMessage('Handled follow-up send'),
+    ]);
+    const token = 'test-token-0123456789abcdef0123456789abcdef';
+    const server = startHearthServer({
+      config: hearthConfig({ home: directory, port: 0, workspace: directory }),
+      token,
+      storage,
+      harness: f.harness,
+      models: f.models,
+      defaultAgent: { model: { provider: 'faux', modelId: 'faux-1' } },
+      store: new FileCredentialStore(join(directory, 'auth.json')),
+      version: '9.9.9',
+      build: 'test',
+      restart: () => {},
+    });
+    const api = (path: string, body: Record<string, unknown>) =>
+      fetch(`${server.url}${path}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    try {
+      const id = f.conversation.id;
+      await f.queue('Parked human direction');
+      const saved = (await f.prepare('b5-stop'))!;
+      await f.conversation.abort(context);
+      await parkInputs(change => f.harness.commit(change, context), id, saved);
+      await f.harness.commit(async tx => {
+        (await tx.doc(StopQueueDoc, id)).pending!.ready = true;
+        const inbox = await tx.doc(InboxDoc, id);
+        const questions = await tx.doc(QuestionsDoc, id);
+        questions.items.q = {
+          conversationId: String(id),
+          key: 'q',
+          mode: 'async',
+          question: 'Which region?',
+          options: [],
+          status: 'answered',
+          revision: 2,
+          answer: 'EU',
+          resumeRequired: true,
+        };
+        const record = await tx.createSubmission({ conversationId: id, type: 'input', status: 'queued' });
+        inbox.items.push({
+          id: record.id,
+          mode: 'followUp',
+          content: 'Internal question answer',
+          entry: { kind: 'hearth.question-answer', data: { questionId: 'q' } },
+        });
+      }, context);
+
+      // Background handoff must refuse automatic continuation on custom entries AND clear doc.pending.
+      expect(await resumeStopQueueHandoff(f.harness, id, context)).toBe(0);
+      expect(f.faux.state.callCount).toBe(0);
+      expect((await f.harness.snapshot(StopQueueDoc, id, context))?.pending).toBeUndefined();
+      expect((await f.harness.snapshot(MetaDoc, id, context))?.stoppedAt).toBeGreaterThan(0);
+
+      // Even when POST /submit races ahead of background recovery (StopQueueDoc.pending still set),
+      // its finishHandoff recovery clears doc.pending and admits the send instead of returning HTTP 409.
+      await f.harness.commit(async tx => {
+        const stoppedAt = (await tx.doc(MetaDoc, id)).stoppedAt!;
+        (await tx.doc(StopQueueDoc, id)).pending = { token: 'b5-stop-race', stoppedAt, ready: true, items: saved };
+      }, context);
+      const firstSend = await api(`/conversations/${id}/submit`, {
+        type: 'input',
+        content: 'Explicit human send after stop',
+        requestId: 'b5-submit-1',
+      });
+      expect(firstSend.status).toBe(201);
+      expect((await f.harness.snapshot(StopQueueDoc, id, context))?.pending).toBeUndefined();
+      expect((await f.harness.snapshot(MetaDoc, id, context))?.stoppedAt).toBeUndefined();
+      await f.conversation.waitForIdle(context);
+
+      const secondSend = await api(`/conversations/${id}/submit`, {
+        type: 'input',
+        content: 'Second explicit human send',
+        requestId: 'b5-submit-2',
+      });
+      expect(secondSend.status).toBe(201);
+      await f.conversation.waitForIdle(context);
+    } finally {
+      await server.close();
+      await f.harness.close(context);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('/directory/send and submitCrewMessage clear stale stoppedAt and pending handoff when restarting an idle stopped conversation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kiln-stop-restart-'));
+    const storage = new MemoryStorage();
+    const f = await setup(storage);
+    f.faux.setResponses([
+      fauxAssistantMessage('Peer restarted'),
+      fauxAssistantMessage('Worker restarted'),
+      fauxAssistantMessage('Question delivered after worker restart'),
+    ]);
+    const token = 'test-token-0123456789abcdef0123456789abcdef';
+    const server = startHearthServer({
+      config: hearthConfig({ home: directory, port: 0, workspace: directory }),
+      token,
+      storage,
+      harness: f.harness,
+      models: f.models,
+      defaultAgent: { model: { provider: 'faux', modelId: 'faux-1' } },
+      store: new FileCredentialStore(join(directory, 'auth.json')),
+      version: '9.9.9',
+      build: 'test',
+      restart: () => {},
+    });
+    try {
+      const peerId = f.conversation.id;
+      await f.harness.commit(async tx => {
+        (await tx.doc(MetaDoc, peerId)).title = 'Reviewer';
+        await registerAgent(tx, 'Reviewer', {
+          conversationId: peerId as unknown as number,
+          host: 'local',
+          pinned: true,
+          createdAt: 100,
+          updatedAt: 100,
+        });
+      }, context);
+      await f.prepare('peer-stop');
+      await f.conversation.abort(context);
+      await f.harness.commit(async tx => {
+        (await tx.doc(StopQueueDoc, peerId)).pending!.ready = true;
+      }, context);
+
+      const directorySend = await fetch(`${server.url}/directory/send`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Reviewer', message: 'Please review the diff', requestId: 'dir-send-1' }),
+      });
+      expect(directorySend.status).toBe(201);
+      expect((await f.harness.snapshot(StopQueueDoc, peerId, context))?.pending).toBeUndefined();
+      expect((await f.harness.snapshot(MetaDoc, peerId, context))?.stoppedAt).toBeUndefined();
+      await f.conversation.waitForIdle(context);
+
+      // Crew worker restart via submitCrewMessage clears stale stoppedAt / StopQueueDoc.pending.
+      const worker = await f.harness.createConversation(
+        { ownership: { kind: 'ownerless' }, agent: { model: { provider: 'faux', modelId: 'faux-1' } } },
+        context
+      );
+      const entry: CrewEntry = {
+        kind: 'worker',
+        creatorId: peerId,
+        conversationId: worker.id,
+        title: 'Helper #1',
+        state: 'stopped',
+        spawnedAt: 100,
+        generation: 1,
+        briefRequestId: 'helper-brief',
+      };
+      await f.harness.commit(async tx => {
+        Object.assign(await tx.doc(MetaDoc, worker.id), {
+          kind: 'worker',
+          creatorId: peerId,
+          lead: { conversationId: peerId, host: 'local' },
+          stoppedAt: 500,
+        });
+        (await tx.doc(StopQueueDoc, worker.id)).pending = {
+          token: 'stale-worker-stop',
+          stoppedAt: 500,
+          ready: true,
+          items: [],
+        };
+        (await tx.doc(SessionsDoc, peerId)).items.helper = entry;
+      }, context);
+
+      const api = {
+        conversationId: peerId,
+        taskId: 'rearm-task-1',
+        snapshot: f.harness.snapshot.bind(f.harness),
+        conversation: f.harness.conversation.bind(f.harness),
+        commit: f.harness.commit.bind(f.harness),
+      } as any;
+      const sent = await submitCrewMessage(api, worker, 'helper', entry, 'Continue with fresh context', false, context);
+      expect(sent).toBe(true);
+      expect((await f.harness.snapshot(MetaDoc, worker.id, context))?.stoppedAt).toBeUndefined();
+      expect((await f.harness.snapshot(StopQueueDoc, worker.id, context))?.pending).toBeUndefined();
+      await worker.waitForIdle(context);
+
+      // A newly created async question on the restarted worker is no longer blocked by stale stoppedAt.
+      const rearmed = (await f.harness.snapshot(SessionsDoc, peerId, context))!.items.helper;
+      await f.harness.commit(async tx => {
+        (await tx.doc(QuestionsDoc, worker.id)).items.q2 = {
+          conversationId: String(worker.id),
+          key: 'q2',
+          mode: 'async',
+          question: 'Deploy now?',
+          options: [],
+          status: 'pending',
+          revision: 1,
+          origin: {
+            conversationId: String(worker.id),
+            toolTaskId: 'q2',
+            kind: 'worker',
+            assignmentMissing: false,
+            taskOwnerId: String(peerId),
+            taskKey: 'helper',
+            assignmentVersion: `${worker.id}:${rearmed.taskAt}`,
+          },
+        };
+      }, context);
+      await answerQuestion(f.harness, worker.id, 'q2', 'Yes', 1, 'ans-q2', context);
+      expect(await resumeQuestions(f.harness, worker.id, context)).toBe(1);
+      await worker.waitForIdle(context);
+    } finally {
+      await server.close();
+      await f.harness.close(context);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

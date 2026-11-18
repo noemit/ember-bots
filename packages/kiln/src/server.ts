@@ -1,9 +1,19 @@
 import type { CompactionSettings } from "./compaction-settings";
-import { StopQueueDoc, prepareStopQueueHandoff, resumeStopQueueHandoff } from './stopQueueHandoff';
+import { StopQueueDoc, prepareStopQueueHandoff, resumeStopQueueHandoff, settleStopStateOnInputInTx } from './stopQueueHandoff';
 import type { OllamaSettings } from "./ollama-settings";
 import type { CustomProviders } from "./custom-providers";
 import { alignmentProviders, importCredentials, importApiKeys, mergePeers, portablePeer, shareApiKeys, type ShareTarget, type AlignmentConfig } from "./alignment";
 import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
+import {
+  QueueConfigDoc,
+  applyRunQueueConfigsInTx,
+  attachQueueConfigTracking,
+  effectiveSubmissionModel,
+  parseSubmissionSendConfig,
+  removeQueueConfigInTx,
+  resolveQueueItemConfig,
+  type QueueSendConfig,
+} from "./queueConfig";
 import { timingSafeEqual } from "node:crypto";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
@@ -13,6 +23,7 @@ import type { Context } from "@earendil-works/chord";
 import type { Credential, CredentialStore, Message, Models } from "@earendil-works/pi-ai";
 import {
   AgentDoc,
+  configure,
   ConversationBusy,
   InboxDoc,
   LiveDoc,
@@ -45,8 +56,8 @@ import {
   formatForeignAgentMessage,
   listAgents,
   mergeDirectory,
+  promoteAgent,
   pruneStaleAgents,
-  registerAgent,
   staleAgentNames,
   writeAgentsMirror,
   writePeersMirror,
@@ -55,6 +66,7 @@ import {
 } from "./agents";
 import {
   explicitSettled,
+  isSpawnedWorkerInstructions,
   workerAssignment,
   rearmWorker,
   type TaskCompletion,
@@ -66,7 +78,7 @@ import {
   pruneSpawns,
   workerTitle,
 } from "./sessions";
-import { importOpenCodeCredentials, isCredential } from "./credentials";
+import { importOpenCodeCredentials, isCredential, normalizeProviderId } from "./credentials";
 import { createLoginSupervisor, loginSupport, unreachableQuestion, type LoginInput, type LoginProvider, type LoginState } from "./login";
 import {
   ApprovalsDoc,
@@ -96,13 +108,15 @@ import {
   createScheduledTask,
   deleteScheduledTask,
   listScheduledTasks,
+  nextOccurrence,
   parseScheduledTaskInput,
   parseScheduledTaskPatch,
   runScheduledTaskNow,
   updateScheduledTask,
+  type ScheduledTask,
 } from "./scheduler";
 import type { HearthConfig } from "./config";
-import type { HearthDefault } from "./models";
+import { ensureConditionalProviders, refreshLiveCatalog, type HearthDefault } from "./models";
 import type { LocalRuntimeProbe } from "./local-models";
 import { sendFrame } from "./stream";
 import { attachFrames, framesOf } from "./frames";
@@ -138,7 +152,7 @@ type Deps = {
    * The boot-time probe of the local runtimes (Ollama, LM Studio), reported by `GET /providers`.
    * Optional so a test can build a server without touching loopback.
    */
-  localRuntimes?: readonly LocalRuntimeProbe[];
+  localRuntimes?: LocalRuntimeProbe[];
   customProviders?: CustomProviders;
   ollamaSettings?: OllamaSettings;
   compactionSettings?: CompactionSettings;
@@ -652,7 +666,10 @@ const parseAgentChange = (body: Record<string, unknown>): AgentChange | null => 
 };
 
 type SubmissionParse =
-  | { draft: InputSubmissionDraft | { type: "write"; entry: EntryDraft; requestId?: string } }
+  | {
+      draft: InputSubmissionDraft | { type: "write"; entry: EntryDraft; requestId?: string };
+      sendConfig?: QueueSendConfig;
+    }
   /** Why the body was refused, so the client can say something better than "invalid submission". */
   | { error: string };
 
@@ -742,13 +759,22 @@ const attemptOf = async (
 /** The answer to `POST /submit`: what it is, where it stands, and why when it stands nowhere. */
 const answerOf = (
   record: { readonly id: SubmissionId; readonly status: string; readonly entry?: EntryId; readonly reason?: string },
-  mode: string
-): { submissionId: SubmissionId; status: string; mode: string; entry?: EntryId; reason?: string } => ({
+  mode: string,
+  configured = false
+): {
+  submissionId: SubmissionId;
+  status: string;
+  mode: string;
+  entry?: EntryId;
+  reason?: string;
+  configured?: boolean;
+} => ({
   submissionId: record.id,
   status: record.status,
   mode,
   ...(record.entry !== undefined ? { entry: record.entry } : {}),
   ...(record.reason !== undefined ? { reason: record.reason } : {}),
+  ...(configured ? { configured: true } : {}),
 });
 
 const parseSubmission = (body: Record<string, unknown>): SubmissionParse => {
@@ -764,6 +790,8 @@ const parseSubmission = (body: Record<string, unknown>): SubmissionParse => {
     whenBusy = body.whenBusy;
   }
   if (body.type === "input") {
+    const configParsed = parseSubmissionSendConfig(body);
+    if ("error" in configParsed) return configParsed;
     // Text, or text and images (see ./images): the content part types pi-ai already carries for a
     // user turn, which pi-durable stores and replays verbatim.
     const parsed = parseUserInputContent(body.content);
@@ -775,6 +803,7 @@ const parseSubmission = (body: Record<string, unknown>): SubmissionParse => {
         ...(whenBusy ? { whenBusy } : {}),
         ...(requestId ? { requestId } : {}),
       },
+      ...(configParsed.sendConfig !== undefined ? { sendConfig: configParsed.sendConfig } : {}),
     };
   }
   if (body.type === "write") {
@@ -826,9 +855,31 @@ const scheduledTaskRefusal = (body: Record<string, unknown>): string => {
 export const startHearthServer = (deps: Deps): HearthServer => {
   const { config, token, storage, harness, models, defaultAgent, store, version, build, restart, localRuntimes } = deps;
   const contextTracking = attachCurrentContextTracking(harness, context);
+  const queueConfigTracking = attachQueueConfigTracking(harness, context);
   // The host's process table and memory, injectable for tests (see `Deps.processes`).
   const scan = deps.processes?.scan ?? scanLeftovers;
   const memory = deps.processes?.memory ?? hostMemory;
+
+  let refreshInFlight: Promise<{ errors: string[] }> | undefined;
+
+  const runLiveModelRefresh = (providers?: readonly string[], signal?: AbortSignal): Promise<{ errors: string[] }> => {
+    if (!providers && !signal && refreshInFlight) return refreshInFlight;
+    const run = refreshLiveCatalog({
+      models,
+      ...(store ? { store } : {}),
+      ...(deps.ollamaSettings ? { ollamaSettings: deps.ollamaSettings } : {}),
+      ...(localRuntimes ? { localRuntimes } : {}),
+      ...(providers ? { providers } : {}),
+      ...(signal ? { signal } : {}),
+    });
+    if (!providers && !signal) {
+      refreshInFlight = run.finally(() => {
+        if (refreshInFlight === run) refreshInFlight = undefined;
+      });
+      return refreshInFlight;
+    }
+    return run;
+  };
 
   /**
    * Refresh the model catalog in the background after a credential changes, so a provider that was
@@ -836,11 +887,9 @@ export const startHearthServer = (deps: Deps): HearthServer => {
    * dropped: the credential itself is already stored, and a slow provider must not fail the write.
    */
   const refreshModelCatalog = (reason: string): void => {
-    void models
-      .refresh()
+    void runLiveModelRefresh()
       .then((refresh) => {
-        const errors = [...refresh.errors.keys()];
-        if (errors.length > 0) console.error(`[hearth] model refresh after ${reason} failed for: ${errors.join(", ")}`);
+        if (refresh.errors.length > 0) console.error(`[hearth] model refresh after ${reason} failed for: ${refresh.errors.join(", ")}`);
       })
       .catch((error: unknown) => {
         console.error(
@@ -1109,6 +1158,7 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/health$/, ["GET"]],
   [/^\/admin\/restart$/, ["POST"]],
   [/^\/models$/, ["GET"]],
+  [/^\/models\/refresh$/, ["POST"]],
   [/^\/usage$/, ["GET"]],
   [/^\/custom-providers$/, ["GET", "POST"]],
   [/^\/custom-providers\/discover$/, ["POST"]],
@@ -1477,7 +1527,7 @@ const server = Bun.serve<{
       }
 
       // ---- models + usage --------------------------------------------------------------
-      if (request.method === "GET" && path === "/models") {
+      const availableModelsResponse = async () => {
         // Only offer models whose provider has a usable credential; otherwise the picker
         // offers models that can never run (a generation would fail with an auth error).
         // Fall back to the full catalogue if auth resolution fails.
@@ -1486,6 +1536,22 @@ const server = Bun.serve<{
           models: available.map(model => model.provider.startsWith("custom-") ? { ...model, providerName: models.getProvider(model.provider)?.name ?? model.provider } : model),
           default: defaultAgent.model,
         });
+      };
+
+      if (request.method === "GET" && path === "/models") {
+        return await availableModelsResponse();
+      }
+      if (request.method === "POST" && path === "/models/refresh") {
+        const body = await readBody(request).catch((): Record<string, unknown> => ({}));
+        let providers: string[] | undefined;
+        if (body.providers !== undefined) {
+          if (!Array.isArray(body.providers) || body.providers.length > 50 || body.providers.some((id: unknown) => typeof id !== "string" || !id.trim())) {
+            return badRequest("providers must be a list of provider IDs.");
+          }
+          providers = [...new Set((body.providers as string[]).map((id) => normalizeProviderId(id.trim())))];
+        }
+        await runLiveModelRefresh(providers, AbortSignal.timeout(12_000));
+        return await availableModelsResponse();
       }
       if (request.method === "GET" && path === "/usage") {
         return json(await harness.usage(context));
@@ -1626,6 +1692,7 @@ const server = Bun.serve<{
           doc.peers = merged;
         }, context);
         writePeersMirror(config.home, merged);
+        if (keys > 0 && store) await ensureConditionalProviders(models, store);
         // Import only stores credentials. It must not trigger provider catalog requests or OAuth refresh.
         return json({ connections: added, keys });
       }
@@ -1902,15 +1969,46 @@ const server = Bun.serve<{
           return notFound(`agent "${brief(name, 100)}" conversation ${targetId} is gone`);
         }
         const content = formatForeignAgentMessage(senderHost, senderName, message);
-        await handle.submit(
-          {
-            type: "input",
-            content,
-            whenBusy: followUp ? "followUp" : "steer",
-            ...(requestId ? { requestId } : {}),
-          },
-          context
-        );
+        const draft = {
+          type: "input" as const,
+          content,
+          whenBusy: followUp ? ("followUp" as const) : ("steer" as const),
+          ...(requestId ? { requestId } : {}),
+        };
+        const finishHandoff = new Error("Finish the pending stop before admitting an idle input");
+        const admit = () =>
+          harness.commit(async (tx) => {
+            const prior = draft.requestId === undefined ? undefined : await tx.submissionByRequest(targetId, draft.requestId);
+            const stopQueue = await tx.doc(StopQueueDoc, targetId);
+            const meta = await tx.doc(MetaDoc, targetId);
+            const liveBefore = await tx.doc(LiveDoc, targetId);
+            const wasBusy = liveBefore.run !== undefined;
+            const wasFailed = Boolean(liveBefore.runFailure);
+            if (!prior && stopQueue.pending && !wasBusy && meta.stoppedAt === stopQueue.pending.stoppedAt) {
+              throw finishHandoff;
+            }
+            const submissionId = await handle.submit(tx, draft);
+            if (!prior) {
+              await settleStopStateOnInputInTx(tx, targetId, {
+                submissionId,
+                wasBusy,
+                wasFailed,
+              });
+            }
+            return submissionId;
+          }, context);
+        try {
+          await admit();
+        } catch (error) {
+          if (error !== finishHandoff) throw error;
+          await resumeStopQueueHandoff(harness, targetId, context);
+          try {
+            await admit();
+          } catch (retryError) {
+            if (retryError === finishHandoff) return busyRefusal(targetId);
+            throw retryError;
+          }
+        }
         return json({ ok: true, name: resolvedLabel, conversationId: targetId }, 201);
       }
 
@@ -1919,9 +2017,10 @@ const server = Bun.serve<{
       // queued follow-ups without fetching each conversation's snapshot. Items are bounded to
       // their display text; `revision` is a fresh stamp (the client merges by session/item id).
       const queueSessionOf = async (id: ConversationId) => {
-        const [inbox, agent] = await Promise.all([
+        const [inbox, agent, queueConfig] = await Promise.all([
           harness.snapshot(InboxDoc, id, context),
           harness.snapshot(AgentDoc, id, context),
+          harness.snapshot(QueueConfigDoc, id, context),
         ]);
         return {
           sessionId: String(id),
@@ -1933,10 +2032,15 @@ const server = Bun.serve<{
             id: String(item.id),
             mode: item.mode,
             text: inboxTextOf(item as { mode: "steer" | "followUp" | "write"; content?: unknown; entry?: unknown }),
-            // Input items carry their content parts back, so a client can keep showing an attached
-            // image on a queued row (and re-submit it whole on "send now") rather than losing it on
-            // the first poll. `text` above stays the bounded preview.
-            ...(item.mode === "write" ? {} : { content: item.content }),
+            // Input items carry their content parts and isolated per-submission send config back,
+            // so a client can keep showing an attached image and each row's own model/effort
+            // without being clobbered by `AgentDoc` or another queued item.
+            ...(item.mode === "write"
+              ? {}
+              : {
+                  content: item.content,
+                  ...resolveQueueItemConfig(queueConfig?.items[String(item.id)], agent),
+                }),
           })),
         };
       };
@@ -1982,16 +2086,29 @@ const server = Bun.serve<{
       // ---- scheduled tasks --------------------------------------------------------------
       // Due-times live in a session doc; the tick loop (see index.ts) submits them to their
       // conversations. `timezone` is the process zone, for clients that display the times.
+      const withWireNextRunAt = (
+        task: ScheduledTask,
+        now = Date.now(),
+        hostTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      ): ScheduledTask & { nextRunAt?: number } => {
+        const nextRunAt = task.enabled ? nextOccurrence(task.schedule, now, hostTimezone) : undefined;
+        return nextRunAt !== undefined ? { ...task, nextRunAt } : task;
+      };
       if (path === "/scheduled-tasks") {
         if (request.method === "GET") {
+          const hostTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const now = Date.now();
           const state = await listScheduledTasks(harness, context);
-          return json({ tasks: state.tasks, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+          return json({
+            tasks: state.tasks.map((task) => withWireNextRunAt(task, now, hostTimezone)),
+            timezone: hostTimezone,
+          });
         }
         if (request.method === "POST") {
           const body = await readBody(request);
           const input = parseScheduledTaskInput(body);
           if (!input) return badRequest(scheduledTaskRefusal(body));
-          return json(await createScheduledTask(harness, input, context), 201);
+          return json(withWireNextRunAt(await createScheduledTask(harness, input, context)), 201);
         }
         return noRoute(request.method, path, routeMethods(path));
       }
@@ -2010,7 +2127,7 @@ const server = Bun.serve<{
         if (!action && request.method === "PATCH") {
           const updated = await updateScheduledTask(harness, id, parseScheduledTaskPatch(await readBody(request)), context);
           if (!updated) return notFound(`there is no scheduled task "${brief(id, 100)}"`);
-          return json(updated);
+          return json(withWireNextRunAt(updated));
         }
         if (!action && request.method === "DELETE") {
           return (await deleteScheduledTask(harness, id, context))
@@ -2301,6 +2418,7 @@ const server = Bun.serve<{
           const parsed = parseSubmission(body);
           if ("error" in parsed) return badRequest(parsed.error);
           const draft = parsed.draft;
+          const sendConfig = parsed.sendConfig;
           // Where this `requestId` stands before anything is written. A retry of a message that
           // never reached the transcript has to be *placed*, not answered with the settled no-op
           // (see `attemptOf`).
@@ -2314,7 +2432,7 @@ const server = Bun.serve<{
             // The idempotent hit a retried POST is supposed to get: this message was already
             // placed (or is still queued or running), so nothing is written and the caller is told
             // which submission owns it.
-            return json(answerOf(admitted, mode), 201);
+            return json(answerOf(admitted, mode, sendConfig !== undefined), 201);
           }
           if (attempt !== undefined && attempt.key === undefined) {
             return json(
@@ -2327,10 +2445,12 @@ const server = Bun.serve<{
           // A model that cannot see images would have them replaced with a text placeholder before
           // the request is built, and answer as if nothing was attached. Refuse and say which model.
           if (draft.type === "input") {
-            const agent = await harness.snapshot(AgentDoc, conversationId, context);
-            const chosen = agent?.model
-              ? { provider: agent.model.provider, modelId: agent.model.modelId }
-              : defaultAgent.model;
+            const [agent, inbox, queueConfig] = await Promise.all([
+              harness.snapshot(AgentDoc, conversationId, context),
+              harness.snapshot(InboxDoc, conversationId, context),
+              harness.snapshot(QueueConfigDoc, conversationId, context),
+            ]);
+            const chosen = effectiveSubmissionModel(sendConfig, agent, inbox, queueConfig, defaultAgent.model);
             const refusal = blindModelReason(draft.content, models.getModel(chosen.provider, chosen.modelId));
             if (refusal) return badRequest(refusal);
           }
@@ -2351,8 +2471,6 @@ const server = Bun.serve<{
             const text = inputTextOf(draft.content);
             if (text.trim()) await injectContextForInput(harness, conversationId, text, context);
           }
-          const restartingFailure = draft.type === "input" && Boolean((await harness.snapshot(LiveDoc, conversationId, context))?.runFailure);
-          const restartingStop = draft.type === "input" && Boolean((await harness.snapshot(MetaDoc, conversationId, context))?.stoppedAt);
           const toPlace = attempt?.key === undefined ? draft : { ...draft, requestId: attempt.key };
           // `Conversation.submit` has two overloads (a draft and a context, or a transaction and a
           // draft); `ReturnType` takes the last, which returns an id.
@@ -2362,23 +2480,44 @@ const server = Bun.serve<{
             const admit = () => harness.commit(async tx => {
               const prior = toPlace.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, toPlace.requestId);
               const stopQueue = await tx.doc(StopQueueDoc, conversationId);
-              if (draft.type === "input" && !prior && stopQueue.pending && !(await tx.doc(LiveDoc, conversationId)).run &&
-                  (await tx.doc(MetaDoc, conversationId)).stoppedAt === stopQueue.pending.stoppedAt) throw finishHandoff;
+              const meta = await tx.doc(MetaDoc, conversationId);
+              const liveBefore = await tx.doc(LiveDoc, conversationId);
+              const inboxBefore = await tx.doc(InboxDoc, conversationId);
+              const wasBusy = liveBefore.run !== undefined;
+              const wasFailed = Boolean(liveBefore.runFailure);
+              if (draft.type === "input" && !prior && stopQueue.pending && !wasBusy &&
+                  meta.stoppedAt === stopQueue.pending.stoppedAt) throw finishHandoff;
               if (draft.type === "input" && !prior) {
-                const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, await tx.doc(MetaDoc, conversationId));
+                const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, meta);
                 if (assignment && (explicitSettled(assignment.entry) || (assignment.entry.taskLifecycle === "explicit" &&
                     (assignment.entry.state === "failed" || assignment.entry.state === "stopped")))) {
                   await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
                 }
               }
+              // Idle conversation with an empty inbox places this turn immediately; apply its send
+              // config directly to `AgentDoc` before `submit` so Turn 1 starts on it. When a run is
+              // active (or earlier items wait in `InboxDoc`), isolate the config in `QueueConfigDoc`
+              // so the active turn's `AgentDoc` and other queued items are never clobbered.
+              const applyImmediately =
+                draft.type === "input" && !prior && sendConfig !== undefined && !wasBusy && inboxBefore.items.length === 0;
+              if (applyImmediately) {
+                await configure(tx, conversationId, sendConfig);
+              }
               const submissionId = await conversation.submit(tx, toPlace);
-              if (draft.type === "input" && !prior && stopQueue.pending) {
-                const queued = (await tx.doc(InboxDoc, conversationId)).items.find(item => item.id === submissionId);
-                // Admissions while abort winds down must survive that abort too. Record their
-                // canonical id in the same commit, not from a later snapshot that can miss them.
-                if (queued && queued.mode !== 'write' && !queued.entry && !stopQueue.pending.items.some(item => item.id === String(submissionId))) {
-                  stopQueue.pending.items.push({ id: String(submissionId), mode: queued.mode, content: queued.content });
-                }
+              if (draft.type === "input" && !prior && sendConfig !== undefined && !applyImmediately) {
+                const queueConfig = await tx.doc(QueueConfigDoc, conversationId);
+                queueConfig.items[String(submissionId)] = sendConfig;
+              }
+              if (draft.type === "input" && !prior && !wasBusy && (await tx.doc(LiveDoc, conversationId)).run !== undefined) {
+                await applyRunQueueConfigsInTx(tx, conversationId);
+              }
+              if (draft.type === "input" && !prior) {
+                await settleStopStateOnInputInTx(tx, conversationId, {
+                  submissionId,
+                  wasBusy,
+                  wasFailed,
+                  sendConfig,
+                });
               }
               return submissionId;
             }, context);
@@ -2397,18 +2536,11 @@ const server = Bun.serve<{
             if (!(error instanceof ConversationBusy)) throw error;
             return busyRefusal(conversationId);
           }
-          if (restartingStop || restartingFailure) await harness.commit(async tx => {
-            const meta = await tx.doc(MetaDoc, conversationId);
-            if (meta.stoppedAt || restartingFailure) {
-              for (const q of Object.values((await tx.doc(QuestionsDoc, conversationId)).items)) if (q.mode === "async") { q.resumeRequired = true; if (q.mutation?.action === "resume") delete q.mutation; }
-              if (!(await tx.doc(StopQueueDoc, conversationId)).pending) delete meta.stoppedAt;
-            }
-          }, context);
           // The full status set, not just the happy two: `queued` (waiting behind a turn),
           // `placed` (in the transcript, a run owns it), `done` (a write entry appended) and
           // `unanswered` (settled without an answer — `reason` says why: aborted, stale, a provider
           // failure). A client that only saw `placed|queued` treated `unanswered` as "sent".
-          return json(answerOf(await submission.status(context), mode), 201);
+          return json(answerOf(await submission.status(context), mode, sendConfig !== undefined), 201);
         }
 
         if (action === "abort" && request.method === "POST") {
@@ -2428,19 +2560,25 @@ const server = Bun.serve<{
           // takes time: an input submitted while it winds down is withdrawn by it too, and reading
           // only once would drop that message. Every parked item keeps its own `mode`, so a steer
           // is still a steer and a follow-up still a follow-up.
-          const inboxBefore = await harness.snapshot(InboxDoc, conversationId, context);
+          const [inboxBefore, queueConfigBefore] = await Promise.all([
+            harness.snapshot(InboxDoc, conversationId, context),
+            harness.snapshot(QueueConfigDoc, conversationId, context),
+          ]);
           const prepared = await harness.commit(async tx => {
             await markWorkerStopped(tx, conversationId);
             return prepareStopQueueHandoff(tx, conversationId, randomUUID(), continueQueue);
           }, context);
-          const first = prepared ?? parkedInputs(inboxBefore?.items ?? []);
+          const first = prepared ?? parkedInputs(inboxBefore?.items ?? [], queueConfigBefore?.items);
           const seen = new Set(first.map((item) => item.id));
           // The desktop opts into a durable reply-to-next-message handoff. API/worker full stops
           // retain the existing park-only contract. Recovery and this callback share single flight.
           let continued = 0;
           const requeue = prepared !== undefined ? resumeStopQueueHandoff(harness, conversationId, context).then(count => { continued = count; return first; }) : conversation.abort(context).then(async () => {
-            const latest = await harness.snapshot(InboxDoc, conversationId, context);
-            const late = parkedInputs(latest?.items ?? []).filter((item) => !seen.has(item.id));
+            const [latest, latestQueueConfig] = await Promise.all([
+              harness.snapshot(InboxDoc, conversationId, context),
+              harness.snapshot(QueueConfigDoc, conversationId, context),
+            ]);
+            const late = parkedInputs(latest?.items ?? [], latestQueueConfig?.items).filter((item) => !seen.has(item.id));
             const parked = [...first, ...late];
             await parkInputs((change) => conversation.commit(change, context), conversationId, parked);
             return parked;
@@ -2521,7 +2659,10 @@ const server = Bun.serve<{
           const body = await readBody(request);
           const ids = Array.isArray(body.itemIds) ? body.itemIds.map((value) => String(value)) : null;
           if (!ids || ids.length === 0) return badRequest("itemIds is required");
-          const inbox = await harness.snapshot(InboxDoc, conversationId, context);
+          const [inbox, queueConfig] = await Promise.all([
+            harness.snapshot(InboxDoc, conversationId, context),
+            harness.snapshot(QueueConfigDoc, conversationId, context),
+          ]);
           const queued = (inbox?.items ?? []).filter(
             (item): item is Extract<InboxItem, { mode: "steer" | "followUp" }> =>
               item.mode === "steer" || item.mode === "followUp"
@@ -2534,13 +2675,20 @@ const server = Bun.serve<{
           // inbox, so the commit below writes the whole new order rather than appending to the old.
           for (const item of queued) await harness.abortSubmission(item.id, context, conversationId);
           // The old submission id is its durable lineage key. Reordering allocates new ids in
-          // this order while the receipt endpoint can still follow each original independently.
+          // this order while the receipt endpoint and per-item send configs follow each original.
           await parkInputs(
             (change) => conversation.commit(change, context),
             conversationId,
             ids.map((id) => {
               const item = byId.get(id)!;
-              return { mode: item.mode, content: item.content, id: String(item.id) } as const;
+              const sendConfig =
+                queueConfig && Object.hasOwn(queueConfig.items, id) ? queueConfig.items[id] : undefined;
+              return {
+                mode: item.mode,
+                content: item.content,
+                id: String(item.id),
+                ...(sendConfig !== undefined ? { sendConfig } : {}),
+              } as const;
             })
           );
           const replacements: Record<string, string> = {};
@@ -2677,9 +2825,14 @@ const server = Bun.serve<{
           if (!name) return badRequest("name is required");
           const description = string(body.description, 2_000)?.trim();
           const pinned = body.pinned === false ? false : true;
-          // Reject a duplicate before forking; `registerAgent` re-checks inside the commit so a
-          // race cannot produce two names for one local registry.
-          if (Object.hasOwn((await harness.snapshot(AgentsDoc, context))?.entries ?? {}, name)) {
+          const workerNumericId = Number(conversationId);
+          // Reject a duplicate before forking unless the entry is this worker's own spawn
+          // registration; `promoteAgent` re-checks inside the commit so races stay serialized.
+          const existingEntries = (await harness.snapshot(AgentsDoc, context))?.entries ?? {};
+          if (
+            Object.hasOwn(existingEntries, name) &&
+            existingEntries[name]?.conversationId !== workerNumericId
+          ) {
             return badRequest(`bot name already registered: ${name}`);
           }
           const newest = (await conversation.entries({}, 1, undefined, context)).items[0];
@@ -2687,17 +2840,33 @@ const server = Bun.serve<{
           let forkId: ConversationId;
           try {
             forkId = await harness.commit(async (tx) => {
+              const agents = await tx.doc(AgentsDoc);
+              if (
+                Object.hasOwn(agents.entries, name) &&
+                agents.entries[name]?.conversationId !== workerNumericId
+              ) {
+                throw new DuplicateAgentError(name);
+              }
               const worker = await tx.doc(MetaDoc, conversationId);
+              const workerAgent = await tx.doc(AgentDoc, conversationId);
               const fork = await tx.forkConversation(conversationId, newest.id, {
                 ownership: { kind: "ownerless" },
               });
+              const nextInstructions =
+                workerAgent.instructions && !isSpawnedWorkerInstructions(workerAgent.instructions)
+                  ? workerAgent.instructions
+                  : null;
+              const forkAgent = await tx.doc(AgentDoc, fork.id);
+              if ((forkAgent.instructions ?? null) !== nextInstructions) {
+                await configure(tx, fork.id, { instructions: nextInstructions });
+              }
               const forkMeta = await tx.doc(MetaDoc, fork.id);
               forkMeta.kind = "peer";
               if (worker.lead) forkMeta.lead = worker.lead;
               forkMeta.delegates = true;
               forkMeta.title = name;
               const now = Date.now();
-              await registerAgent(tx, name, {
+              await promoteAgent(tx, workerNumericId, name, {
                 conversationId: fork.id as number,
                 host: "local",
                 ...(description ? { description } : {}),
@@ -2772,6 +2941,9 @@ const server = Bun.serve<{
           const result = await harness.abortSubmission(submissionId, context, conversationId);
           if (result === "not_found") {
             return notFound(`conversation ${conversationId} has no submission ${submissionId} to withdraw`);
+          }
+          if (result === "aborted") {
+            await harness.commit((tx) => removeQueueConfigInTx(tx, conversationId, submissionId), context);
           }
           return json({ ok: result === "aborted", result });
         }
@@ -2881,6 +3053,7 @@ const server = Bun.serve<{
     url: `http://127.0.0.1:${server.port ?? config.port}`,
     close: async () => {
       await contextTracking.close();
+      await queueConfigTracking.close();
       server.stop(true);
     },
   };

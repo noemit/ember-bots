@@ -2,24 +2,29 @@ import { OllamaSettings } from "./ollama-settings";
 import { CustomProviders } from "./custom-providers";
 import { dirname, join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
-import { createModels, createProvider, envApiKeyAuth, type CredentialStore, type Model, type Models } from "@earendil-works/pi-ai";
+import { createModels, createProvider, envApiKeyAuth, type CredentialStore, type Model, type Models, type Provider } from "@earendil-works/pi-ai";
 import { FileCredentialStore, FileModelsStore, importOpenCodeCredentials } from "./credentials";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
-import { fireworksProvider } from "@earendil-works/pi-ai/providers/fireworks";
-import { googleProvider } from "@earendil-works/pi-ai/providers/google";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { nvidiaProvider } from "@earendil-works/pi-ai/providers/nvidia";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
-import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
-import { metaProvider } from "@earendil-works/pi-ai/providers/meta";
 import { antigravityProvider } from "./antigravity";
-import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import { openCodeZenWithDiscovery } from "./model-discovery";
+import {
+  anthropicWithDiscovery,
+  createModelsDevCache,
+  deepseekWithDiscovery,
+  fireworksWithDiscovery,
+  githubCopilotWithDiscovery,
+  googleWithDiscovery,
+  metaWithDiscovery,
+  nvidiaWithDiscovery,
+  openaiCodexWithDiscovery,
+  openaiWithDiscovery,
+  openrouterWithDiscovery,
+  withKimiCodingDiscovery,
+  xaiWithDiscovery,
+  type ModelsDevCache,
+} from "./provider-discovery";
 import {
   kimiCodingModel,
   kimiKeyPresent,
@@ -59,6 +64,12 @@ const catalogAuth = (credential: unknown): Record<string, string> => {
   return key?.type === "api_key" && key.key ? { Authorization: `Bearer ${key.key}` } : {};
 };
 
+const CATALOG_FETCH_TIMEOUT_MS = 8_000;
+const defaultModelsDevCache = createModelsDevCache();
+
+const catalogSignal = (signal?: AbortSignal): AbortSignal =>
+  signal ? AbortSignal.any([signal, AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS);
+
 /**
  * The dynamic orcarouter provider (custom baseURL + env key + fetched catalog), when
  * ORCAROUTER_BASE_URL and ORCAROUTER_API_KEY are set. Fetched models carry the full Model
@@ -84,7 +95,7 @@ export const orcarouterProvider = (env: Record<string, string | undefined> = pro
     fetchModels: async (ctx) => {
       const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
         headers: catalogAuth(ctx.credential),
-        signal: ctx.signal,
+        signal: catalogSignal(ctx.signal),
       });
       if (!response.ok) throw new Error(`orcarouter /models failed: ${response.status}`);
       const body = (await response.json()) as { data?: RouterCatalogEntry[] };
@@ -126,7 +137,7 @@ export const deepinfraProvider = () =>
     fetchModels: async (ctx) => {
       const response = await fetch(`${DEEPINFRA_BASE_URL}/models`, {
         headers: catalogAuth(ctx.credential),
-        signal: ctx.signal,
+        signal: catalogSignal(ctx.signal),
       });
       if (!response.ok) throw new Error(`deepinfra /models failed: ${response.status}`);
       const body = (await response.json()) as { data?: DeepInfraCatalogEntry[] };
@@ -173,8 +184,8 @@ export const createMoonshotProvider = (options: KimiOptions = kimiOptions()) =>
  * stays `kimi-k3`), its real windows and its image support, so a Kimi conversation survives a
  * model switch to another host's Kimi entry instead of being pinned to `orcarouter/kimi-k3`.
  *
- * `kimi-coding` (coding-plan key) keeps pi-ai's list: a plan key need not answer `/models`, and
- * its ids (`k3`, `kimi-for-coding`) are what the plan serves.
+ * `kimi-coding` (coding-plan key) keeps pi-ai's list as its baseline and overlays live `models.dev`
+ * and `/models` additions on refresh.
  *
  * `kimi-coding` is registered always, with or without a key. Its credential can come from a
  * subscription sign-in instead of a key (pi-ai ships "Sign in with Kimi Code"), and gating the
@@ -186,24 +197,32 @@ export const createMoonshotProvider = (options: KimiOptions = kimiOptions()) =>
  * credential), and always registered in `hearthModels` / `refreshProviders` so `GET /providers`
  * lists it and `POST /providers/moonshotai` can add a key at runtime.
  */
-export const kimiProviders = (storedIds: string[], env: Record<string, string | undefined> = process.env) => {
+export const kimiProviders = (
+  storedIds: string[],
+  env: Record<string, string | undefined> = process.env,
+  modelsDevCache: ModelsDevCache = defaultModelsDevCache
+) => {
   const options = kimiOptions(env);
   const providers = [];
   const coding = kimiCodingProvider();
   providers.push(
-    createProvider({
-      id: coding.id,
-      name: coding.name,
-      baseUrl: options.codingBaseUrl,
-      // pi-ai's shipped auth, not a hand-built api-key one: `auth.oauth` is "Sign in with Kimi Code",
-      // and dropping it here is what left `kimi-coding` unable to sign in at all (see ./login).
-      auth: {
-        apiKey: envApiKeyAuth("Kimi Code API key", ["KIMI_CODING_API_KEY", "KIMI_API_KEY"]),
-        ...(coding.auth.oauth === undefined ? {} : { oauth: coding.auth.oauth }),
-      },
-      models: coding.getModels().map((model) => kimiCodingModel(model, options)),
-      api: openAICompletionsApi(),
-    })
+    withKimiCodingDiscovery(
+      createProvider({
+        id: coding.id,
+        name: coding.name,
+        baseUrl: options.codingBaseUrl,
+        // pi-ai's shipped auth, not a hand-built api-key one: `auth.oauth` is "Sign in with Kimi Code",
+        // and dropping it here is what left `kimi-coding` unable to sign in at all (see ./login).
+        auth: {
+          apiKey: envApiKeyAuth("Kimi Code API key", ["KIMI_CODING_API_KEY", "KIMI_API_KEY"]),
+          ...(coding.auth.oauth === undefined ? {} : { oauth: coding.auth.oauth }),
+        },
+        models: coding.getModels().map((model) => kimiCodingModel(model, options)),
+        api: openAICompletionsApi(),
+      }),
+      options.codingBaseUrl,
+      modelsDevCache
+    )
   );
   // A stored credential (Ember's Providers settings, or `provider set`) wins; the env var is the
   // fallback, matching `envApiKeyAuth`.
@@ -213,23 +232,95 @@ export const kimiProviders = (storedIds: string[], env: Record<string, string | 
   return providers;
 };
 
-/**
- * Re-register conditional providers (such as `moonshotai`) after credentials change at runtime
- * (`POST /providers/:id` or `POST /providers/import`) and trigger a background catalog refresh.
- */
-export const refreshProviders = async (
-  models: Models & { setProvider?: (provider: ReturnType<typeof createMoonshotProvider>) => void },
+export const ensureConditionalProviders = async (
+  models: Models & { setProvider?: (provider: Provider) => void },
   store?: CredentialStore,
   env: Record<string, string | undefined> = process.env
 ): Promise<void> => {
   const storedIds = store ? (await store.list().catch(() => [])).map((entry) => entry.providerId) : [];
+  const existing = new Set(models.getProviders().map((provider) => provider.id));
   for (const provider of kimiProviders(storedIds, env)) {
-    models.setProvider?.(provider);
+    if (!existing.has(provider.id)) {
+      models.setProvider?.(provider);
+      existing.add(provider.id);
+    }
   }
-  if (!models.getProviders().some((provider) => provider.id === "moonshotai")) {
+  if (!existing.has("moonshotai")) {
     models.setProvider?.(createMoonshotProvider(kimiOptions(env)));
   }
-  await models.refresh({ allowNetwork: true }).catch(() => undefined);
+};
+
+/**
+ * Re-register conditional providers (such as `moonshotai`) after credentials change at runtime
+ * (`POST /providers/:id` or `POST /providers/import`) and trigger a forced catalog refresh.
+ */
+export const refreshProviders = async (
+  models: Models & { setProvider?: (provider: Provider) => void },
+  store?: CredentialStore,
+  env: Record<string, string | undefined> = process.env
+): Promise<void> => {
+  await ensureConditionalProviders(models, store, env);
+  await models.refresh({ allowNetwork: true, force: true }).catch(() => undefined);
+};
+
+/**
+ * Refresh all configured dynamic providers and local runtimes concurrently (`POST /models/refresh`).
+ * Unconfigured providers are skipped without network I/O; failed upstreams retain their last-known
+ * or shipped model lists rather than failing the request.
+ */
+export const refreshLiveCatalog = async (options: {
+  models: Models & { setProvider?: (provider: Provider) => void; deleteProvider?: (id: string) => void };
+  store?: CredentialStore;
+  ollamaSettings?: OllamaSettings;
+  localRuntimes?: LocalRuntimeProbe[];
+  providers?: readonly string[];
+  signal?: AbortSignal;
+  env?: Record<string, string | undefined>;
+}): Promise<{ errors: string[] }> => {
+  const { models, store, ollamaSettings, localRuntimes, providers, signal, env = process.env } = options;
+  if (store) await ensureConditionalProviders(models, store, env);
+
+  const selected = providers && providers.length > 0 ? new Set(providers) : undefined;
+  let newlyRegisteredLmStudio = false;
+
+  const reprobeLmStudio = async () => {
+    if (!localRuntimes || (selected && !selected.has("lmstudio"))) return;
+    const probe = await probeLocalRuntime("lmstudio", signal ? { signal } : {});
+    const index = localRuntimes.findIndex((entry) => entry.id === "lmstudio");
+    if (index < 0) localRuntimes.push(probe);
+    else localRuntimes[index] = probe;
+    if (probe.hasModels && !probe.problem) {
+      if (!models.getProvider("lmstudio")) {
+        models.setProvider?.(lmStudioProvider({ baseUrl: probe.baseUrl }));
+        newlyRegisteredLmStudio = true;
+      }
+    } else {
+      models.deleteProvider?.("lmstudio");
+    }
+  };
+
+  const [refreshResult] = await Promise.all([
+    models
+      .refresh({
+        allowNetwork: true,
+        force: true,
+        ...(selected ? { providers: [...selected] } : {}),
+        ...(signal ? { signal } : {}),
+      })
+      .catch(() => ({ errors: new Map<string, Error>() })),
+    ollamaSettings && (!selected || selected.has("ollama"))
+      ? ollamaSettings.reprobe().catch(() => undefined)
+      : Promise.resolve(),
+    reprobeLmStudio().catch(() => undefined),
+  ]);
+
+  if (newlyRegisteredLmStudio && !signal?.aborted) {
+    await models
+      .refresh({ allowNetwork: true, force: true, providers: ["lmstudio"], ...(signal ? { signal } : {}) })
+      .catch(() => undefined);
+  }
+
+  return { errors: [...refreshResult.errors.keys()] };
 };
 
 /**
@@ -243,7 +334,7 @@ export const fetchMoonshotCatalog = async (
 ): Promise<Model<"openai-completions">[]> => {
   const response = await fetch(`${options.baseUrl.replace(/\/+$/, "")}/models`, {
     headers: catalogAuth(credential),
-    signal,
+    signal: signal ?? AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`moonshotai /models failed: ${response.status}`);
   const body = (await response.json()) as { data?: MoonshotCatalogEntry[] };
@@ -298,33 +389,35 @@ export const hearthModels = async (
     credentials: store,
     modelsStore: new FileModelsStore(join(dirname(authFile), "models-store.json")),
   });
-  // OpenCode Zen asks the service which models exist (see ./model-discovery.ts);
-  // every other provider serves the catalog pi-ai ships.
+  const modelsDevCache = createModelsDevCache();
+  // Every built-in provider overlays live model discovery (its own `/models` endpoint and/or
+  // `models.dev`) over pi-ai's shipped baseline so newly released models appear on Refresh without
+  // waiting for a new Kiln release.
   models.setProvider(openCodeZenWithDiscovery());
-  models.setProvider(xaiProvider());
-  models.setProvider(openaiProvider());
+  models.setProvider(xaiWithDiscovery(modelsDevCache));
+  models.setProvider(openaiWithDiscovery(modelsDevCache));
   // NVIDIA's NIM catalogue is free at the point of signup and rotates models regularly (a free model
   // appears and is retired without notice), so it is registered the same way every keyed provider is:
   // listed always, offered only once a credential resolves.
-  models.setProvider(nvidiaProvider());
+  models.setProvider(nvidiaWithDiscovery(modelsDevCache));
   // Subscription providers, registered so their **sign-in buttons exist at all**: `/providers` can
   // only offer what is registered, so "why is there no ChatGPT button" was really "the provider was
   // never listed". Which ones can *finish* is decided in `login.ts` (`CAN_COMPLETE`, `OBSTRUCTIONS`).
-  models.setProvider(anthropicProvider());
-  models.setProvider(openaiCodexProvider());
-  models.setProvider(githubCopilotProvider());
+  models.setProvider(anthropicWithDiscovery(modelsDevCache));
+  models.setProvider(openaiCodexWithDiscovery());
+  models.setProvider(githubCopilotWithDiscovery(modelsDevCache));
   // Google Antigravity is not in pi-ai: its Cloud Code Assist transport is Hearth's own
   // (./antigravity.ts), so the provider is registered here like DeepInfra is.
   models.setProvider(antigravityProvider());
-  models.setProvider(metaProvider());
-  models.setProvider(openrouterProvider());
+  models.setProvider(metaWithDiscovery(modelsDevCache));
+  models.setProvider(openrouterWithDiscovery());
   // pi-ai has no DeepInfra provider (see ./deepinfra.ts); Hearth registers its own.
   models.setProvider(deepinfraProvider());
-  models.setProvider(deepseekProvider());
-  models.setProvider(googleProvider());
-  models.setProvider(fireworksProvider());
+  models.setProvider(deepseekWithDiscovery(modelsDevCache));
+  models.setProvider(googleWithDiscovery(modelsDevCache));
+  models.setProvider(fireworksWithDiscovery(modelsDevCache));
   const storedIds = (await store.list().catch(() => [])).map((entry) => entry.providerId);
-  for (const provider of kimiProviders(storedIds)) models.setProvider(provider);
+  for (const provider of kimiProviders(storedIds, process.env, modelsDevCache)) models.setProvider(provider);
   if (!models.getProviders().some((provider) => provider.id === "moonshotai")) {
     models.setProvider(createMoonshotProvider());
   }

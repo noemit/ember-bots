@@ -60,6 +60,7 @@ export class UpdateController {
     }
   }
   snapshot(): UpdateSnapshot { return { ...this.state }; }
+  isBusy(): boolean { return this.busy; }
   private publish(patch: Partial<UpdateSnapshot>) { if (this.disposed) return; this.state = { ...this.state, ...patch }; this.changed(this.snapshot()); }
   async action(action: UpdateAction, quiet = false): Promise<UpdateSnapshot> {
     if (this.disposed || !this.updater || this.state.phase === 'disabled' || this.busy) return this.snapshot();

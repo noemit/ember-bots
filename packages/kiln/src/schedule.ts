@@ -8,9 +8,9 @@ import {
   updateScheduledTask,
   listScheduledTasks,
   mostRecentOccurrence,
+  nextOccurrence,
   runScheduledTaskNow,
   wallClock,
-  wallClockToEpoch,
   type ScheduleSpec,
   type ScheduledTask,
 } from "./scheduler";
@@ -69,23 +69,8 @@ export const describeSchedule = (schedule: ScheduleSpec, fallbackZone: string): 
  * Deliberately independent of `lastRunAt`: this answers "when would it fire next if nothing else
  * changes", which is the sentence a person wants back, not a scheduler-internal judgement.
  */
-export const nextRunAt = (schedule: ScheduleSpec, now: number): number | undefined => {
-  if (schedule.kind === "once") return schedule.at > now ? schedule.at : undefined;
-  const zone = schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const [hour, minute] = schedule.time.split(":").map(Number);
-  if (schedule.kind === "daily") {
-    const today = wallClock(now, zone);
-    const todayAt = wallClockToEpoch(today.year, today.month, today.day, hour, minute, zone);
-    return todayAt > now ? todayAt : todayAt + 24 * 60 * 60 * 1000;
-  }
-  for (let ahead = 0; ahead <= 7; ahead += 1) {
-    const clock = wallClock(now + ahead * 24 * 60 * 60 * 1000, zone);
-    if (!schedule.weekdays.includes(clock.weekday)) continue;
-    const at = wallClockToEpoch(clock.year, clock.month, clock.day, hour, minute, zone);
-    if (at > now) return at;
-  }
-  return undefined;
-};
+export const nextRunAt = (schedule: ScheduleSpec, now: number): number | undefined =>
+  nextOccurrence(schedule, now);
 
 /** A next run in the terms the task is written in: "Tue 10 Nov, 09:00 (Europe/Berlin)". */
 export const describeNextRun = (schedule: ScheduleSpec, at: number | undefined, fallbackZone: string): string => {

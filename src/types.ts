@@ -559,6 +559,11 @@ export type QueuedMessage = {
   mode?: 'follow-up' | 'steer';
   /** Local only: the item is still being enqueued on the instance (show a loader). */
   pending?: boolean;
+  /**
+   * Local only: staged behind an in-flight first send before any enqueue request has left Ember, so
+   * a poll cannot mistake an earlier identical server row for this unsent copy.
+   */
+  staged?: boolean;
   /** Local only: enqueue failed; show the error with retry/cancel. */
   error?: string;
 };

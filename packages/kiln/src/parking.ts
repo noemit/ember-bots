@@ -30,6 +30,7 @@
 import type { JsonValue } from "@earendil-works/chord";
 import type { ConversationId, InboxItem, Tx } from "@earendil-works/pi-durable";
 import { InboxDoc } from "@earendil-works/pi-durable";
+import { QueueConfigDoc, type QueueSendConfig } from "./queueConfig";
 
 /**
  * A queued input a stop must keep: the user's own words, in the order they were queued.
@@ -48,6 +49,8 @@ export type ParkedInput = {
    * a reorder withdraws and re-adds every item, and the inbox ids are new each time.
    */
   readonly token?: string;
+  /** Isolated per-submission model/effort config to carry onto the replacement submission id. */
+  readonly sendConfig?: QueueSendConfig;
 };
 
 /**
@@ -55,14 +58,25 @@ export type ParkedInput = {
  * Queued `write` items are not withdrawn by an abort in the first place, so they are not ours to
  * re-place — re-submitting one would duplicate a write.
  */
-export const parkedInputs = (items: readonly InboxItem[]): ParkedInput[] =>
-  items.flatMap((item) =>
+export const parkedInputs = (
+  items: readonly InboxItem[],
+  queueConfigs?: Readonly<Record<string, QueueSendConfig>>
+): ParkedInput[] =>
+  items.flatMap((item) => {
     // Internal Question answers have their own correlated retry/hold lifecycle. Re-parking
     // them as plain human input would discard provenance and bypass explicit Question resume.
-    item.mode === "write" || item.entry?.kind === "hearth.question-answer"
-      ? []
-      : [{ mode: item.mode, content: item.content as unknown, id: String(item.id) } as const]
-  );
+    if (item.mode === "write" || item.entry?.kind === "hearth.question-answer") return [];
+    const id = String(item.id);
+    const sendConfig = queueConfigs && Object.hasOwn(queueConfigs, id) ? queueConfigs[id] : undefined;
+    return [
+      {
+        mode: item.mode,
+        content: item.content as unknown,
+        id,
+        ...(sendConfig !== undefined ? { sendConfig } : {}),
+      } as const,
+    ];
+  });
 
 /**
  * The submission id for a message re-queued by a stop — or by a reorder, which passes its own token
@@ -89,6 +103,14 @@ export const parkInputs = async (
     // Table reads must precede the commit's first table write, so resolve every request id and the
     // inbox up front. `tx.doc()` is not a table read, but keep it with the rest for clarity.
     const items = (await tx.doc(InboxDoc, conversationId)).items;
+    const queueConfig = await tx.doc(QueueConfigDoc, conversationId);
+    const savedConfigs = parked.map((item) =>
+      item.sendConfig !== undefined
+        ? item.sendConfig
+        : Object.hasOwn(queueConfig.items, item.id)
+          ? queueConfig.items[item.id]
+          : undefined
+    );
     const existing = await Promise.all(
       parked.map((item) =>
         tx.submissionByRequest(
@@ -99,7 +121,11 @@ export const parkInputs = async (
     );
     let kept = 0;
     for (const [index, item] of parked.entries()) {
+      const cfg = savedConfigs[index];
       if (existing[index] !== undefined) {
+        const existingId = String(existing[index].id);
+        if (existingId !== item.id) delete queueConfig.items[item.id];
+        if (cfg !== undefined) queueConfig.items[existingId] = cfg;
         kept += 1;
         continue;
       }
@@ -109,6 +135,10 @@ export const parkInputs = async (
         type: "input",
         status: "queued",
       });
+      delete queueConfig.items[item.id];
+      if (cfg !== undefined) {
+        queueConfig.items[String(created.id)] = cfg;
+      }
       items.push({ id: created.id, mode: item.mode, content: item.content as JsonValue } as InboxItem);
       kept += 1;
     }

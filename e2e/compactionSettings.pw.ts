@@ -90,11 +90,11 @@ test('compaction outcome needs a new landed summary; progress and a no-op never 
     const mount = document.createElement('div'); document.body.replaceChildren(mount);
     const root = (client.createRoot ?? client.default.createRoot)(mount);
     (window as TestWindow).renderCompactionStatus = (session: Partial<Session>) => root.render((react.createElement ?? react.default.createElement)(Component, { session, host: 'Tower', onCompact: () => {} }));
-    (window as TestWindow).renderCompactionStatus({});
+    (window as TestWindow).renderCompactionStatus({ contextCompaction: { entryId: 42, reason: 'manual' } });
   });
   await expect(page.getByRole('status')).toHaveCount(0);
   await page.evaluate(() => (window as TestWindow).renderCompactionStatus({ contextCompaction: { entryId: 42, reason: 'manual' }, currentContextEpoch: '42', currentContextTokens: 5000 }));
-  await expect(page.getByRole('status')).toHaveCount(0); // first anchored receipt is historical hydration
+  await expect(page.getByRole('status')).toHaveCount(0); // historical mount receipt stays suppressed on hydration
   await page.evaluate(() => (window as TestWindow).renderCompactionStatus({ compacting: true, contextCompaction: { entryId: 42, reason: 'manual' }, currentContextEpoch: '42', currentContextTokens: 5000 }));
   await expect(page.getByRole('status')).toContainText('Tower is compacting');
   await page.evaluate(() => (window as TestWindow).renderCompactionStatus({ contextCompaction: { entryId: 42, reason: 'manual' } }));

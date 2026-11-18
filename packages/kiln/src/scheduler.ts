@@ -150,6 +150,132 @@ export const isDue = (task: ScheduledTask, now: number): boolean => {
   return occurrence !== undefined && occurrence > (task.lastRunAt ?? 0);
 };
 
+/**
+ * The next wall-clock instant at which `schedule` will fire strictly after `now`, computed in
+ * `schedule.timezone ?? hostTimezone`, or `undefined` when none remains (or the zone is invalid).
+ */
+export const nextOccurrence = (
+  schedule: ScheduleSpec,
+  now: number,
+  hostTimezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+): number | undefined => {
+  if (schedule.kind === "once") return schedule.at > now ? schedule.at : undefined;
+  const parsed = parseHhMm(schedule.time);
+  if (!parsed) return undefined;
+  const timeZone = schedule.timezone || hostTimezone;
+  try {
+    const today = wallClock(now, timeZone);
+    if (schedule.kind === "daily") {
+      const todayAt = wallClockToEpoch(today.year, today.month, today.day, parsed.hour, parsed.minute, timeZone);
+      if (todayAt > now) return todayAt;
+      const tomorrow = new Date(Date.UTC(today.year, today.month - 1, today.day + 1));
+      return wallClockToEpoch(
+        tomorrow.getUTCFullYear(),
+        tomorrow.getUTCMonth() + 1,
+        tomorrow.getUTCDate(),
+        parsed.hour,
+        parsed.minute,
+        timeZone
+      );
+    }
+    for (let ahead = 0; ahead <= 7; ahead += 1) {
+      const weekday = (today.weekday + ahead) % 7;
+      if (!schedule.weekdays.includes(weekday)) continue;
+      const candidate = new Date(Date.UTC(today.year, today.month - 1, today.day + ahead));
+      const at = wallClockToEpoch(
+        candidate.getUTCFullYear(),
+        candidate.getUTCMonth() + 1,
+        candidate.getUTCDate(),
+        parsed.hour,
+        parsed.minute,
+        timeZone
+      );
+      if (at > now) return at;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+};
+
+const unwrapProviderError = (raw: string): string => {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const statusMatch = /^(\d{3})\s*[:\-–—]\s*([\s\S]+)$/.exec(trimmed);
+  const prefix = statusMatch ? `${statusMatch[1]}: ` : "";
+  const body = (statusMatch ? statusMatch[2] : trimmed).trim();
+  if (body.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+      const inner =
+        parsed.error && typeof parsed.error === "object"
+          ? (parsed.error as Record<string, unknown>)
+          : parsed;
+      if (typeof inner.message === "string" && inner.message.trim()) {
+        return `${prefix}${inner.message.trim()}`.slice(0, 500);
+      }
+    } catch {
+      // Plain text that started with `{`; keep the raw text.
+    }
+  }
+  return trimmed.slice(0, 500);
+};
+
+/**
+ * Human-facing error text for a `LiveDoc.runFailure` on a scheduled session, or `undefined` when
+ * the run ended through an explicit stop/reset rather than a turn failure.
+ */
+export const describeScheduledRunFailure = (
+  failure: { readonly reason: string; readonly detail?: string } | undefined
+): string | undefined => {
+  if (!failure) return undefined;
+  if (failure.reason === "reset") return undefined;
+  if (failure.reason === "aborted" && !failure.detail?.trim()) return undefined;
+  const detail = failure.detail ? unwrapProviderError(failure.detail) : "";
+  switch (failure.reason) {
+    case "turn_limit":
+      return detail
+        ? `Kiln stopped after reaching the turn limit (${detail}).`
+        : "Kiln stopped after reaching the turn limit.";
+    case "orphaned":
+      return "Kiln could not resume this scheduled run. Run the task again from Scheduled.";
+    case "nothing_to_answer":
+      return detail || "Kiln had nothing to answer in this scheduled session.";
+    case "no_model":
+      return detail || "Kiln has no available model configured for this scheduled task.";
+    case "interrupted":
+    case "restart_limit":
+      return detail || "Kiln was interrupted before finishing this scheduled run.";
+    case "model_error":
+    case "faulted":
+    case "aborted":
+    default:
+      return detail || "Kiln's model turn failed before producing an answer.";
+  }
+};
+
+const sessionRunFailureOf = async (
+  harness: Pick<Harness, "snapshot">,
+  task: ScheduledTask,
+  context: Context
+): Promise<string | undefined> => {
+  if (task.lastSessionId === undefined) return undefined;
+  const live = await harness.snapshot(LiveDoc, task.lastSessionId as ConversationId, context);
+  if (!live || live.run) return undefined;
+  return describeScheduledRunFailure(live.runFailure);
+};
+
+const reconcileTaskRunFailure = async (
+  harness: Pick<Harness, "snapshot">,
+  task: ScheduledTask,
+  context: Context
+): Promise<ScheduledTask> => {
+  if (task.lastStatus === "error" && task.lastError) return task;
+  const failure = await sessionRunFailureOf(harness, task, context);
+  if (failure === undefined) return task;
+  return { ...task, lastStatus: "error", lastError: failure };
+};
+
 // ---- Running --------------------------------------------------------------------------
 
 export type RunOutcome = {
@@ -253,7 +379,7 @@ export const runTask = async (
 const recordOutcome = async (
   harness: TaskRunner, id: string, occurrence: number, outcome: RunOutcome, context: Context
 ): Promise<void> => {
-  if (outcome.refused) return;
+  if (outcome.status === "ok" || outcome.refused) return;
   await harness.commit(async (tx) => {
     const doc = await tx.doc(SchedulerDoc);
     const task = doc.tasks.find((entry) => entry.id === id);
@@ -263,12 +389,66 @@ const recordOutcome = async (
     // Creation may have committed before its caller saw an error. Keep that durable
     // admission for recovery rather than abandoning it and starting another session.
     if (outcome.sessionId === undefined && task.pendingRun) return;
-    task.lastRunAt = task.pendingRun?.occurrence ?? occurrence;
-    task.lastStatus = outcome.status;
-    if (outcome.sessionId !== undefined) task.lastSessionId = outcome.sessionId;
+    const pendingOccurrence = task.pendingRun?.occurrence ?? occurrence;
+    task.lastStatus = "error";
     if (outcome.error) task.lastError = outcome.error;
     else delete task.lastError;
+    if (outcome.sessionId !== undefined) {
+      const submitted =
+        typeof tx.submissionByRequest === "function"
+          ? await tx.submissionByRequest(outcome.sessionId as ConversationId, `${task.id}:${pendingOccurrence}`)
+          : undefined;
+      if (submitted) {
+        task.lastRunAt = pendingOccurrence;
+        task.lastSessionId = outcome.sessionId;
+        task.lastStatus = "ok";
+        delete task.lastError;
+      } else {
+        const keepIds = new Set(
+          [task.conversationId, task.lastSessionId].filter((sid): sid is number => sid !== undefined)
+        );
+        if (!keepIds.has(outcome.sessionId)) {
+          const remaining = (task.runSessionIds ?? []).filter((sid) => sid !== outcome.sessionId);
+          if (remaining.length > 0) task.runSessionIds = remaining;
+          else delete task.runSessionIds;
+        }
+        const exists =
+          typeof tx.conversation === "function"
+            ? Boolean(await tx.conversation(outcome.sessionId as ConversationId))
+            : true;
+        if (exists) {
+          (await tx.doc(MetaDoc, outcome.sessionId as ConversationId)).archived ??= Date.now();
+        }
+      }
+    }
     delete task.pendingRun;
+  }, context);
+};
+
+const reconcileSchedulerFailures = async (
+  harness: Pick<Harness, "snapshot" | "commit">,
+  tasks: readonly ScheduledTask[],
+  context: Context
+): Promise<void> => {
+  const failures: Array<{ id: string; sessionId: number; error: string }> = [];
+  for (const task of tasks) {
+    if (task.lastSessionId === undefined || (task.lastStatus === "error" && task.lastError)) continue;
+    const error = await sessionRunFailureOf(harness, task, context);
+    if (error !== undefined) failures.push({ id: task.id, sessionId: task.lastSessionId, error });
+  }
+  if (failures.length === 0) return;
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(SchedulerDoc);
+    for (const { id, sessionId, error } of failures) {
+      const stored = doc.tasks.find((entry) => entry.id === id);
+      if (!stored || stored.lastSessionId !== sessionId) continue;
+      if (stored.lastStatus === "error" && stored.lastError) continue;
+      const live = await tx.doc(LiveDoc, sessionId as ConversationId);
+      const currentError = live.run ? undefined : describeScheduledRunFailure(live.runFailure);
+      if (currentError === undefined) continue;
+      stored.lastStatus = "error";
+      stored.lastError = currentError || error;
+    }
   }, context);
 };
 
@@ -276,6 +456,7 @@ const recordOutcome = async (
 export const tick = async (harness: Harness, context: Context = BACKGROUND_CONTEXT): Promise<number> => {
   const snapshot = await harness.snapshot(SchedulerDoc, context);
   if (!snapshot || snapshot.tasks.length === 0) return 0;
+  await reconcileSchedulerFailures(harness, snapshot.tasks, context);
   const now = Date.now();
   let ran = 0;
   for (const task of snapshot.tasks) {
@@ -290,7 +471,7 @@ export const tick = async (harness: Harness, context: Context = BACKGROUND_CONTE
     if (occurrence === undefined) continue;
     const outcome = await runTask(harness, task, occurrence, context);
     await recordOutcome(harness, task.id, occurrence, outcome, context);
-    if (!outcome.refused) ran += 1;
+    if (outcome.status === "ok") ran += 1;
   }
   return ran;
 };
@@ -327,7 +508,11 @@ export const startScheduler = (
 export const listScheduledTasks = async (
   harness: Pick<Harness, "snapshot">,
   context: Context = BACKGROUND_CONTEXT
-): Promise<SchedulerState> => (await harness.snapshot(SchedulerDoc, context)) ?? { tasks: [], sequence: 0 };
+): Promise<SchedulerState> => {
+  const state = (await harness.snapshot(SchedulerDoc, context)) ?? { tasks: [], sequence: 0 };
+  const tasks = await Promise.all(state.tasks.map((task) => reconcileTaskRunFailure(harness, task, context)));
+  return { ...state, tasks };
+};
 
 export type ScheduledTaskInput = Omit<ScheduledTask, "id" | "createdAt">;
 

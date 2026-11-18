@@ -5,19 +5,17 @@ type Run = { mode: Mode; task: () => Promise<void> };
 type Waiting = {
   /** The run to start next, and the mode it will be admitted as. */
   run: Run;
-  /** The promise every caller that queued this run awaits. */
+  /** The promise every caller that queued this run awaits; settles with that run's own outcome. */
   join: Promise<void>;
-  /** The same promise, for callers that joined the running read as a tail. */
+  /** Links `join` to the queued flight's caller promise once that flight starts. */
+  settle: (outcome: Promise<void>) => void;
+  /** For joiners whose mode the running read already covers, waiting only for the queue to clear. */
   tailJoin?: Promise<void>;
 };
 
 type Flight = {
   /** The mode the run in progress was admitted as. */
   mode: Mode;
-  /** Settles when the run in progress settles; never rejects (a failed read must not wedge a key). */
-  promise: Promise<void>;
-  /** The run in progress plus whatever ends up queued behind it; what a joining caller awaits. */
-  settled: Promise<void>;
   /** The promise the caller that started the run in progress holds (it does reject). */
   caller: Promise<void>;
   /** The one run waiting behind the run in progress. */
@@ -39,8 +37,9 @@ type Flight = {
  * a tail, a waiting full stays a full.
  *
  * Only one run ever waits, its mode only ever strengthens (a `full` asked for while the flight was
- * up is never lost to a later tail), and its task is replaced only by another `full`: every caller's
- * task commits the same transcript, so among equals the newest one is the one worth running.
+ * up is never lost to a later tail), and its task is replaced unless a `tail` meets a waiting
+ * `full`: every caller's task commits the same transcript, so among equals the newest one is the
+ * one worth running.
  */
 export class ReadCoordinator {
   private flights = new Map<string, Flight>();
@@ -49,73 +48,63 @@ export class ReadCoordinator {
     const existing = this.flights.get(key);
     if (!existing) return this.begin(key, mode, task).caller;
 
-    if (!afterCurrent && (mode === 'tail' || existing.mode === 'full')) {
+    if (!afterCurrent && (mode === 'tail' || existing.mode === 'full' || existing.next?.run.mode === 'full')) {
       // Joiners share the running read's own promise, so callers that asked for the same read wait
       // on the same thing; a caller that joined the tail a repair was queued behind waits for the
       // repair too — "the history is current" is what both asked for.
       if (!existing.next) return existing.caller;
-      return mode === 'tail' ? (existing.next.tailJoin ??= existing.next.join) : existing.next.join;
+      return mode === 'full' && existing.next.run.mode === 'full'
+        ? existing.next.join
+        : (existing.next.tailJoin ??= existing.next.join.catch(() => existing.caller));
     }
 
     const waiting = existing.next;
     if (waiting) {
       // The newest task wins the slot, and a mode only ever strengthens: a `full` upgrades a queued
-      // tail, and a tail can never weaken a queued full.
-      if (mode === 'full' && waiting.run.mode !== 'full') waiting.run = { mode: 'full', task };
+      // tail, a newer `full` replaces an older queued `full`, and a tail never weakens a queued full.
+      if (mode === 'full' || waiting.run.mode === 'tail') waiting.run = { mode, task };
       return waiting.join;
     }
 
-    const slot: Waiting = { run: { mode, task }, join: Promise.resolve() };
-    existing.next = slot;
-    slot.join = existing.settled.then(() => {
-      // Whatever is queued when the running read finishes is what starts; this is the newest of it,
-      // unless a later `full` replaced it. Its rejection is not this caller's to observe: a queued
-      // refresh that fails must not throw into whoever happened to be waiting on the slot.
-      return this.startQueued(key, existing).catch(() => {});
+    let settle!: (outcome: Promise<void>) => void;
+    const join = new Promise<void>((resolve, reject) => {
+      settle = (outcome) => {
+        outcome.then(resolve, reject);
+      };
     });
+    const slot: Waiting = { run: { mode, task }, join, settle };
+    existing.next = slot;
     return slot.join;
   }
 
   /** Start one run; its caller sees the run's own outcome. */
   private begin(key: string, mode: Mode, task: () => Promise<void>): Flight {
-    const flight = {
+    const flight: Flight = {
       mode,
-      promise: Promise.resolve(),
-      settled: Promise.resolve(),
       caller: Promise.resolve(),
-    } as Flight;
+    };
     this.flights.set(key, flight);
     const outcome = Promise.resolve().then(task);
     flight.caller = outcome;
-    flight.promise = outcome
-      .catch(() => {})
-      .finally(() => {
-        // The run is over: whoever stayed on this flight (a joiner) sees the key free once the
-        // follow-up below, if any, has started as the key's new owner.
-        void this.startQueued(key, flight).catch(() => {});
-      });
-    // A joining caller waits for the drain too: when this settles, whatever was queued behind the
-    // run has started (and the queued caller's own promise covers it finishing).
-    flight.settled = flight.promise.then(() => undefined);
+    // Registered before returning `caller` so the key is handed over (or freed) before any
+    // caller resuming from `await` can inspect or re-enter `this.flights`, even on rejection.
+    const advance = () => {
+      this.startQueued(key, flight);
+    };
+    outcome.then(advance, advance);
     return flight;
   }
 
-  /** Start the run queued behind `flight`, taking the key over; a no-op when nothing is queued. */
-  private startQueued(key: string, flight: Flight): Promise<void> {
-    // A successor may already have taken over (it releases this flight's entry before installing its
-    // own), in which case there is nothing left for this call to do.
-    if (this.flights.get(key) !== flight) return Promise.resolve();
+  /** Start the run queued behind `flight`, taking the key over; releases the key when nothing waits. */
+  private startQueued(key: string, flight: Flight): void {
+    if (this.flights.get(key) !== flight) return;
     const next = flight.next;
-    if (!next) {
-      this.release(key, flight);
-      return Promise.resolve();
-    }
     flight.next = undefined;
-    this.release(key, flight);
-    return this.begin(key, next.run.mode, next.run.task).promise;
-  }
-
-  private release(key: string, flight: Flight): void {
-    if (this.flights.get(key) === flight) this.flights.delete(key);
+    if (!next) {
+      this.flights.delete(key);
+      return;
+    }
+    const successor = this.begin(key, next.run.mode, next.run.task);
+    next.settle(successor.caller);
   }
 }

@@ -20,6 +20,7 @@ import { portablePeer } from "./alignment";
 import { ApprovalsDoc } from "./approvals";
 import { QuestionsDoc } from "./ask";
 import { MetaDoc } from "./meta";
+import { settleStopStateOnInputInTx } from "./stopQueueHandoff";
 import {
   submitCrewMessage,
   findCrewTarget,
@@ -147,6 +148,34 @@ export const registerAgent = async (tx: Tx, name: string, entry: AgentEntry): Pr
   if (Object.hasOwn(doc.entries, name)) throw new DuplicateAgentError(name);
   doc.entries[name] = entry;
   return entry;
+};
+
+/**
+ * Register a promoted peer's local name while retiring the source worker's unpinned auto-registration.
+ *
+ * `session spawn` registers every worker under its title so running threads appear in the directory.
+ * Promoting that worker with its default title reclaims the entry for the new peer fork, and
+ * promoting it under another name removes any unpinned alias still pointing at the hidden worker.
+ */
+export const promoteAgent = async (
+  tx: Tx,
+  workerConversationId: number,
+  name: string,
+  entry: AgentEntry
+): Promise<AgentEntry> => {
+  const doc = await tx.doc(AgentsDoc);
+  if (Object.hasOwn(doc.entries, name) && doc.entries[name]?.conversationId !== workerConversationId) {
+    throw new DuplicateAgentError(name);
+  }
+  if (doc.entries[name]?.conversationId === workerConversationId) {
+    delete doc.entries[name];
+  }
+  for (const [alias, existing] of Object.entries(doc.entries)) {
+    if (existing.conversationId === workerConversationId && !existing.pinned) {
+      delete doc.entries[alias];
+    }
+  }
+  return registerAgent(tx, name, entry);
 };
 
 /**
@@ -818,15 +847,27 @@ export const createAgentsTool = (home: string, send: typeof fetch = fetch) =>
             `Agent ${name} is gone (conversation ${found.conversationId}); ask a human to register a replacement.`
           );
         }
-        await handle.submit(
-          {
-            type: "input",
-            content: message,
-            whenBusy: followUp === true ? "followUp" : "steer",
-            requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
-          },
-          context
-        );
+        const targetId = found.conversationId as ConversationId;
+        const draft = {
+          type: "input" as const,
+          content: message,
+          whenBusy: followUp === true ? ("followUp" as const) : ("steer" as const),
+          requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
+        };
+        await api.commit(async (tx) => {
+          const prior = await tx.submissionByRequest(targetId, draft.requestId);
+          const liveBefore = await tx.doc(LiveDoc, targetId);
+          const wasBusy = liveBefore.run !== undefined;
+          const wasFailed = Boolean(liveBefore.runFailure);
+          const submissionId = await handle.submit(tx, draft);
+          if (!prior) {
+            await settleStopStateOnInputInTx(tx, targetId, {
+              submissionId,
+              wasBusy,
+              wasFailed,
+            });
+          }
+        }, context);
         await chargeBudget();
         return reply(`Sent to ${name}.`, found.conversationId);
       }
@@ -852,15 +893,26 @@ export const createAgentsTool = (home: string, send: typeof fetch = fetch) =>
         const match = byTitle[0];
         const handle = await api.conversation(match.id, context);
         if (handle) {
-          await handle.submit(
-            {
-              type: "input",
-              content: message,
-              whenBusy: followUp === true ? "followUp" : "steer",
-              requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
-            },
-            context
-          );
+          const draft = {
+            type: "input" as const,
+            content: message,
+            whenBusy: followUp === true ? ("followUp" as const) : ("steer" as const),
+            requestId: agentMessageRequestId(api.conversationId, trimmedName, api.taskId),
+          };
+          await api.commit(async (tx) => {
+            const prior = await tx.submissionByRequest(match.id, draft.requestId);
+            const liveBefore = await tx.doc(LiveDoc, match.id);
+            const wasBusy = liveBefore.run !== undefined;
+            const wasFailed = Boolean(liveBefore.runFailure);
+            const submissionId = await handle.submit(tx, draft);
+            if (!prior) {
+              await settleStopStateOnInputInTx(tx, match.id, {
+                submissionId,
+                wasBusy,
+                wasFailed,
+              });
+            }
+          }, context);
           await chargeBudget();
           return reply(`Sent to ${match.title}.`, match.id as number);
         }
