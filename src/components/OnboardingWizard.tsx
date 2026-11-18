@@ -34,7 +34,7 @@ type Props = {
   projectUsageByInstance?: Record<string, ProjectUsage[]>;
   instanceDefaults: Record<string, InstanceDefaults>;
   models: ModelOption[];
-  onRefreshModels: (instanceId: string) => void;
+  onRefreshModels: (instanceId: string, options?: { upstream?: boolean; providers?: readonly string[] }) => void;
   /** The sentence from `localHarnessNotice` when the local host did not start. */
   localProblem: string | null;
   instances: Instance[];
@@ -557,7 +557,7 @@ function Providers({
   instances: Instance[];
   onChange: (patch: EmberSettingsPatch) => void;
   onRefreshInstances: () => void;
-  onRefreshModels: (instanceId: string) => void;
+  onRefreshModels: (instanceId: string, options?: { upstream?: boolean; providers?: readonly string[] }) => void;
   onProviderCatalog: (id: string, providers: PiProviderInfo[]) => void;
   providersReady: boolean;
 }) {
@@ -585,7 +585,7 @@ function Providers({
         onProviderCatalog={onProviderCatalog}
         endpoints={endpoints}
         instances={instances}
-        onProviderChange={(id) => { onRefreshInstances(); onRefreshModels(id); }}
+        onProviderChange={(id, options) => { onRefreshInstances(); onRefreshModels(id, options); }}
         instanceDefaults={instanceDefaults}
         onDefaultChange={(id, model) => onChange({ instanceDefaults: { ...instanceDefaults, [id]: { ...instanceDefaults[id], model, variant: model?.variant } } })}
         {...(state.targetInstanceId ? { initialEndpointId: state.targetInstanceId } : {})}

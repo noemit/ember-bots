@@ -1097,15 +1097,39 @@ export const piPromoteSession = async (
 
 // ---- Models ---------------------------------------------------------------------------
 
+const parsePiModelsPayload = (data: { models?: PiModel[]; default?: { provider: string; modelId: string } }): ModelList => {
+  const models = Array.isArray(data.models) ? data.models : [];
+  const mapped = piModelsToModelList(models, data.default);
+  return { models: mapped.models, defaultModelId: mapped.defaultModelId };
+};
+
 export const piLoadModels = async (endpointId: string): Promise<ModelList | null> => {
   const response = await request<{ models?: PiModel[]; default?: { provider: string; modelId: string } }>(
     endpointId,
     '/models'
   );
   if (!response.ok) return null;
-  const models = Array.isArray(response.data.models) ? response.data.models : [];
-  const mapped = piModelsToModelList(models, response.data.default);
-  return { models: mapped.models, defaultModelId: mapped.defaultModelId };
+  return parsePiModelsPayload(response.data);
+};
+
+/**
+ * Ask Kiln to refresh every connected provider's live catalog upstream (`POST /models/refresh`)
+ * and return the updated list. Older Kilns without `/models/refresh` fall back to `GET /models`.
+ */
+export const piRefreshModels = async (
+  endpointId: string,
+  providers?: readonly string[]
+): Promise<ModelList | null> => {
+  const response = await request<{ models?: PiModel[]; default?: { provider: string; modelId: string } }>(
+    endpointId,
+    '/models/refresh',
+    { method: 'POST', body: providers && providers.length > 0 ? { providers } : {} }
+  );
+  if (response.status === 404 || response.status === 405) {
+    return piLoadModels(endpointId);
+  }
+  if (!response.ok) return null;
+  return parsePiModelsPayload(response.data);
 };
 
 // ---- Approvals + questions ------------------------------------------------------------

@@ -19,6 +19,7 @@ import {
   piLoadMessages,
   piLoadMessageTail,
   piLoadModels,
+  piRefreshModels,
   piLoadSessionInstructions,
   piLoadPermissions,
   piLoadQuestions,
@@ -1676,6 +1677,20 @@ export const loadModels = async (instanceId: string): Promise<ModelList | null> 
     if (providerID && id) parsed.defaultModelId = `${providerID}/${id}`;
   }
   return parsed;
+};
+
+/**
+ * Force an upstream provider catalog refresh on the target instance (for Kiln, `POST /models/refresh`;
+ * for OpenChamber, re-reads `/api/model`).
+ */
+export const refreshInstanceModels = async (
+  instanceId: string,
+  providers?: readonly string[]
+): Promise<ModelList | null> => {
+  if (isPiInstance(instanceId)) {
+    return piRefreshModels(instanceId, providers);
+  }
+  return loadModels(instanceId);
 };
 
 const optionalNumber = (value: unknown): number | undefined =>

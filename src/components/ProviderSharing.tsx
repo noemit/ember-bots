@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
-import { parseSharingProviders, selectedTargets, selectionKey, sharingBlock, sharingHostMessage, experimentalSignIn, destinationProviders, sameDefinition, type SharingHost, type ConfigIdentity } from '../lib/providerSharing';
+import { parseSharingProviders, refreshOptionsForSharedTarget, selectedTargets, selectionKey, sharingBlock, sharingHostMessage, experimentalSignIn, destinationProviders, sameDefinition, type ModelRefreshOptions, type SharingHost, type ConfigIdentity } from '../lib/providerSharing';
 import type { Instance, PiEndpoint } from '../types';
 
 export type ProviderSharingProps = {
   endpoints: PiEndpoint[];
   instances: Instance[];
-  onProviderChange?: (id: string) => void;
+  onProviderChange?: (id: string, options?: ModelRefreshOptions) => Promise<unknown> | void;
 };
 
 function ConfigReview({ config, label }: { config: ConfigIdentity; label: string }) {
@@ -74,8 +74,8 @@ export default function ProviderSharing({ endpoints, instances, onProviderChange
       const summaries = targets.map(target => {
         const result = results.find(row => row.id === target.id);
         if (result?.ok && typeof result.keys === 'number' && Number.isFinite(result.keys)) {
-          onProviderChange?.(target.id);
           const added = Math.max(0, result.keys);
+          void onProviderChange?.(target.id, refreshOptionsForSharedTarget(target, added));
           return `${target.label}: ${added} ${added === 1 ? 'credential' : 'credentials'} added.`;
         }
         return `${target.label} could not finish. Check its connection and update Kiln if needed, then compare again.`;

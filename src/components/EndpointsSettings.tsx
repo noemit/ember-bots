@@ -4,6 +4,7 @@ import InstanceAlignment from './InstanceAlignment';
 import EndpointForm from './EndpointForm';
 import { Button } from '@/components/ui/button';
 import { endpointError, endpointTestCopy, removeEndpoint, upsertEndpoint, type EndpointDraft } from '@/lib/endpoints';
+import type { ModelRefreshOptions } from '@/lib/providerSharing';
 import type { EmberSettingsPatch, Instance, PiEndpoint } from '../types';
 
 type Props = {
@@ -11,10 +12,11 @@ type Props = {
   instances: Instance[];
   onChange: (patch: EmberSettingsPatch) => void;
   onRefreshInstances?: () => void;
+  onRefreshModels?: (endpointId: string, options?: ModelRefreshOptions) => Promise<unknown> | void;
 };
 const empty: EndpointDraft = { label: '', url: '', token: '' };
 
-export default function EndpointsSettings({ endpoints, instances, onChange, onRefreshInstances }: Props) {
+export default function EndpointsSettings({ endpoints, instances, onChange, onRefreshInstances, onRefreshModels }: Props) {
   const [location, setLocation] = React.useState<'local' | 'remote'>('local');
   const [draft, setDraft] = React.useState<EndpointDraft>(empty);
   const [editing, setEditing] = React.useState<string | null>(null);
@@ -77,6 +79,6 @@ export default function EndpointsSettings({ endpoints, instances, onChange, onRe
         </div><p className="mt-1 break-all text-muted-foreground">{endpoint.url}</p>{results[endpoint.id] && <p className="mt-2" role="status">{results[endpoint.id]}</p>}
       </div>)}
     </section>}
-    <InstanceAlignment instances={instances} endpoints={endpoints} onSave={commit} />
+    <InstanceAlignment instances={instances} endpoints={endpoints} onSave={commit} onProviderChange={onRefreshModels} />
   </div>;
 }

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { parseSharingProviders, selectedTargets, selectionKey, sharingBlock, sharingHostMessage, sameConfig, sameDefinition, type SharingHost, type SharingProvider } from '../src/lib/providerSharing';
+import { parseSharingProviders, refreshOptionsForSharedTarget, selectedTargets, selectionKey, sharingBlock, sharingHostMessage, sameConfig, sameDefinition, type SharingHost, type SharingProvider } from '../src/lib/providerSharing';
 
 const provider = (providerId = 'any-new-provider', overrides: Partial<SharingProvider> = {}): SharingProvider => ({ providerId, type: 'api_key', source: 'stored', hasCredential: true, shareable: true, ...overrides });
 const host = (id: string, providers: SharingProvider[] = [], overrides: Partial<SharingHost> = {}): SharingHost => ({ endpoint: { id, label: id, url: `https://${id}.example.com`, token: 'synthetic-connection-token' }, state: 'ready', providers, ...overrides });
@@ -74,4 +74,43 @@ test('recovery copy names the host, explains state and offers comparison after r
     expect(copy).toContain('compare again');
     expect(copy).not.toMatch(/undefined|null|HTTP|\b404\b|Something went wrong|!/);
   }
+});
+
+test('post-share model refresh scopes upstream catalog discovery to newly added built-in API keys', () => {
+  const customSelection = {
+    providerId: binding.id,
+    type: 'api_key' as const,
+    configIdentity: binding,
+    destinationConfigIdentity: { ...binding, id: 'custom-dest-id' },
+  };
+  const oauthSelection = { providerId: 'openai-codex', type: 'oauth' as const, experimental: true as const };
+
+  expect(
+    refreshOptionsForSharedTarget(
+      {
+        providers: [
+          { providerId: 'deepinfra', type: 'api_key' },
+          { providerId: 'fireworks-ai', type: 'api_key' },
+          customSelection,
+          oauthSelection,
+        ],
+      },
+      4
+    )
+  ).toEqual({
+    upstream: true,
+    providers: ['deepinfra', 'fireworks'],
+  });
+
+  // OAuth-only or custom-only shares re-read GET /models without outbound provider/OAuth refresh.
+  expect(refreshOptionsForSharedTarget({ providers: [oauthSelection, customSelection] }, 2)).toEqual({
+    upstream: false,
+  });
+
+  // Fill-only no-ops (0 added) avoid upstream network calls.
+  expect(
+    refreshOptionsForSharedTarget({ providers: [{ providerId: 'openai', type: 'api_key' }] }, 0)
+  ).toEqual({
+    upstream: false,
+  });
 });

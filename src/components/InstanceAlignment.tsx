@@ -2,14 +2,20 @@ import * as React from 'react';
 import { ArrowRightLeft, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { mergeConnections, portableConnection, type AlignmentSummary } from '../lib/instanceAlignment';
+import type { ModelRefreshOptions } from '../lib/providerSharing';
 import type { Instance, PiEndpoint } from '../types';
 import ProviderSharing from './ProviderSharing';
 
-type Props = { instances: Instance[]; endpoints: PiEndpoint[]; onSave: (endpoints: PiEndpoint[]) => void };
+type Props = {
+  instances: Instance[];
+  endpoints: PiEndpoint[];
+  onSave: (endpoints: PiEndpoint[]) => void;
+  onProviderChange?: (endpointId: string, options?: ModelRefreshOptions) => Promise<unknown> | void;
+};
 type Review = { endpoint: PiEndpoint; summary: AlignmentSummary | null };
 
 /** One deliberate alignment. Secrets are neither previewed nor kept in component state. */
-export default function InstanceAlignment({ endpoints, instances, onSave }: Props) {
+export default function InstanceAlignment({ endpoints, instances, onSave, onProviderChange }: Props) {
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [review, setReview] = React.useState<Review[] | null>(null);
@@ -93,6 +99,6 @@ export default function InstanceAlignment({ endpoints, instances, onSave }: Prop
       </>}
     </div> : null}
     {notice ? <p role="status" className="mt-3 text-xs">{notice}</p> : null}
-    {open ? <div className="mt-3"><ProviderSharing endpoints={endpoints} instances={instances} /></div> : null}
+    {open ? <div className="mt-3"><ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={onProviderChange} /></div> : null}
   </section>;
 }

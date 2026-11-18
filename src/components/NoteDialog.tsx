@@ -22,7 +22,7 @@ type Props = {
   recentModels: string[];
   busy?: boolean;
   canSend?: boolean;
-  onModelsRefresh?: () => void;
+  onModelsRefresh?: () => Promise<unknown> | void;
   onSave: (text: string, model: NoteModelEdit) => void;
   onSend: (text: string, model: NoteModelEdit) => void;
   onClose: () => void;

@@ -81,7 +81,7 @@ type Props = {
    * refreshes the pickers straight away: a provider's models only appear once it has a credential,
    * and disappear when the credential is removed.
    */
-  onRefreshModels?: (endpointId: string) => void;
+  onRefreshModels?: (endpointId: string, options?: { upstream?: boolean; providers?: readonly string[] }) => Promise<unknown> | void;
   /** The host the Providers screen should open on, when it was opened *for* one. */
   providerEndpointId?: string;
 };
@@ -151,7 +151,8 @@ const InstanceDefaultsSettings = ({
   recentModelsByInstance,
   settings,
   onChange,
-}: Pick<Props, 'instances' | 'projectsByInstance' | 'projectUsageByInstance' | 'modelsByInstance' | 'recentModelsByInstance' | 'settings' | 'onChange'>) => {
+  onRefreshModels,
+}: Pick<Props, 'instances' | 'projectsByInstance' | 'projectUsageByInstance' | 'modelsByInstance' | 'recentModelsByInstance' | 'settings' | 'onChange' | 'onRefreshModels'>) => {
   const [editing, setEditing] = React.useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
 
@@ -433,6 +434,7 @@ const InstanceDefaultsSettings = ({
                   });
                 }}
                 onOpenChange={setModelPickerOpen}
+                onRefresh={onRefreshModels ? () => onRefreshModels(editing) : undefined}
               />
             </div>
           ) : null}
@@ -599,6 +601,7 @@ export default function SettingsPanel({
                     instances={instances}
                     onChange={onChange}
                     onRefreshInstances={onRefreshInstances}
+                    onRefreshModels={onRefreshModels}
                   />
                 </CardContent>
               </Card>
@@ -620,6 +623,7 @@ export default function SettingsPanel({
                     recentModelsByInstance={recentModelsByInstance}
                     settings={settings}
                     onChange={onChange}
+                    onRefreshModels={onRefreshModels}
                   />
                 </CardContent>
               </Card>

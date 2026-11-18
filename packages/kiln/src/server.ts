@@ -78,7 +78,7 @@ import {
   pruneSpawns,
   workerTitle,
 } from "./sessions";
-import { importOpenCodeCredentials, isCredential } from "./credentials";
+import { importOpenCodeCredentials, isCredential, normalizeProviderId } from "./credentials";
 import { createLoginSupervisor, loginSupport, unreachableQuestion, type LoginInput, type LoginProvider, type LoginState } from "./login";
 import {
   ApprovalsDoc,
@@ -114,7 +114,7 @@ import {
   updateScheduledTask,
 } from "./scheduler";
 import type { HearthConfig } from "./config";
-import type { HearthDefault } from "./models";
+import { ensureConditionalProviders, refreshLiveCatalog, type HearthDefault } from "./models";
 import type { LocalRuntimeProbe } from "./local-models";
 import { sendFrame } from "./stream";
 import { attachFrames, framesOf } from "./frames";
@@ -150,7 +150,7 @@ type Deps = {
    * The boot-time probe of the local runtimes (Ollama, LM Studio), reported by `GET /providers`.
    * Optional so a test can build a server without touching loopback.
    */
-  localRuntimes?: readonly LocalRuntimeProbe[];
+  localRuntimes?: LocalRuntimeProbe[];
   customProviders?: CustomProviders;
   ollamaSettings?: OllamaSettings;
   compactionSettings?: CompactionSettings;
@@ -809,17 +809,36 @@ export const startHearthServer = (deps: Deps): HearthServer => {
   const scan = deps.processes?.scan ?? scanLeftovers;
   const memory = deps.processes?.memory ?? hostMemory;
 
+  let refreshInFlight: Promise<{ errors: string[] }> | undefined;
+
+  const runLiveModelRefresh = (providers?: readonly string[], signal?: AbortSignal): Promise<{ errors: string[] }> => {
+    if (!providers && !signal && refreshInFlight) return refreshInFlight;
+    const run = refreshLiveCatalog({
+      models,
+      ...(store ? { store } : {}),
+      ...(deps.ollamaSettings ? { ollamaSettings: deps.ollamaSettings } : {}),
+      ...(localRuntimes ? { localRuntimes } : {}),
+      ...(providers ? { providers } : {}),
+      ...(signal ? { signal } : {}),
+    });
+    if (!providers && !signal) {
+      refreshInFlight = run.finally(() => {
+        if (refreshInFlight === run) refreshInFlight = undefined;
+      });
+      return refreshInFlight;
+    }
+    return run;
+  };
+
   /**
    * Refresh the model catalog in the background after a credential changes, so a provider that was
    * only added for that credential becomes offerable without a restart. A failure is logged and
    * dropped: the credential itself is already stored, and a slow provider must not fail the write.
    */
   const refreshModelCatalog = (reason: string): void => {
-    void models
-      .refresh()
+    void runLiveModelRefresh()
       .then((refresh) => {
-        const errors = [...refresh.errors.keys()];
-        if (errors.length > 0) console.error(`[hearth] model refresh after ${reason} failed for: ${errors.join(", ")}`);
+        if (refresh.errors.length > 0) console.error(`[hearth] model refresh after ${reason} failed for: ${refresh.errors.join(", ")}`);
       })
       .catch((error: unknown) => {
         console.error(
@@ -1088,6 +1107,7 @@ const ROUTE_METHODS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   [/^\/health$/, ["GET"]],
   [/^\/admin\/restart$/, ["POST"]],
   [/^\/models$/, ["GET"]],
+  [/^\/models\/refresh$/, ["POST"]],
   [/^\/usage$/, ["GET"]],
   [/^\/custom-providers$/, ["GET", "POST"]],
   [/^\/custom-providers\/discover$/, ["POST"]],
@@ -1439,7 +1459,7 @@ const server = Bun.serve<{
       }
 
       // ---- models + usage --------------------------------------------------------------
-      if (request.method === "GET" && path === "/models") {
+      const availableModelsResponse = async () => {
         // Only offer models whose provider has a usable credential; otherwise the picker
         // offers models that can never run (a generation would fail with an auth error).
         // Fall back to the full catalogue if auth resolution fails.
@@ -1448,6 +1468,22 @@ const server = Bun.serve<{
           models: available.map(model => model.provider.startsWith("custom-") ? { ...model, providerName: models.getProvider(model.provider)?.name ?? model.provider } : model),
           default: defaultAgent.model,
         });
+      };
+
+      if (request.method === "GET" && path === "/models") {
+        return await availableModelsResponse();
+      }
+      if (request.method === "POST" && path === "/models/refresh") {
+        const body = await readBody(request).catch((): Record<string, unknown> => ({}));
+        let providers: string[] | undefined;
+        if (body.providers !== undefined) {
+          if (!Array.isArray(body.providers) || body.providers.length > 50 || body.providers.some((id: unknown) => typeof id !== "string" || !id.trim())) {
+            return badRequest("providers must be a list of provider IDs.");
+          }
+          providers = [...new Set((body.providers as string[]).map((id) => normalizeProviderId(id.trim())))];
+        }
+        await runLiveModelRefresh(providers, AbortSignal.timeout(12_000));
+        return await availableModelsResponse();
       }
       if (request.method === "GET" && path === "/usage") {
         return json(await harness.usage(context));
@@ -1587,6 +1623,7 @@ const server = Bun.serve<{
           doc.peers = merged;
         }, context);
         writePeersMirror(config.home, merged);
+        if (keys > 0 && store) await ensureConditionalProviders(models, store);
         // Import only stores credentials. It must not trigger provider catalog requests or OAuth refresh.
         return json({ connections: added, keys });
       }

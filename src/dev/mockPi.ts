@@ -1317,7 +1317,7 @@ const piRequest = async (
   if (url.pathname.startsWith('/custom-providers/') && method === 'DELETE') {
     customProviders.set(endpointId, custom.filter(provider => provider.id !== url.pathname.split('/').at(-1))); return ok({ ok: true });
   }
-  if (url.pathname === '/models' && method === 'GET') {
+  if ((url.pathname === '/models' && method === 'GET') || (url.pathname === '/models/refresh' && method === 'POST')) {
     // A provider's models appear once its key is saved, the way Hearth's refresh does it: an
     // unkeyed provider contributes nothing to the picker.
     const keyed = (id: string) => providerCredentials.has(id);

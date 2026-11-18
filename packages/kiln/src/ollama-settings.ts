@@ -78,4 +78,17 @@ export class OllamaSettings {
     this.chain = next.catch(() => {});
     return next;
   }
+  /** Re-probe Ollama on model refresh without aborting in-flight turns when the address is unchanged. */
+  reprobe() {
+    const next = this.chain.then(async () => {
+      if (!this.models.getProvider('ollama')) return this.refresh();
+      const probe = await probeLocalRuntime('ollama', { baseUrl: this.address() });
+      const index = this.probes.findIndex(entry => entry.id === 'ollama');
+      if (index < 0) this.probes.push(probe); else this.probes[index] = probe;
+      if (!probe.hasModels || probe.problem) this.models.deleteProvider('ollama');
+      return this.state();
+    });
+    this.chain = next.catch(() => {});
+    return next;
+  }
 }

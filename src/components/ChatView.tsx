@@ -197,8 +197,8 @@ type Props = {
   onSetInstanceDefault?: (model: ModelOption) => void;
   /** `provider/model` keys the instance used most recently, newest first. */
   recentModels: string[];
-  /** Re-read this instance's model catalogue; called when the picker opens so new models appear without a relaunch. */
-  onModelsRefresh?: () => void;
+  /** Re-read this instance's model catalogue (`upstream: false` on open; `upstream: true` on manual Refresh). */
+  onModelsRefresh?: (options?: { upstream?: boolean }) => Promise<unknown> | void;
   sending: boolean;
   /** True while a stop was requested and the run hasn't reconciled yet. */
   stopping?: boolean;
@@ -763,7 +763,7 @@ function ChatView({
   const workerModelControls = (value: string, editor: boolean) => (
     <DelegatorModelChoices choices={delegatorChoices(value) ?? {}} models={models} recentModels={recentModels}
       instanceId={instructionInstanceId ?? undefined} instanceLabel={draftInstance?.label ?? instanceLabel}
-      onRefresh={onModelsRefresh}
+      onRefresh={onModelsRefresh ? () => onModelsRefresh({ upstream: true }) : undefined}
       onAddProviders={instructionInstanceId && onOpenProviders ? () => onOpenProviders(instructionInstanceId) : undefined}
       onChange={choices => {
         if (editor) editInstructions();
@@ -2310,7 +2310,7 @@ function ChatView({
                           defaultModelId={defaultModelId}
                           instanceDefaultModelId={instanceDefaultModelId}
                           onSetInstanceDefault={onSetInstanceDefault}
-                          onModelsRefresh={onModelsRefresh}
+                          onModelsRefresh={onModelsRefresh ? () => onModelsRefresh({ upstream: true }) : undefined}
                           onSendQueued={onSendQueued}
                           onMoveQueued={onMoveQueued}
                           onRemoveQueued={onRemoveQueued}
@@ -2343,7 +2343,7 @@ function ChatView({
                           defaultModelId={defaultModelId}
                           instanceDefaultModelId={instanceDefaultModelId}
                           recentModels={recentModels}
-                          onModelsRefresh={onModelsRefresh}
+                          onModelsRefresh={onModelsRefresh ? () => onModelsRefresh({ upstream: true }) : undefined}
                           onUpdate={(note, patch) => {
                             if (notesKey) onUpdateNote(notesKey, note.id, patch);
                           }}
@@ -2544,11 +2544,11 @@ function ChatView({
             ) : null}
             {modelError ? <div role="alert" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-destructive">
               <span className="min-w-0 break-words">{modelError} Your draft is kept.</span>
-              {onModelsRefresh ? <button type="button" className="underline" onClick={onModelsRefresh}>Refresh models</button> : null}
+              {onModelsRefresh ? <button type="button" className="underline" onClick={() => void onModelsRefresh({ upstream: true })}>Refresh models</button> : null}
             </div> : null}
             {noteError ? <div role="alert" data-note-model-error className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-destructive">
               <span className="min-w-0 break-words">{noteError}</span>
-              {onModelsRefresh ? <button type="button" className="underline" onClick={onModelsRefresh}>Refresh models</button> : null}
+              {onModelsRefresh ? <button type="button" className="underline" onClick={() => void onModelsRefresh({ upstream: true })}>Refresh models</button> : null}
               <button type="button" className="underline" onClick={() => setNoteError(null)}>Dismiss</button>
             </div> : null}
             {mentionOpen ? (
@@ -2804,7 +2804,7 @@ function ChatView({
                   if (creatingSession) return;
                   setPickerActivated(true);
                   setPickerOpen(true);
-                  onModelsRefresh?.();
+                  void onModelsRefresh?.({ upstream: false });
                 }}
                 aria-disabled={creatingSession}
                 aria-label={creatingSession ? `Model: ${modelButtonLabel} (fixed while the session starts)` : 'Choose model'}
@@ -2860,7 +2860,7 @@ function ChatView({
                       updateComposerChoices({ modelId: next, variant: nextVariant });
                     }}
                     onOpenChange={setPickerOpen}
-                    onRefresh={onModelsRefresh}
+                    onRefresh={onModelsRefresh ? () => onModelsRefresh({ upstream: true }) : undefined}
                     instanceLabel={instanceLabel ?? draftInstance?.label}
                     {...(onOpenProviders && (session?.instanceId ?? draftInstanceId)
                       ? {

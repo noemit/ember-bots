@@ -77,6 +77,7 @@ import {
   stopSessionProcesses,
   loadSessionStates,
   loadModels,
+  refreshInstanceModels,
   loadScheduledIdentityData,
   mergePolledSessions,
   rejectQuestion,
@@ -102,7 +103,7 @@ import {
   type ScheduledTask,
 } from './api';
 import { buildScheduledRuns, countUnseenScheduledRuns, scheduledReadSessions } from './lib/scheduledView';
-import { isPiInstance } from './piApi';
+import { isPiInstance, piLoadModels, piRefreshModels } from './piApi';
 import { emptyHomeTarget, newSessionTarget } from './lib/emptyHome';
 import { useStableCallback } from '@/lib/useStableCallback';
 import {
@@ -2163,11 +2164,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds; refs carry the rest
   }, [readyKey]);
 
-  const refreshModels = useStableCallback(async (instanceId: string) => {
-    const next = await loadModels(instanceId).catch(() => null);
-    if (next) setModelsByInstance((previous) => shareValue(previous, { ...previous, [instanceId]: next }));
-    else showActionError('Could not refresh models. Your model selection has not changed.');
-  });
+  const refreshModels = useStableCallback(
+    async (instanceId: string, options?: { upstream?: boolean; providers?: readonly string[] }) => {
+      const knownPi = isPiInstance(instanceId) || settings.piEndpoints.some((endpoint) => endpoint.id === instanceId);
+      const loader =
+        options?.upstream === false
+          ? () => (knownPi ? piLoadModels(instanceId) : loadModels(instanceId))
+          : () => (knownPi ? piRefreshModels(instanceId, options?.providers) : refreshInstanceModels(instanceId, options?.providers));
+      const next = await loader().catch(() => null);
+      if (next) setModelsByInstance((previous) => shareValue(previous, { ...previous, [instanceId]: next }));
+      else if (options?.upstream !== false) showActionError('Could not refresh models. Your model selection has not changed.');
+    }
+  );
 
   // ---- Refreshers: one per REST resource. Timers and event hints both call these. ----
   // Each takes the instance ids to refresh and merges the result into state, leaving other
@@ -5420,7 +5428,7 @@ export default function App() {
           asyncQuestions={questionsForSupervisor(session, questions)}
           threadQuestions={questionsFromThreads(threadDescendants(session, crewWorkers), questions.filter((request) => !isAsyncQuestion(request)))}
           models={models?.models ?? []}
-          onModelsRefresh={() => void refreshModels(ref.instanceId)}
+          onModelsRefresh={(options) => refreshModels(ref.instanceId, options)}
           defaultModelId={models?.defaultModelId ?? null}
           instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[ref.instanceId], models?.defaultModelId)}
           onSetInstanceDefault={(model) => setInstanceDefaultModel(ref.instanceId, model)}
@@ -5853,7 +5861,7 @@ export default function App() {
                   permissions={[]}
                   questions={[]}
                   models={selectedModels?.models ?? []}
-                  onModelsRefresh={() => { if (newSessionInstanceId) void refreshModels(newSessionInstanceId); }}
+                  onModelsRefresh={(options) => (newSessionInstanceId ? refreshModels(newSessionInstanceId, options) : undefined)}
                   defaultModelId={selectedModels?.defaultModelId ?? null}
                   instanceDefaultModelId={effectiveInstanceDefaultModel(modelInstanceId ? settings.instanceDefaults[modelInstanceId] : undefined, selectedModels?.defaultModelId)}
                   onSetInstanceDefault={modelInstanceId ? (model) => setInstanceDefaultModel(modelInstanceId, model) : undefined}
@@ -6052,7 +6060,7 @@ export default function App() {
                 }}
                 {...(providerEndpointId ? { providerEndpointId } : {})}
                 onRefreshInstances={() => void refreshInstances()}
-                onRefreshModels={(id) => void refreshModels(id)}
+                onRefreshModels={(id, options) => refreshModels(id, { upstream: true, ...options })}
               />
             </React.Suspense>
           ) : null}
@@ -6066,7 +6074,7 @@ export default function App() {
                 state={onboardingState}
                 projectUsageByInstance={projectUsageByInstance}
                 models={modelsByInstance[onboardingState.targetInstanceId ?? ""]?.models ?? []}
-                onRefreshModels={(id) => void refreshModels(id)}
+                onRefreshModels={(id, options) => void refreshModels(id, { upstream: true, ...options })}
                 localProblem={onboardingProblem}
                 instances={instances}
                 endpoints={settings.piEndpoints}
@@ -6146,6 +6154,7 @@ export default function App() {
                 instanceDefaultModelId={effectiveInstanceDefaultModel(settings.instanceDefaults[scheduledModelTarget.instanceId], modelsByInstance[scheduledModelTarget.instanceId]?.defaultModelId)}
                 onSetInstanceDefault={(model) => setInstanceDefaultModel(scheduledModelTarget.instanceId, model)}
                 collapseProviders
+                onRefresh={() => refreshModels(scheduledModelTarget.instanceId, { upstream: true })}
                 onSelect={(key, variant) => void handleScheduledModelSelect(scheduledModelTarget, key, variant)}
                 onOpenChange={(open) => {
                   if (!open) setScheduledModelTarget(null);
