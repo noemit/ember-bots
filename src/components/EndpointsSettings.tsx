@@ -6,26 +6,70 @@ import { Button } from '@/components/ui/button';
 import { endpointError, endpointTestCopy, removeEndpoint, upsertEndpoint, type EndpointDraft } from '@/lib/endpoints';
 import type { EmberSettingsPatch, Instance, PiEndpoint } from '../types';
 
-type Props = {
+export type EndpointsSettingsProps = {
   endpoints: PiEndpoint[];
   instances: Instance[];
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onRefreshInstances?: () => void;
+  initialRemovingId?: string | null;
 };
 const empty: EndpointDraft = { label: '', url: '', token: '' };
 
-export default function EndpointsSettings({ endpoints, instances, onChange, onRefreshInstances }: Props) {
-  const [location, setLocation] = React.useState<'local' | 'remote'>('local');
+export const BUILTIN_LOCAL_ENDPOINT_ID = 'pi:local';
+
+export const canRemoveEndpoint = (endpoint: Pick<PiEndpoint, 'id'>): boolean =>
+  endpoint.id !== BUILTIN_LOCAL_ENDPOINT_ID;
+
+export const initialEndpointLocation = (endpoints: readonly Pick<PiEndpoint, 'id'>[]): 'local' | 'remote' =>
+  endpoints.some((endpoint) => endpoint.id === BUILTIN_LOCAL_ENDPOINT_ID) ? 'remote' : 'local';
+
+export const commitEndpoints = (
+  next: PiEndpoint[],
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>,
+  onRefreshInstances?: () => void,
+): Promise<void> =>
+  Promise.resolve(onChange({ piEndpoints: next })).then(
+    () => {
+      onRefreshInstances?.();
+    },
+    () => undefined,
+  );
+
+export const confirmRemoveEndpoint = (
+  endpoints: PiEndpoint[],
+  removingId: string,
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>,
+  onRefreshInstances?: () => void,
+): { nextRemoving: null; promise: Promise<void> | null } => {
+  const target = endpoints.find((endpoint) => endpoint.id === removingId);
+  if (!target || !canRemoveEndpoint(target)) return { nextRemoving: null, promise: null };
+  return {
+    nextRemoving: null,
+    promise: commitEndpoints(removeEndpoint(endpoints, removingId), onChange, onRefreshInstances),
+  };
+};
+
+export default function EndpointsSettings({
+  endpoints,
+  instances,
+  onChange,
+  onRefreshInstances,
+  initialRemovingId = null,
+}: EndpointsSettingsProps) {
+  const [location, setLocation] = React.useState<'local' | 'remote'>(() => initialEndpointLocation(endpoints));
   const [draft, setDraft] = React.useState<EndpointDraft>(empty);
   const [editing, setEditing] = React.useState<string | null>(null);
+  const [removing, setRemoving] = React.useState<string | null>(initialRemovingId);
   const [error, setError] = React.useState('');
   const [testing, setTesting] = React.useState<string | null>(null);
   const [results, setResults] = React.useState<Record<string, string>>({});
   const revision = React.useRef(0);
-  const desktop = window.ember.capabilities?.endpointManagement !== false && typeof window.ember.testPiEndpoint === 'function';
+  const desktop =
+    typeof window !== 'undefined' &&
+    window.ember?.capabilities?.endpointManagement !== false &&
+    typeof window.ember?.testPiEndpoint === 'function';
   const commit = (next: PiEndpoint[]) => {
-    onChange({ piEndpoints: next });
-    window.setTimeout(() => onRefreshInstances?.(), 50);
+    void commitEndpoints(next, onChange, onRefreshInstances);
   };
   const changeDraft = (next: EndpointDraft) => {
     revision.current += 1; setDraft(next); setError(''); setResults(prev => ({ ...prev, draft: '' }));
@@ -34,7 +78,7 @@ export default function EndpointsSettings({ endpoints, instances, onChange, onRe
     const failure = endpointError(draft, endpoints);
     if (failure) { setError(failure); return; }
     commit(upsertEndpoint(endpoints, draft));
-    changeDraft(empty); setEditing(null);
+    changeDraft(empty); setEditing(null); setRemoving(null);
   };
   const test = async (value: EndpointDraft, key: string) => {
     const failure = endpointError(value);
@@ -73,8 +117,54 @@ export default function EndpointsSettings({ endpoints, instances, onChange, onRe
       <h3 className="text-xs font-medium">Computers and containers</h3>
       {endpoints.map(endpoint => <div data-endpoint={endpoint.id} key={endpoint.id} className="rounded-lg border p-3 text-xs">
         <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{endpoint.label}</span><span className="text-muted-foreground">{({ ready: 'Connected', checking: 'Checking connection', unreachable: 'Not answering', unsupported: 'Needs a compatible Kiln' })[instances.find(i => i.id === endpoint.id)?.status ?? 'checking']}</span>
-          {desktop && <><Button size="xs" variant="ghost" disabled={testing !== null} onClick={() => void test(endpoint, endpoint.id)}>{testing === endpoint.id ? 'Testing…' : `Test `}</Button><Button size="xs" variant="ghost" onClick={() => { changeDraft(endpoint); setEditing(endpoint.id); setLocation('remote'); }}>Edit {endpoint.label}</Button><Button size="xs" variant="ghost" onClick={() => commit(removeEndpoint(endpoints, endpoint.id))}><Trash2 />Remove {endpoint.label}</Button></>}
-        </div><p className="mt-1 break-all text-muted-foreground">{endpoint.url}</p>{results[endpoint.id] && <p className="mt-2" role="status">{results[endpoint.id]}</p>}
+          {desktop && <>
+            <Button size="xs" variant="ghost" disabled={testing !== null} onClick={() => void test(endpoint, endpoint.id)}>{testing === endpoint.id ? 'Testing…' : `Test `}</Button>
+            <Button size="xs" variant="ghost" onClick={() => { setRemoving(null); changeDraft(endpoint); setEditing(endpoint.id); setLocation('remote'); }}>Edit {endpoint.label}</Button>
+            {canRemoveEndpoint(endpoint) && (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => {
+                  setRemoving(endpoint.id);
+                  if (editing === endpoint.id) {
+                    changeDraft(empty);
+                    setEditing(null);
+                  }
+                }}
+              >
+                <Trash2 />Remove {endpoint.label}
+              </Button>
+            )}
+          </>}
+        </div>
+        <p className="mt-1 break-all text-muted-foreground">{endpoint.url}</p>
+        {results[endpoint.id] && <p className="mt-2" role="status">{results[endpoint.id]}</p>}
+        {desktop && canRemoveEndpoint(endpoint) && removing === endpoint.id ? (
+          <div className="mt-2 space-y-2 border-t pt-2" role="group" aria-label={`Remove ${endpoint.label}`}>
+            <p className="text-muted-foreground">
+              Remove {endpoint.label} and its saved credentials from this Ember? {endpoint.label} keeps running, and its conversations stay on that host.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="xs"
+                variant="destructive"
+                onClick={() => {
+                  if (editing === endpoint.id) {
+                    changeDraft(empty);
+                    setEditing(null);
+                  }
+                  const { nextRemoving } = confirmRemoveEndpoint(endpoints, endpoint.id, onChange, onRefreshInstances);
+                  setRemoving(nextRemoving);
+                }}
+              >
+                Confirm remove
+              </Button>
+              <Button size="xs" variant="ghost" onClick={() => setRemoving(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>)}
     </section>}
     <InstanceAlignment instances={instances} endpoints={endpoints} onSave={commit} />

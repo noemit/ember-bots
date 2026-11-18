@@ -44,7 +44,7 @@ type Props = {
   onDismiss: () => void;
   onRetryLocal: () => Promise<void>;
   onRefreshInstances: () => void;
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onStartAgent: (input: { instanceId: string; directory: string | null }) => void;
   loadToken?: (options?: { rotate?: boolean }) => Promise<LocalHarnessToken>;
 };
@@ -556,7 +556,7 @@ function Token({
 function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
   endpoints: PiEndpoint[];
   instances: Instance[];
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onAdded: () => void;
 }) {
   return (
@@ -575,7 +575,7 @@ function EndpointsInline({
 }: {
   endpoints: PiEndpoint[];
   instances: Instance[];
-  onChange: (patch: EmberSettingsPatch) => void;
+  onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onAdded: () => void;
 }) {
   const EndpointsSettings = React.lazy(() => import('./EndpointsSettings'));
