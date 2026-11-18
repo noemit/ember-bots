@@ -4,7 +4,12 @@ import { questionKey } from '../lib/threadQuestions';
 import { questionFollowups, questionSourceMessage, questionStatusLabel, questionSupervisor } from '../lib/asyncQuestions';
 import { randomId } from '../lib/randomId';
 import { Button } from './ui/button';
-import { questionDrafts, type AsyncQuestionDraft as Draft } from '../lib/asyncQuestionDrafts';
+import {
+  questionDrafts,
+  questionFailureRecovery,
+  unlockQuestionDraft,
+  type AsyncQuestionDraft as Draft,
+} from '../lib/asyncQuestionDrafts';
 type Answer = (request: QuestionRequest, answers: QuestionAnswers | null) => Promise<boolean>;
 
 const QuestionRow = ({ request, followups, onAnswer, onOpenSource, hostLabel }: {
@@ -18,19 +23,25 @@ const QuestionRow = ({ request, followups, onAnswer, onOpenSource, hostLabel }: 
   const [busy, setBusy] = React.useState(false);
   const sending = React.useRef(false);
   const id = React.useId();
-  const update = (next: Draft) => questionDrafts.put(key, next);
+  const update = (next?: Draft) => questionDrafts.put(key, next);
   const pending = (!request.status || request.status === 'pending') && !draft.accepted;
   const sentAnswer = request.receipt?.answer ?? request.answer ?? draft.accepted;
-  const answerConflict = draft.mutation?.action === 'answer' && request.status === 'answered' && request.receipt && request.receipt.requestId !== draft.mutation.requestId;
+  const failure = questionFailureRecovery(request, draft, hostLabel, busy);
   React.useEffect(() => {
     const mutation = draft.mutation;
     if (!mutation) return;
+    if (mutation.action === 'withdraw') {
+      if (request.status === 'withdrawn' && request.mutation?.action === 'withdraw' && request.mutation.requestId === mutation.requestId && request.mutation.revision === mutation.revision) {
+        questionDrafts.settle(key, mutation.requestId, undefined);
+      }
+      return;
+    }
     const receipts = mutation.action === 'context' ? followups.map(item => item.receipt) : [request.receipt];
     const confirmed = receipts.some(receipt => receipt?.requestId === mutation.requestId && receipt.revision === mutation.revision && receipt.answer === draft.text);
     if (!confirmed) return;
     const next: Draft = { text: '', accepted: sentAnswer };
     questionDrafts.settle(key, mutation.requestId, next);
-  }, [draft.mutation, draft.text, followups, key, request.receipt, sentAnswer]);
+  }, [draft.mutation, draft.text, followups, key, request.mutation, request.receipt, request.status, sentAnswer]);
   const act = async (action: 'answer' | 'withdraw' | 'context') => {
     if (sending.current || (draft.mutation && draft.mutation.action !== action)) return;
     const mutation = draft.mutation ?? { requestId: randomId(), revision: request.revision ?? 1, action };
@@ -71,8 +82,13 @@ const QuestionRow = ({ request, followups, onAnswer, onOpenSource, hostLabel }: 
     </> : null}
     {!pending && request.status === 'answered' && !draft.adding && !draft.mutation && followups.length < 100 ? <Button size="xs" variant="ghost" onClick={() => update({ text: '', accepted: sentAnswer, adding: true })}>Add more context</Button> : null}
     {followups.length >= 100 ? <p className="text-xs text-muted-foreground">This question has 100 additional messages. Open its source chat to continue.</p> : null}
-    {draft.failed ? <><p role="alert" className="text-xs text-destructive">{answerConflict ? `${hostLabel} already has an answer to this question. Your draft was not sent; you can keep it as more context below.` : `${hostLabel} did not confirm this change. Your text is kept here. Use Retry to send the same request again.`}</p>{!answerConflict ? <Button size="xs" disabled={busy} onClick={() => void act(draft.mutation?.action === 'context' ? 'context' : draft.mutation?.action === 'withdraw' ? 'withdraw' : 'answer')}>Retry</Button> : null}</> : null}
-    {draft.failed && request.revision !== draft.mutation?.revision ? <Button size="xs" variant="ghost" onClick={() => update({ text: draft.text, adding: !pending })}>{request.status === 'answered' ? 'Keep this draft as more context' : 'Edit this draft'}</Button> : null}
+    {failure ? <>
+      <p role="alert" className="text-xs text-destructive">{failure.message}</p>
+      <div className="flex flex-wrap gap-2">
+        {failure.retryAction ? <Button size="xs" disabled={busy} onClick={() => { if (failure.retryAction) void act(failure.retryAction); }}>Retry</Button> : null}
+        <Button size="xs" variant="ghost" disabled={busy} onClick={() => update(unlockQuestionDraft(draft, { pending, sentAnswer }))}>{failure.unlockLabel}</Button>
+      </div>
+    </> : null}
     <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Source and delivery history</summary><div className="space-y-1 pt-2">
       {request.ancestry?.map(item => <p key={item.conversationId}>{item.title || 'Conversation ' + item.conversationId}</p>)}
       {request.source ? <p className="whitespace-pre-wrap">Source: {request.source}</p> : null}
