@@ -10,7 +10,7 @@ import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { CodingTools } from '@earendil-works/pi-durable/tools';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { Approvals, ApprovalsDoc, pendingApprovals, previewPermission, replyApproval, replySimilarApproval, listPermissionRules, revokePermissionRules } from '../src/approvals';
-import { attestPermissionEnvironment, attestPermissionHost, bindPermission, permissionArgv, PermissionRulesDoc, ruleFor, samePermission, validBinding, bindingForCall } from '../src/permissionRules';
+import { attestPermissionEnvironment, attestPermissionHost, bindPermission, hasDangerousCommandFlags, hasUnquotedRedirection, permissionArgv, PermissionRulesDoc, ruleFor, samePermission, validBinding, bindingForCall } from '../src/permissionRules';
 import { Sessions, SessionsDoc } from '../src/sessions';
 import { hearthCodemodeExtensions } from '../src/codemode';
 import { hearthConfig } from '../src/config';
@@ -50,6 +50,12 @@ describe('permission rule recognizer', () => {
       if (c !== ' ' && !allowed.test(c)) expect(permissionArgv(`ls a${c}b`)).toBeUndefined();
     }
     for (const c of ['\u2028', '\u202e', '\uff1b', '\uff0f', '\ud800', '💥']) expect(permissionArgv(`ls a${c}b`)).toBeUndefined();
+    expect(hasUnquotedRedirection('echo x > ~/.bashrc')).toBe(true);
+    expect(hasUnquotedRedirection('git diff > out.patch')).toBe(true);
+    expect(hasDangerousCommandFlags(['find', '.', '-exec', 'id', ';'])).toBe(true);
+    expect(hasDangerousCommandFlags(['git', '--output=/tmp/x', 'diff'])).toBe(true);
+    expect(hasDangerousCommandFlags(['tar', '--checkpoint-action=exec=id', '-xf', 'a.tar'])).toBe(true);
+    expect(hasDangerousCommandFlags(['sed', '-i', 's/a/b/', 'file'])).toBe(true);
   });
   test.skipIf(linux)('other platforms fail closed', () => { expect(bindPermission('pwd', process.cwd())).toBeUndefined(); });
   test.skipIf(!linux)('cwd real identity, symlink target changes, exact argv and malformed persisted values fail closed', () => {

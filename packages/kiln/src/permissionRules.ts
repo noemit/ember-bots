@@ -32,10 +32,114 @@ const identity = (path: string): string => {
   return `${s.dev}:${s.ino}`;
 };
 
+const COMMAND_WRAPPERS = new Set([
+  'env', 'sudo', 'su', 'doas', 'nohup', 'timeout', 'xargs',
+  'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'eval', 'exec', 'command',
+  'nice', 'ionice', 'stdbuf', 'setsid',
+]);
+const FIND_DANGEROUS_FLAGS = new Set([
+  '-exec', '-execdir', '-ok', '-okdir', '-delete',
+  '-fprint', '-fprint0', '-fprintf', '-fls',
+]);
+const GIT_DANGEROUS_LONG_FLAGS = [
+  '--config-env', '--exec-path', '--upload-pack', '--receive-pack', '--output',
+];
+const TAR_DANGEROUS_LONG_FLAGS = [
+  '--checkpoint-action', '--to-command', '--use-compress-program',
+];
+
+const matchesLongFlag = (arg: string, flags: readonly string[]): boolean =>
+  flags.some((flag) => arg === flag || arg.startsWith(`${flag}=`));
+
+/**
+ * Detect unquoted `<` or `>` redirection operators (or unclosed quotes/escapes) so commands
+ * with stdout/stdin redirects never auto-match remembered allow rules.
+ */
+export const hasUnquotedRedirection = (command: string): boolean => {
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\' && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '<' || ch === '>') return true;
+  }
+  return quote !== null || escaped;
+};
+
+/**
+ * Defense-in-depth denylist for command wrappers and execution/overwrite flags that must never
+ * auto-match an allow rule without human approval.
+ */
+export const hasDangerousCommandFlags = (argv: readonly string[]): boolean => {
+  if (argv.length === 0) return false;
+  const program = argv[0].split('/').pop() ?? '';
+  if (!program || COMMAND_WRAPPERS.has(program)) return true;
+  const args = argv.slice(1);
+  if (program === 'find') {
+    return args.some((arg) => FIND_DANGEROUS_FLAGS.has(arg));
+  }
+  if (program === 'git') {
+    return args.some(
+      (arg) =>
+        arg === '-c' ||
+        (arg.startsWith('-c') && !arg.startsWith('--')) ||
+        matchesLongFlag(arg, GIT_DANGEROUS_LONG_FLAGS),
+    );
+  }
+  if (program === 'tar') {
+    return args.some(
+      (arg) =>
+        arg === '-I' ||
+        (arg.startsWith('-I') && !arg.startsWith('--')) ||
+        matchesLongFlag(arg, TAR_DANGEROUS_LONG_FLAGS),
+    );
+  }
+  if (program === 'sed') {
+    return args.some(
+      (arg) =>
+        arg === '-i' ||
+        /^-[neErlszu]*i/.test(arg) ||
+        matchesLongFlag(arg, ['--in-place']),
+    );
+  }
+  if (program === 'awk' || program === 'gawk' || program === 'mawk' || program === 'nawk') {
+    return args.some(
+      (arg) =>
+        arg === '-i' ||
+        (arg.startsWith('-i') && !arg.startsWith('--')) ||
+        matchesLongFlag(arg, ['--in-place', '--include']),
+    );
+  }
+  return false;
+};
+
 /** A recognizer, NOT a shell parser. Nothing here evaluates or launches a command. */
 export const permissionArgv = (command: unknown): string[] | undefined => {
-  if (typeof command !== 'string' || command.length > 2048 || !/^[A-Za-z0-9_./-]+(?: [A-Za-z0-9_./-]+)*$/.test(command)) return;
+  if (
+    typeof command !== 'string' ||
+    command.length > 2048 ||
+    hasUnquotedRedirection(command) ||
+    !/^[A-Za-z0-9_./-]+(?: [A-Za-z0-9_./-]+)*$/.test(command)
+  ) {
+    return;
+  }
   const argv = command.split(' ');
+  if (hasDangerousCommandFlags(argv)) return;
   const [program, ...args] = argv;
   if (program === 'pwd') return args.length === 0 || (args.length === 1 && args[0] === '-P') ? argv : undefined;
   const flags = program === 'ls' ? ['-a', '-l', '-la', '-al', '-1'] : program === 'wc' ? ['-l', '-w', '-c'] : undefined;

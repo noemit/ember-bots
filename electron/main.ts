@@ -11,6 +11,7 @@ import type { UpdateAction } from './updates';
 import { createKilnSharing } from './kilnSharing';
 import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
+import { fileUrlToLocalPath, openTarget as openTargetWithShell } from './openTarget';
 import { unlockEndpointSecrets, lockEndpointSecrets, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
 import {
   discoverLocalPiEndpoint,
@@ -968,8 +969,10 @@ const createWindow = (): BrowserWindow => {
   win.webContents.on('context-menu', (_event, params) => {
     const template: MenuItemConstructorOptions[] = [];
     if (params.linkURL) {
-      // The renderer serves file://, so a path link arrives already resolved to file://.
-      const target = params.linkURL.startsWith('file:') ? fileURLToPath(params.linkURL) : params.linkURL;
+      // The renderer serves file://, so a local path link arrives already resolved to file://.
+      const target = /^file:/i.test(params.linkURL)
+        ? (fileUrlToLocalPath(params.linkURL) ?? params.linkURL)
+        : params.linkURL;
       template.push(
         { label: 'Open Link', click: () => void openTarget(target) },
         { label: 'Copy Link', click: () => clipboard.writeText(target) },
@@ -1197,43 +1200,7 @@ ipcMain.handle('ember:settings:set', (event, patch: unknown) => {
   return updateSettings(patch);
 });
 
-/**
- * Open a link from a chat or context menu: http(s) URLs go to the default browser, absolute
- * local paths that exist are revealed in Finder. Anything else (other schemes, remote-only
- * paths) is refused so agent output can't trigger arbitrary handlers.
- */
-// `localhost:3000` parses as the odd scheme `localhost:` and `www.example.com` isn't a URL
-// at all, so agents' bare web addresses need an explicit http:// prefix before anything else.
-const NEEDS_SCHEME = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|www\.)[^\s]*$/i;
-
-const openTarget = async (target: string): Promise<boolean> => {
-  let filePath = target;
-  for (const candidate of NEEDS_SCHEME.test(target) ? [`http://${target}`, target] : [target]) {
-    try {
-      const external = new URL(candidate);
-      if (external.protocol === 'file:') {
-        filePath = fileURLToPath(external);
-        break;
-      }
-      // Another scheme (vscode:, mailto:, a token like `localhost:`) never leaves the app.
-      if (!['http:', 'https:'].includes(external.protocol) || external.username || external.password) return false;
-      await shell.openExternal(external.toString());
-      return true;
-    } catch {
-      // Not a URL; try the next candidate, then fall through to the local-path check.
-    }
-  }
-
-  const resolved = filePath.startsWith('~') ? path.join(os.homedir(), filePath.slice(1)) : filePath;
-  if (!path.isAbsolute(resolved) || !fs.existsSync(resolved)) return false;
-  try {
-    if (fs.statSync(resolved).isDirectory()) await shell.openPath(resolved);
-    else shell.showItemInFolder(resolved);
-    return true;
-  } catch {
-    return false;
-  }
-};
+const openTarget = (target: string): Promise<boolean> => openTargetWithShell(target, shell);
 
 ipcMain.handle('ember:open', async (event, args: { target?: unknown }): Promise<boolean> => {
   assertTrustedSender(event);
