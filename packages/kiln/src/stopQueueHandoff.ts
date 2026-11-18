@@ -3,13 +3,17 @@ import type { Context, JsonValue } from '@earendil-works/chord';
 import { defineDoc, InboxDoc, LiveDoc, type ConversationId, type Harness, type SubmissionId, type Tx } from '@earendil-works/pi-durable';
 import { MetaDoc } from './meta';
 import { parkedInputs, parkInputs } from './parking';
+import { applyRunQueueConfigsInTx, QueueConfigDoc, type QueueSendConfig } from './queueConfig';
 
-type SavedInput = { id: string; mode: 'steer' | 'followUp'; content: JsonValue };
+type SavedInput = { id: string; mode: 'steer' | 'followUp'; content: JsonValue; sendConfig?: QueueSendConfig };
 type Handoff = { token: string; stoppedAt: number; ready: boolean; items: SavedInput[] };
 /** Ember's submitted human messages use the SDK's plain user input. Custom input entries are
  * host/agent messages with their own delivery contracts, never permission to restart a chat. */
-const humanInputs = (items: Parameters<typeof parkedInputs>[0]): SavedInput[] =>
-  parkedInputs(items.filter(item => item.mode !== 'write' && !item.entry)) as SavedInput[];
+const humanInputs = (
+  items: Parameters<typeof parkedInputs>[0],
+  queueConfigs?: Readonly<Record<string, QueueSendConfig>>
+): SavedInput[] =>
+  parkedInputs(items.filter(item => item.mode !== 'write' && !item.entry), queueConfigs) as SavedInput[];
 /** A desktop Stop means “end this reply, then take my waiting directions”. Its handoff is
  * durable, unlike the request's background promise. Full stops and worker cancellation do not
  * create this intent. A newer stop or an explicit new submission invalidates the old intent. */
@@ -27,7 +31,8 @@ export const prepareStopQueueHandoff = async (tx: Tx, id: ConversationId, token:
   if (!requested || meta.kind === 'worker' || meta.archived || !meta.stoppedAt) return;
   const items = [...(previous?.items ?? [])];
   const seen = new Set(items.map(item => item.id));
-  items.push(...humanInputs((await tx.doc(InboxDoc, id)).items).filter(item => !seen.has(item.id)));
+  const queueConfigs = (await tx.doc(QueueConfigDoc, id)).items;
+  items.push(...humanInputs((await tx.doc(InboxDoc, id)).items, queueConfigs).filter(item => !seen.has(item.id)));
   doc.pending = { token, stoppedAt: meta.stoppedAt, ready: false, items };
   return items;
 };
@@ -73,7 +78,8 @@ const finish = async (harness: Harness, id: ConversationId, token: string, conte
       const doc = await tx.doc(StopQueueDoc, id);
       if (doc.pending?.token !== token) return;
       const seen = new Set(doc.pending.items.map(item => item.id));
-      doc.pending.items.push(...humanInputs((await tx.doc(InboxDoc, id)).items).filter(item => !seen.has(item.id)));
+      const queueConfigs = (await tx.doc(QueueConfigDoc, id)).items;
+      doc.pending.items.push(...humanInputs((await tx.doc(InboxDoc, id)).items, queueConfigs).filter(item => !seen.has(item.id)));
       doc.pending.ready = true;
     }, context);
   }
@@ -114,6 +120,7 @@ const finish = async (harness: Harness, id: ConversationId, token: string, conte
     for (const item of inbox.items) if (item.mode === 'steer') item.mode = 'followUp';
     const count = human.length;
     await conversation.submit(tx, { type: 'continue', requestId: `hearth.stop-queue:${token}` });
+    await applyRunQueueConfigsInTx(tx, id);
     delete meta.stoppedAt;
     delete doc.pending;
     return count;

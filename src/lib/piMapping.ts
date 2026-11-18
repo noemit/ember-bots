@@ -1196,6 +1196,10 @@ export type PiInboxItem = {
   content?: unknown;
   /** Write items: the entry draft, whose `data.text` is what a human sees. */
   entry?: unknown;
+  /** Isolated per-submission model override from `QueueConfigDoc`, when reported by Kiln. */
+  model?: { provider?: string; modelId?: string } | null;
+  /** Isolated per-submission reasoning level from `QueueConfigDoc`, when reported by Kiln. */
+  thinkingLevel?: string | null;
 };
 
 /**
@@ -1229,6 +1233,8 @@ export const piInboxToQueuedMessages = (
 ): QueuedMessage[] =>
   items.map((item) => {
     const content = 'content' in item ? item.content : undefined;
+    const hasItemModel = 'model' in item && item.model !== undefined;
+    const hasItemThinking = 'thinkingLevel' in item && item.thinkingLevel !== undefined;
     return {
       id: String(item.id),
       createdAt: 0,
@@ -1244,9 +1250,9 @@ export const piInboxToQueuedMessages = (
         : [],
       context: [],
       sendConfig: {
-        providerID: model?.providerID ?? '',
-        modelID: model?.modelID ?? '',
-        variant: model?.variant,
+        providerID: hasItemModel ? (item.model?.provider ?? '') : (model?.providerID ?? ''),
+        modelID: hasItemModel ? (item.model?.modelId ?? '') : (model?.modelID ?? ''),
+        variant: hasItemThinking ? (item.thinkingLevel || undefined) : model?.variant,
       },
       // Hearth tags how it will dispatch the item. Only a steer is named; everything else in the
       // queue is a follow-up.

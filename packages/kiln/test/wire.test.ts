@@ -22,6 +22,7 @@ import { Approvals } from "../src/approvals";
 import { AskTool } from "../src/ask";
 import { hearthConfig } from "../src/config";
 import { FileCredentialStore } from "../src/credentials";
+import { QueueConfigDoc } from "../src/queueConfig";
 import { startHearthServer, type HearthServer } from "../src/server";
 import { withAbortRace } from "../src/interrupt";
 import { Sessions, SessionsDoc, WORKER_INSTRUCTIONS } from "../src/sessions";
@@ -2775,4 +2776,273 @@ test('alignment routes require authentication and explicit OAuth review without 
   expect(providerRequests).toBe(0);
   } finally { stack.models.refresh = refresh; }
   await api('/providers/openai-codex', { method: 'DELETE' });
+});
+
+describe("per-submission queue send-config isolation", () => {
+  const waitUntilIdle = async (conversationId: number): Promise<void> => {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      const list = await body(await api("/conversations"));
+      const summary = list.conversations.find((each: any) => each.id === conversationId);
+      const queue = await body(await api("/queue"));
+      const hasQueued = queue.sessions.some((each: any) => Number(each.sessionId) === conversationId);
+      if (summary?.busy === false && !hasQueued) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`Conversation ${conversationId} did not settle in time`);
+  };
+
+  test("queued follow-ups preserve active-turn tool-loop model, expose distinct /queue configs, and apply at turn boundaries", async () => {
+    const queueFaux = fauxProvider({
+      provider: "queue-faux",
+      models: [
+        { id: "turn-active", reasoning: true },
+        { id: "queued-fast", reasoning: true },
+        { id: "queued-deep", reasoning: true },
+      ],
+    });
+    (stack.models as unknown as { setProvider: (p: unknown) => void }).setProvider(queueFaux.provider);
+
+    const seenRequests: Array<{ modelId: string; reasoning: string | undefined }> = [];
+    queueFaux.setResponses([
+      (_ctx, options, _state, model) => {
+        seenRequests.push({ modelId: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxToolCall("wedged", { ms: 350 })], { stopReason: "toolUse" });
+      },
+      (_ctx, options, _state, model) => {
+        seenRequests.push({ modelId: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxText("Turn 1 done.")]);
+      },
+      (_ctx, options, _state, model) => {
+        seenRequests.push({ modelId: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxText("Turn 2 done.")]);
+      },
+      (_ctx, options, _state, model) => {
+        seenRequests.push({ modelId: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxText("Turn 3 done.")]);
+      },
+    ]);
+
+    const conversation = await body(await api("/conversations", { method: "POST", body: "{}" }));
+
+    // Turn 1 on an idle conversation applies its model & effort directly to AgentDoc.
+    const turn1 = await body(
+      await api(`/conversations/${conversation.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "input",
+          content: "start turn 1",
+          model: { provider: "queue-faux", modelId: "turn-active" },
+          thinkingLevel: "medium",
+        }),
+      })
+    );
+    expect(turn1).toMatchObject({ status: "placed", configured: true });
+
+    // Wait briefly until Turn 1 enters its `wedged` tool call.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // Queue two follow-ups with distinct models/efforts plus a third that is immediately cancelled.
+    const followUp1 = await body(
+      await api(`/conversations/${conversation.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "input",
+          content: "first queued",
+          whenBusy: "followUp",
+          model: { provider: "queue-faux", modelId: "queued-fast" },
+          thinkingLevel: "low",
+        }),
+      })
+    );
+    const followUp2 = await body(
+      await api(`/conversations/${conversation.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "input",
+          content: "second queued",
+          whenBusy: "followUp",
+          model: { provider: "queue-faux", modelId: "queued-deep" },
+          thinkingLevel: null,
+        }),
+      })
+    );
+    const followUp3 = await body(
+      await api(`/conversations/${conversation.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "input",
+          content: "cancelled queued",
+          whenBusy: "followUp",
+          model: { provider: "queue-faux", modelId: "turn-active" },
+          thinkingLevel: "high",
+        }),
+      })
+    );
+    expect(followUp1).toMatchObject({ status: "queued", configured: true });
+    expect(followUp2).toMatchObject({ status: "queued", configured: true });
+    expect(followUp3).toMatchObject({ status: "queued", configured: true });
+
+    const withdrawn = await body(
+      await api(`/conversations/${conversation.id}/submissions/${followUp3.submissionId}/abort`, {
+        method: "POST",
+      })
+    );
+    expect(withdrawn).toEqual({ ok: true, result: "aborted" });
+    expect(
+      (await stack.harness.snapshot(QueueConfigDoc, conversation.id, context))?.items[
+        String(followUp3.submissionId)
+      ]
+    ).toBeUndefined();
+
+    // Active turn's AgentDoc must still be on `turn-active` / `medium` while `wedged` runs!
+    const agentMidTurn = await stack.harness.snapshot(AgentDoc, conversation.id, context);
+    expect(agentMidTurn?.model).toEqual({ provider: "queue-faux", modelId: "turn-active" });
+    expect(agentMidTurn?.thinkingLevel).toBe("medium");
+
+    // `GET /queue` reports each queued item's own isolated `{ model, thinkingLevel }`.
+    const queue = await body(await api("/queue"));
+    const sessionQueue = queue.sessions.find((each: any) => Number(each.sessionId) === conversation.id);
+    expect(sessionQueue).toBeDefined();
+    expect(sessionQueue.model).toEqual({ provider: "queue-faux", modelId: "turn-active" });
+    expect(sessionQueue.thinkingLevel).toBe("medium");
+    expect(sessionQueue.items).toEqual([
+      {
+        id: String(followUp1.submissionId),
+        mode: "followUp",
+        text: "first queued",
+        content: "first queued",
+        model: { provider: "queue-faux", modelId: "queued-fast" },
+        thinkingLevel: "low",
+      },
+      {
+        id: String(followUp2.submissionId),
+        mode: "followUp",
+        text: "second queued",
+        content: "second queued",
+        model: { provider: "queue-faux", modelId: "queued-deep" },
+        thinkingLevel: null,
+      },
+    ]);
+
+    await waitUntilIdle(conversation.id);
+
+    // Turn 1's post-tool generation stayed on `turn-active` (`medium`), then Turn 2 ran on
+    // `queued-fast` (`low`), and Turn 3 ran on `queued-deep` with cleared effort (`undefined`).
+    expect(seenRequests).toEqual([
+      { modelId: "turn-active", reasoning: "medium" },
+      { modelId: "turn-active", reasoning: "medium" },
+      { modelId: "queued-fast", reasoning: "low" },
+      { modelId: "queued-deep", reasoning: undefined },
+    ]);
+
+    // Consumed queue configs are pruned once the queue drains.
+    expect((await stack.harness.snapshot(QueueConfigDoc, conversation.id, context))?.items).toEqual({});
+    const finalAgent = await stack.harness.snapshot(AgentDoc, conversation.id, context);
+    expect(finalAgent?.model).toEqual({ provider: "queue-faux", modelId: "queued-deep" });
+    expect(finalAgent?.thinkingLevel).toBeUndefined();
+  }, 20_000);
+
+  test("queue reorder and stop-continue preserve each queued item's own model and effort", async () => {
+    const queueFaux = fauxProvider({
+      provider: "queue-reorder-faux",
+      models: [
+        { id: "active-model", reasoning: true },
+        { id: "first-model", reasoning: true },
+        { id: "second-model", reasoning: true },
+      ],
+    });
+    (stack.models as unknown as { setProvider: (p: unknown) => void }).setProvider(queueFaux.provider);
+
+    const seenRequests: Array<{ modelId: string; reasoning: string | undefined }> = [];
+    queueFaux.setResponses([
+      (_ctx, options, _state, model) => {
+        seenRequests.push({ modelId: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxToolCall("slowecho", { text: "hold" })], { stopReason: "toolUse" });
+      },
+      (_ctx, options, _state, model) => {
+        seenRequests.push({ modelId: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxText("Second ran first.")]);
+      },
+      (_ctx, options, _state, model) => {
+        seenRequests.push({ modelId: model.id, reasoning: options?.reasoning });
+        return fauxAssistantMessage([fauxText("First ran second.")]);
+      },
+    ]);
+
+    const conversation = await body(
+      await api("/conversations", {
+        method: "POST",
+        body: JSON.stringify({
+          model: { provider: "queue-reorder-faux", modelId: "active-model" },
+          thinkingLevel: "medium",
+        }),
+      })
+    );
+
+    await api(`/conversations/${conversation.id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ type: "input", content: "busy turn" }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    const first = await body(
+      await api(`/conversations/${conversation.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "input",
+          content: "run me second",
+          whenBusy: "followUp",
+          model: { provider: "queue-reorder-faux", modelId: "first-model" },
+          thinkingLevel: "low",
+        }),
+      })
+    );
+    const second = await body(
+      await api(`/conversations/${conversation.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "input",
+          content: "run me first",
+          whenBusy: "followUp",
+          model: { provider: "queue-reorder-faux", modelId: "second-model" },
+          thinkingLevel: "high",
+        }),
+      })
+    );
+
+    const reordered = await body(
+      await api(`/conversations/${conversation.id}/queue/order`, {
+        method: "PUT",
+        body: JSON.stringify({ itemIds: [String(second.submissionId), String(first.submissionId)] }),
+      })
+    );
+    expect(reordered.session.items.map((item: any) => ({
+      text: item.text,
+      modelId: item.model?.modelId,
+      thinkingLevel: item.thinkingLevel,
+    }))).toEqual([
+      { text: "run me first", modelId: "second-model", thinkingLevel: "high" },
+      { text: "run me second", modelId: "first-model", thinkingLevel: "low" },
+    ]);
+
+    // Stop the active turn with `continueQueue: true`; re-parked items must run in the new order
+    // with their own isolated models and efforts.
+    const stopped = await body(
+      await api(`/conversations/${conversation.id}/abort`, {
+        method: "POST",
+        body: JSON.stringify({ continueQueue: true }),
+      })
+    );
+    expect(stopped.ok).toBe(true);
+
+    await waitUntilIdle(conversation.id);
+
+    expect(seenRequests).toEqual([
+      { modelId: "active-model", reasoning: "medium" },
+      { modelId: "second-model", reasoning: "high" },
+      { modelId: "first-model", reasoning: "low" },
+    ]);
+    expect((await stack.harness.snapshot(QueueConfigDoc, conversation.id, context))?.items).toEqual({});
+  }, 20_000);
 });

@@ -4,6 +4,16 @@ import type { OllamaSettings } from "./ollama-settings";
 import type { CustomProviders } from "./custom-providers";
 import { alignmentProviders, importCredentials, importApiKeys, mergePeers, portablePeer, shareApiKeys, type ShareTarget, type AlignmentConfig } from "./alignment";
 import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
+import {
+  QueueConfigDoc,
+  applyRunQueueConfigsInTx,
+  attachQueueConfigTracking,
+  effectiveSubmissionModel,
+  parseSubmissionSendConfig,
+  removeQueueConfigInTx,
+  resolveQueueItemConfig,
+  type QueueSendConfig,
+} from "./queueConfig";
 import { timingSafeEqual } from "node:crypto";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, statSync } from "node:fs";
@@ -605,7 +615,10 @@ const parseAgentChange = (body: Record<string, unknown>): AgentChange | null => 
 };
 
 type SubmissionParse =
-  | { draft: InputSubmissionDraft | { type: "write"; entry: EntryDraft; requestId?: string } }
+  | {
+      draft: InputSubmissionDraft | { type: "write"; entry: EntryDraft; requestId?: string };
+      sendConfig?: QueueSendConfig;
+    }
   /** Why the body was refused, so the client can say something better than "invalid submission". */
   | { error: string };
 
@@ -695,13 +708,22 @@ const attemptOf = async (
 /** The answer to `POST /submit`: what it is, where it stands, and why when it stands nowhere. */
 const answerOf = (
   record: { readonly id: SubmissionId; readonly status: string; readonly entry?: EntryId; readonly reason?: string },
-  mode: string
-): { submissionId: SubmissionId; status: string; mode: string; entry?: EntryId; reason?: string } => ({
+  mode: string,
+  configured = false
+): {
+  submissionId: SubmissionId;
+  status: string;
+  mode: string;
+  entry?: EntryId;
+  reason?: string;
+  configured?: boolean;
+} => ({
   submissionId: record.id,
   status: record.status,
   mode,
   ...(record.entry !== undefined ? { entry: record.entry } : {}),
   ...(record.reason !== undefined ? { reason: record.reason } : {}),
+  ...(configured ? { configured: true } : {}),
 });
 
 const parseSubmission = (body: Record<string, unknown>): SubmissionParse => {
@@ -717,6 +739,8 @@ const parseSubmission = (body: Record<string, unknown>): SubmissionParse => {
     whenBusy = body.whenBusy;
   }
   if (body.type === "input") {
+    const configParsed = parseSubmissionSendConfig(body);
+    if ("error" in configParsed) return configParsed;
     // Text, or text and images (see ./images): the content part types pi-ai already carries for a
     // user turn, which pi-durable stores and replays verbatim.
     const parsed = parseUserInputContent(body.content);
@@ -728,6 +752,7 @@ const parseSubmission = (body: Record<string, unknown>): SubmissionParse => {
         ...(whenBusy ? { whenBusy } : {}),
         ...(requestId ? { requestId } : {}),
       },
+      ...(configParsed.sendConfig !== undefined ? { sendConfig: configParsed.sendConfig } : {}),
     };
   }
   if (body.type === "write") {
@@ -779,6 +804,7 @@ const scheduledTaskRefusal = (body: Record<string, unknown>): string => {
 export const startHearthServer = (deps: Deps): HearthServer => {
   const { config, token, storage, harness, models, defaultAgent, store, version, build, restart, localRuntimes } = deps;
   const contextTracking = attachCurrentContextTracking(harness, context);
+  const queueConfigTracking = attachQueueConfigTracking(harness, context);
   // The host's process table and memory, injectable for tests (see `Deps.processes`).
   const scan = deps.processes?.scan ?? scanLeftovers;
   const memory = deps.processes?.memory ?? hostMemory;
@@ -1794,9 +1820,10 @@ const server = Bun.serve<{
       // queued follow-ups without fetching each conversation's snapshot. Items are bounded to
       // their display text; `revision` is a fresh stamp (the client merges by session/item id).
       const queueSessionOf = async (id: ConversationId) => {
-        const [inbox, agent] = await Promise.all([
+        const [inbox, agent, queueConfig] = await Promise.all([
           harness.snapshot(InboxDoc, id, context),
           harness.snapshot(AgentDoc, id, context),
+          harness.snapshot(QueueConfigDoc, id, context),
         ]);
         return {
           sessionId: String(id),
@@ -1808,10 +1835,15 @@ const server = Bun.serve<{
             id: String(item.id),
             mode: item.mode,
             text: inboxTextOf(item as { mode: "steer" | "followUp" | "write"; content?: unknown; entry?: unknown }),
-            // Input items carry their content parts back, so a client can keep showing an attached
-            // image on a queued row (and re-submit it whole on "send now") rather than losing it on
-            // the first poll. `text` above stays the bounded preview.
-            ...(item.mode === "write" ? {} : { content: item.content }),
+            // Input items carry their content parts and isolated per-submission send config back,
+            // so a client can keep showing an attached image and each row's own model/effort
+            // without being clobbered by `AgentDoc` or another queued item.
+            ...(item.mode === "write"
+              ? {}
+              : {
+                  content: item.content,
+                  ...resolveQueueItemConfig(queueConfig?.items[String(item.id)], agent),
+                }),
           })),
         };
       };
@@ -2174,6 +2206,7 @@ const server = Bun.serve<{
           const parsed = parseSubmission(body);
           if ("error" in parsed) return badRequest(parsed.error);
           const draft = parsed.draft;
+          const sendConfig = parsed.sendConfig;
           // Where this `requestId` stands before anything is written. A retry of a message that
           // never reached the transcript has to be *placed*, not answered with the settled no-op
           // (see `attemptOf`).
@@ -2187,7 +2220,7 @@ const server = Bun.serve<{
             // The idempotent hit a retried POST is supposed to get: this message was already
             // placed (or is still queued or running), so nothing is written and the caller is told
             // which submission owns it.
-            return json(answerOf(admitted, mode), 201);
+            return json(answerOf(admitted, mode, sendConfig !== undefined), 201);
           }
           if (attempt !== undefined && attempt.key === undefined) {
             return json(
@@ -2200,10 +2233,12 @@ const server = Bun.serve<{
           // A model that cannot see images would have them replaced with a text placeholder before
           // the request is built, and answer as if nothing was attached. Refuse and say which model.
           if (draft.type === "input") {
-            const agent = await harness.snapshot(AgentDoc, conversationId, context);
-            const chosen = agent?.model
-              ? { provider: agent.model.provider, modelId: agent.model.modelId }
-              : defaultAgent.model;
+            const [agent, inbox, queueConfig] = await Promise.all([
+              harness.snapshot(AgentDoc, conversationId, context),
+              harness.snapshot(InboxDoc, conversationId, context),
+              harness.snapshot(QueueConfigDoc, conversationId, context),
+            ]);
+            const chosen = effectiveSubmissionModel(sendConfig, agent, inbox, queueConfig, defaultAgent.model);
             const refusal = blindModelReason(draft.content, models.getModel(chosen.provider, chosen.modelId));
             if (refusal) return badRequest(refusal);
           }
@@ -2235,7 +2270,10 @@ const server = Bun.serve<{
             const admit = () => harness.commit(async tx => {
               const prior = toPlace.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, toPlace.requestId);
               const stopQueue = await tx.doc(StopQueueDoc, conversationId);
-              if (draft.type === "input" && !prior && stopQueue.pending && !(await tx.doc(LiveDoc, conversationId)).run &&
+              const liveBefore = await tx.doc(LiveDoc, conversationId);
+              const inboxBefore = await tx.doc(InboxDoc, conversationId);
+              const wasBusy = liveBefore.run !== undefined;
+              if (draft.type === "input" && !prior && stopQueue.pending && !wasBusy &&
                   (await tx.doc(MetaDoc, conversationId)).stoppedAt === stopQueue.pending.stoppedAt) throw finishHandoff;
               if (draft.type === "input" && !prior) {
                 const assignment = await workerAssignment(id => tx.doc(SessionsDoc, id), conversationId, await tx.doc(MetaDoc, conversationId));
@@ -2244,13 +2282,34 @@ const server = Bun.serve<{
                   await rearmWorker(tx, assignment.owner, assignment.key, conversationId, Date.now());
                 }
               }
+              // Idle conversation with an empty inbox places this turn immediately; apply its send
+              // config directly to `AgentDoc` before `submit` so Turn 1 starts on it. When a run is
+              // active (or earlier items wait in `InboxDoc`), isolate the config in `QueueConfigDoc`
+              // so the active turn's `AgentDoc` and other queued items are never clobbered.
+              const applyImmediately =
+                draft.type === "input" && !prior && sendConfig !== undefined && !wasBusy && inboxBefore.items.length === 0;
+              if (applyImmediately) {
+                await configure(tx, conversationId, sendConfig);
+              }
               const submissionId = await conversation.submit(tx, toPlace);
+              if (draft.type === "input" && !prior && sendConfig !== undefined && !applyImmediately) {
+                const queueConfig = await tx.doc(QueueConfigDoc, conversationId);
+                queueConfig.items[String(submissionId)] = sendConfig;
+              }
+              if (draft.type === "input" && !prior && !wasBusy && (await tx.doc(LiveDoc, conversationId)).run !== undefined) {
+                await applyRunQueueConfigsInTx(tx, conversationId);
+              }
               if (draft.type === "input" && !prior && stopQueue.pending) {
                 const queued = (await tx.doc(InboxDoc, conversationId)).items.find(item => item.id === submissionId);
                 // Admissions while abort winds down must survive that abort too. Record their
                 // canonical id in the same commit, not from a later snapshot that can miss them.
                 if (queued && queued.mode !== 'write' && !queued.entry && !stopQueue.pending.items.some(item => item.id === String(submissionId))) {
-                  stopQueue.pending.items.push({ id: String(submissionId), mode: queued.mode, content: queued.content });
+                  stopQueue.pending.items.push({
+                    id: String(submissionId),
+                    mode: queued.mode,
+                    content: queued.content,
+                    ...(sendConfig !== undefined ? { sendConfig } : {}),
+                  });
                 }
               }
               return submissionId;
@@ -2281,7 +2340,7 @@ const server = Bun.serve<{
           // `placed` (in the transcript, a run owns it), `done` (a write entry appended) and
           // `unanswered` (settled without an answer — `reason` says why: aborted, stale, a provider
           // failure). A client that only saw `placed|queued` treated `unanswered` as "sent".
-          return json(answerOf(await submission.status(context), mode), 201);
+          return json(answerOf(await submission.status(context), mode, sendConfig !== undefined), 201);
         }
 
         if (action === "abort" && request.method === "POST") {
@@ -2301,19 +2360,25 @@ const server = Bun.serve<{
           // takes time: an input submitted while it winds down is withdrawn by it too, and reading
           // only once would drop that message. Every parked item keeps its own `mode`, so a steer
           // is still a steer and a follow-up still a follow-up.
-          const inboxBefore = await harness.snapshot(InboxDoc, conversationId, context);
+          const [inboxBefore, queueConfigBefore] = await Promise.all([
+            harness.snapshot(InboxDoc, conversationId, context),
+            harness.snapshot(QueueConfigDoc, conversationId, context),
+          ]);
           const prepared = await harness.commit(async tx => {
             await markWorkerStopped(tx, conversationId);
             return prepareStopQueueHandoff(tx, conversationId, randomUUID(), continueQueue);
           }, context);
-          const first = prepared ?? parkedInputs(inboxBefore?.items ?? []);
+          const first = prepared ?? parkedInputs(inboxBefore?.items ?? [], queueConfigBefore?.items);
           const seen = new Set(first.map((item) => item.id));
           // The desktop opts into a durable reply-to-next-message handoff. API/worker full stops
           // retain the existing park-only contract. Recovery and this callback share single flight.
           let continued = 0;
           const requeue = prepared !== undefined ? resumeStopQueueHandoff(harness, conversationId, context).then(count => { continued = count; return first; }) : conversation.abort(context).then(async () => {
-            const latest = await harness.snapshot(InboxDoc, conversationId, context);
-            const late = parkedInputs(latest?.items ?? []).filter((item) => !seen.has(item.id));
+            const [latest, latestQueueConfig] = await Promise.all([
+              harness.snapshot(InboxDoc, conversationId, context),
+              harness.snapshot(QueueConfigDoc, conversationId, context),
+            ]);
+            const late = parkedInputs(latest?.items ?? [], latestQueueConfig?.items).filter((item) => !seen.has(item.id));
             const parked = [...first, ...late];
             await parkInputs((change) => conversation.commit(change, context), conversationId, parked);
             return parked;
@@ -2394,7 +2459,10 @@ const server = Bun.serve<{
           const body = await readBody(request);
           const ids = Array.isArray(body.itemIds) ? body.itemIds.map((value) => String(value)) : null;
           if (!ids || ids.length === 0) return badRequest("itemIds is required");
-          const inbox = await harness.snapshot(InboxDoc, conversationId, context);
+          const [inbox, queueConfig] = await Promise.all([
+            harness.snapshot(InboxDoc, conversationId, context),
+            harness.snapshot(QueueConfigDoc, conversationId, context),
+          ]);
           const queued = (inbox?.items ?? []).filter(
             (item): item is Extract<InboxItem, { mode: "steer" | "followUp" }> =>
               item.mode === "steer" || item.mode === "followUp"
@@ -2407,13 +2475,20 @@ const server = Bun.serve<{
           // inbox, so the commit below writes the whole new order rather than appending to the old.
           for (const item of queued) await harness.abortSubmission(item.id, context, conversationId);
           // The old submission id is its durable lineage key. Reordering allocates new ids in
-          // this order while the receipt endpoint can still follow each original independently.
+          // this order while the receipt endpoint and per-item send configs follow each original.
           await parkInputs(
             (change) => conversation.commit(change, context),
             conversationId,
             ids.map((id) => {
               const item = byId.get(id)!;
-              return { mode: item.mode, content: item.content, id: String(item.id) } as const;
+              const sendConfig =
+                queueConfig && Object.hasOwn(queueConfig.items, id) ? queueConfig.items[id] : undefined;
+              return {
+                mode: item.mode,
+                content: item.content,
+                id: String(item.id),
+                ...(sendConfig !== undefined ? { sendConfig } : {}),
+              } as const;
             })
           );
           const replacements: Record<string, string> = {};
@@ -2667,6 +2742,9 @@ const server = Bun.serve<{
           if (result === "not_found") {
             return notFound(`conversation ${conversationId} has no submission ${submissionId} to withdraw`);
           }
+          if (result === "aborted") {
+            await harness.commit((tx) => removeQueueConfigInTx(tx, conversationId, submissionId), context);
+          }
           return json({ ok: result === "aborted", result });
         }
 
@@ -2775,6 +2853,7 @@ const server = Bun.serve<{
     url: `http://127.0.0.1:${server.port ?? config.port}`,
     close: async () => {
       await contextTracking.close();
+      await queueConfigTracking.close();
       server.stop(true);
     },
   };
