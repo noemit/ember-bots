@@ -8,11 +8,14 @@
  * 2. Plans (triggers) kept in their own section apart from the runs, with their schedule text and
  *    derived next run when the schedule is understood.
  */
-import type { ScheduledTask } from '../api';
+import type { ModelList, ScheduledTask } from '../api';
 import {
+  DEFAULT_MODEL,
+  modelRefKey,
   sessionKey,
   type BallState,
   type Instance,
+  type ModelRef,
   type Session,
   type SessionReadMark,
 } from '../types';
@@ -250,4 +253,84 @@ export const deriveNextRunAt = (task: ScheduledTask, now: number = Date.now()): 
 export const formatPlanSummary = (task: ScheduledTask): string => {
   const schedule = describeSchedule(task.raw?.schedule);
   return schedule ?? 'Schedule managed by host';
+};
+
+export type ScheduledModelTarget = {
+  task: ScheduledTask;
+  /**
+   * `true` when opened from a scheduled run's "Change model & run…" context action (updates the
+   * plan's model and immediately launches a retry run); `false` when opened from ScheduledView's
+   * "Change model" button (updates the plan's configured model without firing a run).
+   */
+  runImmediately: boolean;
+};
+
+export const scheduledModelConfirmLabel = (runImmediately: boolean): string =>
+  runImmediately ? 'Run with model' : 'Done';
+
+export const resolveScheduledTaskModel = (
+  key: string,
+  variant: string,
+  models?: ModelList,
+): ModelRef | null => {
+  let model: ModelRef | null = null;
+  if (key === DEFAULT_MODEL) {
+    const fallback = models?.models.find((option) => modelRefKey(option) === models.defaultModelId);
+    if (fallback) model = { providerID: fallback.providerID, modelID: fallback.modelID };
+  } else {
+    const slash = key.indexOf('/');
+    if (slash > 0 && slash < key.length - 1) {
+      model = { providerID: key.slice(0, slash), modelID: key.slice(slash + 1) };
+    }
+  }
+  if (!model) return null;
+  if (variant) model.variant = variant;
+  return model;
+};
+
+/**
+ * Persist a scheduled plan's chosen model, then start an immediate run only when the caller asked
+ * for "Change model & run…" (`runImmediately: true`). Changing a plan's model in ScheduledView
+ * leaves its schedule alone instead of firing a paused or overnight job right away.
+ */
+export const applyScheduledModelSelection = async (input: {
+  target: ScheduledModelTarget;
+  key: string;
+  variant: string;
+  models?: ModelList;
+  updateModel: (
+    instanceId: string,
+    task: ScheduledTask,
+    model: ModelRef,
+  ) => Promise<{ ok: boolean; task?: ScheduledTask; error?: string }>;
+  onUpdated: (updated: ScheduledTask) => void;
+  onNotice: (message: string) => void;
+  onError: (message: string) => void;
+  onRefreshScheduled: (instanceId: string) => void;
+  onRunTask: (task: ScheduledTask) => Promise<void> | void;
+}): Promise<{ ok: boolean; updated?: ScheduledTask }> => {
+  const { target, key, variant, models, updateModel, onUpdated, onNotice, onError, onRefreshScheduled, onRunTask } = input;
+  const { task, runImmediately } = target;
+  const model = resolveScheduledTaskModel(key, variant, models);
+  if (!model) {
+    onError('Pick a concrete model for the scheduled task.');
+    return { ok: false };
+  }
+  const result = await updateModel(task.instanceId, task, model);
+  if (!result.ok) {
+    onError(result.error ?? `Could not update “${task.name}”.`);
+    return { ok: false };
+  }
+  const updated = result.task ?? { ...task, model };
+  onUpdated(updated);
+  onNotice(
+    runImmediately
+      ? `Updated “${task.name}” to ${model.providerID}/${model.modelID} — starting a run.`
+      : `Updated “${task.name}” to ${model.providerID}/${model.modelID}.`,
+  );
+  onRefreshScheduled(task.instanceId);
+  if (runImmediately) {
+    void onRunTask(updated);
+  }
+  return { ok: true, updated };
 };

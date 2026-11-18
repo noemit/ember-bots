@@ -33,6 +33,8 @@ type Props = {
   requireConcreteModel?: boolean;
   /** Queue edits must make an incompatible effort explicit instead of silently clearing it. */
   preserveVariantOnModelChange?: boolean;
+  /** Label on the confirm button ('Done' by default, or e.g. 'Run with model' when confirming also starts a run). */
+  confirmLabel?: string;
   onSelect: (key: string, variant: string) => void;
   onOpenChange: (open: boolean) => void;
   /** Re-fetch the instance's catalogue. The picker already refreshes on open; this is the manual one. */
@@ -457,6 +459,7 @@ export type ModelPickerBodyProps = {
   onRefresh?: () => void;
   onCancel: () => void;
   onApply: () => void;
+  confirmLabel?: string;
 };
 
 export function ModelPickerBody({
@@ -487,6 +490,7 @@ export function ModelPickerBody({
   onRefresh,
   onCancel,
   onApply,
+  confirmLabel = 'Done',
 }: ModelPickerBodyProps) {
   const { query, hovered, expandedProviders, selectedKey, selectedVariant } = state;
   const defaultModel = defaultModelId ? byKey.get(defaultModelId) ?? null : null;
@@ -715,7 +719,7 @@ export function ModelPickerBody({
           Cancel
         </Button>
         <Button size="sm" onClick={onApply} disabled={Boolean(selectionError)}>
-          Done
+          {confirmLabel}
         </Button>
       </div>
     </>
@@ -736,6 +740,7 @@ export default function ModelPicker({
   collapseProviders = false,
   requireConcreteModel = false,
   preserveVariantOnModelChange = false,
+  confirmLabel = 'Done',
   onSelect,
   onOpenChange,
   onRefresh,
@@ -994,6 +999,7 @@ export default function ModelPicker({
           onRefresh={handleRefresh}
           onCancel={handleCancel}
           onApply={handleApply}
+          confirmLabel={confirmLabel}
         />
       </DialogContent>
     </Dialog>

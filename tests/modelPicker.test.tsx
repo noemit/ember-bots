@@ -360,4 +360,11 @@ describe('Row memoization and stable callbacks', () => {
     expect(shallowEqual(beforeHover.get('openai/gpt-5')!, afterHover.get('openai/gpt-5')!)).toBe(true);
     expect(shallowEqual(beforeHover.get('router/glm-5-flash')!, afterHover.get('router/glm-5-flash')!)).toBe(true);
   });
+
+  test('renders Done by default and custom confirmLabel when confirming also launches a run', () => {
+    const context = makeContext();
+    const state = createInitialPickerState('openai/gpt-5', '', context);
+    expect(renderBody(state, context)).toContain('>Done</button>');
+    expect(renderBody(state, context, { confirmLabel: 'Run with model' })).toContain('>Run with model</button>');
+  });
 });

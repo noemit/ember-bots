@@ -2,7 +2,12 @@ import { expect, test } from 'bun:test';
 import { loadScheduledIdentityData, runScheduledTask, updateScheduledTaskModel } from '../src/api';
 import { rememberPiInstances, type PiScheduledTask } from '../src/piApi';
 import { mergeScheduledSessionBindings } from '../src/lib/scheduledBindings';
-import { buildScheduledRuns, scheduledReadSessions, unreadScheduledRunsByTask } from '../src/lib/scheduledView';
+import {
+  applyScheduledModelSelection,
+  buildScheduledRuns,
+  scheduledReadSessions,
+  unreadScheduledRunsByTask,
+} from '../src/lib/scheduledView';
 import { staleScheduledRuns } from '../src/lib/bulkArchive';
 import type { Session } from '../src/types';
 
@@ -75,6 +80,33 @@ test('updateScheduledTaskModel patches the task model', async () => {
   });
   expect(result.ok).toBe(true);
   expect(calls.map((entry) => `${entry.method} ${entry.path}`)).toContain('PATCH /scheduled-tasks/task_1');
+});
+
+test('changing a scheduled plan model from ScheduledView patches the model without posting /run', async () => {
+  const [task] = (await loadScheduledIdentityData('pi:test', [])).tasks;
+  calls.length = 0;
+
+  let ran = false;
+  const outcome = await applyScheduledModelSelection({
+    target: { task, runImmediately: false },
+    key: 'anthropic/claude-sonnet-4',
+    variant: 'high',
+    updateModel: updateScheduledTaskModel,
+    onUpdated: () => {},
+    onNotice: () => {},
+    onError: () => {},
+    onRefreshScheduled: () => {},
+    onRunTask: async (updated) => {
+      ran = true;
+      await runScheduledTask(updated.instanceId, updated);
+    },
+  });
+
+  expect(outcome.ok).toBe(true);
+  expect(ran).toBe(false);
+  const endpoints = calls.map((entry) => `${entry.method} ${entry.path}`);
+  expect(endpoints).toContain('PATCH /scheduled-tasks/task_1');
+  expect(endpoints).not.toContain('POST /scheduled-tasks/task_1/run');
 });
 
 

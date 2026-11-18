@@ -1,14 +1,19 @@
 import { describe, expect, test } from 'bun:test';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { ScheduledTask } from '../src/api';
+import ScheduledView from '../src/components/ScheduledView';
 import {
+  applyScheduledModelSelection,
   buildScheduledRuns,
   countUnseenScheduledRuns,
   deriveNextRunAt,
   scheduledBadgeTitle,
+  scheduledModelConfirmLabel,
   scheduledReadSessions,
   unreadScheduledRunsByTask,
 } from '../src/lib/scheduledView';
-import type { Session } from '../src/types';
+import { DEFAULT_MODEL, type ModelRef, type Session } from '../src/types';
 
 const makeTask = (id: string, overrides: Partial<ScheduledTask> = {}): ScheduledTask => ({
   key: `task:pi:local::/work::${id}`,
@@ -132,4 +137,132 @@ test('new scheduled output after an archive is eligible, but archiving after out
   expect(readable[1].archived).toBe(2000);
   expect(readable[2].archived).toBe(2000);
   expect(sessions[0].archived).toBe(2000);
+});
+
+describe('scheduled model changes vs immediate runs', () => {
+  test('ScheduledView Change model updates a paused or overnight plan without triggering runScheduledTask', async () => {
+    const pausedPlan = makeTask('nightly', {
+      name: '3am database maintenance',
+      enabled: false,
+      raw: { schedule: { kind: 'daily', time: '03:00' } },
+      model: { providerID: 'openai', modelID: 'gpt-4o-mini' },
+    });
+
+    const html = renderToStaticMarkup(
+      React.createElement(ScheduledView, {
+        tasks: [pausedPlan],
+        runs: [],
+        instances: [{ id: 'pi:local', label: 'Local', kind: 'pi', status: 'ready', attachable: true }],
+        silentInstances: [],
+        runningTaskKeys: new Set(),
+        onOpenSession: () => {},
+        onRunTask: () => {},
+        onChangeTaskModel: () => {},
+        onRetryInstances: () => {},
+        retryingInstances: false,
+      }),
+    );
+    expect(html).toContain('aria-label="Run 3am database maintenance now"');
+    expect(html).toContain('aria-label="Change model for 3am database maintenance"');
+    expect(scheduledModelConfirmLabel(false)).toBe('Done');
+
+    const updatedModels: Array<{ instanceId: string; model: ModelRef }> = [];
+    const updatedTasks: ScheduledTask[] = [];
+    const notices: string[] = [];
+    const errors: string[] = [];
+    const refreshed: string[] = [];
+    const launchedRuns: ScheduledTask[] = [];
+
+    const outcome = await applyScheduledModelSelection({
+      target: { task: pausedPlan, runImmediately: false },
+      key: 'anthropic/claude-sonnet-4',
+      variant: 'high',
+      updateModel: async (instanceId, task, model) => {
+        updatedModels.push({ instanceId, model });
+        return { ok: true, task: { ...task, model } };
+      },
+      onUpdated: (task) => updatedTasks.push(task),
+      onNotice: (msg) => notices.push(msg),
+      onError: (msg) => errors.push(msg),
+      onRefreshScheduled: (id) => refreshed.push(id),
+      onRunTask: (task) => {
+        launchedRuns.push(task);
+      },
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(updatedModels).toEqual([
+      {
+        instanceId: 'pi:local',
+        model: { providerID: 'anthropic', modelID: 'claude-sonnet-4', variant: 'high' },
+      },
+    ]);
+    expect(updatedTasks).toHaveLength(1);
+    expect(updatedTasks[0].model).toEqual({
+      providerID: 'anthropic',
+      modelID: 'claude-sonnet-4',
+      variant: 'high',
+    });
+    expect(refreshed).toEqual(['pi:local']);
+    expect(errors).toEqual([]);
+    expect(notices).toEqual([
+      'Updated “3am database maintenance” to anthropic/claude-sonnet-4.',
+    ]);
+    expect(notices[0]).not.toMatch(/starting a run/i);
+    expect(launchedRuns).toEqual([]);
+  });
+
+  test('rail "Change model & run…" explicitly labels confirmation "Run with model" and launches a run', async () => {
+    const failedPlan = makeTask('brief', {
+      name: 'Morning brief',
+      state: { lastStatus: 'error', lastError: 'model retired' },
+    });
+    expect(scheduledModelConfirmLabel(true)).toBe('Run with model');
+
+    const notices: string[] = [];
+    const launchedRuns: ScheduledTask[] = [];
+
+    const outcome = await applyScheduledModelSelection({
+      target: { task: failedPlan, runImmediately: true },
+      key: DEFAULT_MODEL,
+      variant: '',
+      models: {
+        defaultModelId: 'anthropic/claude-sonnet-4',
+        models: [
+          {
+            providerID: 'anthropic',
+            modelID: 'claude-sonnet-4',
+            label: 'Claude Sonnet 4',
+            details: {
+              name: 'Claude Sonnet 4',
+              providerName: 'Anthropic',
+              reasoning: true,
+              toolcall: true,
+              attachment: true,
+              inputs: ['text'],
+              variants: ['low', 'high'],
+            },
+          },
+        ],
+      },
+      updateModel: async (_instanceId, task, model) => ({ ok: true, task: { ...task, model } }),
+      onUpdated: () => {},
+      onNotice: (msg) => notices.push(msg),
+      onError: () => {},
+      onRefreshScheduled: () => {},
+      onRunTask: (task) => {
+        launchedRuns.push(task);
+      },
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(notices).toEqual([
+      'Updated “Morning brief” to anthropic/claude-sonnet-4 — starting a run.',
+    ]);
+    expect(launchedRuns).toHaveLength(1);
+    expect(launchedRuns[0].model).toEqual({
+      providerID: 'anthropic',
+      modelID: 'claude-sonnet-4',
+    });
+  });
 });
