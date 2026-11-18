@@ -30,8 +30,8 @@ import {
  * is generous; the tail read in `piLoadMessageTail` is what keeps opening a session fast.
  */
 const REQUEST_TIMEOUT_MS = 120_000;
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
-const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+export const MAX_BODY_BYTES = 32 * 1024 * 1024;
+export const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 /**
  * How many recent idle conversations are watched alongside the open/on-screen and busy ones.
  *
@@ -238,9 +238,9 @@ type Subscription = {
   stopped: boolean;
 };
 
-const readResponseText = async (response: Response): Promise<string> => {
+const readResponseText = async (response: Response, maxBytes = MAX_RESPONSE_BYTES): Promise<string> => {
   const declaredLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     await response.body?.cancel();
     throw new Error('Response body is too large');
   }
@@ -252,7 +252,7 @@ const readResponseText = async (response: Response): Promise<string> => {
     const { done, value } = await reader.read();
     if (done) break;
     total += value.byteLength;
-    if (total > MAX_RESPONSE_BYTES) {
+    if (total > maxBytes) {
       await reader.cancel();
       throw new Error('Response body is too large');
     }
@@ -281,18 +281,22 @@ export class PiClient {
   /** Last liveness told to the renderer, so a change is announced exactly once. */
   private readonly live = new Map<string, boolean>();
   private readonly maxSockets: number;
+  private readonly maxResponseBytes: number;
+  private readonly fetchImpl: typeof fetch;
 
   constructor(
     broadcast: Broadcaster,
     resolveEndpoint?: (endpointId: string) => PiEndpoint | undefined,
     resolveOpenIds?: (endpointId: string) => ReadonlySet<number>,
-    options: { maxSocketsPerEndpoint?: number } = {}
+    options: { maxSocketsPerEndpoint?: number; maxResponseBytes?: number; fetchImpl?: typeof fetch } = {}
   ) {
     this.broadcast = broadcast;
     this.resolveEndpoint = resolveEndpoint;
     this.resolveOpenIds = resolveOpenIds;
     // Injectable so the ceiling itself can be tested; the shipped value is the watch set's size.
     this.maxSockets = Math.max(1, options.maxSocketsPerEndpoint ?? MAX_SOCKETS_PER_ENDPOINT);
+    this.maxResponseBytes = Math.max(1, options.maxResponseBytes ?? MAX_RESPONSE_BYTES);
+    this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   /** Reconcile the endpoint set (settings may have changed) and refresh watches. */
@@ -384,7 +388,7 @@ export class PiClient {
       if (!targetUrl) {
         return { ok: false, status: 400, data: { error: 'Invalid request path' } };
       }
-      const response = await fetch(targetUrl.toString(), {
+      const response = await this.fetchImpl(targetUrl.toString(), {
         method,
         headers: {
           ...headers,
@@ -394,7 +398,7 @@ export class PiClient {
         redirect: 'error',
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      const text = await readResponseText(response);
+      const text = await readResponseText(response, this.maxResponseBytes);
       let data: unknown = text;
       try {
         data = text ? JSON.parse(text) : null;
@@ -403,6 +407,9 @@ export class PiClient {
       }
       return { ok: response.ok, status: response.status, data };
     } catch (error) {
+      if (error instanceof Error && error.message === 'Response body is too large') {
+        return { ok: false, status: 413, data: { error: 'Response body is too large', source: 'ember' } };
+      }
       if (error instanceof Error && error.name === 'TimeoutError') {
         const seconds = Math.round(REQUEST_TIMEOUT_MS / 1000);
         return {

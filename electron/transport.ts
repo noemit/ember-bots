@@ -111,6 +111,124 @@ export const resolveHealthUrl = (baseValue: string): string | null => {
   return resolved.origin === base.origin ? resolved.toString() : null;
 };
 
+export const API_TIMEOUT_MS = 20_000;
+export const MAX_API_BODY_BYTES = 32 * 1024 * 1024;
+export const MAX_API_RESPONSE_BYTES = 32 * 1024 * 1024;
+
+export const readResponseText = async (
+  response: Response,
+  maxBytes = MAX_API_RESPONSE_BYTES
+): Promise<string> => {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel();
+    throw new Error('Response body is too large');
+  }
+  if (!response.body) return '';
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error('Response body is too large');
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, total).toString('utf8');
+};
+
+export type ApiTarget = {
+  url: string;
+  headers?: Record<string, string>;
+  label?: string;
+};
+
+export type ApiRequestOptions = {
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  maxBodyBytes?: number;
+  maxResponseBytes?: number;
+};
+
+/**
+ * Authenticated OpenChamber REST proxy request. Enforces `redirect: 'error'` so bearer/auth
+ * headers never follow HTTP redirects, and reads responses through the 32 MB bounded reader.
+ */
+export const apiRequest = async (
+  target: ApiTarget | null,
+  rawMethod: unknown,
+  apiPath: unknown,
+  requestBody?: unknown,
+  options: ApiRequestOptions = {}
+): Promise<{ ok: boolean; status: number; data: unknown }> => {
+  const label = target?.label ?? 'Instance';
+  if (!target) {
+    return {
+      ok: false,
+      status: 0,
+      data: { error: `${label} is not connected in OpenChamber — check the instance and retry.`, source: 'ember' },
+    };
+  }
+  const method = normalizeApiMethod(rawMethod);
+  const requestUrl = resolveApiUrl(target.url, apiPath);
+  if (!method || !requestUrl || (method === 'GET' && requestBody !== undefined)) {
+    return { ok: false, status: 400, data: { error: 'Invalid API request' } };
+  }
+  const timeoutMs = options.timeoutMs ?? API_TIMEOUT_MS;
+  const maxBodyBytes = options.maxBodyBytes ?? MAX_API_BODY_BYTES;
+  const maxResponseBytes = options.maxResponseBytes ?? MAX_API_RESPONSE_BYTES;
+  const send = options.fetchImpl ?? fetch;
+  try {
+    const body = requestBody === undefined ? undefined : JSON.stringify(requestBody);
+    if (body && Buffer.byteLength(body) > maxBodyBytes) {
+      return { ok: false, status: 413, data: { error: 'Request body is too large' } };
+    }
+    const headers = new Headers(target.headers);
+    if (body !== undefined) headers.set('Content-Type', 'application/json');
+    const response = await send(requestUrl, {
+      method,
+      headers,
+      body,
+      redirect: 'error',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await readResponseText(response, maxResponseBytes);
+    let data: unknown = text;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Response body is too large') {
+      return { ok: false, status: 413, data: { error: 'Response body is too large', source: 'ember' } };
+    }
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      const seconds = Math.round(timeoutMs / 1000);
+      return {
+        ok: false,
+        status: 0,
+        data: {
+          error: `Ember timed out after ${seconds}s waiting for ${label} (Ember → OpenChamber). OpenChamber or its provider may still be working — retry.`,
+          source: 'ember',
+        },
+      };
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: 0,
+      data: { error: `Could not reach ${label} (Ember → OpenChamber): ${detail}`, source: 'ember' },
+    };
+  }
+};
+
 /** Durable automatic identity; existing assignments never change on a settings patch. */
 export type StoredAvatarAssignment = {
   colorIndex: number;

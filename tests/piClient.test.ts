@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   framesToHints,
+  MAX_RESPONSE_BYTES,
   MAX_SOCKETS_PER_ENDPOINT,
   MAX_WATCHED_CONVERSATIONS,
   PiClient,
@@ -254,6 +255,92 @@ describe('every socket a client opens is one the watch set asked for', () => {
       client.closeAll();
       hostA.stop(true);
       hostB.stop(true);
+    }
+  });
+
+  test('PiClient.request refuses HTTP redirects with bearer headers and enforces the 32 MB response reader', async () => {
+    expect(MAX_RESPONSE_BYTES).toBe(32 * 1024 * 1024);
+    let leakedAuth: string | null = null;
+    const attacker = Bun.serve({
+      port: 0,
+      fetch(req) {
+        leakedAuth = req.headers.get('authorization');
+        return Response.json({ conversations: [] });
+      },
+    });
+    const redirector = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.redirect(`http://127.0.0.1:${attacker.port}/conversations`, 302);
+      },
+    });
+    try {
+      let seenRedirect: RequestInit['redirect'];
+      const client = new PiClient(
+        () => {},
+        () => ({ id: 'pi:test', label: 'Tower', url: `http://127.0.0.1:${redirector.port}`, token: 'secret-kiln-token' }),
+        undefined,
+        {
+          fetchImpl: ((input, init) => {
+            seenRedirect = init?.redirect;
+            return fetch(input, init);
+          }) as typeof fetch,
+        }
+      );
+      const redirected = await client.request('pi:test', '/conversations');
+      expect(seenRedirect).toBe('error');
+      expect(redirected.ok).toBe(false);
+      expect(redirected.status).toBe(0);
+      expect(leakedAuth).toBeNull();
+
+      const headerCapped = new PiClient(
+        () => {},
+        () => ({ id: 'pi:test', label: 'Tower', url: 'http://127.0.0.1:3002', token: 'secret-kiln-token' }),
+        undefined,
+        {
+          fetchImpl: (async () =>
+            new Response('oversized', {
+              status: 200,
+              headers: { 'content-length': String(MAX_RESPONSE_BYTES + 1) },
+            })) as typeof fetch,
+        }
+      );
+      expect(await headerCapped.request('pi:test', '/conversations')).toEqual({
+        ok: false,
+        status: 413,
+        data: { error: 'Response body is too large', source: 'ember' },
+      });
+
+      let cancelled = false;
+      const streamCapped = new PiClient(
+        () => {},
+        () => ({ id: 'pi:test', label: 'Tower', url: 'http://127.0.0.1:3002', token: 'secret-kiln-token' }),
+        undefined,
+        {
+          maxResponseBytes: 1024,
+          fetchImpl: (async () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                pull(controller) {
+                  controller.enqueue(new Uint8Array(600));
+                },
+                cancel() {
+                  cancelled = true;
+                },
+              }),
+              { status: 200 }
+            )) as typeof fetch,
+        }
+      );
+      expect(await streamCapped.request('pi:test', '/conversations')).toEqual({
+        ok: false,
+        status: 413,
+        data: { error: 'Response body is too large', source: 'ember' },
+      });
+      expect(cancelled).toBe(true);
+    } finally {
+      redirector.stop(true);
+      attacker.stop(true);
     }
   });
 });

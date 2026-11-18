@@ -188,6 +188,7 @@ const defaultProbe = async (
   try {
     const response = await fetch(`${url}/health`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
+      redirect: 'error',
       signal: AbortSignal.timeout(1_500),
     });
     if (!response.ok) return { ok: false, occupied: true };

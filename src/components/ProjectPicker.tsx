@@ -3,8 +3,31 @@ import { ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, FolderOpen, Loade
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { piCreateDirectory, piLoadDirectories, type PiDirectory } from '../piApi';
+import { piCreateDirectory, piLoadDirectories, type PiDirectory, type PiDirectoryScope } from '../piApi';
 import type { Instance, Project } from '../types';
+
+const normalizeDirectoryPath = (value: string): string => {
+  const normalized = value.trim().replace(/\\/g, '/');
+  if (!normalized) return '';
+  if (normalized === '/') return '/';
+  const stripped = normalized.replace(/\/+$/, '');
+  return /^[A-Za-z]:$/.test(stripped) ? `${stripped}/` : stripped || '/';
+};
+
+export const isPathWithinWorkspace = (targetPath: string, workspaceRoot?: string): boolean => {
+  const root = workspaceRoot ? normalizeDirectoryPath(workspaceRoot) : '';
+  const target = normalizeDirectoryPath(targetPath);
+  if (!root || !target || target.split('/').some((segment) => segment === '..')) return false;
+  if (root === '/') return target.startsWith('/');
+  if (/^[A-Za-z]:\/$/.test(root)) return target.toLowerCase().startsWith(root.toLowerCase());
+  return target === root || target.startsWith(`${root}/`);
+};
+
+export const directoryScopeForPath = (targetPath: string, workspaceRoot?: string): PiDirectoryScope => {
+  if (!targetPath.trim() || !workspaceRoot?.trim()) return 'workspace';
+  if (targetPath.replace(/\\/g, '/').split('/').some((segment) => segment === '..')) return 'workspace';
+  return isPathWithinWorkspace(targetPath, workspaceRoot) ? 'workspace' : 'computer';
+};
 
 export const pathSegments = (path: string): string[] =>
   path.split(/[\\/]/).reduce<string[]>((segments, part, index) => {
@@ -79,7 +102,7 @@ function PickerContent({ instance, projects, recentDirectories = [], projectUsag
   const [moreRecent, setMoreRecent] = React.useState(false);
   const [form, setForm] = React.useState<'path' | 'new' | null>(null);
   const [typed, setTyped] = React.useState('');
-  const [listing, setListing] = React.useState<{ path: string; directories: PiDirectory[] } | null>(null);
+  const [listing, setListing] = React.useState<{ workspace: string; path: string; directories: PiDirectory[] } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
   const [retry, setRetry] = React.useState(0);
@@ -90,6 +113,7 @@ function PickerContent({ instance, projects, recentDirectories = [], projectUsag
   const pathOpener = React.useRef<HTMLButtonElement>(null);
   const newFolderOpener = React.useRef<HTMLButtonElement>(null);
   const restoreFormFocus = React.useRef<'path' | 'new' | null>(null);
+  const serverWorkspaceRef = React.useRef<string | undefined>(undefined);
   const alive = React.useRef(true);
   const request = React.useRef(0);
   const canBrowse = instance.kind === 'pi';
@@ -100,8 +124,14 @@ function PickerContent({ instance, projects, recentDirectories = [], projectUsag
     if (!canBrowse || !browsing) return;
     let cancelled = false;
     setLoading(true); setFailed(false); setListing(null);
-    void piLoadDirectories(instance.id, path || undefined, 'computer').catch(() => null).then((result) => {
+    const loadScope: PiDirectoryScope = !path.trim()
+      ? 'workspace'
+      : serverWorkspaceRef.current
+        ? directoryScopeForPath(path, serverWorkspaceRef.current)
+        : 'computer';
+    void piLoadDirectories(instance.id, path || undefined, loadScope).catch(() => null).then((result) => {
       if (cancelled) return;
+      if (result?.workspace) serverWorkspaceRef.current = result.workspace;
       setLoading(false); setFailed(!result); setListing(result);
     });
     return () => { cancelled = true; };
@@ -226,7 +256,8 @@ function PickerContent({ instance, projects, recentDirectories = [], projectUsag
           if (!validName || duplicateName) return;
           const token = ++request.current;
           setCreating(true); setCreateFailed(false);
-          const created = await piCreateDirectory(instance.id, currentPath, typed.trim()).catch(() => null);
+          const createScope = directoryScopeForPath(currentPath, listing?.workspace ?? serverWorkspaceRef.current);
+          const created = await piCreateDirectory(instance.id, currentPath, typed.trim(), createScope).catch(() => null);
           if (!alive.current || request.current !== token) return;
           setCreating(false);
           if (created) navigate(created); else setCreateFailed(true);

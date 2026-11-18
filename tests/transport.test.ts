@@ -1,10 +1,12 @@
 import { AVATAR_COLOR_COUNT } from '../electron/avatarPalette';
 import { describe, expect, test } from 'bun:test';
 import {
+  apiRequest,
   discoverLocalPiEndpoint,
   isLocalHttpUrl,
   localHarnessTokenPaths,
   localInstanceUrl,
+  MAX_API_RESPONSE_BYTES,
   normalizeApiMethod,
   parseAvatarOverrides,
   parseMutedSessions,
@@ -248,4 +250,100 @@ test('notification preferences are not truncated at the workspace limit on save 
 test('custom avatar colors accept only CSS-safe six-digit hex', () => {
   expect(parseAvatarOverrides({ chat: { color: '#D25B87' } }).chat.color).toBe('#d25b87');
   expect(parseAvatarOverrides({ chat: { color: 'url(https://example.com)' } })).toEqual({});
+});
+
+describe('apiRequest redirect refusal and 32 MB bounded response reader', () => {
+  test('never follows HTTP redirects when sending Authorization headers', async () => {
+    expect(MAX_API_RESPONSE_BYTES).toBe(32 * 1024 * 1024);
+    let leakedAuth: string | null = null;
+    const attacker = Bun.serve({
+      port: 0,
+      fetch(req) {
+        leakedAuth = req.headers.get('authorization');
+        return Response.json({ stolen: true });
+      },
+    });
+    const redirector = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.redirect(`http://127.0.0.1:${attacker.port}/api/session`, 302);
+      },
+    });
+    try {
+      let seenRedirect: RequestInit['redirect'];
+      const result = await apiRequest(
+        {
+          url: `http://127.0.0.1:${redirector.port}`,
+          headers: { Authorization: 'Bearer openchamber-secret-token' },
+          label: 'Local OpenChamber',
+        },
+        'GET',
+        '/api/session',
+        undefined,
+        {
+          fetchImpl: ((input, init) => {
+            seenRedirect = init?.redirect;
+            return fetch(input, init);
+          }) as typeof fetch,
+        }
+      );
+      expect(seenRedirect).toBe('error');
+      expect(result.ok).toBe(false);
+      expect(result.status).toBe(0);
+      expect(leakedAuth).toBeNull();
+    } finally {
+      redirector.stop(true);
+      attacker.stop(true);
+    }
+  });
+
+  test('enforces the 32 MB response ceiling on Content-Length and chunked streams', async () => {
+    const oversizedHeaderResult = await apiRequest(
+      { url: 'http://127.0.0.1:57123', headers: { Authorization: 'Bearer tok' }, label: 'Tower' },
+      'GET',
+      '/api/session',
+      undefined,
+      {
+        fetchImpl: (async () =>
+          new Response('tiny', {
+            status: 200,
+            headers: { 'content-length': String(MAX_API_RESPONSE_BYTES + 1) },
+          })) as typeof fetch,
+      }
+    );
+    expect(oversizedHeaderResult).toEqual({
+      ok: false,
+      status: 413,
+      data: { error: 'Response body is too large', source: 'ember' },
+    });
+
+    let cancelled = false;
+    const streamedResult = await apiRequest(
+      { url: 'http://127.0.0.1:57123', headers: { Authorization: 'Bearer tok' }, label: 'Tower' },
+      'GET',
+      '/api/session',
+      undefined,
+      {
+        maxResponseBytes: 1024,
+        fetchImpl: (async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                controller.enqueue(new Uint8Array(600));
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { status: 200 }
+          )) as typeof fetch,
+      }
+    );
+    expect(streamedResult).toEqual({
+      ok: false,
+      status: 413,
+      data: { error: 'Response body is too large', source: 'ember' },
+    });
+    expect(cancelled).toBe(true);
+  });
 });

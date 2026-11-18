@@ -6,7 +6,7 @@ import { alignmentProviders, importCredentials, importApiKeys, mergePeers, porta
 import { attachCurrentContextTracking, CurrentContextDoc } from './currentContext';
 import { timingSafeEqual } from "node:crypto";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
 import { join, resolve } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord";
@@ -165,7 +165,7 @@ const json = (body: unknown, status = 200): Response =>
  */
 export class HttpFailure extends Error {
   constructor(
-    readonly status: 400 | 404 | 405 | 409,
+    readonly status: 400 | 403 | 404 | 405 | 409 | 413,
     message: string
   ) {
     super(message);
@@ -173,7 +173,20 @@ export class HttpFailure extends Error {
   }
 }
 
+export const DEFAULT_BODY_MAX_BYTES = 1_048_576;
+export const LARGE_BODY_MAX_BYTES = 32 * 1024 * 1024;
+export const MAX_WS_PAYLOAD_BYTES = 64 * 1024;
+
 const badRequest = (message: string): Response => json({ error: message }, 400);
+
+const forbiddenOrigin = (): Response =>
+  json(
+    {
+      error:
+        "Kiln refused a browser request carrying an Origin header. Connect through the Ember desktop app or your private remote-access address instead.",
+    },
+    403
+  );
 
 /** A 404 has to name what is missing: "not found" cannot tell a wrong route from a wrong id. */
 const notFound = (message: string): Response => json({ error: message }, 404);
@@ -189,16 +202,48 @@ const brief = (value: string, limit = 60): string =>
  */
 const ABORT_FAST_RETURN_MS = 250;
 
+const bodyTooLargeMessage = (maxBytes: number): string => {
+  const limitLabel =
+    maxBytes >= 1_048_576 && maxBytes % 1_048_576 === 0
+      ? `${maxBytes / 1_048_576} MB`
+      : `${Math.ceil(maxBytes / 1024)} KB`;
+  return `Kiln refused this request because its body exceeds the ${limitLabel} limit. Send a smaller payload or fewer attachments and try again.`;
+};
+
 /**
- * The body of a JSON object request.
+ * The body of a JSON object request, bounded by `maxBytes` (`1 MB` by default; `32 MB` on routes
+ * that carry image attachments or large prompts/context).
  *
  * An *absent* body and an *unparseable* one are different answers: a truncated or mistyped request
  * used to fall through as `{}`, which on `POST /conversations` created an empty conversation and
  * answered 201. A caller that sent nothing gets an empty object; a caller that sent something this
- * host cannot read is told so.
+ * host cannot read is told so, and an oversized stream stops reading as soon as `maxBytes` is hit.
  */
-const readBody = async (request: Request): Promise<Record<string, unknown>> => {
-  const raw = await request.text();
+const readBody = async (request: Request, maxBytes = DEFAULT_BODY_MAX_BYTES): Promise<Record<string, unknown>> => {
+  const declared = request.headers.get("content-length");
+  if (declared !== null && declared.trim() !== "") {
+    const declaredLength = Number(declared);
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+      await request.body?.cancel().catch(() => {});
+      throw new HttpFailure(413, bodyTooLargeMessage(maxBytes));
+    }
+  }
+  if (!request.body) return {};
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new HttpFailure(413, bodyTooLargeMessage(maxBytes));
+    }
+    chunks.push(value);
+  }
+  if (total === 0) return {};
+  const raw = Buffer.concat(chunks, total).toString("utf8");
   if (raw.trim() === "") return {};
   let value: unknown;
   try {
@@ -315,15 +360,19 @@ const isDirectory = (path: string): boolean => {
   }
 };
 
+const isWithinRoot = (candidate: string, root: string): boolean => {
+  if (candidate === root) return true;
+  const withSlash = root.endsWith("/") || root.endsWith("\\") ? root : `${root}/`;
+  const withBackslash = root.endsWith("/") || root.endsWith("\\") ? root : `${root}\\`;
+  return candidate.startsWith(withSlash) || candidate.startsWith(withBackslash);
+};
+
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Constant-time token check: everything (including /health) is authenticated. */
+/** Constant-time token check: everything (including /health) requires an Authorization: Bearer header. */
 const authorized = (request: Request, token: string): boolean => {
   const header = request.headers.get("authorization");
-  const presented =
-    (header?.startsWith("Bearer ") ? header.slice(7) : undefined) ??
-    new URL(request.url).searchParams.get("token") ??
-    "";
+  const presented = header?.startsWith("Bearer ") ? header.slice(7) : "";
   const a = createHash("sha256").update(presented).digest();
   const b = createHash("sha256").update(token).digest();
   return presented.length > 0 && timingSafeEqual(a, b);
@@ -1195,6 +1244,7 @@ const server = Bun.serve<{
   }>({
     port: config.port,
     hostname: config.bind,
+    maxRequestBodySize: LARGE_BODY_MAX_BYTES,
     /**
      * The last line of defence at the boundary: every failure leaves here as `{"error": …}`.
      *
@@ -1216,6 +1266,7 @@ const server = Bun.serve<{
       );
     },
     websocket: {
+      maxPayloadLength: MAX_WS_PAYLOAD_BYTES,
       // Bun closes a socket that has been idle for 120s by default, and these streams are
       // server-push only: a quiet conversation sends *nothing*, so the socket dies on a schedule
       // and the client reconnects forever. Raising the ceiling and sending a heartbeat keeps an
@@ -1328,9 +1379,20 @@ const server = Bun.serve<{
       },
     },
     async fetch(request, server) {
-      if (!authorized(request, token)) return json({ error: "unauthorized" }, 401);
       const url = new URL(request.url);
       const path = url.pathname.replace(/\/+$/, "") || "/";
+      const isMutating =
+        request.method === "POST" ||
+        request.method === "PUT" ||
+        request.method === "DELETE" ||
+        request.method === "PATCH";
+      const isWebSocketUpgrade =
+        request.headers.get("upgrade")?.toLowerCase() === "websocket" ||
+        (request.method === "GET" && (path === "/tasks/stream" || /^\/conversations\/[^/]+\/events$/.test(path)));
+      if (request.headers.get("origin") !== null && (isMutating || isWebSocketUpgrade)) {
+        return forbiddenOrigin();
+      }
+      if (!authorized(request, token)) return json({ error: "unauthorized" }, 401);
 
       // ---- health --------------------------------------------------------------------
       if (request.method === "GET" && path === "/health") {
@@ -1388,7 +1450,10 @@ const server = Bun.serve<{
           if (request.method === "GET") return json(settings.state());
           if (request.method === "PUT") return json(await settings.save((await readBody(request)).baseUrl));
           if (request.method === "DELETE") return json(await settings.save(undefined, true));
-        } catch { return badRequest("Kiln could not save the Ollama address. Use a complete HTTP or HTTPS service address without credentials or an API path, then Test / Refresh again."); }
+        } catch (error) {
+          if (error instanceof HttpFailure) throw error;
+          return badRequest("Kiln could not save the Ollama address. Use a complete HTTP or HTTPS service address without credentials or an API path, then Test / Refresh again.");
+        }
       }
       if (path === "/custom-providers" || path.startsWith("/custom-providers/")) {
         const custom = deps.customProviders;
@@ -1404,6 +1469,7 @@ const server = Bun.serve<{
           if (id && request.method === "PUT") return json(await custom.save(await readBody(request), id));
           if (id && request.method === "DELETE") { await custom.remove(id); return json({ ok: true }); }
         } catch (error) {
+          if (error instanceof HttpFailure) throw error;
           // Validation messages are ours; never echo network response bodies or credential errors.
           const message = error instanceof Error ? error.message : "";
           return badRequest(/^(Use |Enter |Give |Discover |Kiln |The base URL)/.test(message) ? message : "Kiln could not save this provider. Retry, or check that its storage is writable.");
@@ -1473,10 +1539,11 @@ const server = Bun.serve<{
 
         if (request.method === "POST") {
           if (!store) return badRequest("no credential store");
+          const input = loginInput(await readBody(request));
           try {
             // Storage happens inside the supervisor's own callback, so nothing here has to notice
             // which request the flow happened to finish on.
-            return loginAnswer(await loginSupervisor.start(providerId, loginInput(await readBody(request).catch(() => ({})))));
+            return loginAnswer(await loginSupervisor.start(providerId, input));
           } catch (error) {
             return badRequest(error instanceof Error ? error.message : String(error));
           }
@@ -1592,7 +1659,7 @@ const server = Bun.serve<{
           refreshModelCatalog(`clearing ${providerId}`);
           return json({ ok: true, provider: providerId, credential: null });
         }
-        const body = (await request.json().catch(() => null)) as Credential | null;
+        const body = (await readBody(request)) as unknown;
         if (!isCredential(body)) return badRequest('expected a credential, e.g. { "type": "api_key", "key": "…" }');
         const credential = await store.modify(providerId, async () => body);
         refreshModelCatalog(`a credential for ${providerId}`);
@@ -1604,16 +1671,35 @@ const server = Bun.serve<{
       // workspace root by default. Explicit `scope=computer` allows choosing existing work elsewhere.
       // Both modes are token-authenticated and only return folder names, never file contents.
       if (request.method === "POST" && path === "/directories") {
-        const input = await request.json().catch(() => null) as { parent?: unknown; name?: unknown } | null;
-        if (!input || typeof input.parent !== "string" || !input.parent.trim() || typeof input.name !== "string") return badRequest("Choose a parent folder and a name.");
+        const input = (await readBody(request)) as { parent?: unknown; name?: unknown };
+        if (typeof input.parent !== "string" || !input.parent.trim() || typeof input.name !== "string") return badRequest("Choose a parent folder and a name.");
         const name = input.name.trim();
         if (!name || name === "." || name === ".." || name.length > 255 || /[\\/<>:"|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name)) {
           return badRequest("Use a folder name without slashes or special characters.");
         }
-        const parent = resolve(input.parent);
-        const root = resolve(config.workspace);
-        if (url.searchParams.get("scope") !== "computer" && parent !== root && !parent.startsWith(root + "/") && !parent.startsWith(root + "\\")) {
-          return badRequest("Choose a folder inside the workspace.");
+        const computerScope = url.searchParams.get("scope") === "computer";
+        const configuredRoot = resolve(config.workspace);
+        let parent = resolve(input.parent);
+        if (!computerScope) {
+          let root: string;
+          try {
+            root = realpathSync(configuredRoot);
+          } catch {
+            return badRequest("Choose a folder inside the workspace.");
+          }
+          let canonicalParent: string;
+          try {
+            canonicalParent = realpathSync(parent);
+          } catch {
+            if (!isWithinRoot(parent, root) && !isWithinRoot(parent, configuredRoot)) {
+              return badRequest("Choose a folder inside the workspace.");
+            }
+            return badRequest("Kiln could not create that folder. Choose another name or check access to the parent folder.");
+          }
+          if (!isWithinRoot(canonicalParent, root)) {
+            return badRequest("Choose a folder inside the workspace.");
+          }
+          parent = canonicalParent;
         }
         try {
           const directory = join(parent, name);
@@ -1625,20 +1711,63 @@ const server = Bun.serve<{
         }
       }
       if (request.method === "GET" && path === "/directories") {
-        const root = resolve(config.workspace);
+        const computerScope = url.searchParams.get("scope") === "computer";
+        const configuredRoot = resolve(config.workspace);
+        let root = configuredRoot;
+        if (!computerScope) {
+          try {
+            root = realpathSync(configuredRoot);
+          } catch {
+            return badRequest("not a directory");
+          }
+        }
         const requested = url.searchParams.get("path");
-        const target = resolve(requested && requested.trim() ? requested : root);
+        let target = resolve(requested && requested.trim() ? requested : root);
         // Explicit computer browsing lets the human choose where their existing work lives.
         // This endpoint is token-authenticated, like conversation creation with an arbitrary cwd.
-        if (url.searchParams.get("scope") !== "computer" && target !== root && !target.startsWith(root + "/") && !target.startsWith(root + "\\")) {
-          return badRequest("path is outside the workspace");
+        if (!computerScope) {
+          let canonicalTarget: string;
+          try {
+            canonicalTarget = realpathSync(target);
+          } catch {
+            if (!isWithinRoot(target, root) && !isWithinRoot(target, configuredRoot)) {
+              return badRequest("path is outside the workspace");
+            }
+            return badRequest("not a directory");
+          }
+          if (!isWithinRoot(canonicalTarget, root)) {
+            return badRequest("path is outside the workspace");
+          }
+          target = canonicalTarget;
         }
+        const allowedDirectoryEntry = (dir: string, entry: Dirent): boolean => {
+          if (entry.name.startsWith(".") || entry.name === "node_modules") return false;
+          const child = join(dir, entry.name);
+          if (entry.isSymbolicLink()) {
+            try {
+              if (!statSync(child).isDirectory()) return false;
+              if (!computerScope && !isWithinRoot(realpathSync(child), root)) return false;
+              return true;
+            } catch {
+              return false;
+            }
+          }
+          if (!entry.isDirectory()) return false;
+          if (!computerScope) {
+            try {
+              if (!isWithinRoot(realpathSync(child), root)) return false;
+            } catch {
+              return false;
+            }
+          }
+          return true;
+        };
         // `hasChildren` lets a client draw the "open folder" affordance only where descending
         // leads somewhere: an empty folder would otherwise look like a dead end after a click.
         const visible = (dir: string): string[] => {
           try {
             return readdirSync(dir, { withFileTypes: true })
-              .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules")
+              .filter((entry) => allowedDirectoryEntry(dir, entry))
               .map((entry) => entry.name);
           } catch {
             return [];
@@ -1647,7 +1776,7 @@ const server = Bun.serve<{
         let directories: Array<{ name: string; path: string; hasChildren: boolean }>;
         try {
           directories = readdirSync(target, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules")
+            .filter((entry) => allowedDirectoryEntry(target, entry))
             .map((entry) => {
               const child = join(target, entry.name);
               return { name: entry.name, path: child, hasChildren: visible(child).length > 0 };
@@ -1828,7 +1957,7 @@ const server = Bun.serve<{
           return json({ rules: (await listContextRules(harness, context)).rules });
         }
         if (request.method === "POST") {
-          const input = parseContextRuleInput(await readBody(request));
+          const input = parseContextRuleInput(await readBody(request, LARGE_BODY_MAX_BYTES));
           if (!input) return badRequest("invalid context rule");
           return json(await createContextRule(harness, input, context), 201);
         }
@@ -1838,7 +1967,7 @@ const server = Bun.serve<{
       if (contextRuleMatch) {
         const id = decodeSegment(contextRuleMatch[1]);
         if (request.method === "PATCH") {
-          const updated = await updateContextRule(harness, id, parseContextRulePatch(await readBody(request)), context);
+          const updated = await updateContextRule(harness, id, parseContextRulePatch(await readBody(request, LARGE_BODY_MAX_BYTES)), context);
           if (!updated) return notFound(`there is no context rule "${brief(id, 100)}"`);
           return json(updated);
         }
@@ -1894,6 +2023,7 @@ const server = Bun.serve<{
       // ---- conversation streams (WebSocket) ---------------------------------------------
       const eventsMatch = /^\/conversations\/([^/]+)\/events$/.exec(path);
       if (eventsMatch && request.method === "GET") {
+        if (request.headers.get("origin") !== null) return forbiddenOrigin();
         const conversationId = idOf<ConversationId>(decodeSegment(eventsMatch[1]));
         if (!conversationId) return badRequest("invalid conversation id");
         if (!(await harness.conversation(conversationId, context))) {
@@ -1910,6 +2040,7 @@ const server = Bun.serve<{
         return badRequest("websocket upgrade failed");
       }
       if (request.method === "GET" && path === "/tasks/stream") {
+        if (request.headers.get("origin") !== null) return forbiddenOrigin();
         const peer = server.requestIP(request)?.address ?? "unknown";
         const verdict = streamLimiter.admit(peer);
         if (verdict !== "ok") {
@@ -2166,7 +2297,7 @@ const server = Bun.serve<{
         }
 
         if (action === "submit" && request.method === "POST") {
-          const body = await readBody(request);
+          const body = await readBody(request, LARGE_BODY_MAX_BYTES);
           const parsed = parseSubmission(body);
           if ("error" in parsed) return badRequest(parsed.error);
           const draft = parsed.draft;

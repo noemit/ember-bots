@@ -185,9 +185,11 @@ describe('stream manager', () => {
     const events: EmberEvent[] = [];
     const statuses: Array<[string, boolean]> = [];
     const urls: string[] = [];
-    const fetchImpl = (async (input: string | URL | Request) => {
+    const redirects: Array<RequestInit['redirect']> = [];
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       urls.push(url);
+      redirects.push(init?.redirect);
       if (url.endsWith('/api/event')) {
         return streamResponse([
           'data: {"type":"server.connected","data":{}}\n\n',
@@ -206,6 +208,7 @@ describe('stream manager', () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     expect(urls.sort()).toEqual(['http://a.test/api/event', 'http://a.test/api/notifications/stream']);
+    expect(redirects).toEqual(['error', 'error']);
     expect(manager.isConnected('a')).toBe(true);
     expect(statuses).toContainEqual(['a', true]);
     expect(events.map((event) => event.type).sort()).toEqual(['openchamber:session-activity', 'session.execution.started']);

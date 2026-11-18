@@ -312,4 +312,48 @@ describe("wire failures", () => {
       logged.mockRestore();
     }
   });
+
+  test("bodies exceeding 1 MB on standard routes return 413 JSON, while /submit and /context-rules accept > 1 MB", async () => {
+    const oversizedSmall = JSON.stringify({ title: "x".repeat(1_100_000) });
+    for (const path of ["/conversations", "/providers/deepseek", "/directories"]) {
+      const msg = await expectFailure(
+        await api(path, { method: "POST", body: oversizedSmall }),
+        413
+      );
+      expect(msg).toContain("1 MB");
+    }
+
+    // Streaming chunked body without Content-Length also trips the 1 MB guard cleanly.
+    const chunk = new TextEncoder().encode("x".repeat(300_000));
+    const streamed = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"title":"'));
+        for (let i = 0; i < 4; i += 1) controller.enqueue(chunk);
+        controller.enqueue(new TextEncoder().encode('"}'));
+        controller.close();
+      },
+    });
+    const streamedRes = await api("/conversations", { method: "POST", body: streamed });
+    expect(await expectFailure(streamedRes, 413)).toContain("1 MB");
+
+    // /context-rules and /submit allow > 1 MB payloads (up to 32 MB).
+    const largeRule = await api("/context-rules", {
+      method: "POST",
+      body: JSON.stringify({ keywords: ["big-context"], text: "y".repeat(1_200_000) }),
+    });
+    expect(largeRule.status).toBe(201);
+    const createdRule = (await largeRule.json()) as { id: string };
+    await api(`/context-rules/${createdRule.id}`, { method: "DELETE" });
+
+    const id = await createConversation("large-submit");
+    faux.setResponses([fauxAssistantMessage([fauxText("received")])]);
+    const largeSubmit = await api(`/conversations/${id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({
+        type: "write",
+        entry: { kind: "hearth.note", data: { pad: "z".repeat(1_200_000) } },
+      }),
+    });
+    expect(largeSubmit.status).toBe(201);
+  });
 });

@@ -10,7 +10,14 @@
  * this only covers turning a path back into its parts.
  */
 import { describe, expect, test } from 'bun:test';
-import { breadcrumbPath, directoryName, parentPath, pathSegments } from '../src/components/ProjectPicker';
+import {
+  breadcrumbPath,
+  directoryName,
+  directoryScopeForPath,
+  isPathWithinWorkspace,
+  parentPath,
+  pathSegments,
+} from '../src/components/ProjectPicker';
 
 describe('pathSegments', () => {
   test('keeps the leading slash as its own segment', () => {
@@ -62,5 +69,22 @@ describe('directoryName', () => {
   test('is the last segment, which is what the row and the breadcrumb show', () => {
     expect(directoryName('/home/em/workspace/ember')).toBe('ember');
     expect(directoryName('/home/em/workspace/ember/')).toBe('ember');
+  });
+});
+
+describe('directoryScopeForPath', () => {
+  test('keeps workspace scope inside the workspace root and only uses computer scope outside it', () => {
+    expect(isPathWithinWorkspace('/workspace', '/workspace')).toBe(true);
+    expect(isPathWithinWorkspace('/workspace/atlas', '/workspace/')).toBe(true);
+    expect(isPathWithinWorkspace('/workspace-other', '/workspace')).toBe(false);
+    expect(isPathWithinWorkspace('/Volumes/Studio', '/workspace')).toBe(false);
+
+    expect(directoryScopeForPath('', '/workspace')).toBe('workspace');
+    expect(directoryScopeForPath('/workspace', '/workspace')).toBe('workspace');
+    expect(directoryScopeForPath('/workspace/escape-symlink', '/workspace')).toBe('workspace');
+    expect(directoryScopeForPath('/workspace/../etc', '/workspace')).toBe('workspace');
+    expect(directoryScopeForPath('/workspace', undefined)).toBe('workspace');
+    expect(directoryScopeForPath('/Volumes/Studio', '/workspace')).toBe('computer');
+    expect(directoryScopeForPath('/workspace-other', '/workspace')).toBe('computer');
   });
 });

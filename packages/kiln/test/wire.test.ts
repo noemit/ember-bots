@@ -496,8 +496,8 @@ describe("hearth wire", () => {
         body: JSON.stringify({ model: { provider: "faux", modelId: "faux-1" } }),
       })
     );
-    const url = stack.server.url.replace("http", "ws") + "/conversations/" + String(conversation.id) + "/events?token=" + TOKEN;
-    const ws = new WebSocket(url);
+    const url = stack.server.url.replace("http", "ws") + "/conversations/" + String(conversation.id) + "/events";
+    const ws = new WebSocket(url, { headers: { authorization: `Bearer ${TOKEN}` } } as never);
     const frames: any[][] = [];
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("websocket timeout")), 5_000);
@@ -539,8 +539,8 @@ describe("hearth wire", () => {
         body: JSON.stringify({ model: { provider: "faux", modelId: "faux-1" } }),
       })
     );
-    const url = stack.server.url.replace("http", "ws") + "/conversations/" + String(conversation.id) + "/events?token=" + TOKEN;
-    const ws = new WebSocket(url);
+    const url = stack.server.url.replace("http", "ws") + "/conversations/" + String(conversation.id) + "/events";
+    const ws = new WebSocket(url, { headers: { authorization: `Bearer ${TOKEN}` } } as never);
     const frames: any[][] = [];
     ws.onmessage = (event) => {
       frames.push(JSON.parse(String(event.data)));
@@ -2710,4 +2710,150 @@ test('alignment routes require authentication and explicit OAuth review without 
   expect(providerRequests).toBe(0);
   } finally { stack.models.refresh = refresh; }
   await api('/providers/openai-codex', { method: 'DELETE' });
+});
+
+describe('S7 transport hardening', () => {
+  test('query-string ?token= is rejected on HTTP and WebSocket upgrades; only Authorization: Bearer is accepted', async () => {
+    const httpWithQueryToken = await fetch(`${stack.server.url}/health?token=${encodeURIComponent(TOKEN)}`);
+    expect(httpWithQueryToken.status).toBe(401);
+
+    const created = await body(
+      await api('/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ model: { provider: 'faux', modelId: 'faux-1' } }),
+      })
+    );
+    const wsUpgradeHttp = await fetch(
+      `${stack.server.url}/conversations/${created.id}/events?token=${encodeURIComponent(TOKEN)}`,
+      { headers: { Connection: 'Upgrade', Upgrade: 'websocket' } }
+    );
+    expect(wsUpgradeHttp.status).toBe(401);
+
+    const wsUrlWithQuery = `${stack.server.url.replace('http', 'ws')}/tasks/stream?token=${encodeURIComponent(TOKEN)}`;
+    const rejectedWs = new WebSocket(wsUrlWithQuery);
+    const failed = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 3_000);
+      rejectedWs.onopen = () => {
+        clearTimeout(timer);
+        rejectedWs.close();
+        resolve(false);
+      };
+      rejectedWs.onerror = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      rejectedWs.onclose = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+    });
+    expect(failed).toBe(true);
+  });
+
+  test('mutating HTTP requests and WebSocket upgrades carrying a browser Origin header are rejected with 403', async () => {
+    const created = await body(
+      await api('/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ model: { provider: 'faux', modelId: 'faux-1' } }),
+      })
+    );
+
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE'] as const) {
+      for (const origin of ['https://evil.example', 'http://localhost:5179', 'null']) {
+        const response = await fetch(`${stack.server.url}/conversations`, {
+          method,
+          headers: {
+            authorization: `Bearer ${TOKEN}`,
+            origin,
+            'content-type': 'application/json',
+          },
+          body: method === 'DELETE' ? undefined : '{}',
+        });
+        expect(response.status).toBe(403);
+        const payload = await response.json() as { error?: string };
+        expect(typeof payload.error).toBe('string');
+      }
+    }
+
+    for (const wsPath of [`/conversations/${created.id}/events`, '/tasks/stream']) {
+      const upgradeRes = await fetch(`${stack.server.url}${wsPath}`, {
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          origin: 'https://evil.example',
+          connection: 'Upgrade',
+          upgrade: 'websocket',
+        },
+      });
+      expect(upgradeRes.status).toBe(403);
+
+      const ws = new WebSocket(`${stack.server.url.replace('http', 'ws')}${wsPath}`, {
+        headers: { authorization: `Bearer ${TOKEN}`, origin: 'https://evil.example' },
+      } as never);
+      const closed = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), 3_000);
+        ws.onopen = () => {
+          clearTimeout(timer);
+          ws.close();
+          resolve(false);
+        };
+        ws.onerror = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        ws.onclose = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+      });
+      expect(closed).toBe(true);
+    }
+  });
+
+  test('/directories confines workspace symlinks via realpathSync on both GET and POST', async () => {
+    const { mkdtemp, mkdir, rm, symlink } = await import('node:fs/promises');
+    const outside = await mkdtemp(join(tmpdir(), 'hearth-outside-'));
+    const insideTarget = join(home, 'real-inside-target');
+    const symlinkOutside = join(home, 'escape-link');
+    const symlinkInside = join(home, 'safe-link');
+    try {
+      await mkdir(join(outside, 'secret-folder'), { recursive: true });
+      await mkdir(insideTarget, { recursive: true });
+      await symlink(outside, symlinkOutside);
+      await symlink(insideTarget, symlinkInside);
+
+      // Workspace GET hides symlinks pointing outside workspace while retaining intra-workspace links.
+      const listed = await body(await api('/directories'));
+      const names = listed.directories.map((entry: { name: string }) => entry.name);
+      expect(names).not.toContain('escape-link');
+      expect(names).toContain('safe-link');
+
+      // Direct GET traversal through a workspace symlink to outside is refused.
+      const escapedGet = await api(`/directories?path=${encodeURIComponent(symlinkOutside)}`);
+      expect(escapedGet.status).toBe(400);
+      expect((await body(escapedGet)).error).toContain('outside the workspace');
+
+      // Workspace POST through a symlink pointing outside is refused and creates nothing outside.
+      const escapedPost = await api('/directories', {
+        method: 'POST',
+        body: JSON.stringify({ parent: symlinkOutside, name: 'escaped-created' }),
+      });
+      expect(escapedPost.status).toBe(400);
+      expect((await body(escapedPost)).error).toContain('inside the workspace');
+
+      const outsideCheck = await body(await api(`/directories?scope=computer&path=${encodeURIComponent(outside)}`));
+      expect(outsideCheck.directories.map((entry: { name: string }) => entry.name)).toEqual(['secret-folder']);
+
+      // Workspace POST inside a genuine workspace folder succeeds without scope=computer.
+      const insidePost = await api('/directories', {
+        method: 'POST',
+        body: JSON.stringify({ parent: insideTarget, name: 'nested-inside' }),
+      });
+      expect(insidePost.status).toBe(201);
+    } finally {
+      await rm(symlinkOutside, { force: true }).catch(() => {});
+      await rm(symlinkInside, { force: true }).catch(() => {});
+      await rm(insideTarget, { recursive: true, force: true }).catch(() => {});
+      await rm(outside, { recursive: true, force: true }).catch(() => {});
+    }
+  });
 });

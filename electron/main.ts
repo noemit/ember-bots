@@ -17,7 +17,6 @@ import {
   discoverLocalPiEndpoint,
   isLocalHttpUrl,
   localInstanceUrl,
-  normalizeApiMethod,
   parseAvatarOverrides,
   parseAvatarAssignments,
   mergeAvatarAssignments,
@@ -42,6 +41,7 @@ import {
   isReasoningDisplay,
   resolveApiUrl,
   resolveHealthUrl,
+  apiRequest,
   redactRemoteSettings,
   withoutDesktopOnlySettings,
   type BlobStyle,
@@ -131,9 +131,6 @@ const PROBE_TIMEOUT_MS = 4000;
 // unreachable (startup while the tunnel was down, a transient flap) stayed dead until the user
 // hit the instances refresh button or restarted — its sessions silently went stale forever.
 const INSTANCE_WATCHDOG_MS = 60_000;
-const API_TIMEOUT_MS = 20_000;
-const MAX_API_BODY_BYTES = 32 * 1024 * 1024;
-const MAX_API_RESPONSE_BYTES = 32 * 1024 * 1024;
 const MAX_DOCK_ICON_BYTES = 2 * 1024 * 1024;
 
 const openchamberSettingsPath = (): string =>
@@ -1010,30 +1007,6 @@ const createWindow = (): BrowserWindow => {
   return win;
 };
 
-const readResponseText = async (response: Response): Promise<string> => {
-  const declaredLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_API_RESPONSE_BYTES) {
-    await response.body?.cancel();
-    throw new Error('Response body is too large');
-  }
-  if (!response.body) return '';
-
-  const reader = response.body.getReader();
-  const chunks: Buffer[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_API_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new Error('Response body is too large');
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks, total).toString('utf8');
-};
-
 ipcMain.handle('ember:instances', (event, refresh?: unknown) => {
   assertTrustedSender(event);
   return loadInstances(refresh !== false);
@@ -1314,47 +1287,15 @@ const proxyApiRequest = async (
   requestBody?: unknown
 ): Promise<{ ok: boolean; status: number; data: unknown }> => {
   const target = instanceTarget(instanceId);
-  const method = normalizeApiMethod(rawMethod);
-  const requestUrl = target ? resolveApiUrl(target.url, apiPath) : null;
-  if (!target) return { ok: false, status: 0, data: { error: `${instanceLabel(instanceId)} is not connected in OpenChamber — check the instance and retry.`, source: 'ember' } };
-  if (!method || !requestUrl || (method === 'GET' && requestBody !== undefined)) {
-    return { ok: false, status: 400, data: { error: 'Invalid API request' } };
-  }
-  try {
-    const body = requestBody === undefined ? undefined : JSON.stringify(requestBody);
-    if (body && Buffer.byteLength(body) > MAX_API_BODY_BYTES) {
-      return { ok: false, status: 413, data: { error: 'Request body is too large' } };
-    }
-    const headers = new Headers(target.headers);
-    if (body !== undefined) headers.set('Content-Type', 'application/json');
-    const response = await fetch(requestUrl, { method, headers, body, redirect: 'error', signal: AbortSignal.timeout(API_TIMEOUT_MS) });
-    const text = await readResponseText(response);
-    let data: unknown = text;
-    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-    return { ok: response.ok, status: response.status, data };
-  } catch (error) {
-    // Attribute the failure: a raw "aborted due to timeout" doesn't say what timed out. Ember's
-    // own proxy deadline is the layer here; OpenChamber/OpenCode/provider errors come back as HTTP
-    // responses instead and keep their own message.
-    const label = instanceLabel(instanceId);
-    if (error instanceof Error && error.name === 'TimeoutError') {
-      const seconds = Math.round(API_TIMEOUT_MS / 1000);
-      return {
-        ok: false,
-        status: 0,
-        data: {
-          error: `Ember timed out after ${seconds}s waiting for ${label} (Ember → OpenChamber). OpenChamber or its provider may still be working — retry.`,
-          source: 'ember',
-        },
-      };
-    }
-    const detail = error instanceof Error ? error.message : String(error);
+  const label = instanceLabel(instanceId);
+  if (!target) {
     return {
       ok: false,
       status: 0,
-      data: { error: `Could not reach ${label} (Ember → OpenChamber): ${detail}`, source: 'ember' },
+      data: { error: `${label} is not connected in OpenChamber — check the instance and retry.`, source: 'ember' },
     };
   }
+  return apiRequest({ ...target, label }, rawMethod, apiPath, requestBody);
 };
 
 ipcMain.handle('ember:api', async (event, args: unknown) => {

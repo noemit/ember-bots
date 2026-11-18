@@ -441,6 +441,7 @@ class StreamSubscription {
     try {
       const response = await this.fetchImpl(`${target.url.replace(/\/+$/, '')}${STREAM_PATHS[this.stream]}`, {
         headers: { ...target.headers, accept: 'text/event-stream', 'cache-control': 'no-cache' },
+        redirect: 'error',
         signal: abort.signal,
       });
       if (!response.ok || !response.body) throw new Error(`stream ${response.status}`);

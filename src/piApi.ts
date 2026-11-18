@@ -1134,16 +1134,17 @@ export const piRejectQuestion = async (endpointId: string, request_: QuestionReq
 
 /** `hasChildren` is false for an empty folder, so the picker can skip drawing a chevron there. */
 export type PiDirectory = { name: string; path: string; hasChildren?: boolean };
+export type PiDirectoryScope = 'workspace' | 'computer';
 
 /** The folder browser for a new conversation: Hearth lists the workspace root's subfolders. */
 export const piLoadDirectories = async (
   endpointId: string,
   path?: string,
-  scope?: 'computer'
+  scope?: PiDirectoryScope
 ): Promise<{ workspace: string; path: string; directories: PiDirectory[] } | null> => {
   const params = new URLSearchParams();
   if (path) params.set('path', path);
-  if (scope) params.set('scope', scope);
+  if (scope === 'computer') params.set('scope', scope);
   const query = params.size ? `?${params}` : '';
   const response = await request<{ workspace?: string; path?: string; directories?: PiDirectory[] }>(
     endpointId,
@@ -1161,8 +1162,14 @@ export const piLoadDirectories = async (
   };
 };
 
-export const piCreateDirectory = async (endpointId: string, parent: string, name: string): Promise<string | null> => {
-  const response = await request<{ path?: string }>(endpointId, '/directories?scope=computer', { method: 'POST', body: { parent, name } });
+export const piCreateDirectory = async (
+  endpointId: string,
+  parent: string,
+  name: string,
+  scope: PiDirectoryScope = 'workspace'
+): Promise<string | null> => {
+  const query = scope === 'computer' ? '?scope=computer' : '';
+  const response = await request<{ path?: string }>(endpointId, `/directories${query}`, { method: 'POST', body: { parent, name } });
   return response.ok && typeof response.data.path === 'string' ? response.data.path : null;
 };
 

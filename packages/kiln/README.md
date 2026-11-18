@@ -14,7 +14,7 @@ OpenChamber/OpenCode as Ember's backend in the transition plan
 - Port: `3002` bound to `0.0.0.0` (published; reachable across a tailnet at e.g.
   `http://100.64.0.1:3002`). `HEARTH_PORT` overrides.
 - Auth: every route (and WebSocket) requires the bearer token from `$HEARTH_HOME/hearth.token`
-  (generated on first start, mode 0600). Also accepted as `?token=` for WebSocket clients.
+  (generated on first start, mode 0600) via the `Authorization: Bearer` header.
 - `HEARTH_HOME` (default `/root/.pi` or `~/.hearth`) relocates storage + token for tests and canary runs.
 
 ## Bundled and standalone lifetimes

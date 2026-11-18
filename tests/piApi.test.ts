@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { piLoadMessageHistory } from '../src/piApi';
+import { piCreateDirectory, piLoadDirectories, piLoadMessageHistory } from '../src/piApi';
 import type { PiEntry } from '../src/lib/piMapping';
 
 /**
@@ -176,5 +176,37 @@ describe('the full read against the mock', () => {
     expect(read.messages.map((message) => message.id)).toEqual(['e90', 'e91', 'e92', 'e93']);
     expect(read.complete).toBe(true);
     expect(seen.length).toBe(1);
+  });
+});
+
+describe('directory scope on piCreateDirectory and piLoadDirectories', () => {
+  test('defaults to workspace scope instead of hardcoding ?scope=computer', async () => {
+    const seen: Array<{ path: string; init?: { method?: string; body?: unknown } }> = [];
+    const previous = (globalThis as { window?: { ember?: unknown } }).window?.ember;
+    (globalThis as { window?: unknown }).window = {
+      ember: {
+        piRequest: async (_endpointId: string, path: string, init?: { method?: string; body?: unknown }) => {
+          seen.push({ path, init });
+          return { ok: true, status: 201, data: { path: '/workspace/new-folder', workspace: '/workspace', directories: [] } };
+        },
+      },
+    };
+    try {
+      expect(await piCreateDirectory('pi:test', '/workspace', 'new-folder')).toBe('/workspace/new-folder');
+      expect(await piCreateDirectory('pi:test', '/workspace', 'second-folder', 'workspace')).toBe('/workspace/new-folder');
+      expect(await piCreateDirectory('pi:test', '/Volumes/Studio', 'outside-folder', 'computer')).toBe('/workspace/new-folder');
+      await piLoadDirectories('pi:test', '/workspace', 'workspace');
+      await piLoadDirectories('pi:test', '/Volumes/Studio', 'computer');
+    } finally {
+      if (previous === undefined) delete (globalThis as { window?: { ember?: unknown } }).window;
+      else (globalThis as { window?: unknown }).window = { ember: previous };
+    }
+    expect(seen.map((item) => item.path)).toEqual([
+      '/directories',
+      '/directories',
+      '/directories?scope=computer',
+      '/directories?path=%2Fworkspace',
+      '/directories?path=%2FVolumes%2FStudio&scope=computer',
+    ]);
   });
 });
