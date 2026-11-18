@@ -550,8 +550,14 @@ export default function App() {
   } = useFeedback();
 
   const clearActionError = React.useCallback(() => showActionError(null), [showActionError]);
+  const handleSettingsError = React.useCallback(
+    (message: string, retry: () => void, onDismiss?: () => void) => {
+      showActionError(message, retry, undefined, onDismiss);
+    },
+    [showActionError]
+  );
   const { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings } =
-    useEmberSettings({ onError: showActionError, onBeforeSave: clearActionError });
+    useEmberSettings({ onError: handleSettingsError, onBeforeSave: clearActionError });
   // One effect owns every text-size variable, so the three settings and a theme change can't
   // disagree about who writes the root style properties.
   React.useEffect(() => {
@@ -3542,6 +3548,7 @@ export default function App() {
     modelsByInstance,
     setQueuesByInstance,
     showActionError,
+    refreshQueues,
   });
 
   /**
@@ -3667,7 +3674,14 @@ export default function App() {
       let adoptedAnnotationQueue = false;
       if (options.onAccepted && receipt?.kind === 'queue' && outcome.queued && !outcome.steer) {
         // The server owns this row regardless of whether Ember can save its source link.
-        queue.adoptQueuedSubmission(target, directory, { id: receipt.id, text: text.trim(), model, variant, mode: input.mode });
+        queue.adoptQueuedSubmission(target, directory, {
+          id: receipt.id,
+          text: text.trim(),
+          model,
+          variant,
+          mode: input.mode,
+          attachments,
+        });
         adoptedAnnotationQueue = true;
         void refreshQueues([instanceId]);
       }
@@ -3715,6 +3729,7 @@ export default function App() {
             model,
             variant,
             mode: input.mode,
+            attachments,
           });
         }
         void refreshQueues([instanceId]);

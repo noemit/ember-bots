@@ -21,10 +21,12 @@ import {
   type QueueReplaceRequest,
 } from '../lib/queueMerge';
 import type {
+  FileAttachment,
   MessageQueueMutation,
   MessageQueueSession,
   ModelOption,
   QueuedMessage,
+  QueuedMessageAttachment,
   Session,
   SessionRef,
 } from '../types';
@@ -59,7 +61,6 @@ export const mergePolledQueues = (
       // the same message is drawn twice until the enqueue settles (measured: ~200ms, on every enqueue
       // and on an edit alike). One local row per served row, so two identical messages queued back to
       // back still stay two rows.
-      console.log('[merge] locals', locals.map((i)=>[i.id,i.pending,i.text]), 'served', queue.items.map((i)=>[i.id,i.text]));
       for (const served of queue.items) {
         const match = optimistic.findIndex((item) => item.pending && !item.staged && sameQueuedMessage(item, served));
         if (match >= 0) optimistic.splice(match, 1);
@@ -157,6 +158,121 @@ export const buildStagedQueuedMessage = (
   staged: true,
 });
 
+export type AdoptedQueuedSubmission = {
+  id: string;
+  text: string;
+  model?: ModelOption;
+  variant?: string;
+  mode?: string;
+  attachments?: ReadonlyArray<FileAttachment | QueuedMessageAttachment>;
+};
+
+const toQueuedMessageAttachment = (
+  file: FileAttachment | QueuedMessageAttachment
+): QueuedMessageAttachment =>
+  'mimeType' in file
+    ? file
+    : {
+        filename: file.filename,
+        mimeType: file.mime,
+        dataUrl: file.url,
+      };
+
+/**
+ * Build a settled local queue row for a follow-up the host has already parked and assigned a real
+ * submission id. Keeping `pending: false` avoids a stuck loader or zombie optimistic row if the
+ * submission enters the transcript before the next queue refresh, while preserving attachments so
+ * immediate edits or merges before that refresh do not drop attached images.
+ */
+export const buildAdoptedQueuedMessage = (
+  submission: AdoptedQueuedSubmission,
+  createdAt = Date.now()
+): QueuedMessage => ({
+  id: submission.id,
+  createdAt,
+  text: submission.text,
+  content: submission.text,
+  attachments: (submission.attachments ?? []).map(toQueuedMessageAttachment),
+  context: [],
+  sendConfig: {
+    providerID: submission.model?.providerID ?? '',
+    modelID: submission.model?.modelID ?? '',
+    ...(submission.mode ? { agent: submission.mode } : {}),
+    ...(submission.variant ? { variant: submission.variant } : {}),
+  },
+  pending: false,
+});
+
+export type RemovedQueueEntry = {
+  item: QueuedMessage;
+  index: number;
+  beforeId?: string;
+  afterId?: string;
+  directory: string;
+};
+
+export const captureRemovedQueueEntry = (
+  queue: MessageQueueSession | null | undefined,
+  itemId: string
+): RemovedQueueEntry | null => {
+  if (!queue) return null;
+  const index = queue.items.findIndex((item) => item.id === itemId);
+  if (index < 0) return null;
+  return {
+    item: queue.items[index],
+    index,
+    beforeId: queue.items[index + 1]?.id,
+    afterId: index > 0 ? queue.items[index - 1]?.id : undefined,
+    directory: queue.directory,
+  };
+};
+
+export const restoreRemovedQueuedItem = (
+  current: MessageQueueSession | null,
+  sessionId: string,
+  removed: RemovedQueueEntry
+): MessageQueueSession => {
+  if (!current) {
+    return {
+      sessionId,
+      directory: removed.directory,
+      items: [removed.item],
+      sendingId: null,
+    };
+  }
+  if (current.items.some((item) => item.id === removed.item.id)) return current;
+  const items = [...current.items];
+  const beforeIndex = removed.beforeId
+    ? items.findIndex((item) => item.id === removed.beforeId)
+    : -1;
+  const afterIndex =
+    beforeIndex < 0 && removed.afterId
+      ? items.findIndex((item) => item.id === removed.afterId)
+      : -1;
+  const insertAt =
+    beforeIndex >= 0
+      ? beforeIndex
+      : afterIndex >= 0
+        ? afterIndex + 1
+        : Math.min(removed.index, items.length);
+  items.splice(insertAt, 0, removed.item);
+  return { ...current, items };
+};
+
+export const swapQueuedItems = (
+  queue: MessageQueueSession | null,
+  firstId: string,
+  secondId: string
+): MessageQueueSession | null => {
+  if (!queue) return queue;
+  const firstIndex = queue.items.findIndex((item) => item.id === firstId);
+  const secondIndex = queue.items.findIndex((item) => item.id === secondId);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex === secondIndex) return queue;
+  const items = [...queue.items];
+  [items[firstIndex], items[secondIndex]] = [items[secondIndex], items[firstIndex]];
+  return { ...queue, items };
+};
+
 /**
  * The session a queue mutation applies to. Handlers take this explicitly so one hook instance can
  * serve every open column, rather than only the active session.
@@ -178,6 +294,7 @@ type Options = {
   modelsByInstance: Record<string, ModelList>;
   setQueuesByInstance: React.Dispatch<React.SetStateAction<Record<string, MessageQueueSession[]>>>;
   showActionError: (message: string | null, retry?: () => void) => void;
+  refreshQueues?: (instanceIds: string[]) => Promise<void> | void;
 };
 
 /**
@@ -190,6 +307,7 @@ export const useMessageQueue = ({
   modelsByInstance,
   setQueuesByInstance,
   showActionError,
+  refreshQueues,
 }: Options) => {
   const modelsByInstanceRef = React.useRef(modelsByInstance);
   modelsByInstanceRef.current = modelsByInstance;
@@ -212,16 +330,6 @@ export const useMessageQueue = ({
     },
     [setQueuesByInstance]
   );
-
-  /** Swap a session's queue for `queue` (used for optimistic edits and rollback). */
-  const replaceQueue = (target: QueueTarget, queue: MessageQueueSession, keepWhenEmpty = true) => {
-    const { instanceId, sessionId } = target.ref;
-    setQueuesByInstance((prev) => {
-      const without = (prev[instanceId] ?? []).filter((entry) => entry.sessionId !== sessionId);
-      const keep = keepWhenEmpty || queue.items.length || queue.sendingId;
-      return { ...prev, [instanceId]: keep ? [queue, ...without] : without };
-    });
-  };
 
   const queuedMessageModel = (instanceId: string, item: QueuedMessage): ModelOption => {
     const modelList = modelsByInstance[instanceId];
@@ -348,29 +456,16 @@ export const useMessageQueue = ({
   /**
    * A follow-up the composer submitted directly that Hearth parked in the inbox. The send path
    * only learns the outcome after submitting, so it must not have shown a sent transcript bubble;
-   * insert an optimistic row keyed by the submission id (with a loader) so it reconciles with the
-   * server row instead of flickering into and out of the transcript. The caller refreshes the queue.
+   * insert a settled row keyed by the real submission id (preserving attachments) so it reconciles
+   * cleanly with the server row instead of flickering into and out of the transcript. The caller
+   * refreshes the queue.
    */
   const adoptQueuedSubmission = (
     ref: SessionRef,
     directory: string | undefined,
-    submission: { id: string; text: string; model?: ModelOption; variant?: string; mode?: string }
+    submission: AdoptedQueuedSubmission
   ) => {
-    insertLocalItem(ref, directory, {
-      id: submission.id,
-      createdAt: Date.now(),
-      text: submission.text,
-      content: submission.text,
-      attachments: [],
-      context: [],
-      sendConfig: {
-        providerID: submission.model?.providerID ?? '',
-        modelID: submission.model?.modelID ?? '',
-        ...(submission.mode ? { agent: submission.mode } : {}),
-        ...(submission.variant ? { variant: submission.variant } : {}),
-      },
-      pending: true,
-    });
+    insertLocalItem(ref, directory, buildAdoptedQueuedMessage(submission));
   };
 
   const resolveQueueModel = (
@@ -874,26 +969,34 @@ export const useMessageQueue = ({
 
   const removeQueued = async (itemId: string, target: QueueTarget): Promise<boolean> => {
     showActionError(null);
-    const previousQueue = target.queue;
-    if (previousQueue) {
-      replaceQueue(
-        target,
-        { ...previousQueue, items: previousQueue.items.filter((item) => item.id !== itemId) },
-        false
+    let removedEntry = captureRemovedQueueEntry(target.queue, itemId);
+    updateQueue(target, (current) => {
+      if (!current) return current;
+      removedEntry = captureRemovedQueueEntry(current, itemId) ?? removedEntry;
+      const items = current.items.filter((item) => item.id !== itemId);
+      return items.length > 0 || current.sendingId ? { ...current, items } : null;
+    });
+    const rollback = () => {
+      if (!removedEntry) return;
+      const snapshot = removedEntry;
+      updateQueue(target, (current) =>
+        restoreRemovedQueuedItem(current, target.ref.sessionId, snapshot)
       );
-    }
-    const rollback = () => previousQueue && replaceQueue(target, previousQueue);
+    };
 
     try {
       const removed = await removeQueuedMessage(target.ref.instanceId, target.ref.sessionId, itemId);
       if (!removed.ok || !removed.data) {
-        rollback();
-        showActionError(
-          removed.status === 409
-            ? 'That queued message is already being sent.'
-            : 'Could not cancel the queued message.',
-          removed.status === 409 ? undefined : () => void removeQueued(itemId, target)
-        );
+        if (removed.status === 409) {
+          void refreshQueues?.([target.ref.instanceId]);
+          showActionError('That queued message is already being sent.');
+        } else {
+          rollback();
+          showActionError(
+            'Could not cancel the queued message.',
+            () => void removeQueued(itemId, target)
+          );
+        }
         return false;
       }
       applyQueueMutation(target.ref.instanceId, removed.data);
@@ -918,11 +1021,12 @@ export const useMessageQueue = ({
     const targetIndex = index + direction;
     if (index < 0 || targetIndex < 0 || targetIndex >= queue.items.length) return false;
 
-    const previousQueue = queue;
+    const neighborId = queue.items[targetIndex].id;
     const items = [...queue.items];
     [items[index], items[targetIndex]] = [items[targetIndex], items[index]];
-    replaceQueue(target, { ...queue, items });
-    const rollback = () => replaceQueue(target, previousQueue);
+    updateQueue(target, (current) => swapQueuedItems(current, itemId, neighborId));
+    const rollback = () =>
+      updateQueue(target, (current) => swapQueuedItems(current, itemId, neighborId));
 
     try {
       const reordered = await reorderQueuedMessages(
@@ -931,8 +1035,17 @@ export const useMessageQueue = ({
         items.map((item) => item.id)
       );
       if (!reordered.ok || !reordered.data) {
-        rollback();
-        showActionError('Could not reorder the queued messages.', () => void moveQueued(itemId, direction, target));
+        if (reordered.status === 409) {
+          rollback();
+          void refreshQueues?.([target.ref.instanceId]);
+          showActionError('That queued message is already being sent.');
+        } else {
+          rollback();
+          showActionError(
+            'Could not reorder the queued messages.',
+            () => void moveQueued(itemId, direction, target)
+          );
+        }
         return false;
       }
       applyQueueMutation(target.ref.instanceId, reordered.data);

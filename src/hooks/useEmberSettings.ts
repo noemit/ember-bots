@@ -55,9 +55,15 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   onboardedAt: undefined as number | undefined,
 };
 
+type PendingDraftEntry = {
+  revision: number;
+  value: import('../lib/composerDrafts').DraftChanges[string];
+  failed?: boolean;
+};
+
 type Options = {
-  /** Surfaces save failures; `retry` re-applies the same patch. */
-  onError: (message: string, retry: () => void) => void;
+  /** Surfaces save failures; `retry` re-applies the same patch, `onDismiss` cleans up abandoned state. */
+  onError: (message: string, retry: () => void, onDismiss?: () => void) => void;
   /** Called before a save so a stale error banner from an earlier action goes away. */
   onBeforeSave: () => void;
 };
@@ -71,15 +77,50 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
   const [settings, setSettings] = React.useState<EmberSettings>(DEFAULT_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = React.useState(false);
   const revisionRef = React.useRef(0);
+  const settledRevisionRef = React.useRef(0);
+  const optimisticValuesRef = React.useRef<Partial<EmberSettings>>({});
   const assignmentWritesRef = React.useRef(new AvatarAssignmentWrites());
   const writesRef = React.useRef<Promise<unknown>>(Promise.resolve());
-  const pendingDraftsRef = React.useRef(new Map<string, { revision: number; value: import('../lib/composerDrafts').DraftChanges[string] }>());
+  const pendingDraftsRef = React.useRef(new Map<string, PendingDraftEntry>());
   // Live copy for callbacks that must read the latest value without re-subscribing.
   const settingsRef = React.useRef(settings);
   settingsRef.current = settings;
 
+  const dismissFailedDrafts = React.useCallback(() => {
+    for (const [key, entry] of pendingDraftsRef.current) {
+      if (entry.failed) pendingDraftsRef.current.delete(key);
+    }
+  }, []);
+
   const hydrateSettings = React.useCallback((stored: Partial<EmberSettings>) => {
     assignmentWritesRef.current.acknowledge(stored.avatarAssignments);
+    if (revisionRef.current > 0) {
+      if (settledRevisionRef.current > 0) {
+        const next = { ...settingsRef.current, avatarAssignments: assignmentWritesRef.current.visible() };
+        settingsRef.current = next;
+        setSettings(next);
+        setSettingsLoaded(true);
+        return;
+      }
+      const pendingDrafts = Object.fromEntries(
+        [...pendingDraftsRef.current].map(([key, entry]) => [key, entry.value])
+      );
+      const baseDrafts =
+        optimisticValuesRef.current.composerDrafts ??
+        stored.composerDrafts ??
+        DEFAULT_SETTINGS.composerDrafts;
+      const next = {
+        ...DEFAULT_SETTINGS,
+        ...stored,
+        ...optimisticValuesRef.current,
+        avatarAssignments: assignmentWritesRef.current.visible(),
+        composerDrafts: mergeDraftChanges(baseDrafts, pendingDrafts),
+      };
+      settingsRef.current = next;
+      setSettings(next);
+      setSettingsLoaded(true);
+      return;
+    }
     const next = { ...DEFAULT_SETTINGS, ...stored, avatarAssignments: assignmentWritesRef.current.visible() };
     settingsRef.current = next;
     setSettings(next);
@@ -88,11 +129,21 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
 
   const refreshHarnessSettings = React.useCallback(async () => {
     const stored = await window.ember.getSettings();
-    setSettings((current) => ({
-      ...current,
+    const next = {
+      ...settingsRef.current,
       localHarnessState: stored.localHarnessState,
       localHarnessCanRotate: stored.localHarnessCanRotate,
-    }));
+    };
+    settingsRef.current = next;
+    setSettings((current) => {
+      const updated = {
+        ...current,
+        localHarnessState: stored.localHarnessState,
+        localHarnessCanRotate: stored.localHarnessCanRotate,
+      };
+      settingsRef.current = updated;
+      return updated;
+    });
     return stored;
   }, []);
 
@@ -100,15 +151,33 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
 
   const updateSettings = React.useCallback(
     function updateSettings(patch: EmberSettingsPatch, options?: { preserveActionError?: boolean }) {
-      if (!options?.preserveActionError) onBeforeSave();
+      if (!options?.preserveActionError) {
+        dismissFailedDrafts();
+        onBeforeSave();
+      }
       const revision = ++revisionRef.current;
       const { composerDraftChanges, avatarAssignments, ...values } = patch;
+      if (values.composerDrafts !== undefined) {
+        dismissFailedDrafts();
+      }
+      optimisticValuesRef.current = { ...optimisticValuesRef.current, ...values };
       const assignments = assignmentWritesRef.current;
       assignments.stage(avatarAssignments);
       for (const [key, value] of Object.entries(composerDraftChanges ?? {})) pendingDraftsRef.current.set(key, { revision, value });
       const pendingDrafts = () => Object.fromEntries([...pendingDraftsRef.current].map(([key, entry]) => [key, entry.value]));
-      const adoptStored = (stored: EmberSettings) => {
+      const adoptStored = (stored: EmberSettings, settledRevision: number) => {
+        settledRevisionRef.current = Math.max(settledRevisionRef.current, settledRevision);
         assignments.acknowledge(stored.avatarAssignments);
+        for (const [key, entry] of pendingDraftsRef.current) {
+          if (!entry.failed) continue;
+          const storedDraft = stored.composerDrafts[key];
+          if (
+            (entry.value === null && storedDraft === undefined) ||
+            (entry.value !== null && storedDraft !== undefined && storedDraft.updatedAt >= entry.value.updatedAt)
+          ) {
+            pendingDraftsRef.current.delete(key);
+          }
+        }
         const next = { ...DEFAULT_SETTINGS, ...stored, avatarAssignments: assignments.visible(), composerDrafts: mergeDraftChanges(stored.composerDrafts, pendingDrafts()) };
         settingsRef.current = next;
         setSettings(next);
@@ -143,33 +212,50 @@ export const useEmberSettings = ({ onError, onBeforeSave }: Options) => {
           for (const key of Object.keys(composerDraftChanges ?? {})) {
             if (!memoryOnly && pendingDraftsRef.current.get(key)?.revision === revision) pendingDraftsRef.current.delete(key);
           }
-          if (revisionRef.current === revision) adoptStored(stored);
+          if (revisionRef.current === revision) adoptStored(stored, revision);
         })
         .catch(async (err) => {
           if (composerDraftChanges) {
             const keys = Object.keys(composerDraftChanges).filter((key) => pendingDraftsRef.current.get(key)?.revision === revision);
-            if (keys.length) onError(err instanceof Error ? err.message : 'Could not save drafts.', () => {
-              const remaining = pendingDrafts();
-              updateSettings({ composerDraftChanges: Object.fromEntries(keys.filter((key) => key in remaining).map((key) => [key, remaining[key]])) }, options);
-            });
+            for (const key of keys) {
+              const entry = pendingDraftsRef.current.get(key);
+              if (entry) pendingDraftsRef.current.set(key, { ...entry, failed: true });
+            }
+            if (keys.length) onError(
+              err instanceof Error ? err.message : 'Could not save drafts.',
+              () => {
+                const retryChanges = Object.fromEntries(
+                  [...pendingDraftsRef.current]
+                    .filter(([, entry]) => entry.failed)
+                    .map(([key, entry]) => [key, entry.value])
+                );
+                if (Object.keys(retryChanges).length === 0) {
+                  onBeforeSave();
+                  return;
+                }
+                void updateSettings({ composerDraftChanges: retryChanges });
+              },
+              dismissFailedDrafts
+            );
             return;
           }
           if (revisionRef.current !== revision) return;
+          dismissFailedDrafts();
           onError(
             err instanceof Error ? err.message : 'Could not save settings.',
             () => updateSettings(patch, options)
           );
           try {
             const stored = await window.ember.getSettings();
-            if (revisionRef.current === revision) adoptStored(stored);
+            if (revisionRef.current === revision) adoptStored(stored, revision);
           } catch {
             // The save already failed and was reported; keep the optimistic value if we can't re-read.
           }
         });
       return save;
     },
-    [onError, onBeforeSave]
+    [onError, onBeforeSave, dismissFailedDrafts]
   );
 
-  return { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings };
+  return { settings, settingsLoaded, settingsRef, hydrateSettings, refreshHarnessSettings, markSettingsLoaded, updateSettings, dismissFailedDrafts };
 };

@@ -1,11 +1,16 @@
 import { describe, expect, test } from 'bun:test';
+import * as React from 'react';
 import {
+  buildAdoptedQueuedMessage,
   buildStagedQueuedMessage,
   mergeMutationSession,
   mergePolledQueues,
   resolveQueueReplaceTargets,
+  useMessageQueue,
+  type QueueTarget,
 } from '../src/hooks/useMessageQueue';
-import type { MessageQueueSession, QueuedMessage } from '../src/types';
+import type { MessageQueueSession, ModelOption, QueuedMessage, Session } from '../src/types';
+import { withTestRoot } from './fixtures/reactRoot';
 
 const queued = (id: string, extra: Partial<QueuedMessage> = {}): QueuedMessage => ({
   id,
@@ -26,18 +31,28 @@ const session = (items: QueuedMessage[]): MessageQueueSession => ({
 });
 
 describe('message queue polling', () => {
-  test('keeps local pending and failed rows across a poll', () => {
-    const prev = {
-      local: [session([queued('server-1'), queued('local-1', { pending: true }), queued('local-2', { error: 'nope' })])],
+  test('keeps local pending and failed rows across a poll without console spam', () => {
+    const logged: unknown[][] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+      logged.push(args);
     };
-    const next = { local: [session([queued('server-1'), queued('server-2')])] };
-    const merged = mergePolledQueues(prev, next);
-    expect(merged.local[0].items.map((item) => item.id)).toEqual([
-      'local-1',
-      'local-2',
-      'server-1',
-      'server-2',
-    ]);
+    try {
+      const prev = {
+        local: [session([queued('server-1'), queued('local-1', { pending: true }), queued('local-2', { error: 'nope' })])],
+      };
+      const next = { local: [session([queued('server-1'), queued('server-2')])] };
+      const merged = mergePolledQueues(prev, next);
+      expect(merged.local[0].items.map((item) => item.id)).toEqual([
+        'local-1',
+        'local-2',
+        'server-1',
+        'server-2',
+      ]);
+      expect(logged).toEqual([]);
+    } finally {
+      console.log = originalLog;
+    }
   });
 
   test('a poll that already lists the message does not draw it twice', () => {
@@ -178,5 +193,279 @@ describe('editing a queued row', () => {
     expect(targets.ids).toEqual(['server-7']);
     expect(targets.survivorId).toBe('server-7');
     expect(targets.pendingId).toBeNull();
+  });
+});
+
+describe('adoptQueuedSubmission and concurrency-safe rollbacks', () => {
+  const model: ModelOption = {
+    providerID: 'anthropic',
+    modelID: 'claude-sonnet-4',
+    label: 'Claude Sonnet 4',
+    details: {
+      name: 'Claude Sonnet 4',
+      providerName: 'Anthropic',
+      reasoning: true,
+      toolcall: true,
+      attachment: true,
+      inputs: ['text', 'image'],
+      variants: ['high'],
+    },
+  };
+
+  test('adoptQueuedSubmission preserves caller attachments and marks the row pending: false', async () => {
+    const built = buildAdoptedQueuedMessage(
+      {
+        id: 'sub-99',
+        text: 'Check this screenshot',
+        model,
+        variant: 'high',
+        mode: 'build',
+        attachments: [{ filename: 'screen.png', mime: 'image/png', url: 'data:image/png;base64,AAA' }],
+      },
+      1234
+    );
+    expect(built).toEqual({
+      id: 'sub-99',
+      createdAt: 1234,
+      text: 'Check this screenshot',
+      content: 'Check this screenshot',
+      attachments: [
+        {
+          filename: 'screen.png',
+          mimeType: 'image/png',
+          dataUrl: 'data:image/png;base64,AAA',
+        },
+      ],
+      context: [],
+      sendConfig: {
+        providerID: 'anthropic',
+        modelID: 'claude-sonnet-4',
+        agent: 'build',
+        variant: 'high',
+      },
+      pending: false,
+    });
+
+    await withTestRoot(async ({ render, act }) => {
+      let queues: Record<string, MessageQueueSession[]> = {};
+      let api!: ReturnType<typeof useMessageQueue>;
+      function Harness() {
+        const [state, setState] = React.useState<Record<string, MessageQueueSession[]>>({});
+        queues = state;
+        api = useMessageQueue({
+          modelsByInstance: {},
+          setQueuesByInstance: setState,
+          showActionError: () => {},
+        });
+        return null;
+      }
+      await render(React.createElement(Harness));
+      await act(() => {
+        api.adoptQueuedSubmission({ instanceId: 'local', sessionId: 's' }, '/d', {
+          id: 'sub-42',
+          text: 'Queued with image',
+          model,
+          attachments: [{ filename: 'shot.png', mime: 'image/png', url: 'data:shot' }],
+        });
+      });
+      expect(queues.local).toHaveLength(1);
+      expect(queues.local[0].items[0].pending).toBe(false);
+      expect(queues.local[0].items[0].attachments).toEqual([
+        { filename: 'shot.png', mimeType: 'image/png', dataUrl: 'data:shot' },
+      ]);
+    });
+  });
+
+  test('removeQueued rolls back functionally on 500 without wiping concurrently enqueued items, and refreshes instead of resurrecting on 409', async () => {
+    await withTestRoot(async ({ render, act, window: win }) => {
+      let pendingResolve: ((res: { ok: boolean; status: number; data: unknown }) => void) | null = null;
+      win.ember = {
+        request: () =>
+          new Promise<{ ok: boolean; status: number; data: unknown }>((resolve) => {
+            pendingResolve = resolve;
+          }),
+      };
+
+      const refreshed: string[][] = [];
+      const errors: Array<{ message: string | null; hasRetry: boolean }> = [];
+      let queues: Record<string, MessageQueueSession[]> = {};
+      let api!: ReturnType<typeof useMessageQueue>;
+
+      function Harness() {
+        const [state, setState] = React.useState<Record<string, MessageQueueSession[]>>({
+          local: [session([queued('a'), queued('b')])],
+        });
+        queues = state;
+        api = useMessageQueue({
+          modelsByInstance: {},
+          setQueuesByInstance: setState,
+          showActionError: (message, retry) => {
+            errors.push({ message, hasRetry: Boolean(retry) });
+          },
+          refreshQueues: (ids) => {
+            refreshed.push(ids);
+          },
+        });
+        return null;
+      }
+
+      await render(React.createElement(Harness));
+      const initialTarget: QueueTarget = {
+        ref: { instanceId: 'local', sessionId: 's' },
+        session: { id: 's', instanceId: 'local', title: 'S', directory: '/d', updated: 1 } as Session,
+        queue: queues.local[0],
+        send: async () => true,
+      };
+
+      // 1. Non-409 failure: restore 'a' functionally without wiping concurrently added 'c'.
+      let removePromise!: Promise<boolean>;
+      await act(() => {
+        removePromise = api.removeQueued('a', initialTarget);
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b']);
+
+      await act(() => {
+        api.adoptQueuedSubmission({ instanceId: 'local', sessionId: 's' }, '/d', {
+          id: 'c',
+          text: 'concurrent c',
+        });
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b', 'c']);
+
+      await act(async () => {
+        pendingResolve!({ ok: false, status: 500, data: null });
+        expect(await removePromise).toBe(false);
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['a', 'b', 'c']);
+      expect(refreshed).toEqual([]);
+      expect(errors.at(-1)).toEqual({
+        message: 'Could not cancel the queued message.',
+        hasRetry: true,
+      });
+
+      // 2. HTTP 409 conflict: 'a' already entered the transcript — do not resurrect it, keep concurrent 'd', and refreshQueues.
+      const secondTarget: QueueTarget = {
+        ...initialTarget,
+        queue: queues.local[0],
+      };
+      await act(() => {
+        removePromise = api.removeQueued('a', secondTarget);
+      });
+      await act(() => {
+        api.adoptQueuedSubmission({ instanceId: 'local', sessionId: 's' }, '/d', {
+          id: 'd',
+          text: 'concurrent d',
+        });
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b', 'c', 'd']);
+
+      await act(async () => {
+        pendingResolve!({ ok: false, status: 409, data: null });
+        expect(await removePromise).toBe(false);
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b', 'c', 'd']);
+      expect(refreshed).toEqual([['local']]);
+      expect(errors.at(-1)).toEqual({
+        message: 'That queued message is already being sent.',
+        hasRetry: false,
+      });
+    });
+  });
+
+  test('moveQueued rolls back functionally on 500 without wiping concurrent items, and refreshes instead of resurrecting on 409', async () => {
+    await withTestRoot(async ({ render, act, window: win }) => {
+      let pendingResolve: ((res: { ok: boolean; status: number; data: unknown }) => void) | null = null;
+      win.ember = {
+        request: () =>
+          new Promise<{ ok: boolean; status: number; data: unknown }>((resolve) => {
+            pendingResolve = resolve;
+          }),
+      };
+
+      const refreshed: string[][] = [];
+      const errors: Array<{ message: string | null; hasRetry: boolean }> = [];
+      let queues: Record<string, MessageQueueSession[]> = {};
+      let setQueueState!: React.Dispatch<React.SetStateAction<Record<string, MessageQueueSession[]>>>;
+      let api!: ReturnType<typeof useMessageQueue>;
+
+      function Harness() {
+        const [state, setState] = React.useState<Record<string, MessageQueueSession[]>>({
+          local: [session([queued('a'), queued('b')])],
+        });
+        queues = state;
+        setQueueState = setState;
+        api = useMessageQueue({
+          modelsByInstance: {},
+          setQueuesByInstance: setState,
+          showActionError: (message, retry) => {
+            errors.push({ message, hasRetry: Boolean(retry) });
+          },
+          refreshQueues: (ids) => {
+            refreshed.push(ids);
+          },
+        });
+        return null;
+      }
+
+      await render(React.createElement(Harness));
+      const target: QueueTarget = {
+        ref: { instanceId: 'local', sessionId: 's' },
+        session: { id: 's', instanceId: 'local', title: 'S', directory: '/d', updated: 1 } as Session,
+        queue: queues.local[0],
+        send: async () => true,
+      };
+
+      // 1. Non-409 failure: swap back functionally while keeping concurrently added 'c'.
+      let movePromise!: Promise<boolean>;
+      await act(() => {
+        movePromise = api.moveQueued('b', -1, target);
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b', 'a']);
+
+      await act(() => {
+        api.adoptQueuedSubmission({ instanceId: 'local', sessionId: 's' }, '/d', {
+          id: 'c',
+          text: 'concurrent c',
+        });
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b', 'a', 'c']);
+
+      await act(async () => {
+        pendingResolve!({ ok: false, status: 500, data: null });
+        expect(await movePromise).toBe(false);
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['a', 'b', 'c']);
+      expect(refreshed).toEqual([]);
+      expect(errors.at(-1)).toEqual({
+        message: 'Could not reorder the queued messages.',
+        hasRetry: true,
+      });
+
+      // 2. HTTP 409 conflict: 'a' already entered the transcript during reorder — never resurrect 'a', preserve 'd', and refreshQueues.
+      const nextTarget: QueueTarget = {
+        ...target,
+        queue: queues.local[0],
+      };
+      await act(() => {
+        movePromise = api.moveQueued('b', -1, nextTarget);
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b', 'a', 'c']);
+
+      // Simulate a poll where 'a' already left the queue into the transcript and 'd' arrived.
+      await act(() => {
+        setQueueState({ local: [session([queued('b'), queued('c'), queued('d')])] });
+      });
+
+      await act(async () => {
+        pendingResolve!({ ok: false, status: 409, data: null });
+        expect(await movePromise).toBe(false);
+      });
+      expect(queues.local[0].items.map((i) => i.id)).toEqual(['b', 'c', 'd']);
+      expect(refreshed).toEqual([['local']]);
+      expect(errors.at(-1)).toEqual({
+        message: 'That queued message is already being sent.',
+        hasRetry: false,
+      });
+    });
   });
 });
