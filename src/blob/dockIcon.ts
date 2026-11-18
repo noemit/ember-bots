@@ -1,7 +1,10 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AvatarIdentity, BallMood, BlobStyle } from '../types';
+import { dockIconMood } from './mood';
 import { effectiveBlobStyle } from './styles';
+
+export { dockIconMood };
 
 type BlobComponent = React.ComponentType<{
   seed: string;
@@ -78,10 +81,11 @@ export const renderDockIcon = async (
   identity: AvatarIdentity,
   mood: BallMood
 ): Promise<string> => {
+  const visualMood = dockIconMood(mood);
   const blobSize = TILE * 0.7;
   const Component = await loadBlobComponent(style, identity);
   const image = await loadImage(
-    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(blobSvg(Component, identity, mood, blobSize))}`
+    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(blobSvg(Component, identity, visualMood, blobSize))}`
   );
 
   const canvas = document.createElement('canvas');
@@ -99,10 +103,14 @@ export const renderDockIcon = async (
 
   // Every style includes the shared decision/unread badge in its SVG. Only motion-only moods
   // need an extra marker when rasterised into a still dock icon.
-  const hasOwnBadge = mood === 'input' || mood === 'question' || mood === 'error' || mood === 'unread';
+  const hasOwnBadge =
+    visualMood === 'input' ||
+    visualMood === 'question' ||
+    visualMood === 'error' ||
+    visualMood === 'unread';
   // An unknown status gets no marker at all: the dot means "something is waiting for you", and the
   // one thing Ember knows here is that it does not know. The neutral blob above carries it instead.
-  if (!hasOwnBadge && mood !== 'idle' && mood !== 'unknown') {
+  if (!hasOwnBadge && visualMood !== 'idle' && visualMood !== 'unknown') {
     const r = TILE * 0.075;
     const cx = INSET + TILE - r * 1.6;
     const cy = INSET + TILE - r * 1.6;

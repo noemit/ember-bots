@@ -61,6 +61,21 @@ export const galleryForMessage = (message: ChatMessage): ViewerImage[] => {
 export const galleryForConversation = (messages: readonly ChatMessage[]): ViewerImage[] =>
   messages.flatMap(galleryForMessage);
 
+/** Structural equality for gallery items so text-only updates can keep the prior array reference. */
+export const sameGallery = (
+  previous: readonly ViewerImage[],
+  next: readonly ViewerImage[]
+): boolean =>
+  previous.length === next.length &&
+  previous.every(
+    (entry, index) =>
+      entry.id === next[index].id &&
+      entry.url === next[index].url &&
+      entry.filename === next[index].filename &&
+      entry.mime === next[index].mime &&
+      entry.tool === next[index].tool
+  );
+
 /** Step through a gallery, wrapping at both ends. Empty galleries stay at 0. */
 export const neighborIndex = (count: number, index: number, delta: number): number => {
   if (count <= 0) return 0;

@@ -17,7 +17,7 @@ import {
   piLoadMessageAppend,
   piLoadMessageHistory,
   piLoadMessages,
-  piLoadMessageTail,
+  piLoadMessageTailPage,
   piLoadModels,
   piRefreshModels,
   piLoadSessionInstructions,
@@ -833,6 +833,8 @@ export const loadAllSessionStates = async (
 
 /** How many records a token-driven tail fetch asks for. Older servers may return more. */
 export const MESSAGE_TAIL_LIMIT = 8;
+/** Bounded initial tail when opening a cold session column (avoids an eager 8,000-entry walk). */
+export const OPEN_MESSAGE_TAIL_LIMIT = 120;
 /**
  * Page size for full transcript loads; pages continue while `cursor.next` is set. OpenCode 2
  * rejects `limit` above 200 with a 400, which would fail every full read.
@@ -1038,22 +1040,20 @@ export const loadMessageAppend = async (
 };
 
 /**
- * The latest `limit` records only: `order=desc` returns newest-first pages, which are flipped
- * back to chronological order for display.
+ * Bounded tail page plus whether that single page reached the very start of the conversation.
  */
-export const loadMessageTail = async (
+export const loadMessageTailPage = async (
   instanceId: string,
   sessionId: string,
   _directory?: string,
   limit = MESSAGE_TAIL_LIMIT
-): Promise<ChatMessage[]> => {
+): Promise<{ messages: ChatMessage[]; complete: boolean }> => {
   if (isPiInstance(instanceId)) {
-    // A cheap tail via the entries page instead of the whole (unbounded) snapshot. The limit counts
-    // *entries*, and a turn with tool calls is about two entries per message (the assistant call and
-    // its result), so 20 entries is roughly the last ten messages with their calls - enough to see
-    // what the agent is doing, without reading 900KB to find out. A short transcript returns all of
-    // it anyway, since Hearth pages from the end.
-    return piLoadMessageTail(instanceId, sessionId, Math.max(limit * 2, 20));
+    // A cheap tail via the entries page instead of the whole (unbounded) snapshot. Keep cold-open
+    // entry pages below `PI_HISTORY_PAGE_SIZE` (100) while still covering dozens of recent turns;
+    // routine refreshes keep the small 20-entry window.
+    const entryLimit = limit > MESSAGE_TAIL_LIMIT ? Math.min(limit, 80) : Math.max(limit * 2, 20);
+    return piLoadMessageTailPage(instanceId, sessionId, entryLimit);
   }
   const params = new URLSearchParams();
   params.set('order', 'desc');
@@ -1062,8 +1062,28 @@ export const loadMessageTail = async (
   if (!response.ok) {
     throw new Error(`Failed to load messages for ${sessionId}: ${response.status}`);
   }
-  return normalizeMessages(response.data).slice(0, limit).reverse();
+  const raw = payloadArray(response.data);
+  const hasExplicitNoCursor =
+    typeof asRecord(response.data).cursor === 'object' && !nextCursorOf(response.data);
+  const complete =
+    !nextCursorOf(response.data) &&
+    (raw.length < limit || (raw.length === limit && hasExplicitNoCursor));
+  return {
+    messages: normalizeMessages(response.data).slice(0, limit).reverse(),
+    complete,
+  };
 };
+
+/**
+ * The latest `limit` records only: `order=desc` returns newest-first pages, which are flipped
+ * back to chronological order for display.
+ */
+export const loadMessageTail = async (
+  instanceId: string,
+  sessionId: string,
+  directory?: string,
+  limit = MESSAGE_TAIL_LIMIT
+): Promise<ChatMessage[]> => (await loadMessageTailPage(instanceId, sessionId, directory, limit)).messages;
 
 const TOOL_STATUSES: ToolStatus[] = ['pending', 'running', 'completed', 'error'];
 const TOOL_OUTPUT_LIMIT = 20_000;

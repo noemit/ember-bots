@@ -48,7 +48,7 @@ import {
   seedIdentity,
   sessionAvatarKey,
 } from './blob/seed';
-import { moodFrom } from './blob/mood';
+import { dockIconMood, moodFrom } from './blob/mood';
 import { crewAppearanceMood } from './lib/crewMood';
 import { useCrewAppearance } from './hooks/useCrewAppearance';
 import {
@@ -71,6 +71,9 @@ import {
   loadSessionInstructions,
   setSessionInstructions,
   loadMessageTail,
+  loadMessageTailPage,
+  MESSAGE_TAIL_LIMIT,
+  OPEN_MESSAGE_TAIL_LIMIT,
   loadPermissions,
   loadQuestions,
   loadSessions,
@@ -135,7 +138,7 @@ import {
   consumeCompactionFailure,
   type ObservedCompactions,
 } from '@/lib/compaction';
-import { crewCostOf, crewCostState } from '@/lib/crewCost';
+import { crewCostsByKey } from '@/lib/crewCost';
 import { reconcileOutageDismissals, silentInstances, type SilentInstance } from '@/lib/instanceHealth';
 import { needsOnboarding, type OnboardingState } from '@/lib/onboarding';
 import { ReadCoordinator } from '@/lib/readCoordinator';
@@ -188,11 +191,16 @@ import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups
 import { upsertGroup } from './lib/sessionGroups';
 import { recoverStrandedNotes } from './lib/notes';
 import { addNote, removeNote, updateNote } from './lib/noteStore';
-import { crewByLeader, isWorker, leaderNeedsInput, threadRows, threadSourcesFor, workerKeySet } from './lib/crew';
+import { crewByLeader, crewNeedsInputKeySet, isWorker, threadRows, threadSourcesFor, workerKeySet } from './lib/crew';
 import { processesToStopOnHide } from './lib/hideProcesses';
 import { hideElsewhereNote, hideForceStopAsk, hideStopFailure, refusedPids } from './lib/hideStopCopy';
 import { InvalidationQueue, invalidationsFor, parseEmberEvent, sessionIsLoaded, type Invalidation } from '@/lib/invalidation';
-import { APPLY_STREAM_DELTAS, applyLiveDeltas } from '@/lib/liveStream';
+import {
+  APPLY_STREAM_DELTAS,
+  applyLiveDeltas,
+  isTerminalStreamEvent,
+  StreamDeltaCoalescer,
+} from '@/lib/liveStream';
 import {
   MAX_OPEN_SESSIONS,
   MIN_COLUMN_WIDTH,
@@ -857,6 +865,8 @@ export default function App() {
     fullRepairRef.current(key);
   }, []);
 
+  const streamDeltaCoalescerRef = React.useRef<StreamDeltaCoalescer | null>(null);
+
   /**
    * The single transcript commit path. Every fetched full or tail response goes through here so
    * structural sharing, optimistic reconciliation, the message cache and the compact summary stay
@@ -878,8 +888,12 @@ export default function App() {
        */
       liveOutputs?: readonly LiveToolOutput[]
     ) => {
-      const current =
+      const rawCurrent =
         messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages ?? [];
+      const bufferedDeltas = streamDeltaCoalescerRef.current?.takeKey(key);
+      const current = bufferedDeltas
+        ? (applyLiveDeltas(rawCurrent, bufferedDeltas) ?? rawCurrent)
+        : rawCurrent;
       const now = Date.now();
       ageOutPendingSend(key, current, now);
       const pending = pendingOptimisticIds.current.get(key) ?? new Set<string>();
@@ -970,6 +984,19 @@ export default function App() {
    * on screen, a transcript that is not settled — means the caller should take the REST path, which
    * is also how the first chunk of a turn arrives and how any drift is corrected.
    */
+  const canBufferStreamDeltas = useStableCallback(
+    (instanceId: string, sessionId: string): boolean => {
+      const key = sessionKey({ instanceId, sessionId });
+      if (!sessionIsLoaded({ instanceId, sessionId }, watchedSessionKeysRef.current, activeSessionRef.current, document.hidden)) {
+        return false;
+      }
+      const transcript = transcriptsRef.current[key];
+      if (!transcript || transcript.status !== 'ready') return false;
+      const current = messageCacheRef.current.get(key) ?? transcript.messages;
+      return current.some((message) => message.live === true);
+    }
+  );
+
   const applyStreamDeltas = useStableCallback(
     (instanceId: string, sessionId: string, deltas: LiveDelta[]): boolean => {
       const key = sessionKey({ instanceId, sessionId });
@@ -1031,6 +1058,7 @@ export default function App() {
    */
   const markSessionStepsInterrupted = (instanceId: string, sessionId: string) => {
     const key = sessionKey({ instanceId, sessionId });
+    streamDeltaCoalescerRef.current?.flushKey(key);
     const current = messageCacheRef.current.get(key) ?? transcriptsRef.current[key]?.messages;
     if (!current) return;
     let changed = false;
@@ -1094,11 +1122,16 @@ export default function App() {
   const onboardingFixture =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fixture') === 'onboarding';
 
+  const instancesSettled =
+    instancesLoaded && !instances.some((instance) => instance.status === 'checking');
   const onboardingOpen =
     settingsLoaded &&
     !settings.onboardedAt &&
     !settings.onboardingDismissedAt &&
-    (onboardingFixture || needsOnboarding(onboardingState, settings.onboardingDismissedAt, settings.onboardingStartedAt));
+    (onboardingFixture ||
+      Boolean(settings.onboardingStartedAt) ||
+      (instancesSettled &&
+        needsOnboarding(onboardingState, settings.onboardingDismissedAt, settings.onboardingStartedAt)));
 
   /** What the wizard reports when the local harness did not start; null when it did. */
   const onboardingProblem =
@@ -1229,19 +1262,19 @@ export default function App() {
    * What each session has actually cost, its crew included (`lib/crewCost`). Keyed by session, so a
    * column can look its own up without walking the tree again on every render of the list.
    */
-  const crewCostByKey = React.useMemo(() => {
-    const map = new Map<string, ReturnType<typeof crewCostState>>();
-    for (const session of everyKnownSession) {
-      // "Has this run at all?" — the summary's newest entry id answers it without a transcript read;
-      // a priced ledger or a cached transcript covers the instances that send no entry ids.
-      const hasRun =
-        session.lastEntryId !== undefined ||
-        (typeof session.cost === 'number' && session.cost > 0) ||
-        (messageCacheRef.current.get(sessionKey(session))?.length ?? 0) > 0;
-      map.set(sessionKey(session), crewCostState(crewCostOf(session, hasRun, everyKnownSession)));
-    }
-    return map;
-  }, [everyKnownSession]);
+  const crewCostByKey = React.useMemo(
+    () =>
+      crewCostsByKey(
+        everyKnownSession,
+        (session) =>
+          // "Has this run at all?" — the summary's newest entry id answers it without a transcript read;
+          // a priced ledger or a cached transcript covers the instances that send no entry ids.
+          session.lastEntryId !== undefined ||
+          (typeof session.cost === 'number' && session.cost > 0) ||
+          (messageCacheRef.current.get(sessionKey(session))?.length ?? 0) > 0
+      ),
+    [everyKnownSession]
+  );
 
   /**
    * Configured hosts that are not answering, with the sessions Ember still lists from each one's
@@ -1268,18 +1301,19 @@ export default function App() {
     handleSettings({ dismissedOutages: next });
   }, [instances, handleSettings, settingsRef]);
 
+  const allInstanceSessions = React.useMemo(
+    () => Object.values(sessionsByInstance).flat(),
+    [sessionsByInstance]
+  );
+
   /**
    * Crew workers grouped by their leader's key. Workers ride the session list (they are hidden
    * from the rail, not from the fetch), so the strip and the rollup need no extra reads. Built
    * from every known instance, not the recency window, so a busy worker never ages out of view.
    */
   const crewWorkers = React.useMemo(
-    () =>
-      crewByLeader(
-        Object.values(sessionsByInstance)
-          .flat()
-      ),
-    [sessionsByInstance]
+    () => crewByLeader(allInstanceSessions),
+    [allInstanceSessions]
   );
 
   /**
@@ -1287,15 +1321,10 @@ export default function App() {
    * a worker that is itself a leader (transitive), and a worker's own summary flag. A pending
    * worker question is a decision the leader is accountable for, so it rolls all the way up.
    */
-  const crewNeedsInputKeys = React.useMemo(() => {
-    const keys = new Set<string>();
-    const all = Object.values(sessionsByInstance).flat();
-    for (const session of all) {
-      if (session.needsInput !== true && !leaderNeedsInput(session, all)) continue;
-      keys.add(sessionKey(session));
-    }
-    return keys;
-  }, [sessionsByInstance]);
+  const crewNeedsInputKeys = React.useMemo(
+    () => crewNeedsInputKeySet(allInstanceSessions, crewWorkers),
+    [allInstanceSessions, crewWorkers]
+  );
 
   const permissions = React.useMemo(
     () => Object.values(permissionsByInstance).flat(),
@@ -1644,6 +1673,7 @@ export default function App() {
   // tile and the contrast-adjusted palettes come from the current CSS variables.
   const selectedState: BallState = selectedKey ? states[selectedKey] ?? 'unknown' : 'idle';
   const selectedMood: BallMood = selectedKey ? moods[selectedKey] ?? 'unknown' : 'idle';
+  const dockMood = dockIconMood(selectedMood);
   React.useEffect(() => {
     // No `selectedKey` guard: the icon should be the blob from launch, not only once a session is
     // chosen. With nothing selected it simply mirrors the idle mood.
@@ -1653,10 +1683,10 @@ export default function App() {
     let cancelled = false;
     // The attempt goes in the log too: without it, "no line" cannot be told apart from "the effect
     // never ran", and that is the difference between a broken render and a stale build.
-    void window.ember.reportAppIconIssue?.(`attempt blob=${settings.blobStyle} mood=${selectedMood} key=${selectedKey ?? '-'}`);
+    void window.ember.reportAppIconIssue?.(`attempt blob=${settings.blobStyle} mood=${dockMood} key=${selectedKey ?? '-'}`);
     void import('./blob/dockIcon')
       .then(({ renderDockIcon }) =>
-        cancelled ? undefined : renderDockIcon(settings.blobStyle, selectedIdentity, selectedMood)
+        cancelled ? undefined : renderDockIcon(settings.blobStyle, selectedIdentity, dockMood)
       )
       .then((dataUrl) => {
         if (cancelled) {
@@ -1680,7 +1710,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedKey, selectedIdentity, selectedMood, settings.blobStyle, settings.theme]);
+  }, [selectedKey, selectedIdentity, dockMood, settings.blobStyle, settings.theme]);
 
   const refreshInstances = React.useCallback(async function refreshInstances() {
     setRefreshing(true);
@@ -2154,7 +2184,13 @@ export default function App() {
           const [projects, models] = await Promise.all([loadAllProjects([id]), loadModels(id)]);
           if (cancelled) return;
           // An instance that failed to answer is absent from these maps; keep its previous data.
-          setProjectsByInstance((prev) => ({ ...prev, ...projects }));
+          if (Object.keys(projects).length > 0) {
+            projectsByInstanceRef.current = { ...projectsByInstanceRef.current, ...projects };
+            setProjectsByInstance((prev) => ({ ...prev, ...projects }));
+            if (!isPiInstance(id) && (projects[id]?.length ?? 0) > 0) {
+              void refreshScheduled([id]);
+            }
+          }
           if (models) setModelsByInstance((prev) => ({ ...prev, [id]: models }));
         }));
       } catch (err) {
@@ -2347,9 +2383,6 @@ export default function App() {
   };
 
   const transcriptReads = React.useRef(new ReadCoordinator());
-  const fullReadAt = React.useRef(new Map<string, number>());
-  /** When each column first went on screen, so "no full read yet" has a sane baseline. */
-  const columnOpenedAt = React.useRef(new Map<string, number>());
   const loadAndCommitMessages = useStableCallback((ref: SessionRef, mode: 'tail' | 'full', directory?: string, afterCurrent: boolean = false) => {
     const key = sessionKey(ref);
     return transcriptReads.current.run(key, mode, async () => {
@@ -2381,45 +2414,50 @@ export default function App() {
             return;
           }
         }
-      }
-      if (mode === 'full') {
-        // A full read is a *paged* walk of the entries route, not the snapshot: the snapshot serves
-        // the active window, so after a compaction it is a fraction of the history (measured live:
-        // 39 of 872 entries on one conversation). `complete` says whether the walk reached the
-        // start; a cap or a short answer leaves it false and the transcript says so.
-        const history = await loadMessageHistory(ref.instanceId, ref.sessionId);
-        // The walk landed, so the session is not one the breaker has to hold back. A success here is
-        // the only evidence that counts: a transient timeout clears on the next attempt anyway.
-        if (repairBudget.current.halt(ref)) {
-          repairBudget.current.succeeded(ref);
-          setRepairHalts((prev) => {
-            if (!prev[key]) return prev;
-            const next = { ...prev };
-            delete next[key];
-            return next;
-          });
-        }
-        const messages = history.supported
-          ? history.messages
-          : await loadMessages(ref.instanceId, ref.sessionId, directory ?? meta.directory);
-        commitFetchedTranscript(key, messages, 'full', meta.updated);
-        observeModels(observationsFor(ref.instanceId, ref.sessionId, directory ?? meta.directory, messages));
-        fullReadAt.current.set(key, Date.now());
-        // Legacy instances have no cursor: their own paged read is complete by construction (or by
-        // their documented ceiling, which this client cannot see). Do not claim either way for a
-        // read that did not come from the Hearth walk.
-        const historyComplete = history.supported ? history.complete : true;
+        const tailLimit = held.length === 0 ? OPEN_MESSAGE_TAIL_LIMIT : MESSAGE_TAIL_LIMIT;
+        const tail = await loadMessageTailPage(ref.instanceId, ref.sessionId, directory ?? meta.directory, tailLimit);
+        commitFetchedTranscript(key, tail.messages, 'tail', meta.updated);
+        observeModels(observationsFor(ref.instanceId, ref.sessionId, directory ?? meta.directory, tail.messages));
         setTranscripts((prev) => {
           const current = prev[key];
           if (!current) return prev;
+          const historyComplete = current.historyComplete === true || tail.complete;
           if (current.historyComplete === historyComplete) return prev;
           return { ...prev, [key]: { ...current, historyComplete } };
         });
         return;
       }
-      const messages = await loadMessageTail(ref.instanceId, ref.sessionId, directory ?? meta.directory);
-      commitFetchedTranscript(key, messages, mode, meta.updated);
+      // A full read is a *paged* walk of the entries route, not the snapshot: the snapshot serves
+      // the active window, so after a compaction it is a fraction of the history (measured live:
+      // 39 of 872 entries on one conversation). `complete` says whether the walk reached the
+      // start; a cap or a short answer leaves it false and the transcript says so.
+      const history = await loadMessageHistory(ref.instanceId, ref.sessionId);
+      // The walk landed, so the session is not one the breaker has to hold back. A success here is
+      // the only evidence that counts: a transient timeout clears on the next attempt anyway.
+      if (repairBudget.current.halt(ref)) {
+        repairBudget.current.succeeded(ref);
+        setRepairHalts((prev) => {
+          if (!prev[key]) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
+      const messages = history.supported
+        ? history.messages
+        : await loadMessages(ref.instanceId, ref.sessionId, directory ?? meta.directory);
+      commitFetchedTranscript(key, messages, 'full', meta.updated);
       observeModels(observationsFor(ref.instanceId, ref.sessionId, directory ?? meta.directory, messages));
+      // Legacy instances have no cursor: their own paged read is complete by construction (or by
+      // their documented ceiling, which this client cannot see). Do not claim either way for a
+      // read that did not come from the Hearth walk.
+      const historyComplete = history.supported ? history.complete : true;
+      setTranscripts((prev) => {
+        const current = prev[key];
+        if (!current) return prev;
+        if (current.historyComplete === historyComplete) return prev;
+        return { ...prev, [key]: { ...current, historyComplete } };
+      });
     }, afterCurrent);
   });
 
@@ -2474,12 +2512,23 @@ export default function App() {
     }
   });
 
-  /** Bounded tail refresh for a visible column while a turn streams. */
+  /** Bounded tail refresh for a visible column on open and while a turn streams. */
   const refreshMessageTail = useStableCallback(async (ref: SessionRef) => {
+    const key = sessionKey(ref);
     try {
       await loadAndCommitMessages(ref, 'tail');
     } catch (err) {
       console.error('Failed to load message tail', err);
+      setTranscripts((prev) => {
+        const current = prev[key];
+        if (current?.status === 'ready') return prev;
+        const failure = current?.failure === 'reload' ? 'reload' : 'tail';
+        const messages = current?.messages ?? messageCacheRef.current.get(key) ?? [];
+        if (current && current.messages === messages && current.status === 'error' && current.failure === failure) {
+          return prev;
+        }
+        return { ...prev, [key]: { messages, status: 'error', failure } };
+      });
     }
   });
 
@@ -2659,6 +2708,24 @@ export default function App() {
     }
   });
   const invalidationQueue = React.useMemo(() => new InvalidationQueue(refetch), [refetch]);
+  const deltaCoalescer = React.useMemo(
+    () =>
+      new StreamDeltaCoalescer((instanceId, sessionId, deltas) => {
+        if (applyStreamDeltas(instanceId, sessionId, deltas)) return;
+        const loaded = (instId: string, sessId: string) =>
+          sessionIsLoaded(
+            { instanceId: instId, sessionId: sessId },
+            watchedSessionKeysRef.current,
+            activeSessionRef.current,
+            document.hidden
+          );
+        invalidationsFor({ instanceId, type: 'pi:message_update', sessionId }, loaded).forEach(
+          (invalidation) => invalidationQueue.push(invalidation)
+        );
+      }),
+    [applyStreamDeltas, invalidationQueue]
+  );
+  streamDeltaCoalescerRef.current = deltaCoalescer;
 
   React.useEffect(() => {
     const bridge = window.ember;
@@ -2688,7 +2755,7 @@ export default function App() {
             instanceId,
             resource: 'messages',
             sessionId: ref.sessionId,
-            messageMode: 'full',
+            messageMode: 'tail',
           });
         }
       });
@@ -2698,6 +2765,7 @@ export default function App() {
       const event = parseEmberEvent(raw);
       if (event?.type === 'ember:instances-updated') {
         void readInstances(false).catch(() => {});
+        void refreshHarnessSettings().catch(() => {});
         return;
       }
       if (!event) return;
@@ -2708,18 +2776,39 @@ export default function App() {
         const connected = event.connected === true;
         const wasConnected = liveInstancesRef.current[event.instanceId] === true;
         if (wasConnected === connected) return;
+        if (!connected && wasConnected) disconnectedStreamsRef.current.add(event.instanceId);
         liveInstancesRef.current = { ...liveInstancesRef.current, [event.instanceId]: connected };
         setLiveInstances(liveInstancesRef.current);
-        if (connected && readySet.has(event.instanceId)) catchUp(event.instanceId);
+        if (connected && readySet.has(event.instanceId)) {
+          const reconnected = disconnectedStreamsRef.current.delete(event.instanceId);
+          const bootstrappedAt = bootstrappedReadyIdsRef.current.get(event.instanceId) ?? 0;
+          if (reconnected || Date.now() - bootstrappedAt >= 1_000) {
+            catchUp(event.instanceId);
+          }
+        }
         return;
       }
       if (!readySet.has(event.instanceId)) return;
       // Whitelisted milestones carry a bounded summary; those become live activity entries.
-      // A streamed chunk carries the append itself, so a watching column can draw it without
-      // reading the transcript again. Anything this cannot apply falls through to the invalidation
-      // below, which is the path every hint took before deltas existed.
-      if (APPLY_STREAM_DELTAS && event.deltas && event.deltas.length > 0 && event.sessionId) {
-        if (applyStreamDeltas(event.instanceId, event.sessionId, event.deltas)) return;
+      // Flush any buffered rAF deltas synchronously before terminal boundaries so settled reads
+      // and idle states never lag behind a pending animation frame.
+      if (isTerminalStreamEvent(event.type)) {
+        if (event.sessionId) deltaCoalescer.flushSession(event.instanceId, event.sessionId);
+        else deltaCoalescer.flushInstance(event.instanceId);
+      }
+      // A streamed chunk carries the append itself, so a watching column can coalesce deltas per
+      // animation frame instead of re-rendering per token or reading the transcript again. Anything
+      // this cannot buffer or apply falls through to the invalidation below.
+      if (
+        APPLY_STREAM_DELTAS &&
+        event.type === 'pi:message_update' &&
+        event.deltas &&
+        event.deltas.length > 0 &&
+        event.sessionId &&
+        canBufferStreamDeltas(event.instanceId, event.sessionId)
+      ) {
+        deltaCoalescer.push(event.instanceId, event.sessionId, event.deltas);
+        return;
       }
       if (event.directory && (event.type.startsWith('question.') || event.type.startsWith('permission.'))) {
         const list =
@@ -2757,10 +2846,11 @@ export default function App() {
       window.removeEventListener('pageshow', resume);
       window.removeEventListener('ember:remote-resume', resume);
       unsubscribe();
+      deltaCoalescer.flushAll();
       invalidationQueue.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds; refs carry the rest
-  }, [readyKey, invalidationQueue]);
+  }, [readyKey, invalidationQueue, deltaCoalescer]);
 
   // ---- Polling: the safety net. Instances with a live stream poll slowly; the rest fast. ----
   // Split by liveness so one instance that can't stream (older OpenChamber, flaky tunnel)
@@ -2774,9 +2864,9 @@ export default function App() {
   const readyIdsRef = React.useRef(readyIds);
   readyIdsRef.current = readyIds;
 
-  const refreshListFor = async (ids: string[]) => {
+  const refreshListFor = useStableCallback(async (ids: string[]) => {
     await Promise.all([refreshSessions(ids), refreshAutoAccept(ids)]);
-  };
+  });
   const refreshStateFor = useStableCallback(async (ids: string[]) => {
     await Promise.all(ids.map((id) => Promise.all([
       refreshStates([id]), refreshQueues([id]),
@@ -2788,20 +2878,33 @@ export default function App() {
       refreshPermissions([id]), refreshQuestions([id]),
     ])));
   });
+  const bootstrappedReadyIdsRef = React.useRef(new Map<string, number>());
+  const disconnectedStreamsRef = React.useRef(new Set<string>());
   React.useEffect(() => {
-    readyIds.forEach((id) => { void refreshSessions([id]); void refreshStateFor([id]); });
+    const activeReady = new Set(readyIds);
+    for (const id of bootstrappedReadyIdsRef.current.keys()) {
+      if (!activeReady.has(id)) bootstrappedReadyIdsRef.current.delete(id);
+    }
+    const newlyReady = readyIds.filter((id) => !bootstrappedReadyIdsRef.current.has(id));
+    if (newlyReady.length === 0) return;
+    const at = Date.now();
+    newlyReady.forEach((id) => {
+      bootstrappedReadyIdsRef.current.set(id, at);
+      void refreshListFor([id]);
+      void refreshStateFor([id]);
+      void refreshPromptsFor([id]);
+    });
     // Hearth scheduled tasks are one aggregate request, so load them as soon as a pi instance
-    // is ready (the OpenChamber path stays on its rare poll to avoid the per-project fan-out).
-    const piIds = instances
-      .filter((instance) => instance.kind === 'pi' && readyIds.includes(instance.id))
-      .map((instance) => instance.id);
+    // is ready (the OpenChamber path loads once projects arrive, then stays on its rare poll).
+    const piIds = newlyReady.filter((id) => isPiInstance(id));
     if (piIds.length > 0) void refreshScheduled(piIds);
-  }, [readyIds, instances, refreshSessions, refreshStateFor, refreshScheduled]);
-  usePoll(() => refreshListFor(deadIdsRef.current), SESSION_POLL_MS, deadIds.length > 0);
-  usePoll(() => refreshListFor(liveIdsRef.current), SESSION_POLL_LIVE_MS, liveIds.length > 0);
-  usePoll(() => refreshStateFor(deadIdsRef.current), STATE_POLL_MS, deadIds.length > 0);
-  usePoll(() => refreshStateFor(liveIdsRef.current), STATE_POLL_LIVE_MS, liveIds.length > 0);
-  usePoll(() => refreshPromptsFor(readyIdsRef.current), PROMPT_POLL_MS, readyIds.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKey is the stable string form of readyIds
+  }, [readyKey, refreshListFor, refreshStateFor, refreshPromptsFor, refreshScheduled]);
+  usePoll(() => refreshListFor(deadIdsRef.current), SESSION_POLL_MS, deadIds.length > 0, { immediate: false });
+  usePoll(() => refreshListFor(liveIdsRef.current), SESSION_POLL_LIVE_MS, liveIds.length > 0, { immediate: false });
+  usePoll(() => refreshStateFor(deadIdsRef.current), STATE_POLL_MS, deadIds.length > 0, { immediate: false });
+  usePoll(() => refreshStateFor(liveIdsRef.current), STATE_POLL_LIVE_MS, liveIds.length > 0, { immediate: false });
+  usePoll(() => refreshPromptsFor(readyIdsRef.current), PROMPT_POLL_MS, readyIds.length > 0, { immediate: false });
 
 
   // Reads for a session the user just brought on screen. Preview warming waits for them so a burst
@@ -2926,37 +3029,23 @@ export default function App() {
   }, [sessions, commitFetchedTranscript, refreshPromptsFor]);
 
   /**
-   * Bring an on-screen transcript up to date. Cached messages render first; a cached session gets
-   * a bounded tail (which repairs itself with a full read when it no longer overlaps), an uncached
-   * one a full read.
+   * Bring an on-screen transcript up to date via a bounded tail/append read.
+   *
+   * Opening a session must stay fast even when its JSONL file is tens of megabytes: a real long
+   * session can carry 45MB of tool output where the tail page is ~24KB and paints immediately.
+   * When older messages remain on the host (`historyComplete` is false), Transcript renders the
+   * sticky "Earlier messages aren't loaded yet" strip above the scroller and loads the full history
+   * lazily on demand ("Load them", Find, or quote jumps).
    */
+  const shownTranscriptThisTick = React.useRef(new Set<string>());
   const showTranscript = useStableCallback((ref: SessionRef) => {
     const key = sessionKey(ref);
-    if (!columnOpenedAt.current.has(key)) columnOpenedAt.current.set(key, Date.now());
-    // Opening a session always starts with the tail, never the full read.
-    //
-    // The full read is the whole conversation in one response, and a real long session is enormous:
-    // one here is 45MB of JSON, of which 44.7MB is tool output and only 0.9MB is the assistant text
-    // you actually read. Fetching that on open is what made chats fail to appear — the tail for the
-    // same session is 24KB, roughly 1900x smaller, and it is enough to render the screen
-    // immediately. Older history is a separate, lazy concern (see ), not something
-    // to block the first paint on.
+    if (shownTranscriptThisTick.current.has(key)) return;
+    shownTranscriptThisTick.current.add(key);
+    queueMicrotask(() => shownTranscriptThisTick.current.delete(key));
     const read = refreshMessageTail(ref);
     priorityReads.current.add(read);
-    void read
-      .finally(() => priorityReads.current.delete(read))
-      .then(() => {
-        // The tail paints the screen; it is not the whole conversation. Without this the column
-        // showed roughly the last ten messages and nothing else, so scrolling back was impossible
-        // and Find could not reach anything older — the transcript looked truncated rather than
-        // lazy. Backfill in the background, after the first paint, so opening stays fast *and* the
-        // history is really there.
-        const key2 = sessionKey(ref);
-        if (transcriptsRef.current[key2]?.historyComplete === true) return;
-        if (fullRepairInFlight.current.has(key2)) return;
-        fullRepairInFlight.current.add(key2);
-        void refreshMessages(ref);
-      });
+    void read.finally(() => priorityReads.current.delete(read));
     // A prompt raised while this column was off screen would otherwise not appear until the next
     // poll or reload: the question list is fetched per directory on hints, and switching to a
     // session is not a hint. Ask for it as the column comes on screen.
@@ -3005,20 +3094,15 @@ export default function App() {
         watchedSessionKeysRef.current.map((key) => {
           const ref = parseSessionKey(key);
           if (!ref || document.hidden || !(sessionsByInstanceRef.current[ref.instanceId] ?? []).some((session) => session.id === ref.sessionId)) return Promise.resolve();
-          const busy = states[key] === 'active';
-          // A live instance needs a full repair every five minutes; an unreachable one, or a turn
-          // in flight, every minute. Per column, so one dead instance stops penalising the rest.
-          const repairInterval = busy || !columnIsLive(ref) ? 60_000 : 5 * 60_000;
-          // With no full read yet the baseline is when the column opened, not 0: otherwise the
-          // first poll treats a session that has only ever had a tail as overdue for a repair and
-          // immediately fetches the whole conversation, which is the thing we are avoiding.
-          const lastFull = fullReadAt.current.get(key) ?? columnOpenedAt.current.get(key) ?? Date.now();
-          return Date.now() - lastFull >= repairInterval ? refreshMessages(ref) : refreshMessageTail(ref);
+          // Bounded incremental/tail refresh (`loadMessageAppend` / `reconcileTranscriptTail`);
+          // `commitFetchedTranscript` requests a full repair only when a tail cannot safely overlap.
+          return refreshMessageTail(ref);
         })
       );
     },
     anyColumnBusy || !columnsLive ? STATE_POLL_MS : MESSAGES_POLL_LIVE_MS,
-    watchedSessionKeys.length > 0
+    watchedSessionKeys.length > 0,
+    { immediate: false }
   );
 
   const toggleInstance = (instanceId: string) => {
@@ -4248,7 +4332,7 @@ export default function App() {
    * Rename on the source instance, mirroring locally right away. The local `updated` bump keeps
    * an in-flight pre-rename poll from reverting the title (the server's PATCH bumps it too).
    */
-  const handleRenameSession = async (session: Session, title: string) => {
+  const handleRenameSession = useStableCallback(async (session: Session, title: string) => {
     const next = title.trim();
     const key = sessionKey(session);
     const previous = session.title;
@@ -4268,7 +4352,16 @@ export default function App() {
         showActionError(titleSaveFailure(host));
       },
     });
-  };
+  });
+
+  /** One attempt, including failure: never surprise the human with a delayed retry after restart. */
+  const forgetAutomaticTitle = useStableCallback((key: string) => {
+    assessedTitles.current.add(key);
+    const seeds = { ...settingsRef.current.taskTitleSeeds };
+    if (!(key in seeds)) return;
+    delete seeds[key];
+    handleSettings({ taskTitleSeeds: seeds });
+  });
 
   /**
    * A person renaming a session makes the name final.
@@ -4283,19 +4376,11 @@ export default function App() {
     await handleRenameSession(session, title);
   };
 
-  /** One attempt, including failure: never surprise the human with a delayed retry after restart. */
-  function forgetAutomaticTitle(key: string) {
-    assessedTitles.current.add(key);
-    const seeds = { ...settingsRef.current.taskTitleSeeds };
-    if (!(key in seeds)) return;
-    delete seeds[key];
-    handleSettings({ taskTitleSeeds: seeds });
-  }
-
   React.useEffect(() => {
     if (!settingsLoaded) return;
-    const seeds = settingsRef.current.taskTitleSeeds ?? {};
-    const sessions = Object.values(sessionsByInstanceRef.current).flat();
+    const seeds = settings.taskTitleSeeds ?? {};
+    if (Object.keys(seeds).length === 0) return;
+    const sessions = Object.values(sessionsByInstance).flat();
     for (const session of sessions) {
       const key = sessionKey(session);
       const seed = seeds[key];
@@ -4305,7 +4390,7 @@ export default function App() {
         forgetAutomaticTitle(key);
         continue;
       }
-      const transcript = transcriptsRef.current[key];
+      const transcript = transcripts[key];
       // A completed step is not a completed turn: the host must also report it quiet.
       if (states[key] !== 'idle' || !transcript?.historyComplete) continue;
       const exchange = firstNamingExchange(transcript.messages);
@@ -4318,7 +4403,15 @@ export default function App() {
       forgetAutomaticTitle(key);
       if (name && name !== seed) void handleRenameSession(session, name);
     }
-  });
+  }, [
+    settingsLoaded,
+    settings.taskTitleSeeds,
+    sessionsByInstance,
+    states,
+    transcripts,
+    forgetAutomaticTitle,
+    handleRenameSession,
+  ]);
 
   /**
    * Archive from a session's × control (header or tab). A session with live work, a pending
@@ -4983,8 +5076,8 @@ export default function App() {
   // one aggregate request and has no project list, so pi instances count as known too.
   const projectsKnown =
     Object.keys(projectsByInstance).length > 0 || instances.some((instance) => instance.kind === 'pi');
-  usePoll(() => refreshScheduled(deadIdsRef.current), SCHEDULE_POLL_MS, projectsKnown && deadIds.length > 0);
-  usePoll(() => refreshScheduled(liveIdsRef.current), SCHEDULE_POLL_LIVE_MS, projectsKnown && liveIds.length > 0);
+  usePoll(() => refreshScheduled(deadIdsRef.current), SCHEDULE_POLL_MS, projectsKnown && deadIds.length > 0, { immediate: false });
+  usePoll(() => refreshScheduled(liveIdsRef.current), SCHEDULE_POLL_LIVE_MS, projectsKnown && liveIds.length > 0, { immediate: false });
 
   const handleComposerDraftsChange = (changes: DraftChanges) => {
     const drafts = mergeDraftChanges(settingsRef.current.composerDrafts, changes);

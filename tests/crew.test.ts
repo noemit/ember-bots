@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   threadDescendants,
   threadRows,
@@ -11,6 +13,7 @@ import {
   crewByLeader,
   crewDepth,
   crewIsResting,
+  crewNeedsInputKeySet,
   CREW_BRICK_TINT,
   isWorker,
   leaderBrickEdge,
@@ -167,6 +170,135 @@ describe('leaderNeedsInput', () => {
     expect(leaderNeedsInput(a, [a, b, c])).toBe(false);
     const needing = worker('c', 'a', { needsInput: true });
     expect(leaderNeedsInput(a, [a, b, needing])).toBe(true);
+  });
+});
+
+describe('crewNeedsInputKeySet', () => {
+  test('matches per-session leaderNeedsInput semantics identically across trees, peers, hosts and cycles', () => {
+    const root1 = session('root1');
+    const mid = worker('mid', 'root1');
+    const leafAsk = worker('leafAsk', 'mid', { needsInput: true });
+    const root2 = session('root2');
+    const calmWorker = worker('calm', 'root2');
+    const ownAsk = session('ownAsk', { needsInput: true });
+    const peerAsk = session('peerAsk', {
+      kind: 'peer',
+      lead: { instanceId: 'hearth', sessionId: 'root2' },
+      needsInput: true,
+    });
+    const cycleA = worker('cycleA', 'cycleB');
+    const cycleB = worker('cycleB', 'cycleC');
+    const cycleC = worker('cycleC', 'cycleA', { needsInput: true });
+    const quietCycle1 = worker('qc1', 'qc2');
+    const quietCycle2 = worker('qc2', 'qc1');
+
+    const all = [
+      root1,
+      mid,
+      leafAsk,
+      root2,
+      calmWorker,
+      ownAsk,
+      peerAsk,
+      cycleA,
+      cycleB,
+      cycleC,
+      quietCycle1,
+      quietCycle2,
+    ];
+    const crews = crewByLeader(all);
+    const actual = crewNeedsInputKeySet(all, crews);
+
+    const expected = new Set<string>();
+    for (const s of all) {
+      if (s.needsInput === true || leaderNeedsInput(s, all)) {
+        expected.add(sessionKey(s));
+      }
+    }
+
+    expect(actual).toEqual(expected);
+    expect([...actual].sort()).toEqual(
+      [
+        'hearth::cycleA',
+        'hearth::cycleB',
+        'hearth::cycleC',
+        'hearth::leafAsk',
+        'hearth::mid',
+        'hearth::ownAsk',
+        'hearth::peerAsk',
+        'hearth::root1',
+      ].sort()
+    );
+  });
+
+  test('reuses pre-computed crewWorkers in O(N) without rebuilding crewByLeader per session', () => {
+    const countReadsWithReuse = (n: number): number => {
+      const raw: Session[] = [{ id: '0', instanceId: 'hearth' }];
+      for (let i = 1; i < n; i += 1) {
+        raw.push({
+          id: String(i),
+          instanceId: 'hearth',
+          kind: 'worker',
+          lead: { instanceId: 'hearth', sessionId: String(i - 1) },
+          needsInput: i === n - 1,
+        });
+      }
+      // Pre-compute crewWorkers once (as App.tsx does), then instrument reads during crewNeedsInputKeySet.
+      let leadReadsDuringRollup = 0;
+      let needsInputReads = 0;
+      const instrumented = raw.map(
+        (entry) =>
+          new Proxy(entry, {
+            get(target, prop, receiver) {
+              if (prop === 'lead') leadReadsDuringRollup += 1;
+              if (prop === 'needsInput') needsInputReads += 1;
+              return Reflect.get(target, prop, receiver);
+            },
+          })
+      );
+      const crews = crewByLeader(instrumented);
+      leadReadsDuringRollup = 0;
+      needsInputReads = 0;
+
+      const keys = crewNeedsInputKeySet(instrumented, crews);
+      // Every session in the chain has the deepest worker in its crew, so all N keys roll up.
+      expect(keys.size).toBe(n);
+      // Reusing `crews` never re-reads `.lead` at all!
+      expect(leadReadsDuringRollup).toBe(0);
+      return needsInputReads;
+    };
+
+    const reads500 = countReadsWithReuse(500);
+    const reads2000 = countReadsWithReuse(2000);
+    // 4x input size performs ~4x reads (linear O(N)), never ~16x (quadratic O(N^2)).
+    expect(reads2000 / reads500).toBeLessThan(4.5);
+    expect(reads2000).toBeLessThanOrEqual(2000 * 3);
+
+    // 10,000-session benchmark completes well within linear budget.
+    const large: Session[] = [{ id: 'root', instanceId: 'hearth' }];
+    for (let i = 1; i < 10_000; i += 1) {
+      large.push({
+        id: `w-${i}`,
+        instanceId: 'hearth',
+        kind: 'worker',
+        lead: { instanceId: 'hearth', sessionId: i <= 50 ? 'root' : `w-${i - 50}` },
+        needsInput: i === 9_999,
+      });
+    }
+    const start = performance.now();
+    const crews = crewByLeader(large);
+    const keys = crewNeedsInputKeySet(large, crews);
+    const elapsedMs = performance.now() - start;
+    expect(keys.has('hearth::root')).toBe(true);
+    expect(keys.has('hearth::w-9999')).toBe(true);
+    expect(keys.has('hearth::w-1')).toBe(false);
+    expect(elapsedMs).toBeLessThan(250);
+  });
+
+  test('App.tsx reuses crewWorkers via crewNeedsInputKeySet instead of per-session leaderNeedsInput', () => {
+    const appSource = fs.readFileSync(path.join(import.meta.dir, '../src/App.tsx'), 'utf8');
+    expect(appSource).toContain('crewNeedsInputKeySet(allInstanceSessions, crewWorkers)');
+    expect(appSource).not.toContain('leaderNeedsInput(');
   });
 });
 

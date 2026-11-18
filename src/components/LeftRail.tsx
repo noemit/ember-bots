@@ -71,8 +71,8 @@ type Props = {
   projectsByInstance: Record<string, Project[]>;
   instanceDefaults: Record<string, InstanceDefaults>;
   sessions: Session[];
-  snoozedSessions: string[];
-  onSnooze: (session: Session, snoozed: boolean) => void;
+  snoozedSessions?: string[];
+  onSnooze?: (session: Session, snoozed: boolean) => void;
   /** Every session (active and archived, ignoring the recency window) for broadened search. */
   everySession: Session[];
   moods: Record<string, BallMood>;
@@ -136,6 +136,8 @@ type Props = {
 
 /** No-op for callers that render the rail without read state (tests, the archive screen). */
 const NO_MARKS = (_session: Session): void => {};
+const NO_SNOOZE = (_session: Session, _snoozed: boolean): void => {};
+const NO_QUIET = (_session: Session, _quiet: boolean): void => {};
 
 const matchesQuery = (haystack: Array<string | undefined>, query: string): boolean =>
   haystack.some((value) => value?.toLowerCase().includes(query));
@@ -381,9 +383,18 @@ export default function LeftRail({
   const openSession = useStableCallback(onOpenSession);
   const reloadSession = useStableCallback(onReload);
   const archiveSession = useStableCallback(onArchive);
+  const restoreArchivedSession = useStableCallback((target: Session) => archiveSession(target, false));
   const archiveMany = useStableCallback(onArchiveMany);
   const customizeAppearance = useStableCallback(onCustomizeAppearance);
   const markAllRead = useStableCallback(onMarkAllRead ?? NO_MARKS);
+  const snoozeStable = useStableCallback(onSnooze ?? NO_SNOOZE);
+  const snoozeSession = onSnooze ? snoozeStable : undefined;
+  const quietStable = useStableCallback(onQuietChange ?? NO_QUIET);
+  const quietChange = onQuietChange ? quietStable : undefined;
+  const manageGroup = useStableCallback(onManageGroup);
+  const groupWith = useStableCallback((target: Session) =>
+    manageGroup({ name: '', keys: [sessionKey(target)] })
+  );
   const newAgent = useStableCallback(onNewAgent);
   const runScheduledTask = useStableCallback(onRunScheduledTask);
   const changeScheduledTaskModel = useStableCallback(onChangeScheduledTaskModel);
@@ -453,21 +464,20 @@ export default function LeftRail({
         onSelect={selectSession}
         onReload={reloadSession}
         onArchive={archiveSession}
-        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
+        snoozed={snoozedKeys.has(key)} onSnooze={snoozeSession}
         onCustomizeAppearance={customizeAppearance}
         onMarkAllRead={markAllRead}
         hasUnread={unreadKeys?.has(key) ?? false}
         quiet={quietKeys?.has(key) ?? false}
-        onQuietChange={onQuietChange}
-        onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
+        onQuietChange={quietChange}
+        onGroupWith={groupWith}
         // Every agent gets a plus: the draft opens on this session's instance and folder, both
         // still changeable in its options row before the first message.
-        onNewAgent={() => newAgent(session.instanceId, session.directory)}
+        onNewAgent={newAgent}
       />
     );
   };
 
-  const projectNewAgent = React.useRef(new Map<string, () => void>());
   // A group's `+` starts a session on its primary member's instance, in that member's folder — the
   // way the group panel already seeds one — and is left off when no member resolves.
   const groupNewAgent = (entry: GroupEntry): (() => void) | undefined => {
@@ -499,21 +509,19 @@ export default function LeftRail({
           onNewAgent={groupNewAgent(entry)}
           onReload={reloadSession}
           onArchive={archiveSession}
-          snoozedKeys={snoozedKeys} onSnooze={onSnooze}
+          snoozedKeys={snoozedKeys} onSnooze={snoozeSession}
           onArchiveMany={archiveMany}
           onCustomizeAppearance={customizeAppearance}
           onUngroup={() => onUngroup(entry.id)}
           // The configured keys, not the resolved members (see `groupDraftFromEntry`): a member
           // on an unreachable instance is absent from `members`, and deriving the list from it
           // made saving the panel drop that member for good.
-          onManage={() => onManageGroup(groupDraftFromEntry(entry))}
+          onManage={() => manageGroup(groupDraftFromEntry(entry))}
         />
       );
     }
     const instance = instanceById[entry.instanceId];
     const openProject = () => onOpenProject(entry.instanceId, entry.project, entry.sessions);
-    const newAgentKey = `${entry.instanceId}\u0000${entry.project.path ?? ''}`;
-    if (!projectNewAgent.current.has(newAgentKey)) projectNewAgent.current.set(newAgentKey, () => newAgent(entry.instanceId, entry.project.path));
     // A lone project keeps its folder heading and its individual session title.
     if (entry.sessions.length === 1) {
       const session = entry.sessions[0];
@@ -538,16 +546,17 @@ export default function LeftRail({
           compact={compact}
           expanded={mode === 'wide'}
           onSelect={openSession}
-          onNewAgent={projectNewAgent.current.get(newAgentKey)}
+          newAgentDirectory={entry.project.path}
+          onNewAgent={newAgent}
           onReload={reloadSession}
           onArchive={archiveSession}
-        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
+          snoozed={snoozedKeys.has(key)} onSnooze={snoozeSession}
           onCustomizeAppearance={customizeAppearance}
           onMarkAllRead={markAllRead}
           hasUnread={unreadKeys?.has(key) ?? false}
           quiet={quietKeys?.has(key) ?? false}
-          onQuietChange={onQuietChange}
-          onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
+          onQuietChange={quietChange}
+          onGroupWith={groupWith}
         />
       );
     }
@@ -570,13 +579,13 @@ export default function LeftRail({
         onNewAgent={newAgent}
         onReload={reloadSession}
         onArchive={archiveSession}
-        snoozedKeys={snoozedKeys} onSnooze={onSnooze}
+        snoozedKeys={snoozedKeys} onSnooze={snoozeSession}
         onArchiveMany={archiveMany}
         onCustomizeAppearance={customizeAppearance}
         onMarkAllRead={markAllRead}
         unreadKeys={unreadKeys}
         quietKeys={quietKeys}
-        onQuietChange={onQuietChange}
+        onQuietChange={quietChange}
         // The strip gets the extra room the widened rail bought (roughly: half the window, less
         // the rail's own padding), so a project's blobs spread out instead of huddling left.
         stripWidth={mode === 'wide' ? 660 : undefined}
@@ -605,12 +614,12 @@ export default function LeftRail({
         blobStyle={blobStyle}
         compact={compact}
         expanded={mode === 'wide'}
-        onSelect={() => archiveSession(session, false)}
+        onSelect={restoreArchivedSession}
         onReload={reloadSession}
         onArchive={archiveSession}
-        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
+        snoozed={snoozedKeys.has(key)} onSnooze={snoozeSession}
         onCustomizeAppearance={customizeAppearance}
-        onGroupWith={(session) => onManageGroup({ name: '', keys: [sessionKey(session)] })}
+        onGroupWith={groupWith}
       />
     );
   };
@@ -660,13 +669,13 @@ export default function LeftRail({
       <Button variant="ghost" size="icon-xs" className="absolute -right-1 top-0 z-10 bg-card opacity-0 group-hover/mini:opacity-100 group-focus-within/mini:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(hover:none)]:opacity-100"
         aria-label={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
         title={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
-        onClick={() => onSnooze(session, !snoozedKeys.has(key))}><AlarmClock className="size-3" /></Button>
+        onClick={() => snoozeSession?.(session, !snoozedKeys.has(key))}><AlarmClock className="size-3" /></Button>
       </span></ContextMenuTrigger><SessionContextMenuContent session={session}
         reloading={reloadingKeys.has(key)} archiving={archivingKeys.has(key)}
         onReload={reloadSession} onArchive={archiveSession} onCustomizeAppearance={customizeAppearance}
-        snoozed={snoozedKeys.has(key)} onSnooze={onSnooze}
+        snoozed={snoozedKeys.has(key)} onSnooze={snoozeSession}
         hasUnread={unreadKeys?.has(key)} onMarkAllRead={markAllRead}
-        quiet={quietKeys?.has(key)} onQuietChange={onQuietChange} /></ContextMenu>
+        quiet={quietKeys?.has(key)} onQuietChange={quietChange} /></ContextMenu>
     );
   };
 
@@ -905,13 +914,13 @@ export default function LeftRail({
           </ContextMenuTrigger><SessionContextMenuContent session={selectedSession}
             reloading={reloadingKeys.has(sessionKey(selectedSession))} archiving={archivingKeys.has(sessionKey(selectedSession))}
             onReload={reloadSession} onArchive={archiveSession}
-        snoozed={snoozedKeys.has(sessionKey(selectedSession))} onSnooze={onSnooze} onCustomizeAppearance={customizeAppearance}
+        snoozed={snoozedKeys.has(sessionKey(selectedSession))} onSnooze={snoozeSession} onCustomizeAppearance={customizeAppearance}
             onMarkAllRead={markAllRead} hasUnread={unreadKeys?.has(sessionKey(selectedSession))}
-            quiet={quietKeys?.has(sessionKey(selectedSession))} onQuietChange={onQuietChange}
+            quiet={quietKeys?.has(sessionKey(selectedSession))} onQuietChange={quietChange}
             scheduledTask={scheduledTaskBySession[sessionKey(selectedSession)]}
             scheduledRunning={Boolean(scheduledTaskBySession[sessionKey(selectedSession)] && runningScheduledKeys.has(scheduledTaskBySession[sessionKey(selectedSession)].key))}
             onRunScheduledTask={runScheduledTask} onChangeScheduledTaskModel={changeScheduledTaskModel}
-            onGroupWith={selectedSession.kind === 'worker' ? undefined : session => onManageGroup({ name: '', keys: [sessionKey(session)] })} /></ContextMenu>
+            onGroupWith={selectedSession.kind === 'worker' ? undefined : groupWith} /></ContextMenu>
         </div>
       ) : null}
     </aside>

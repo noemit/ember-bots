@@ -7,7 +7,9 @@ import {
   occurrencesOf,
   validateQuoteAnchor,
 } from '../src/lib/quoteLinks';
-import type { ChatMessage, QuoteAnchor } from '../src/types';
+import { EMPTY_QUOTE_LINKS, quoteLinksForMessage } from '../src/lib/quoteLinkScope';
+import { sameGallery, type ViewerImage } from '../src/lib/gallery';
+import type { ChatMessage, QuoteAnchor, QuoteLink } from '../src/types';
 
 const message = (text: string, id = 'm1', partId = 'p1'): ChatMessage => ({
   id,
@@ -71,5 +73,34 @@ describe('quote link anchor helpers', () => {
     expect(validateQuoteAnchor(oversizedSnapshot, [message('abc')])).toEqual({ valid: false, reason: 'source-changed' });
     const oversizedQuote = anchor('x'.repeat(MAX_QUOTE_SELECTION_LENGTH + 1), 'x'.repeat(MAX_QUOTE_SELECTION_LENGTH + 1), 0);
     expect(validateQuoteAnchor(oversizedQuote, [message(oversizedQuote.spans[0].text)])).toEqual({ valid: false, reason: 'range-invalid' });
+  });
+
+  test('quoteLinksForMessage returns shared frozen EMPTY_QUOTE_LINKS whenever a message has zero links', () => {
+    expect(Object.isFrozen(EMPTY_QUOTE_LINKS)).toBe(true);
+    expect(EMPTY_QUOTE_LINKS).toHaveLength(0);
+
+    const link: QuoteLink = {
+      id: 'q1',
+      source: anchor('hello world', 'hello', 0, { sessionKey: 'host::s1' }),
+      destination: { kind: 'message', sessionKey: 'host::s1', id: 'm2' },
+    };
+
+    expect(quoteLinksForMessage([], 'host::s1', 'm1')).toBe(EMPTY_QUOTE_LINKS);
+    expect(quoteLinksForMessage([link], null, 'm1')).toBe(EMPTY_QUOTE_LINKS);
+    expect(quoteLinksForMessage([link], undefined, 'm1')).toBe(EMPTY_QUOTE_LINKS);
+    expect(quoteLinksForMessage([link], 'host::s1', 'm-unmatched')).toBe(EMPTY_QUOTE_LINKS);
+    expect(quoteLinksForMessage([link], 'host::other', 'm1')).toBe(EMPTY_QUOTE_LINKS);
+
+    expect(quoteLinksForMessage([link], 'host::s1', 'm1')).toEqual([{ link, source: true }]);
+    expect(quoteLinksForMessage([link], 'host::s1', 'm2')).toEqual([{ link, source: false }]);
+  });
+
+  test('sameGallery preserves structural equality across unchanged image lists', () => {
+    const imgA: ViewerImage = { id: 'p1', url: 'https://example.com/a.png', filename: 'a.png', mime: 'image/png' };
+    const imgB: ViewerImage = { id: 't1:0', url: 'https://example.com/b.png', filename: 'b.png', mime: 'image/png', tool: 'screenshot' };
+    expect(sameGallery([], [])).toBe(true);
+    expect(sameGallery([imgA, imgB], [{ ...imgA }, { ...imgB }])).toBe(true);
+    expect(sameGallery([imgA], [imgA, imgB])).toBe(false);
+    expect(sameGallery([imgA, imgB], [imgA, { ...imgB, url: 'https://example.com/c.png' }])).toBe(false);
   });
 });

@@ -1,17 +1,33 @@
 import * as React from 'react';
-import { mosaicRainbowPlan } from './mosaicRainbowPlan';
+import { cachedRainbowSheet } from './mosaicRainbowPlan';
 import type { ActivityCell } from './mosaicActivityPlan';
+import { rainbowCellsSignature } from './mosaicCache';
+
+type Props = {
+  cells: readonly ActivityCell[];
+  seed: string;
+  instanceId?: string;
+};
 
 /** A few diagonal groups, not a filter/gradient per pixel. Ink mixes over the unchanged body,
  * below the face. CSS owns the clock and the app's hidden-document pause owns playback. */
-export default function MosaicRainbow({ cells, seed }: { cells: readonly ActivityCell[]; seed: string }) {
-  const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
-  const plan = React.useMemo(() => mosaicRainbowPlan(cells, seed), [cells, seed]);
+function MosaicRainbowImpl({ cells, seed, instanceId }: Props) {
+  const fallbackId = React.useId();
+  const sheet = cachedRainbowSheet(cells, seed, instanceId ?? fallbackId);
   return <g data-mosaic-rainbow>
-    <style>{`@keyframes ${uid}-mosaic-wash{${plan.frames}}`}</style>
-    {plan.bands.map(band => <g key={band.diagonal} className="mosaic-rainbow" fill={band.fill}
-      style={{ animationName: `${uid}-mosaic-wash`, animationDuration: `${plan.duration}s`, animationDelay: `${band.delay}s` }}>
+    <style>{sheet.css}</style>
+    {sheet.plan.bands.map((band, index) => <g key={band.diagonal} className="mosaic-rainbow" fill={band.fill}
+      style={sheet.bandStyles[index]}>
       {band.cells.map(cell => <rect key={`${cell.x}:${cell.y}`} x={cell.x} y={cell.y} width={1} height={1} />)}
     </g>)}
   </g>;
 }
+
+function areRainbowPropsEqual(prev: Props, next: Props): boolean {
+  return prev.seed === next.seed
+    && prev.instanceId === next.instanceId
+    && (prev.cells === next.cells || rainbowCellsSignature(prev.cells) === rainbowCellsSignature(next.cells));
+}
+
+const MosaicRainbow = React.memo(MosaicRainbowImpl, areRainbowPropsEqual);
+export default MosaicRainbow;

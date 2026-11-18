@@ -35,6 +35,20 @@ export const LOCAL_HARNESS_PORT = 3002;
 export const HARNESS_START_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 250;
 
+export const localHarnessUrl = (port: number = LOCAL_HARNESS_PORT): string =>
+  `http://127.0.0.1:${port}`;
+
+/**
+ * While the cold-boot starter is still launching or adopting the bundled Kiln, `pi:local` is
+ * `'checking'` rather than `'unreachable'` so the window can open immediately without raising
+ * false outage warnings or prematurely pruning restored columns.
+ */
+export const startingLocalHarnessStatus = (
+  healthy: boolean,
+  startingLocal: boolean
+): 'ready' | 'checking' | 'unreachable' =>
+  healthy ? 'ready' : startingLocal ? 'checking' : 'unreachable';
+
 export type LocalHarnessState =
   /** A harness answered before we tried to start one: it is not ours to stop. */
   | { kind: 'attached'; url: string; token: string; version?: string }
@@ -479,6 +493,53 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
   return {
     state: { kind: 'failed', reason: `the bundled harness did not answer on ${url} within ${HARNESS_START_TIMEOUT_MS / 1000}s — see ${logPath}` },
     stop: async () => {},
+  };
+};
+
+/**
+ * Start `startLocalHarness` on the serialized harness queue without blocking window creation.
+ *
+ * `isStarting()` stays true only while the startup attempt itself is in flight; as soon as it
+ * settles, `onState` updates the process-owned state/stop handle, `isStarting()` flips false, and
+ * `onSettled` triggers a fresh instance probe + announcement so the renderer moves smoothly from
+ * connecting to ready.
+ */
+export const bootLocalHarness = (input: {
+  options: LocalHarnessOptions;
+  runOperation: <T>(operation: () => Promise<T>) => Promise<T>;
+  onState: (result: { state: LocalHarnessState; stop: () => Promise<void> }) => void;
+  onSettled: (state: LocalHarnessState) => Promise<void> | void;
+}): {
+  isStarting: () => boolean;
+  settled: Promise<void>;
+} => {
+  let starting = input.options.disabled !== true;
+  const settled = input
+    .runOperation(async () => {
+      try {
+        const started = await startLocalHarness(input.options);
+        input.onState(started);
+        return started.state;
+      } finally {
+        starting = false;
+      }
+    })
+    .then(
+      async (state) => {
+        await input.onSettled(state);
+      },
+      async (error) => {
+        const failed: LocalHarnessState = {
+          kind: 'failed',
+          reason: error instanceof Error ? error.message : String(error),
+        };
+        input.onState({ state: failed, stop: async () => {} });
+        await input.onSettled(failed);
+      }
+    );
+  return {
+    isStarting: () => starting,
+    settled,
   };
 };
 

@@ -47,8 +47,10 @@ export type SessionRowProps = {
   expanded?: boolean;
   /** Shown as a small line above the title (e.g. "Project · instance"); moves it out of the meta row. */
   topMeta?: React.ReactNode;
+  /** Directory seeded when `+` starts a new session (defaults to `session.directory`). */
+  newAgentDirectory?: string;
   /** When set, renders a `+` that starts a new session in the row's project. */
-  onNewAgent?: () => void;
+  onNewAgent?: (instanceId: string, directory?: string) => void;
   /** The scheduled task this session is the latest run of, when the row is in the scheduled view. */
   scheduledTask?: ScheduledTask;
   scheduledRunning?: boolean;
@@ -204,6 +206,7 @@ const SessionRow = React.memo(function SessionRow({
   compact = false,
   expanded = false,
   topMeta,
+  newAgentDirectory,
   onNewAgent,
   scheduledTask,
   scheduledRunning,
@@ -391,7 +394,7 @@ const SessionRow = React.memo(function SessionRow({
                 aria-label={`New session in ${projectName ?? 'project'}`}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onNewAgent();
+                  onNewAgent(session.instanceId, newAgentDirectory ?? session.directory);
                 }}
                 className="text-muted-foreground"
               >

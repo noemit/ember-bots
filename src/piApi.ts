@@ -61,9 +61,49 @@ const PI_ENTRY_LIMIT_MAX = 100;
 /** Instance kinds remembered from `listInstances`, so api functions can dispatch. */
 const piEndpointIds = new Set<string>();
 
+/**
+ * `piLoadSessions`, `piLoadSessionStates`, and `piLoadAutoAcceptPolicy` all read the same
+ * `GET /conversations` payload during a startup or poll tick. Share one in-flight promise and a
+ * brief settled cache per endpoint, cleared immediately on any mutating request for that endpoint.
+ */
+export const PI_CONVERSATIONS_CACHE_TTL_MS = 250;
+
+type PiConversationsBody = {
+  conversations?: PiConversationSummary[];
+  host?: { memory?: PiHostMemory };
+};
+
+type PiConversationsResponse = {
+  ok: boolean;
+  status: number;
+  data: PiConversationsBody;
+};
+
+type ConversationsCacheSlot = {
+  piRequest: NonNullable<Window['ember']['piRequest']>;
+  epoch: number;
+  inFlight?: Promise<PiConversationsResponse>;
+  settled?: { response: PiConversationsResponse; expiresAt: number };
+};
+
+const conversationsCache = new Map<string, ConversationsCacheSlot>();
+
+export const invalidatePiConversationsCache = (endpointId?: string): void => {
+  if (endpointId === undefined) {
+    conversationsCache.clear();
+    return;
+  }
+  const slot = conversationsCache.get(endpointId);
+  if (!slot) return;
+  slot.epoch += 1;
+  slot.inFlight = undefined;
+  slot.settled = undefined;
+};
+
 export const rememberPiInstances = (instances: readonly { id: string; kind: string }[]): void => {
   piEndpointIds.clear();
   instances.filter((instance) => instance.kind === 'pi').forEach((instance) => piEndpointIds.add(instance.id));
+  invalidatePiConversationsCache();
 };
 
 export const isPiInstance = (instanceId: string): boolean => piEndpointIds.has(instanceId);
@@ -77,7 +117,18 @@ const request = async <T,>(
   if (!bridge.piRequest) {
     return { ok: false, status: 0, data: {} as T };
   }
-  return bridge.piRequest<T>(endpointId, path, init);
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const mutating = method !== 'GET' && method !== 'HEAD';
+  if (mutating) {
+    invalidatePiConversationsCache(endpointId);
+  }
+  try {
+    return await bridge.piRequest<T>(endpointId, path, init);
+  } finally {
+    if (mutating) {
+      invalidatePiConversationsCache(endpointId);
+    }
+  }
 };
 
 /**
@@ -179,11 +230,53 @@ const piWriteContexts = async (
 
 // ---- Sessions ------------------------------------------------------------------------
 
-export const piLoadSessions = async (endpointId: string): Promise<Session[] | null> => {
-  const response = await request<{ conversations?: PiConversationSummary[]; host?: { memory?: PiHostMemory } }>(
-    endpointId,
-    '/conversations'
+const fetchPiConversations = (endpointId: string): Promise<PiConversationsResponse> => {
+  const bridge = window.ember;
+  if (!bridge.piRequest) {
+    return Promise.resolve({ ok: false, status: 0, data: {} });
+  }
+  const piRequestFn = bridge.piRequest;
+  let slot = conversationsCache.get(endpointId);
+  if (!slot || slot.piRequest !== piRequestFn) {
+    slot = { piRequest: piRequestFn, epoch: (slot?.epoch ?? 0) + 1 };
+    conversationsCache.set(endpointId, slot);
+  }
+  const now = Date.now();
+  if (slot.settled && now < slot.settled.expiresAt) {
+    return Promise.resolve(slot.settled.response);
+  }
+  if (slot.inFlight) {
+    return slot.inFlight;
+  }
+  const startEpoch = slot.epoch;
+  const activeSlot = slot;
+  const promise = request<PiConversationsBody>(endpointId, '/conversations').then(
+    (response) => {
+      if (activeSlot.inFlight === promise) activeSlot.inFlight = undefined;
+      if (
+        conversationsCache.get(endpointId) === activeSlot &&
+        activeSlot.epoch === startEpoch &&
+        response.ok &&
+        parseConversations(response.data) !== null
+      ) {
+        activeSlot.settled = {
+          response,
+          expiresAt: Date.now() + PI_CONVERSATIONS_CACHE_TTL_MS,
+        };
+      }
+      return response;
+    },
+    (err) => {
+      if (activeSlot.inFlight === promise) activeSlot.inFlight = undefined;
+      throw err;
+    }
   );
+  slot.inFlight = promise;
+  return promise;
+};
+
+export const piLoadSessions = async (endpointId: string): Promise<Session[] | null> => {
+  const response = await fetchPiConversations(endpointId);
   if (!response.ok) return null;
   const conversations = parseConversations(response.data);
   // Not a conversation list: keep the list Ember already had rather than emptying the rail.
@@ -279,7 +372,7 @@ export const piLoadDirectory = async (
 export const piLoadSessionStates = async (
   endpointId: string
 ): Promise<Record<string, 'idle' | 'active' | 'needs-input' | 'error'> | null> => {
-  const response = await request<{ conversations?: PiConversationSummary[] }>(endpointId, '/conversations');
+  const response = await fetchPiConversations(endpointId);
   if (!response.ok) return null;
   const conversations = parseConversations(response.data);
   // `null` rather than `{}`: an empty map is a claim that every conversation went idle.
@@ -316,12 +409,12 @@ export const piLoadMessages = async (
  * their assistant message is outside the window too. Used instead of fetching the whole snapshot
  * (which grows unbounded) for routine refreshes.
  */
-export const piLoadMessageTail = async (
+export const piLoadMessageTailPage = async (
   endpointId: string,
   conversationId: string,
   entryLimit = 40,
   options: { withLive?: boolean } = {}
-): Promise<ReturnType<typeof piEntriesToMessages>> => {
+): Promise<{ messages: ReturnType<typeof piEntriesToMessages>; complete: boolean }> => {
   const limit = Math.min(Math.max(entryLimit, 1), PI_ENTRY_LIMIT_MAX);
   // `docs=1` asks Hearth for the conversation's documents alongside the page (a few hundred bytes).
   // Without them a tail read cannot see `pi.live`, so the in-flight generation - the reasoning and
@@ -329,15 +422,26 @@ export const piLoadMessageTail = async (
   // is why thinking looked like it arrived late rather than streaming.
   const withLive = options.withLive !== false;
   const query = `limit=${limit}${withLive ? '&docs=1' : ''}`;
-  const response = await request<{ entries?: PiEntry[]; docs?: Record<string, unknown> }>(
+  const response = await request<{ entries?: PiEntry[]; docs?: Record<string, unknown>; next?: unknown }>(
     endpointId,
     `/conversations/${encodeURIComponent(conversationId)}/entries?${query}`
   );
   if (!response.ok) throw new Error(`Failed to load conversation ${conversationId} entries: ${response.status}`);
   const entries = Array.isArray(response.data.entries) ? [...response.data.entries].reverse() : [];
   const live = withLive ? ((response.data.docs?.['pi.live'] as PiLive | undefined) ?? undefined) : undefined;
-  return piEntriesToMessages(entries, live, { authoritative: true });
+  return {
+    messages: piEntriesToMessages(entries, live, { authoritative: true }),
+    complete: response.data.next === undefined || response.data.next === null,
+  };
 };
+
+export const piLoadMessageTail = async (
+  endpointId: string,
+  conversationId: string,
+  entryLimit = 40,
+  options: { withLive?: boolean } = {}
+): Promise<ReturnType<typeof piEntriesToMessages>> =>
+  (await piLoadMessageTailPage(endpointId, conversationId, entryLimit, options)).messages;
 
 /**
  * An incremental read: entries *newer* than `since`, and nothing else.
@@ -1344,7 +1448,7 @@ export const piUpdateScheduledTaskModel = async (
 export const piLoadAutoAcceptPolicy = async (
   endpointId: string
 ): Promise<{ supported: boolean; sessions: Record<string, boolean> } | null> => {
-  const response = await request<{ conversations?: PiConversationSummary[] }>(endpointId, '/conversations');
+  const response = await fetchPiConversations(endpointId);
   if (!response.ok) return null;
   const conversations = parseConversations(response.data);
   // All-off is a real policy; it must not be produced by a body that isn't a conversation list.

@@ -48,6 +48,30 @@ export const maskEndpointSecrets = <T extends { piEndpoints: PiEndpoint[] }>(set
     ...(endpoint.access ? { access: { clientId: endpoint.access.clientId, clientSecret: '' }, hasAccessSecret: true } : {}),
   })),
 });
+/** True when every encrypted endpoint secret decrypted cleanly (no locked-keyring placeholder). */
+export const canCacheUnlockedEndpoints = (endpoints: readonly PiEndpoint[]): boolean =>
+  !endpoints.some((endpoint) => endpoint.hasAccessSecret && !endpoint.access?.clientSecret);
+/**
+ * Persist endpoint credentials on settings writes: when `piEndpoints` was not part of the patch,
+ * reuse stored ciphertexts from `previous` rather than re-encrypting through the OS keyring.
+ */
+export const persistEndpointSecrets = (
+  endpoints: readonly PiEndpoint[],
+  previous: unknown,
+  store: SecretStore,
+  endpointsChanged: boolean
+): unknown[] =>
+  lockEndpointSecrets(
+    endpointsChanged
+      ? endpoints
+      : endpoints.map((endpoint) =>
+          endpoint.access
+            ? { ...endpoint, access: { clientId: endpoint.access.clientId, clientSecret: '' }, hasAccessSecret: true }
+            : endpoint
+        ),
+    previous,
+    store
+  );
 export const restoreEndpointSecrets = (values: unknown, current: readonly PiEndpoint[]): unknown => {
   if (!Array.isArray(values)) return values;
   return values.map((value) => {

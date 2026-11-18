@@ -8,7 +8,7 @@ import { tokenizeLinks } from './Linkify';
 import { useImageViewer, type ImageViewerApi } from './imageViewerContext';
 import CopyButton from './CopyButton';
 import { rehypeQuotePositions } from '../lib/quoteMarkdown';
-import { registerQuoteMarkdown } from '../lib/quoteDom';
+import { registerQuoteMarkdown, unregisterQuoteMarkdown } from '../lib/quoteDom';
 
 const SKIP_TAGS = new Set(['a', 'code', 'pre']);
 
@@ -140,22 +140,39 @@ const buildComponents = (viewer: ImageViewerApi | null, openThread: ThreadLinks 
 });
 
 const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeLinkPaths, rehypeQuotePositions];
+const settledRehypePlugins = [rehypeLinkPaths, rehypeQuotePositions];
+const streamingRehypePlugins = [rehypeLinkPaths];
 
 type Props = {
   text: string;
   className?: string;
+  streaming?: boolean;
 };
 
 /** Assistant prose. GitHub-flavoured markdown, raw HTML is never rendered. */
-function Markdown({ text, className }: Props) {
+function Markdown({ text, className, streaming = false }: Props) {
   const viewer = useImageViewer();
   const openThread = React.useContext(ThreadLinkContext);
   const components = React.useMemo(() => buildComponents(viewer, openThread), [viewer, openThread]);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const latestRef = React.useRef({ text, streaming });
+  latestRef.current = { text, streaming };
+  const setRootRef = React.useCallback((element: HTMLDivElement | null) => {
+    rootRef.current = element;
+    if (!element) return;
+    if (latestRef.current.streaming) unregisterQuoteMarkdown(element);
+    else registerQuoteMarkdown(element, latestRef.current.text);
+  }, []);
+  React.useLayoutEffect(() => {
+    const element = rootRef.current;
+    if (!element) return;
+    if (streaming) unregisterQuoteMarkdown(element);
+    else registerQuoteMarkdown(element, text);
+  }, [text, streaming]);
   return (
     <div
       data-quote-markdown=""
-      ref={React.useCallback((element: HTMLDivElement | null) => { if (element) registerQuoteMarkdown(element, text); }, [text])}
+      ref={setRootRef}
       className={cn(
         'break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
         '[&_p]:my-1.5 [&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5',
@@ -168,7 +185,11 @@ function Markdown({ text, className }: Props) {
         className
       )}
     >
-      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={streaming ? streamingRehypePlugins : settledRehypePlugins}
+        components={components}
+      >
         {text}
       </ReactMarkdown>
     </div>

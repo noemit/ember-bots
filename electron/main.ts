@@ -12,7 +12,7 @@ import { createKilnSharing } from './kilnSharing';
 import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
 import { fileUrlToLocalPath, openTarget as openTargetWithShell } from './openTarget';
-import { maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
+import { unlockEndpointSecrets, canCacheUnlockedEndpoints, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
 import {
   discoverLocalPiEndpoint,
   isLocalHttpUrl,
@@ -51,15 +51,17 @@ import {
 import { startRemoteServer } from './remoteServer';
 import { parseRemoteProxyOrigin } from './remoteProxy';
 import { appendCompactLog } from './compactLog';
+import { createAppIconDiagnosticLogger } from './appIconLog';
 import {
-  appendAppIconLog,
+  createSettingsFileCache,
   createSettingsFileController,
   initializeFirstRunSettings,
   readJson,
+  readJsonRoot,
   resolveEffectivePiEndpoints,
   resolvePersistedPiEndpoints,
+  stripUndefinedKeys,
 } from './settingsFile';
-import { tightenPermissions } from './permissions';
 import { RemoteListener, type StartOutcome } from './remoteListener';
 import { EventStreamManager, type EmberEvent, type StreamStatus } from './eventStream';
 import { hashRemotePassword, MAX_REMOTE_PASSWORD_LENGTH, MIN_REMOTE_PASSWORD_LENGTH, verifyRemotePassword } from './remoteAuth';
@@ -69,14 +71,17 @@ import { PiClient } from './piClient';
 import * as dataDir from './dataDir';
 import {
   availableHarnessPort,
+  bootLocalHarness,
   canManageLocalToken,
   defaultHarnessHome,
   localHarnessEndpoint,
+  localHarnessUrl,
   generateHarnessToken,
   harnessTokenOnDisk,
   LOCAL_HARNESS_PORT,
   localHarnessNotice,
   mergeLocalHarnessEndpoint,
+  startingLocalHarnessStatus,
   startLocalHarness,
   writeHarnessToken,
   type LocalHarnessOptions,
@@ -228,6 +233,10 @@ const portAnswers = async (handle: LocalHarnessLaunch): Promise<boolean> => {
  * Ember's and OpenChamber's settings files, parsed only when mtime moves and invalidated immediately
  * after an atomic rename so back-to-back writes in the same coarse mtime tick never read stale data.
  */
+type StaticEmberSettings = Omit<
+  EmberSettings,
+  'piEndpoints' | 'remoteAccessState' | 'localHarnessCanRotate' | 'localHarnessState' | 'settingsRecovered'
+>;
 const settingsFiles = createSettingsFileController({
   emberSettingsPath,
   openchamberSettingsPath,
@@ -238,7 +247,23 @@ const settingsFiles = createSettingsFileController({
     console.error('Ember could not move an unreadable settings file aside', error);
   },
 });
-const { readEmberSettingsFile, readOpenchamberSettings, writeJson } = settingsFiles;
+const emberSettingsCache = createSettingsFileCache<StaticEmberSettings, PiEndpoint>({
+  filePath: emberSettingsPath,
+  readRoot: (file) => {
+    const root = settingsFiles.readEmberSettingsFile();
+    return fs.existsSync(file) ? readJsonRoot(file) : root;
+  },
+  onCorrupt: () => {
+    settingsFiles.readEmberSettingsFile();
+  },
+  isQuarantined: () => settingsFiles.isRecovered(),
+});
+const readEmberSettingsFile = (): Record<string, unknown> => settingsFiles.readEmberSettingsFile();
+const { readOpenchamberSettings } = settingsFiles;
+const writeJson = async (file: string, data: unknown): Promise<void> => {
+  await settingsFiles.writeJson(file, data);
+  if (file === emberSettingsPath()) emberSettingsCache.invalidate();
+};
 
 const hostId = (host: StoredHost, index: number): string => String(host.id || `host-${index}`);
 
@@ -249,6 +274,7 @@ const hostId = (host: StoredHost, index: number): string => String(host.id || `h
  * they cannot explain. It carries no token: the renderer only needs the state and the address.
  */
 let localHarnessState: LocalHarnessState = { kind: 'disabled' };
+let isLocalHarnessStarting: () => boolean = () => false;
 const localHarnessReport = (): { kind: LocalHarnessState['kind']; url?: string; version?: string; notice: string | null } => ({
   kind: localHarnessState.kind,
   ...('url' in localHarnessState ? { url: localHarnessState.url } : {}),
@@ -377,8 +403,10 @@ const discoverLegacyLocalPiEndpoint = (): PiEndpoint | null =>
 const positiveNumberOrUndefined = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 
-const readEmberSettings = (): EmberSettings => {
-  const root = readEmberSettingsFile();
+const stripLegacyQuietFromReadMarks = (marks: EmberSettings['readMarks']): EmberSettings['readMarks'] =>
+  Object.fromEntries(Object.entries(marks).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark]));
+
+const parseStaticEmberSettings = (root: Record<string, unknown>): StaticEmberSettings => {
   // Older builds stored one theme per instance; fall back to the first of those.
   const legacyThemes =
     root.instanceThemes && typeof root.instanceThemes === 'object'
@@ -415,7 +443,7 @@ const readEmberSettings = (): EmberSettings => {
     delegatorModels: parseDelegatorModels(root.delegatorModels),
     sessionNotes: parseSessionNotes(root.sessionNotes),
     quoteLinks: parseQuoteLinks(root.quoteLinks),
-    readMarks: Object.fromEntries(Object.entries(parseReadMarks(root.readMarks)).map(([key, { quiet: _legacyQuiet, ...mark }]) => [key, mark])),
+    readMarks: stripLegacyQuietFromReadMarks(parseReadMarks(root.readMarks)),
     mutedSessions: parseMutedSessions(root.mutedSessions, root.readMarks),
     snoozedSessions: parseSnoozedSessions(root.snoozedSessions),
     readSince: typeof root.readSince === 'number' && Number.isFinite(root.readSince) && root.readSince > 0 ? root.readSince : undefined,
@@ -436,23 +464,45 @@ const readEmberSettings = (): EmberSettings => {
         ? root.activeSession
         : null,
     minimizedSessions: parseStringArray(root.minimizedSessions),
-    piEndpoints: resolveEffectivePiEndpoints({
-      root,
-      secretStore: safeStorage,
-      canaryBuild,
-      localHarness: localHarnessEndpointInfo(root),
-      discoverLocal: () => discoverLegacyLocalPiEndpoint(),
-    }),
     remoteAccessEnabled: root.remoteAccessEnabled === true,
     // Keep invalid stored values for startRemoteServer to reject rather than exposing direct HTTP.
     remoteAccessProxyOrigin: root.remoteAccessProxyOrigin === undefined ? undefined : String(root.remoteAccessProxyOrigin),
     remotePasswordConfigured: typeof root.remotePasswordHash === 'string' && root.remotePasswordHash.length > 0,
-    remoteAccessState: remoteListenerState,
     localHarnessEnabled: root.localHarnessEnabled !== false,
-    localHarnessCanRotate: canManageLocalToken(localHarnessState),
     onboardingStartedAt: positiveNumberOrUndefined(root.onboardingStartedAt),
     onboardingDismissedAt: positiveNumberOrUndefined(root.onboardingDismissedAt),
     onboardedAt: positiveNumberOrUndefined(root.onboardedAt),
+  };
+};
+
+const readEmberSettings = (): EmberSettings => {
+  const entry = emberSettingsCache.readEntry();
+  const root = entry.root;
+  const staticSettings = (entry.staticSettings ??= parseStaticEmberSettings(root));
+  return {
+    ...staticSettings,
+    piEndpoints: (() => {
+      const configured =
+        entry.configuredPiEndpoints ??
+        (() => {
+          const unlocked = parsePiEndpoints(unlockEndpointSecrets(root.piEndpoints, safeStorage));
+          if (canCacheUnlockedEndpoints(unlocked)) entry.configuredPiEndpoints = unlocked;
+          return unlocked;
+        })();
+      const localEnabled = root.localHarnessEnabled !== false;
+      const discovered: PiEndpoint[] =
+        configured.length > 0 || Array.isArray(root.piEndpoints) || canaryBuild || !localEnabled
+          ? configured
+          : (() => {
+              const found = discoverLegacyLocalPiEndpoint();
+              return found ? [found] : [];
+            })();
+      return mergeLocalHarnessEndpoint(discovered, localEnabled ? localHarnessEndpointInfo(root) : null).map((endpoint) =>
+        endpoint.id === 'pi:local' && endpoint.label === 'Local' ? { ...endpoint, label: 'This computer' } : endpoint
+      );
+    })(),
+    remoteAccessState: remoteListenerState,
+    localHarnessCanRotate: canManageLocalToken(localHarnessState),
     localHarnessState: localHarnessReport(),
     settingsRecovered: settingsFiles.isRecovered(),
   };
@@ -535,137 +585,165 @@ const probeHealth = async (url: string, headers: Record<string, string>): Promis
 };
 
 let instanceSnapshot: Instance[] = [];
+let hasInstanceSnapshot = false;
 let probeGeneration = 0;
+let activeInstanceLoad: Promise<Instance[]> | null = null;
 const loadInstances = async (refresh = true): Promise<Instance[]> => {
-  if (!refresh) return instanceSnapshot;
-  const generation = ++probeGeneration;
-  const root = readOpenchamberSettings();
-  const hosts = Array.isArray(root.desktopHosts) ? (root.desktopHosts as StoredHost[]) : [];
-  const sshInstances = Array.isArray(root.desktopSshInstances)
-    ? (root.desktopSshInstances as StoredSshInstance[])
-    : [];
-
-  const hostIds = new Set(hosts.map((host, index) => hostId(host, index)));
-  const candidates: Array<{ instance: Instance; headers: Record<string, string> }> = [];
-  const local = localHost(root);
-  if (local) {
-    hostIds.add('local');
-    candidates.push({
-      instance: {
-        id: 'local',
-        label: 'Local',
-        kind: 'local',
-        url: local.url,
-        status: 'checking',
-        attachable: false,
-      },
-      headers: hostHeaders(local, root),
-    });
+  if (!refresh) {
+    if (hasInstanceSnapshot) return instanceSnapshot;
+    if (activeInstanceLoad) return activeInstanceLoad;
   }
+  const generation = ++probeGeneration;
+  const run = (async (): Promise<Instance[]> => {
+    const root = readOpenchamberSettings();
+    const hosts = Array.isArray(root.desktopHosts) ? (root.desktopHosts as StoredHost[]) : [];
+    const sshInstances = Array.isArray(root.desktopSshInstances)
+      ? (root.desktopSshInstances as StoredSshInstance[])
+      : [];
 
-  hosts.forEach((host, index) => {
-    const url = hostUrl(host);
-    const rawUrl = typeof host.url === 'string' ? host.url : '';
-    const isRelay = rawUrl.startsWith('relay://') || Boolean(host.relay);
-    const id = hostId(host, index);
-    const sshMatch = sshInstances.find((entry) => String(entry.id || '') === id);
-    const kind: Instance['kind'] = isRelay
-      ? 'relay'
-      : sshMatch
-        ? 'ssh'
-        : isLocalHttpUrl(url)
-          ? 'local'
-          : 'remote';
-    const usable = !isRelay && Boolean(resolveApiUrl(url, '/api/session'));
-
-    candidates.push({
-      instance: {
-        id,
-        label: host.label || (isRelay ? rawUrl : url) || id,
-        kind,
-        url: usable ? url : undefined,
-        status: usable ? 'checking' : 'unsupported',
-        attachable: false,
-      },
-      headers: hostHeaders(host, root),
-    });
-  });
-
-  sshInstances.forEach((entry, index) => {
-    const id = String(entry.id || `ssh-${index}`);
-    if (hostIds.has(id)) return;
-
-    candidates.push({
-      instance: {
-        id,
-        label: entry.nickname || entry.sshParsed?.destination || entry.host || id,
-        kind: 'ssh',
-        status: 'unsupported',
-        attachable: false,
-      },
-      headers: {},
-    });
-  });
-
-  // Hearth endpoints ride along in the same instance list; they are already probed (their
-  // auth makes the OpenChamber health probe below useless), so the probe loop skips them.
-  const piInstances = await piInstanceRecords(piEndpoints());
-  if (generation !== probeGeneration) return instanceSnapshot;
-  piInstances.forEach((instance) => candidates.push({ instance, headers: {} }));
-
-  const previous = new Map(instanceSnapshot.map((instance) => [instance.id, instance]));
-  // Broadcast only when the visible snapshot actually changed; the 60s watchdog runs this
-  // function on a timer and shouldn't flicker "checking" badges for identical results.
-  const snapshotSignature = (list: Instance[]): string =>
-    list.map((entry) => `${entry.id}:${entry.status}:${entry.attachable}:${entry.label}:${entry.url ?? ''}`).join('|');
-  const previousSignature = snapshotSignature(instanceSnapshot);
-  const announceIfChanged = () => {
-    if (snapshotSignature(instanceSnapshot) !== previousSignature) {
-      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+    const hostIds = new Set(hosts.map((host, index) => hostId(host, index)));
+    const candidates: Array<{ instance: Instance; headers: Record<string, string> }> = [];
+    const local = localHost(root);
+    if (local) {
+      hostIds.add('local');
+      candidates.push({
+        instance: {
+          id: 'local',
+          label: 'Local',
+          kind: 'local',
+          url: local.url,
+          status: 'checking',
+          attachable: false,
+        },
+        headers: hostHeaders(local, root),
+      });
     }
-  };
 
-  instanceSnapshot = candidates.map(({ instance }) => {
-    if (instance.status === 'checking') instance.attachable = previous.get(instance.id)?.attachable ?? false;
-    return instance;
-  });
-  announceIfChanged();
-  await Promise.all(
-    candidates.map(async (candidate) => {
-      const url = candidate.instance.url;
-      if (!url || candidate.instance.status === 'unsupported' || candidate.instance.kind === 'pi') return;
-      const probe = await probeHealth(url, candidate.headers);
-      if (generation !== probeGeneration) return;
-      candidate.instance.status = probe === 'v2' ? 'ready' : probe === 'v1' ? 'unsupported' : 'unreachable';
-      candidate.instance.attachable = probe === 'v2';
-      eventStreams.sync(
-        instanceSnapshot.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id)
-      );
-      announceIfChanged();
-    })
-  );
+    hosts.forEach((host, index) => {
+      const url = hostUrl(host);
+      const rawUrl = typeof host.url === 'string' ? host.url : '';
+      const isRelay = rawUrl.startsWith('relay://') || Boolean(host.relay);
+      const id = hostId(host, index);
+      const sshMatch = sshInstances.find((entry) => String(entry.id || '') === id);
+      const kind: Instance['kind'] = isRelay
+        ? 'relay'
+        : sshMatch
+          ? 'ssh'
+          : isLocalHttpUrl(url)
+            ? 'local'
+            : 'remote';
+      const usable = !isRelay && Boolean(resolveApiUrl(url, '/api/session'));
 
-  // Stamp `onboardedAt` after OpenChamber health probes settle too, serialized through
-  // `settingsWrites` so it never races concurrent settings patches or clobbers quarantined files.
-  const hasHealthyInstance = candidates.some(
-    (candidate) => candidate.instance.status === 'ready' || candidate.instance.attachable
-  );
-  void settingsFiles
-    .noteOnboarded(hasHealthyInstance, () => {
-      broadcast({ instanceId: '*', type: 'ember:instances-updated' });
-    })
-    .catch((error) => {
-      console.warn('[ember] could not record onboardedAt:', error instanceof Error ? error.message : error);
+      candidates.push({
+        instance: {
+          id,
+          label: host.label || (isRelay ? rawUrl : url) || id,
+          kind,
+          url: usable ? url : undefined,
+          status: usable ? 'checking' : 'unsupported',
+          attachable: false,
+        },
+        headers: hostHeaders(host, root),
+      });
     });
-  if (generation !== probeGeneration) return instanceSnapshot;
 
-  const instances = instanceSnapshot;
-  // Every probe re-syncs the event streams, so an instance that comes online starts streaming
-  // and one that's removed from OpenChamber stops. Pi endpoints keep their own WebSocket
-  // watches (conversation event streams + the task graph) in step with the settings.
-  eventStreams.sync(instances.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id));
-  void piClient.syncEndpoints(piEndpoints());
-  return instances;
+    sshInstances.forEach((entry, index) => {
+      const id = String(entry.id || `ssh-${index}`);
+      if (hostIds.has(id)) return;
+
+      candidates.push({
+        instance: {
+          id,
+          label: entry.nickname || entry.sshParsed?.destination || entry.host || id,
+          kind: 'ssh',
+          status: 'unsupported',
+          attachable: false,
+        },
+        headers: {},
+      });
+    });
+
+    // Hearth endpoints ride along in the same instance list; they are already probed (their
+    // auth makes the OpenChamber health probe below useless), so the probe loop skips them.
+    const piInstances = await piInstanceRecords(piEndpoints());
+    if (generation !== probeGeneration) return activeInstanceLoad ?? instanceSnapshot;
+    piInstances.forEach((instance) => candidates.push({ instance, headers: {} }));
+    if (isLocalHarnessStarting() && !candidates.some((entry) => entry.instance.id === 'pi:local')) {
+      candidates.unshift({
+        instance: {
+          id: 'pi:local',
+          label: 'This computer',
+          kind: 'pi',
+          url: localHarnessUrl(localHarness.options.port),
+          status: 'checking',
+          attachable: false,
+        },
+        headers: {},
+      });
+    }
+
+    const previous = new Map(instanceSnapshot.map((instance) => [instance.id, instance]));
+    // Broadcast only when the visible snapshot actually changed; the 60s watchdog runs this
+    // function on a timer and shouldn't flicker "checking" badges for identical results.
+    const snapshotSignature = (list: Instance[]): string =>
+      list.map((entry) => `${entry.id}:${entry.status}:${entry.attachable}:${entry.label}:${entry.url ?? ''}`).join('|');
+    const previousSignature = snapshotSignature(instanceSnapshot);
+    const announceIfChanged = () => {
+      if (snapshotSignature(instanceSnapshot) !== previousSignature) {
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      }
+    };
+
+    instanceSnapshot = candidates.map(({ instance }) => {
+      if (instance.status === 'checking') instance.attachable = previous.get(instance.id)?.attachable ?? false;
+      return instance;
+    });
+    hasInstanceSnapshot = true;
+    announceIfChanged();
+    await Promise.all(
+      candidates.map(async (candidate) => {
+        const url = candidate.instance.url;
+        if (!url || candidate.instance.status === 'unsupported' || candidate.instance.kind === 'pi') return;
+        const probe = await probeHealth(url, candidate.headers);
+        if (generation !== probeGeneration) return;
+        candidate.instance.status = probe === 'v2' ? 'ready' : probe === 'v1' ? 'unsupported' : 'unreachable';
+        candidate.instance.attachable = probe === 'v2';
+        eventStreams.sync(
+          instanceSnapshot.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id)
+        );
+        announceIfChanged();
+      })
+    );
+
+    // Stamp `onboardedAt` after OpenChamber health probes settle too, serialized through
+    // `settingsWrites` so it never races concurrent settings patches or clobbers quarantined files.
+    const hasHealthyInstance = candidates.some(
+      (candidate) => candidate.instance.status === 'ready' || candidate.instance.attachable
+    );
+    void settingsFiles
+      .noteOnboarded(hasHealthyInstance, () => {
+        emberSettingsCache.invalidate();
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      })
+      .catch((error) => {
+        console.warn('[ember] could not record onboardedAt:', error instanceof Error ? error.message : error);
+      });
+    if (generation !== probeGeneration) return activeInstanceLoad ?? instanceSnapshot;
+
+    const instances = instanceSnapshot;
+    // Every probe re-syncs the event streams, so an instance that comes online starts streaming
+    // and one that's removed from OpenChamber stops. Pi endpoints keep their own WebSocket
+    // watches (conversation event streams + the task graph) in step with the settings.
+    eventStreams.sync(instances.filter((instance) => instance.attachable && instance.kind !== 'pi').map((instance) => instance.id));
+    void piClient.syncEndpoints(piEndpoints());
+    return instances;
+  })();
+  activeInstanceLoad = run;
+  try {
+    return await run;
+  } finally {
+    if (activeInstanceLoad === run) activeInstanceLoad = null;
+  }
 };
 
 /** Best-effort display label for an instance id, without probing health (error paths only). */
@@ -787,13 +865,14 @@ const piEndpoints = (): PiEndpoint[] =>
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>
   Promise.all(
     endpoints.map(async (endpoint) => {
+      const startingLocal = isLocalHarnessStarting() && endpoint.id === 'pi:local';
       const info = await piClient.probe(endpoint);
       return {
         id: endpoint.id,
         label: endpoint.label,
         kind: 'pi' as const,
         url: endpoint.url,
-        status: info.healthy ? ('ready' as const) : ('unreachable' as const),
+        status: startingLocalHarnessStatus(info.healthy, startingLocal),
         attachable: info.healthy,
         ...(info.version || info.commit ? { version: info.version ?? info.commit } : {}),
       };
@@ -929,7 +1008,7 @@ ipcMain.handle('ember:activity:search', (event, query: unknown, range: unknown) 
 ipcMain.handle('ember:activity:days', (event) => { assertTrustedSender(event); return activityLog.days(); });
 ipcMain.handle('ember:activity:clear', (event) => { assertTrustedSender(event); return activityLog.clear(); });
 
-let refreshRemoteServer: () => void = () => {};
+let refreshRemoteServer: (current?: EmberSettings) => void = () => {};
 
 const QUARANTINE_FAILED_ERROR =
   'Ember could not read settings.json and could not move it aside. Move or repair that file before changing settings.';
@@ -1058,12 +1137,32 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   }
   settings.remotePasswordConfigured = Boolean(remotePasswordHash);
   if (!remotePasswordHash) settings.remoteAccessEnabled = false;
+  const settingsFile = emberSettingsPath();
   const { piEndpoints: _transientEndpoints, ...persistedWithoutEndpoints } = persistedSettings(settings);
-  await writeJson(emberSettingsPath(), {
+  const nextRoot = stripUndefinedKeys({
     ...persistedWithoutEndpoints,
     ...(persistedEndpoints !== undefined ? { piEndpoints: persistedEndpoints } : {}),
     ...(remotePasswordHash ? { remotePasswordHash } : {}),
   });
+  await settingsFiles.writeJson(settingsFile, nextRoot);
+  const nextConfigured =
+    persistedEndpoints !== undefined
+      ? parsePiEndpoints(unlockEndpointSecrets(persistedEndpoints, safeStorage))
+      : [];
+  const {
+    piEndpoints: _pi,
+    remoteAccessState: _remoteState,
+    localHarnessCanRotate: _canRotate,
+    localHarnessState: _harnessState,
+    settingsRecovered: _recovered,
+    ...nextStatic
+  } = settings;
+  emberSettingsCache.recordWrite(
+    settingsFile,
+    nextRoot,
+    { ...nextStatic, readMarks: stripLegacyQuietFromReadMarks(settings.readMarks) },
+    canCacheUnlockedEndpoints(nextConfigured) ? nextConfigured : undefined
+  );
   if (
     settings.remoteAccessEnabled !== previousRemoteAccessEnabled ||
     remotePasswordHash !== previousRemotePasswordHash ||
@@ -1071,7 +1170,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   ) {
     // A changed password or trust boundary invalidates every cookie and open event stream.
     remoteListener.dispose();
-    refreshRemoteServer();
+    refreshRemoteServer(settings);
   }
   void dailyUpdateChecks?.check().catch(() => {});
   return maskEndpointSecrets(readEmberSettings());
@@ -1123,26 +1222,18 @@ ipcMain.handle('ember:updates:action', (event, action: unknown) => {
  * `<userData>/app-icon.log`, one line per attempt — what the renderer sent, what the platform
  * offered, and what happened. Readable without a console.
  */
-const record = (result: { ok: boolean; reason?: string }, bytes: number): typeof result => {
-  try {
-    const line = [
-      new Date().toISOString(),
-      result.ok ? 'ok' : `failed: ${result.reason ?? 'unknown'}`,
-      `bytes=${bytes}`,
-      `png=${result.ok || result.reason !== 'not a png data URL'}`,
-      `platform=${process.platform}`,
-      `app.dock=${app.dock ? 'present' : 'absent'}`,
-      `windows=${BrowserWindow.getAllWindows().length}`,
-    ].join(' ');
-    // Append, with a small cap: the sequence around a launch is the useful part (attempt, then done or
-    // failed), and overwriting kept only the last line. A diagnostic log should not need a rotation
-    // policy, hence the 8 KB ceiling.
-    appendAppIconLog(path.join(app.getPath('userData'), 'app-icon.log'), line);
-  } catch {
-    // A diagnostic that throws would be worse than the bug it is chasing.
-  }
-  return result;
-};
+const appIconDiagnostics = createAppIconDiagnosticLogger(() =>
+  path.join(app.getPath('userData'), 'app-icon.log')
+);
+
+const appIconDiagnosticContext = () => ({
+  platform: process.platform,
+  hasDock: Boolean(app.dock),
+  windows: BrowserWindow.getAllWindows().length,
+});
+
+const recordAppIconDiagnostic = (result: { ok: boolean; reason?: string }, bytes: number): typeof result =>
+  appIconDiagnostics.record(result, bytes, appIconDiagnosticContext());
 
 /**
  * The renderer's side of the same story: a failure *before* the IPC (a rejected render, a cancelled
@@ -1162,7 +1253,7 @@ ipcMain.handle('ember:compact-log', (event, args: { line?: unknown }): { ok: boo
 
 ipcMain.handle('ember:app-icon-report', (event, args: { reason?: unknown }): { ok: boolean } => {
   assertTrustedSender(event);
-  record({ ok: false, reason: `renderer: ${String(args?.reason ?? 'unknown').slice(0, 300)}` }, 0);
+  appIconDiagnostics.reportIssue(args?.reason, appIconDiagnosticContext());
   return { ok: true };
 });
 
@@ -1173,16 +1264,16 @@ ipcMain.handle('ember:app-icon', (event, args: { dataUrl?: unknown }): { ok: boo
   // indistinguishable from one that was never rendered, and this path spent a while doing nothing on
   // a platform whose API it did not have.
   const bytes = Buffer.byteLength(dataUrl);
-  if (!dataUrl.startsWith('data:image/png;base64,')) return record({ ok: false, reason: 'not a png data URL' }, bytes);
-  if (bytes > MAX_DOCK_ICON_BYTES) return record({ ok: false, reason: `too large (${bytes} bytes)` }, bytes);
+  if (!dataUrl.startsWith('data:image/png;base64,')) return recordAppIconDiagnostic({ ok: false, reason: 'not a png data URL' }, bytes);
+  if (bytes > MAX_DOCK_ICON_BYTES) return recordAppIconDiagnostic({ ok: false, reason: `too large (${bytes} bytes)` }, bytes);
   try {
     const image = nativeImage.createFromDataURL(dataUrl);
-    if (image.isEmpty()) return record({ ok: false, reason: 'the PNG did not decode' }, bytes);
+    if (image.isEmpty()) return recordAppIconDiagnostic({ ok: false, reason: 'the PNG did not decode' }, bytes);
     if (app.dock) app.dock.setIcon(image);
     else BrowserWindow.getAllWindows().forEach((win) => { if (!win.isDestroyed()) win.setIcon(image); });
-    return record({ ok: true }, bytes);
+    return recordAppIconDiagnostic({ ok: true }, bytes);
   } catch (error) {
-    return record({ ok: false, reason: error instanceof Error ? error.message : 'could not set the icon' }, bytes);
+    return recordAppIconDiagnostic({ ok: false, reason: error instanceof Error ? error.message : 'could not set the icon' }, bytes);
   }
 });
 
@@ -1305,9 +1396,8 @@ const remoteListener = new RemoteListener(
   }
 );
 
-refreshRemoteServer = () => {
-  const settings = readEmberSettings();
-  remoteListener.configure(settings.remoteAccessEnabled && settings.remotePasswordConfigured);
+refreshRemoteServer = (current = readEmberSettings()) => {
+  remoteListener.configure(current.remoteAccessEnabled && current.remotePasswordConfigured);
 };
 
 /**
@@ -1331,14 +1421,15 @@ app.on('second-instance', () => {
 if (primaryInstance) app.whenReady().then(async () => {
   initializeFirstRunSettings(emberSettingsPath(), path.join(emberHome, 'hearth.sqlite'));
   activityLog.start();
-  // Start (or adopt) the harness this app ships before the window paints, so the first launch has a
-  // host to show instead of an empty rail and instructions to go and find one.
+  // Start (or adopt) the bundled harness concurrently so `createWindow()` opens at once; while the
+  // launch is in flight `pi:local` reports `'checking'`, then `loadInstances(true)` announces ready.
   const launchOptions: LocalHarnessOptions = {
     resourcesDir: process.resourcesPath,
     ...(!app.isPackaged ? { developmentDir: app.getAppPath() } : {}),
     ...(process.env.EMBER_DATA_DIR?.trim() ? { port: await availableHarnessPort() } : {}),
     onExit: (reason) => {
       localHarnessState = { kind: 'failed', reason };
+      void loadInstances(true);
       broadcast({ instanceId: '*', type: 'ember:instances-updated' });
     },
     // One directory for the app and its harness: `~/.ember` (or the canary's own tree).
@@ -1349,12 +1440,32 @@ if (primaryInstance) app.whenReady().then(async () => {
     disabled: readJson(emberSettingsPath()).localHarnessEnabled === false,
   };
   localHarness = { home: emberHome, options: launchOptions };
-  const startedHarness = await runHarnessOperation(() => startLocalHarness(launchOptions));
-  localHarnessState = startedHarness.state;
-  if (localHarnessNotice(startedHarness.state)) {
-    console.warn('[ember] local harness:', localHarnessNotice(startedHarness.state));
-  }
-  localHarnessStop = startedHarness.stop;
+  const harnessBoot = bootLocalHarness({
+    options: launchOptions,
+    runOperation: runHarnessOperation,
+    onState: (startedHarness) => {
+      localHarnessState = startedHarness.state;
+      const notice = localHarnessNotice(startedHarness.state);
+      if (notice) console.warn('[ember] local harness:', notice);
+      localHarnessStop = startedHarness.stop;
+    },
+    onSettled: async () => {
+      if (harnessQuitPending) return;
+      let announced = false;
+      const unsubscribe = subscribeEvents((event) => {
+        if (event.type === 'ember:instances-updated') announced = true;
+      });
+      try {
+        await loadInstances(true);
+      } finally {
+        unsubscribe();
+      }
+      if (!announced && !harnessQuitPending) {
+        broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+      }
+    },
+  });
+  isLocalHarnessStarting = harnessBoot.isStarting;
   refreshRemoteServer();
   createWindow();
   let stableDistribution = false;
@@ -1468,6 +1579,7 @@ app.on('window-all-closed', () => {
 
 // Quit can't await, so the last buffered entries go out synchronously.
 app.on('will-quit', () => {
+  appIconDiagnostics.dispose();
   dailyUpdateChecks?.dispose();
   updateController?.dispose();
   remoteListener.dispose();

@@ -950,7 +950,7 @@ export type EmberBridge = {
   /** Replace the Dock icon with a PNG data URL (macOS only; a no-op elsewhere). */
   setAppIcon(dataUrl: string): Promise<{ ok: boolean; reason?: string }>;
   /** Carry a failure that happened before the IPC into the same log; absent on older bridges. */
-  reportAppIconIssue?(reason: string): Promise<{ ok: boolean }>;
+  reportAppIconIssue?(reason: string | null): Promise<{ ok: boolean }>;
   /**
    * One formatted line into `ember-compact.log`. A compaction the host accepts and does not perform
    * leaves no other trace, so the attempt has to be written down somewhere.

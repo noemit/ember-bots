@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import * as React from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Blob from '../src/blob/Blob';
 import LavaBlob from '../src/blob/LavaBlob';
@@ -334,5 +336,233 @@ describe('Lava drawing', () => {
     expect(renderToStaticMarkup(<Blob style="lava" seed="seed" mood="idle" />)).toContain('blob-lava');
     expect(BLOB_STYLES).toContain('lava');
     expect(isBlobStyle('lava')).toBe(true);
+  });
+
+  test('actively churning moods (thinking/busy) and compact sizes (<48px) skip CPU turbulence and morphology', () => {
+    const countPrimitives = (html: string): number =>
+      [...html.matchAll(/<fe(?!MergeNode\b)[A-Za-z]+\b/g)].length;
+
+    // Actively orbiting lobes at any size use the lightweight GPU-only goo + deepRim + inkBand filter.
+    for (const mood of ['thinking', 'busy'] as const) {
+      for (const size of [22, 30, 55, 120, 358]) {
+        const html = markup(mood, 'seed', size);
+        expect(html).not.toContain('feTurbulence');
+        expect(html).not.toContain('feMorphology');
+        expect(html).not.toContain('darkSpecks');
+        expect(html).not.toContain('lightSpecks');
+        expect(html).toContain('result="goo"');
+        expect(html).toContain('result="deepRim"');
+        expect(html).toContain('result="inkBand"');
+        expect(countPrimitives(html)).toBeLessThanOrEqual(14);
+      }
+    }
+
+    // Compact rail sizes (<48px) skip CPU turbulence + morphology across every mood, while keeping error saturation.
+    for (const size of [22, 30, 40, 47]) {
+      for (const mood of MOODS) {
+        const html = markup(mood, 'seed', size);
+        expect(html).not.toContain('feTurbulence');
+        expect(html).not.toContain('feMorphology');
+        expect(html).not.toContain('darkSpecks');
+        expect(html).toContain('result="goo"');
+        expect(html).toContain('result="deepRim"');
+        expect(html).toContain('result="inkBand"');
+        if (mood === 'error') expect(html).toContain('type="saturate"');
+      }
+    }
+
+    // Larger non-churning lamps (>=48px) keep the full risograph stippled rim and (>=64px) body grain.
+    for (const size of [48, 55, 120]) {
+      const html = markup('idle', 'seed', size);
+      expect(html).toContain('feTurbulence');
+      expect(html).toContain('feMorphology');
+      expect(html).toContain('result="inkInside"');
+      expect(html).toContain('result="inkBleed"');
+      expect(html.includes('darkSpecks')).toBe(size >= 64);
+    }
+  });
+
+  test('LavaBlob is memoized with React.memo and skips commits when props and identity traits match', async () => {
+    expect((LavaBlob as unknown as { $$typeof?: symbol }).$$typeof).toBe(Symbol.for('react.memo'));
+
+    class StubElement {
+      nodeType = 1;
+      tagName: string;
+      namespaceURI = 'http://www.w3.org/1999/xhtml';
+      childNodes: Array<StubElement | StubText> = [];
+      parentNode: StubElement | null = null;
+      ownerDocument: StubDocument;
+      style: Record<string, unknown> = {
+        setProperty(name: string, value: string) {
+          this[name] = value;
+        },
+        removeProperty(name: string) {
+          delete this[name];
+        },
+      };
+      attributes = new Map<string, string>();
+      constructor(tagName: string, ownerDocument: StubDocument) {
+        this.tagName = tagName.toUpperCase();
+        this.ownerDocument = ownerDocument;
+      }
+      appendChild<T extends StubElement | StubText>(child: T): T {
+        this.removeChild(child);
+        this.childNodes.push(child);
+        child.parentNode = this;
+        return child;
+      }
+      removeChild<T extends StubElement | StubText>(child: T): T {
+        const idx = this.childNodes.indexOf(child);
+        if (idx >= 0) {
+          this.childNodes.splice(idx, 1);
+          child.parentNode = null;
+        }
+        return child;
+      }
+      insertBefore<T extends StubElement | StubText>(child: T, before: StubElement | StubText | null): T {
+        this.removeChild(child);
+        const idx = before ? this.childNodes.indexOf(before) : -1;
+        if (idx < 0) this.childNodes.push(child);
+        else this.childNodes.splice(idx, 0, child);
+        child.parentNode = this;
+        return child;
+      }
+      setAttribute(name: string, value: string): void {
+        this.attributes.set(name, String(value));
+      }
+      removeAttribute(name: string): void {
+        this.attributes.delete(name);
+      }
+      getAttribute(name: string): string | null {
+        return this.attributes.get(name) ?? null;
+      }
+      addEventListener(): void {}
+      removeEventListener(): void {}
+    }
+    class StubText {
+      nodeType = 3;
+      nodeValue: string;
+      parentNode: StubElement | null = null;
+      ownerDocument: StubDocument;
+      constructor(text: string, ownerDocument: StubDocument) {
+        this.nodeValue = text;
+        this.ownerDocument = ownerDocument;
+      }
+    }
+    class StubDocument {
+      nodeType = 9;
+      hidden = false;
+      activeElement: StubElement | null = null;
+      documentElement: StubElement;
+      defaultView: Record<string, unknown> | null = null;
+      constructor() {
+        this.documentElement = new StubElement('html', this);
+      }
+      createElement(tag: string): StubElement {
+        return new StubElement(tag, this);
+      }
+      createElementNS(_ns: string, tag: string): StubElement {
+        return new StubElement(tag, this);
+      }
+      createTextNode(text: string): StubText {
+        return new StubText(text, this);
+      }
+      addEventListener(): void {}
+      removeEventListener(): void {}
+    }
+
+    const scope = globalThis as Record<string, unknown>;
+    const saved = {
+      hadWindow: 'window' in scope,
+      window: scope.window,
+      hadDocument: 'document' in scope,
+      document: scope.document,
+      hadAct: 'IS_REACT_ACT_ENVIRONMENT' in scope,
+      act: scope.IS_REACT_ACT_ENVIRONMENT,
+    };
+    const doc = new StubDocument();
+    const win: Record<string, unknown> = {
+      Element: StubElement,
+      HTMLIFrameElement: class {},
+      event: undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    };
+    doc.defaultView = win;
+    scope.window = win;
+    scope.document = doc;
+    scope.IS_REACT_ACT_ENVIRONMENT = true;
+
+    const container = doc.createElement('div');
+    const root = createRoot(container as unknown as Element);
+    let renderDurationCount = 0;
+    const baseIdentity = seedIdentity('lava:memo-check');
+
+    try {
+      const Harness = ({
+        identity,
+        mood,
+        size,
+        tick,
+      }: {
+        identity: ReturnType<typeof seedIdentity>;
+        mood: BallMood;
+        size: number;
+        tick: number;
+      }) => (
+        <div data-tick={tick}>
+          <React.Profiler
+            id="lava"
+            onRender={(_id, _phase, actualDuration) => {
+              if (actualDuration >= 0) renderDurationCount += 1;
+            }}
+          >
+            <LavaBlob seed="lava:memo-check" identity={identity} mood={mood} size={size} />
+          </React.Profiler>
+        </div>
+      );
+
+      await React.act(async () => {
+        root.render(<Harness identity={baseIdentity} mood="idle" size={55} tick={1} />);
+      });
+      const rootDiv = container.childNodes[0] as StubElement;
+      const lavaDiv = rootDiv.childNodes[0] as StubElement;
+      const svgEl = lavaDiv.childNodes[0] as StubElement;
+      expect(lavaDiv.getAttribute('data-mood')).toBe('idle');
+      expect(renderDurationCount).toBe(1);
+
+      // Spy on setAttribute on the LavaBlob root div: if LavaBlob skipped rendering via React.memo,
+      // even when given a cloned AvatarIdentity object with identical traits, React touches nothing inside it.
+      let childMutations = 0;
+      const origSetAttr = lavaDiv.setAttribute.bind(lavaDiv);
+      lavaDiv.setAttribute = (name: string, value: string) => {
+        childMutations += 1;
+        origSetAttr(name, value);
+      };
+
+      await React.act(async () => {
+        root.render(<Harness identity={{ ...baseIdentity }} mood="idle" size={55} tick={2} />);
+      });
+      expect(rootDiv.getAttribute('data-tick')).toBe('2');
+      expect(childMutations).toBe(0);
+      expect(svgEl.parentNode).toBe(lavaDiv);
+
+      // Changing mood or size updates LavaBlob cleanly.
+      await React.act(async () => {
+        root.render(<Harness identity={{ ...baseIdentity }} mood="thinking" size={55} tick={3} />);
+      });
+      expect(lavaDiv.getAttribute('data-mood')).toBe('thinking');
+      expect(childMutations).toBeGreaterThan(0);
+    } finally {
+      await React.act(async () => {
+        root.unmount();
+      });
+      if (saved.hadWindow) scope.window = saved.window;
+      else delete scope.window;
+      if (saved.hadDocument) scope.document = saved.document;
+      else delete scope.document;
+      if (saved.hadAct) scope.IS_REACT_ACT_ENVIRONMENT = saved.act;
+      else delete scope.IS_REACT_ACT_ENVIRONMENT;
+    }
   });
 });

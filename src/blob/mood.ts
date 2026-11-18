@@ -25,6 +25,14 @@ export const stateFromMood = (mood: BallMood): BallState => {
   return 'idle';
 };
 
+/**
+ * Coalesces motion-only working moods (`busy` and `thinking`) to `busy` for the static Dock/taskbar
+ * icon: both draw the same orange working badge on a still PNG, so crew alternation and tool/thinking
+ * transitions never re-rasterise a 512x512 icon.
+ */
+export const dockIconMood = (mood: BallMood): Exclude<BallMood, 'thinking'> =>
+  mood === 'thinking' ? 'busy' : mood;
+
 /** True when the latest assistant turn is still streaming and no tool is running (so: reasoning). */
 export const isThinkingMessages = (messages: ChatMessage[]): boolean => {
   const last = messages[messages.length - 1];

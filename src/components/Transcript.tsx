@@ -1,4 +1,4 @@
-import { quoteLinksForMessage, type MessageQuoteLink } from '../lib/quoteLinkScope';
+import { EMPTY_QUOTE_LINKS, quoteLinksForMessage, type MessageQuoteLink } from '../lib/quoteLinkScope';
 import { messageNavigationAction } from '../lib/messageNavigation';
 import { quoteRangeIn } from '../lib/quoteHighlight';
 import { questionKey, type ThreadQuestion } from '../lib/threadQuestions';
@@ -39,7 +39,12 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { isHumanReadingMessage, type ReadingBounds, shouldOfferLastMessageJump } from '../lib/transcriptReadingGeometry';
+import {
+  createReadingGeometryScheduler,
+  isHumanReadingMessage,
+  type ReadingBounds,
+  shouldOfferLastMessageJump,
+} from '../lib/transcriptReadingGeometry';
 import { isTurnLive, outputSignature } from '../lib/turnActivity';
 import { parseCrewReport } from '../lib/crew';
 import { deriveActivityLabel } from '../lib/activityLabel';
@@ -47,7 +52,7 @@ import type { ActivityLabel as ActivityLabelValue } from '../lib/activityLabel';
 import { deriveSessionStatus } from '../lib/sessionStatus';
 import { modelLabel } from '../lib/modelLabel';
 import SessionStatusLine from './SessionStatusLine';
-import { galleryForConversation, isRenderableImage, type ViewerImage } from '../lib/gallery';
+import { galleryForConversation, isRenderableImage, sameGallery, type ViewerImage } from '../lib/gallery';
 import TranscriptTimeline from './TranscriptTimeline';
 import { shouldShowTimeline, timelineTicksForItems } from '../lib/transcriptTimeline';
 import { useImageViewer } from './imageViewerContext';
@@ -404,23 +409,50 @@ const NestedCallsSection = ({ calls }: { calls: NestedCall[] }) => (
 const panelClass =
   'overflow-x-auto rounded-md bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all';
 
-const DiffView = ({ diff }: { diff: string }) => (
-  <pre className={panelClass}>
-    {diff.split('\n').map((line, index) => (
-      <span
-        key={index}
-        className={cn(
-          'block',
-          line.startsWith('+') && !line.startsWith('+++') && 'bg-emerald-500/15 text-diff-add',
-          line.startsWith('-') && !line.startsWith('---') && 'bg-red-500/15 text-diff-del',
-          line.startsWith('@@') && 'text-muted-foreground'
-        )}
+export const DIFF_INITIAL_LINE_CAP = 300;
+
+export const DiffView = ({ diff, storageKey }: { diff: string; storageKey?: string }) => {
+  const saved = React.useContext(ExpansionContext);
+  const [expandedFor, setExpandedFor] = React.useState<string | null>(() =>
+    storageKey && saved?.get(storageKey) ? diff : null
+  );
+  const lines = React.useMemo(() => diff.split('\n'), [diff]);
+  const capped = lines.length > DIFF_INITIAL_LINE_CAP && expandedFor !== diff;
+  const visibleLines = capped ? lines.slice(0, DIFF_INITIAL_LINE_CAP) : lines;
+  const content = (
+    <pre className={panelClass}>
+      {visibleLines.map((line, index) => (
+        <span
+          key={index}
+          className={cn(
+            'block',
+            line.startsWith('+') && !line.startsWith('+++') && 'bg-emerald-500/15 text-diff-add',
+            line.startsWith('-') && !line.startsWith('---') && 'bg-red-500/15 text-diff-del',
+            line.startsWith('@@') && 'text-muted-foreground'
+          )}
+        >
+          {line || ' '}
+        </span>
+      ))}
+    </pre>
+  );
+  if (!capped) return content;
+  return (
+    <div className="flex flex-col gap-1">
+      {content}
+      <button
+        type="button"
+        onClick={() => {
+          if (storageKey) saved?.set(storageKey, true);
+          setExpandedFor(diff);
+        }}
+        className="self-start rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
       >
-        {line || ' '}
-      </span>
-    ))}
-  </pre>
-);
+        Show all {lines.length} lines
+      </button>
+    </div>
+  );
+};
 
 const ExpansionContext = React.createContext<Map<string, boolean> | null>(null);
 const useExpansion = (key: string, initial: boolean) => {
@@ -580,7 +612,7 @@ const ToolRow = ({
             <pre className={panelClass}>{describeInput(call.input)}</pre>
           ) : null}
           {nested.length > 0 ? <NestedCallsSection calls={nested} /> : null}
-          {call.diff ? <DiffView diff={call.diff} /> : null}
+          {call.diff ? <DiffView diff={call.diff} storageKey={`diff:${call.id}`} /> : null}
           {/* Why it failed, one line; the output below it is the whole retained log either way. */}
           {call.error ? <pre className={cn(panelClass, 'text-destructive')}>{call.error}</pre> : null}
           {/* The host keeps a tail (2 000 lines / 50 KB) and says so; without this a short log reads
@@ -1377,7 +1409,7 @@ const CrewReportCard = ({
   </div>
 );
 
-const QuoteBacklinks = ({ links, onNavigate, message }: { links: MessageQuoteLink[]; onNavigate?: (link: QuoteLink, direction: 'source' | 'destination') => void; quoteFocus?: QuoteAnchor | null; message: ChatMessage }) => {
+const QuoteBacklinks = ({ links, onNavigate, message }: { links: readonly MessageQuoteLink[]; onNavigate?: (link: QuoteLink, direction: 'source' | 'destination') => void; quoteFocus?: QuoteAnchor | null; message: ChatMessage }) => {
   if (!links.length) return null;
   const controls = links.map(({ link, source }, index) => {
     const stale = source && !validateQuoteAnchor(link.source, [message]).valid;
@@ -1401,7 +1433,7 @@ const renderBlock = (
   onOpenImage?: (image: ViewerImage) => void,
   /** An unread badge pinned to this bubble's top-right corner (assistant messages only). */
   unreadBadge?: React.ReactNode,
-  quoteLinks: MessageQuoteLink[] = [],
+  quoteLinks: readonly MessageQuoteLink[] = EMPTY_QUOTE_LINKS,
   onNavigateQuote?: (link: QuoteLink, direction: 'source' | 'destination') => void,
   quoteFocus?: QuoteAnchor | null
 ) => {
@@ -1439,7 +1471,7 @@ const renderBlock = (
         )}
       >
         <span data-quote-part-id={block.id} className={mine ? 'whitespace-pre-wrap break-words' : undefined}>
-          {mine ? <Linkify text={block.text} /> : <React.Suspense fallback={<MarkdownFallback text={block.text} />}><Markdown text={block.text} /></React.Suspense>}
+          {mine ? <Linkify text={block.text} /> : <React.Suspense fallback={<MarkdownFallback text={block.text} />}><Markdown text={block.text} streaming={streaming} /></React.Suspense>}
         </span>
         {unreadBadge}
         {overlay}
@@ -1499,7 +1531,7 @@ const renderBlock = (
 
 type MessageRowProps = {
   message: ChatMessage;
-  quoteLinks?: MessageQuoteLink[];
+  quoteLinks?: readonly MessageQuoteLink[];
   onNavigateQuote?: (link: QuoteLink, direction: 'source' | 'destination') => void;
   quoteFocus?: QuoteAnchor | null;
   highlighted: boolean;
@@ -1727,7 +1759,7 @@ const DeliveryRow = ({
 
 const MessageRow = React.memo(function MessageRow({
   message,
-  quoteLinks = [],
+  quoteLinks = EMPTY_QUOTE_LINKS,
   onNavigateQuote,
   quoteFocus,
   highlighted,
@@ -2102,6 +2134,7 @@ function Transcript({
     const frame = requestAnimationFrame(() => { findInput.current?.focus(); findInput.current?.select(); });
     return () => cancelAnimationFrame(frame);
   }, [findRequest]);
+  const previousBundledByIdRef = React.useRef(new Map<string, { base: ChatMessage; message: ChatMessage }>());
   const items = React.useMemo(() => {
     const visible = messages
       .map((message, index) => ({ message, index }))
@@ -2118,12 +2151,29 @@ function Transcript({
             (part.type === 'reasoning' && Boolean(part.text.trim()) && reasoningDisplay !== 'hidden')
         )
       );
-    return bundleConsecutiveToolMessages(visible, {
+    const bundled = bundleConsecutiveToolMessages(visible, {
       toolDisplay,
       hideToolCalls,
       reasoningHidden: reasoningDisplay === 'hidden',
       showQuestions,
     });
+    const nextBundled = new Map<string, { base: ChatMessage; message: ChatMessage }>();
+    const stabilized = bundled.map((item) => {
+      const base = messages[item.index];
+      if (!base || item.message === base) return item;
+      const prev = previousBundledByIdRef.current.get(item.message.id);
+      const reused =
+        prev &&
+        prev.base === base &&
+        prev.message.parts.length === item.message.parts.length &&
+        prev.message.parts.every((part, partIndex) => part === item.message.parts[partIndex])
+          ? prev.message
+          : item.message;
+      nextBundled.set(item.message.id, { base, message: reused });
+      return reused === item.message ? item : { ...item, message: reused };
+    });
+    previousBundledByIdRef.current = nextBundled;
+    return stabilized;
   }, [messages, hideToolCalls, reasoningDisplay, showQuestions, toolDisplay]);
   // Preserve row identity between polls so read controls and measured heights stay stable.
   const [readAll, setReadAll] = React.useState(false);
@@ -2188,17 +2238,31 @@ function Transcript({
     for (let index = items.length - 1; index >= 0; index--) if (isHumanReadingMessage(items[index].message)) return index;
     return -1;
   }, [items]);
-  const userMessageIds = React.useMemo(() => new Set(items.filter(({ message }) => isHumanReadingMessage(message)).map(({ message }) => message.id)), [items]);
+  const previousUserIds = React.useRef<string[]>([]);
+  const userMessageIdList = React.useMemo(() => {
+    const ids = items.filter(({ message }) => isHumanReadingMessage(message)).map(({ message }) => message.id);
+    if (ids.length === previousUserIds.current.length && ids.every((id, index) => id === previousUserIds.current[index])) {
+      return previousUserIds.current;
+    }
+    previousUserIds.current = ids;
+    return ids;
+  }, [items]);
   const [showLastMessageJump, setShowLastMessageJump] = React.useState(false);
   const updateReadingGeometry = useStableCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
     const viewport = scroller.getBoundingClientRect();
-    const users = [...messageRefs.current].flatMap(([id, node]) =>
-      userMessageIds.has(id) ? [node.getBoundingClientRect()] : []
-    );
+    const latestId = userMessageIdList[userMessageIdList.length - 1];
+    let bounds: ReadingBounds | undefined;
+    const users: ReadingBounds[] = [];
+    for (const id of userMessageIdList) {
+      const node = messageRefs.current.get(id);
+      if (!node) continue;
+      const rect = node.getBoundingClientRect();
+      users.push(rect);
+      if (id === latestId) bounds = rect;
+    }
     const latest = items[latestUserIndex];
-    let bounds: ReadingBounds | undefined = latest ? messageRefs.current.get(latest.message.id)?.getBoundingClientRect() : undefined;
     if (!bounds && virtualized && latest) {
       const measurement = virtualizer.measurementsCache[latestUserIndex];
       const history = contentRef.current?.querySelector('[data-message-history]');
@@ -2209,17 +2273,28 @@ function Transcript({
     }
     setShowLastMessageJump(shouldOfferLastMessageJump(viewport, bounds, users));
   });
-  React.useLayoutEffect(() => { updateReadingGeometry(); });
+  const readingGeometryScheduler = React.useMemo(
+    () => createReadingGeometryScheduler(updateReadingGeometry),
+    [updateReadingGeometry]
+  );
+  React.useLayoutEffect(() => {
+    readingGeometryScheduler.flush();
+  }, [seed, items.length, userMessageIdList, virtualized, compactSpacing, readingGeometryScheduler]);
   React.useEffect(() => {
     const scroller = scrollRef.current;
     const content = contentRef.current;
-    if (!scroller || !content) return;
-    const observer = new ResizeObserver(updateReadingGeometry);
+    if (!scroller || !content) return () => readingGeometryScheduler.cancel();
+    const schedule = () => readingGeometryScheduler.schedule();
+    const observer = new ResizeObserver(schedule);
     observer.observe(scroller);
     observer.observe(content);
-    scroller.addEventListener('scroll', updateReadingGeometry);
-    return () => { observer.disconnect(); scroller.removeEventListener('scroll', updateReadingGeometry); };
-  }, [updateReadingGeometry]);
+    scroller.addEventListener('scroll', schedule, { passive: true });
+    return () => {
+      readingGeometryScheduler.cancel();
+      observer.disconnect();
+      scroller.removeEventListener('scroll', schedule);
+    };
+  }, [readingGeometryScheduler]);
   // Marks for the scrub rail, derived from the same visible items the list renders (so a tick's
   // index is directly a `jumpToIndex` argument).
   const railTicks = React.useMemo(
@@ -2230,7 +2305,26 @@ function Transcript({
   const railActiveIndex = focusedIndex >= 0 ? focusedIndex : highlightedIndex >= 0 ? highlightedIndex : null;
 
   // One gallery for the whole conversation: the viewer's next/previous cross message boundaries.
-  const conversationGallery = React.useMemo(() => galleryForConversation(messages), [messages]);
+  const previousGalleryRef = React.useRef<ViewerImage[]>([]);
+  const conversationGallery = React.useMemo(() => {
+    const next = galleryForConversation(messages);
+    if (sameGallery(previousGalleryRef.current, next)) return previousGalleryRef.current;
+    previousGalleryRef.current = next;
+    return next;
+  }, [messages]);
+  const getQuoteLinksForMessage = React.useMemo(() => {
+    if (!quoteSessionKey || quoteLinks.length === 0) {
+      return () => EMPTY_QUOTE_LINKS;
+    }
+    const cache = new Map<string, readonly MessageQuoteLink[]>();
+    return (messageId: string): readonly MessageQuoteLink[] => {
+      const cached = cache.get(messageId);
+      if (cached) return cached;
+      const computed = quoteLinksForMessage(quoteLinks, quoteSessionKey, messageId);
+      cache.set(messageId, computed);
+      return computed;
+    };
+  }, [quoteLinks, quoteSessionKey]);
   const findMatches = React.useMemo(() => find?.trim() ? items.flatMap((item, index) =>
     (item.sourceIndices ?? [item.index]).some(source => {
       const message = messages[source];
@@ -2334,16 +2428,23 @@ function Transcript({
       setNavigationRetry((value) => value + 1);
     });
   }, [focusMessageId, focusRequest, items, messages, messagesStatus, historyComplete, onLoadEarlier, jumpToIndex, navigationRetry]);
+  const quoteFocusValid = React.useMemo(
+    () => Boolean(quoteFocus && validateQuoteAnchor(quoteFocus, messages, quoteSessionKey ?? undefined).valid),
+    [quoteFocus, quoteSessionKey, messages]
+  );
   React.useEffect(() => {
     const region = scrollRef.current;
-    if (!region || !quoteFocus || !validateQuoteAnchor(quoteFocus, messages, quoteSessionKey ?? undefined).valid) return;
+    if (!region || !quoteFocus || !quoteFocusValid) return;
     const highlightApi = globalThis.CSS?.highlights;
     const HighlightConstructor = globalThis.Highlight;
     if (!highlightApi || typeof HighlightConstructor !== 'function') return;
+    const targetIds = new Set(quoteFocus.spans.map((span) => span.messageId));
     const apply = () => {
       const ranges: Range[] = [];
       for (const span of quoteFocus.spans) {
-        const row = [...region.querySelectorAll('[data-message-id]')].find((element) => element.getAttribute('data-message-id') === span.messageId);
+        const row =
+          messageRefs.current.get(span.messageId) ??
+          [...region.querySelectorAll('[data-message-id]')].find((element) => element.getAttribute('data-message-id') === span.messageId);
         const element = row ? [...row.querySelectorAll('[data-quote-part-id]')].find((part) => part.getAttribute('data-quote-part-id') === span.partId) : undefined;
         if (!element) continue;
         const range = quoteRangeIn(element, span);
@@ -2351,12 +2452,21 @@ function Transcript({
       }
       if (ranges.length) highlightApi.set('ember-quote', new HighlightConstructor(...ranges));
     };
-    const observer = new MutationObserver(apply);
+    const observer = new MutationObserver((records) => {
+      const relevant = records.some((record) => {
+        if (record.target === region || (record.target instanceof Element && record.target.hasAttribute('data-message-history'))) {
+          return true;
+        }
+        const row = (record.target instanceof Element ? record.target : record.target.parentElement)?.closest('[data-message-id]');
+        return Boolean(row && targetIds.has(row.getAttribute('data-message-id') ?? ''));
+      });
+      if (relevant) apply();
+    });
     observer.observe(region, { childList: true, subtree: true });
     const timer = window.setTimeout(apply, 100);
     apply();
     return () => { observer.disconnect(); window.clearTimeout(timer); highlightApi.delete('ember-quote'); region.querySelectorAll('[data-quote-highlighted]').forEach((element) => element.removeAttribute('data-quote-highlighted')); };
-  }, [quoteFocus, quoteSessionKey, messages, focusRequest]);
+  }, [quoteFocus, quoteFocusValid, focusRequest]);
 
   React.useEffect(() => {
     if (!highlightedMessageId) return;
@@ -2813,7 +2923,7 @@ function Transcript({
               <MessageRow
                 key={message.id}
                 message={message}
-                quoteLinks={quoteLinksForMessage(quoteLinks, quoteSessionKey, message.id)}
+                quoteLinks={getQuoteLinksForMessage(message.id)}
                 onNavigateQuote={onNavigateQuote}
                 quoteFocus={quoteFocus}
                 readConfirmed={!notificationsMuted && receipt?.message.id === message.id && readHighlight}

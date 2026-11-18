@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import {
   availableHarnessPort,
+  bootLocalHarness,
   resolveHarnessBinary,
   binaryNameFor,
   bundledBinaryPath,
@@ -13,6 +14,8 @@ import {
   isActiveHarness,
   isManagedHarness,
   localHarnessEndpoint,
+  localHarnessUrl,
+  startingLocalHarnessStatus,
   writeHarnessToken,
   defaultHarnessHome,
   HARNESS_START_TIMEOUT_MS,
@@ -20,6 +23,7 @@ import {
   localHarnessNotice,
   readHarnessToken,
   startLocalHarness,
+  type LocalHarnessState,
 } from '../electron/localHarness';
 
 /**
@@ -714,5 +718,131 @@ describe('identifying synthesized default pi:local endpoints', () => {
         synthesized
       ).map((entry) => entry.id)
     ).toEqual(['pi:tower']);
+  });
+});
+
+describe('non-blocking cold-boot window creation', () => {
+  test('window creation proceeds immediately while startLocalHarness boots, then transitions checking -> ready', async () => {
+    const resourcesDir = tempDir();
+    fs.writeFileSync(path.join(resourcesDir, binaryNameFor()), '#!/bin/sh\n', { mode: 0o755 });
+    const home = tempDir();
+
+    let releaseProbe!: () => void;
+    const probeGate = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    let probeCalls = 0;
+
+    let queue: Promise<unknown> = Promise.resolve();
+    const runOperation = <T>(op: () => Promise<T>): Promise<T> => {
+      const next = queue.catch(() => {}).then(op);
+      queue = next;
+      return next;
+    };
+
+    const events: string[] = [];
+    let currentState: LocalHarnessState = { kind: 'disabled' };
+    let isStarting = () => false;
+
+    const boot = bootLocalHarness({
+      options: {
+        resourcesDir,
+        home,
+        readToken: staticToken('boot-token'),
+        probe: async () => {
+          probeCalls += 1;
+          await probeGate;
+          return probeCalls === 1 ? { ok: false } : { ok: true, version: '1.9.0' };
+        },
+        spawn: (() => fakeChild()) as never,
+      },
+      runOperation,
+      onState: (started) => {
+        currentState = started.state;
+        events.push(`state:${started.state.kind}`);
+      },
+      onSettled: (settledState) => {
+        // `isStarting()` must already be false when `loadInstances(true)` runs so `pi:local`
+        // transitions from `'checking'` to `'ready'` (or `'unreachable'`).
+        expect(isStarting()).toBe(false);
+        const status = startingLocalHarnessStatus(settledState.kind === 'started', isStarting());
+        events.push(`settled:${settledState.kind}:${status}`);
+      },
+    });
+    isStarting = boot.isStarting;
+
+    // Window creation runs synchronously without awaiting `startLocalHarness`.
+    events.push('createWindow');
+    expect(events).toEqual(['createWindow']);
+    expect(isStarting()).toBe(true);
+    expect(localHarnessUrl(3002)).toBe('http://127.0.0.1:3002');
+    // While Kiln is still booting, a failed loopback probe reports `'checking'`, never `'unreachable'`.
+    expect(startingLocalHarnessStatus(false, isStarting())).toBe('checking');
+    // If an external Kiln already answers immediately, `'ready'` wins right away.
+    expect(startingLocalHarnessStatus(true, isStarting())).toBe('ready');
+
+    releaseProbe();
+    await boot.settled;
+
+    expect(isStarting()).toBe(false);
+    expect(currentState.kind).toBe('started');
+    expect(startingLocalHarnessStatus(false, isStarting())).toBe('unreachable');
+    expect(events).toEqual(['createWindow', 'state:started', 'settled:started:ready']);
+  });
+
+  test('serialized harness queue stops an in-flight cold-boot child cleanly if quit arrives early', async () => {
+    const resourcesDir = tempDir();
+    fs.writeFileSync(path.join(resourcesDir, binaryNameFor()), '#!/bin/sh\n', { mode: 0o755 });
+    const home = tempDir();
+    const child = fakeChild();
+
+    let releaseSecondProbe!: () => void;
+    const secondProbeGate = new Promise<void>((resolve) => {
+      releaseSecondProbe = resolve;
+    });
+    let probes = 0;
+
+    let queue: Promise<unknown> = Promise.resolve();
+    const runOperation = <T>(op: () => Promise<T>): Promise<T> => {
+      const next = queue.catch(() => {}).then(op);
+      queue = next;
+      return next;
+    };
+
+    let currentState: LocalHarnessState = { kind: 'disabled' };
+    let stopCurrent: () => Promise<void> = async () => {};
+
+    const boot = bootLocalHarness({
+      options: {
+        resourcesDir,
+        home,
+        readToken: staticToken('quit-token'),
+        probe: async () => {
+          probes += 1;
+          if (probes === 1) return { ok: false };
+          await secondProbeGate;
+          return { ok: true, version: '1.9.0' };
+        },
+        spawn: (() => child) as never,
+      },
+      runOperation,
+      onState: (started) => {
+        currentState = started.state;
+        stopCurrent = started.stop;
+      },
+      onSettled: () => {},
+    });
+
+    // Quit arrives while `startLocalHarness` is still polling for readiness.
+    const quitPromise = queue
+      .catch(() => {})
+      .then(() => (canManageLocalToken(currentState) ? stopCurrent() : undefined));
+
+    releaseSecondProbe();
+    await Promise.all([boot.settled, quitPromise]);
+
+    expect(currentState.kind).toBe('started');
+    expect(child.killed).toContain('SIGTERM');
+    expect(fs.existsSync(path.join(home, 'ember-harness.lock'))).toBe(false);
   });
 });

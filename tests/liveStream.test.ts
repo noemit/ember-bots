@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { applyLiveDeltas } from '../src/lib/liveStream';
-import type { ChatMessage, MessagePart } from '../src/types';
+import {
+  applyLiveDeltas,
+  isTerminalStreamEvent,
+  StreamDeltaCoalescer,
+} from '../src/lib/liveStream';
+import type { ChatMessage, LiveDelta, MessagePart } from '../src/types';
 
 /**
  * Applying a streamed chunk is the one place the renderer writes to a transcript from the wire rather
@@ -71,5 +75,119 @@ describe('applying streamed appends', () => {
     // A thinking delta arriving on a text block is a shape change, not an append.
     const mismatched = [live([{ type: 'text', id: 'pi-live-0', text: 'x' }], 'x')];
     expect(applyLiveDeltas(mismatched, [{ index: 0, kind: 'thinking', text: 'y' }])).toBeNull();
+  });
+});
+
+describe('16ms rAF stream delta coalescing', () => {
+  const makeHarness = () => {
+    let nextHandle = 1;
+    const frames = new Map<number, () => void>();
+    const cancelled: number[] = [];
+    const flushes: Array<{ instanceId: string; sessionId: string; deltas: LiveDelta[] }> = [];
+    const coalescer = new StreamDeltaCoalescer(
+      (instanceId, sessionId, deltas) => {
+        flushes.push({ instanceId, sessionId, deltas });
+      },
+      (callback) => {
+        const handle = nextHandle++;
+        frames.set(handle, callback);
+        return handle;
+      },
+      (handle) => {
+        cancelled.push(handle);
+        frames.delete(handle);
+      }
+    );
+    const runNextFrame = () => {
+      const first = frames.entries().next();
+      if (first.done) return false;
+      const [handle, callback] = first.value;
+      frames.delete(handle);
+      callback();
+      return true;
+    };
+    return { coalescer, frames, cancelled, flushes, runNextFrame };
+  };
+
+  test('coalesces multiple pi:message_update chunks per (instanceId, sessionId) into one animation frame', () => {
+    const { coalescer, frames, flushes, runNextFrame } = makeHarness();
+    coalescer.push('pi:local', 's1', [{ index: 0, kind: 'text', text: 'Hel' }]);
+    coalescer.push('pi:local', 's1', [{ index: 0, kind: 'text', text: 'lo ' }]);
+    coalescer.push('pi:local', 's2', [{ index: 0, kind: 'thinking', text: 'plan' }]);
+    coalescer.push('pi:local', 's1', [{ index: 0, kind: 'text', text: 'world' }]);
+
+    // Only one animation frame is scheduled across all token arrivals in the 16ms window.
+    expect(frames.size).toBe(1);
+    expect(flushes).toHaveLength(0);
+
+    expect(runNextFrame()).toBe(true);
+    expect(frames.size).toBe(0);
+    expect(flushes).toEqual([
+      {
+        instanceId: 'pi:local',
+        sessionId: 's1',
+        deltas: [
+          { index: 0, kind: 'text', text: 'Hel' },
+          { index: 0, kind: 'text', text: 'lo ' },
+          { index: 0, kind: 'text', text: 'world' },
+        ],
+      },
+      {
+        instanceId: 'pi:local',
+        sessionId: 's2',
+        deltas: [{ index: 0, kind: 'thinking', text: 'plan' }],
+      },
+    ]);
+  });
+
+  test('flushes synchronously before terminal events and cancels redundant rAF handles', () => {
+    expect(isTerminalStreamEvent('pi:message_end')).toBe(true);
+    expect(isTerminalStreamEvent('pi:turn_end')).toBe(true);
+    expect(isTerminalStreamEvent('pi:run_end')).toBe(true);
+    expect(isTerminalStreamEvent('pi:message_update')).toBe(false);
+
+    const { coalescer, frames, cancelled, flushes, runNextFrame } = makeHarness();
+    coalescer.push('pi:local', 's1', [{ index: 0, kind: 'text', text: 'final ' }]);
+    coalescer.push('pi:local', 's1', [{ index: 0, kind: 'text', text: 'words' }]);
+    expect(frames.size).toBe(1);
+
+    // Terminal event arrives before rAF fires: flushes synchronously and cancels the pending frame.
+    coalescer.flushSession('pi:local', 's1');
+    expect(flushes).toEqual([
+      {
+        instanceId: 'pi:local',
+        sessionId: 's1',
+        deltas: [
+          { index: 0, kind: 'text', text: 'final ' },
+          { index: 0, kind: 'text', text: 'words' },
+        ],
+      },
+    ]);
+    expect(frames.size).toBe(0);
+    expect(cancelled).toEqual([1]);
+    expect(runNextFrame()).toBe(false);
+  });
+
+  test('takeKey drains buffered deltas for a fetched transcript and flushAll drains on unmount', () => {
+    const { coalescer, frames, cancelled, flushes } = makeHarness();
+    coalescer.push('pi:local', 's1', [{ index: 0, kind: 'text', text: 'chunk-a' }]);
+    coalescer.push('pi:local', 's2', [{ index: 0, kind: 'text', text: 'chunk-b' }]);
+
+    const taken = coalescer.takeKey('pi:local::s1');
+    expect(taken).toEqual([{ index: 0, kind: 'text', text: 'chunk-a' }]);
+    expect(flushes).toHaveLength(0);
+    expect(frames.size).toBe(1);
+
+    // Unmount flushes remaining sessions synchronously and cancels the scheduled frame.
+    coalescer.flushAll();
+    expect(flushes).toEqual([
+      {
+        instanceId: 'pi:local',
+        sessionId: 's2',
+        deltas: [{ index: 0, kind: 'text', text: 'chunk-b' }],
+      },
+    ]);
+    expect(frames.size).toBe(0);
+    expect(cancelled).toEqual([1]);
   });
 });
