@@ -282,9 +282,13 @@ describe("dynamic provider catalog discovery", () => {
           ],
         });
       }
-      if (url.endsWith("/codex/models")) {
+      if (url.includes("/codex/models")) {
+        expect(url).toContain("client_version=1.0.0");
         return Response.json({
-          models: [{ slug: "gpt-6.3-codex", display_name: "GPT-6.3 Codex", context_window: 500_000 }],
+          models: [
+            { slug: "gpt-6.3-codex", display_name: "GPT-6.3 Codex", context_window: 500_000, visibility: "list" },
+            { slug: "gpt-reserve", display_name: "GPT-Reserve", context_window: 272_000, visibility: "hide" },
+          ],
         });
       }
       if (url.includes("githubcopilot.com/models")) {

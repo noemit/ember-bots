@@ -612,7 +612,7 @@ export const openaiCodexWithDiscovery = () =>
       const host = (baseUrl ?? "https://chatgpt.com/backend-api").replace(/\/+$/, "");
       const accountId = typeof credential.accountId === "string" && credential.accountId ? credential.accountId : undefined;
       const body = await fetchJson(
-        `${host}/codex/models`,
+        `${host}/codex/models?client_version=1.0.0`,
         {
           Authorization: `Bearer ${credential.access}`,
           Accept: "application/json",
@@ -632,6 +632,7 @@ export const openaiCodexWithDiscovery = () =>
       const entries: LiveDiscoveredEntry[] = [];
       for (const item of rawList) {
         if (!isRecord(item)) continue;
+        if (item.visibility === "hide") continue;
         const id = trimmed(item.slug) ?? trimmed(item.id);
         if (!id || OPENAI_NON_CHAT_RE.test(id)) continue;
         entries.push({
