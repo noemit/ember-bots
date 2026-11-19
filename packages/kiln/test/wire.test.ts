@@ -5,7 +5,6 @@ import { dirname, join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import type { Models } from "@earendil-works/pi-ai";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import {
   AgentDoc,
@@ -80,7 +79,7 @@ const PNG_1X1 =
 type Stack = {
   server: HearthServer;
   harness: HarnessType;
-  models: Models;
+  models: ReturnType<typeof createModels>;
   store: FileCredentialStore;
   directory: string;
   databasePath: string;
@@ -122,6 +121,7 @@ const openStack = async (faux: ReturnType<typeof fauxProvider>, port: number): P
     context
   );
   const restarts: string[] = [];
+  const store = new FileCredentialStore(join(home, "auth.json"));
   const server = startHearthServer({
     config: hearthConfig({ home, port, workspace: home }),
     token: TOKEN,
@@ -129,7 +129,8 @@ const openStack = async (faux: ReturnType<typeof fauxProvider>, port: number): P
     harness,
     models,
     defaultAgent: { model: { provider: "faux", modelId: "faux-1" } },
-    store: new FileCredentialStore(join(home, "auth.json")),
+    store,
+    openCodeImportSource: join(home, "opencode-auth.json"),
     version: "9.9.9",
     build: "testsha",
     restart: (reason) => restarts.push(reason),
@@ -138,7 +139,7 @@ const openStack = async (faux: ReturnType<typeof fauxProvider>, port: number): P
     server,
     harness,
     models,
-    store: new FileCredentialStore(join(home, "auth.json")),
+    store,
     directory: home,
     databasePath: join(home, "hearth.sqlite"),
     restarts,
@@ -257,6 +258,30 @@ describe("hearth wire", () => {
     expect(stack.restarts).toEqual(["git pull", "requested"]);
   });
 
+  test("provider catalog names the environment fallback only when no credential is saved", async () => {
+    const previous = process.env.DEEPSEEK_API_KEY;
+    stack.models.setProvider(fauxProvider({ provider: "deepseek" }).provider);
+    try {
+      process.env.DEEPSEEK_API_KEY = "synthetic-env-secret";
+      const row = async () => {
+        const catalog = await body(await api("/providers"));
+        expect(JSON.stringify(catalog)).not.toContain("synthetic-env-secret");
+        return catalog.providers.find((p: { id: string }) => p.id === "deepseek");
+      };
+      expect(await row()).toMatchObject({ credential: null, envVar: "DEEPSEEK_API_KEY" });
+      expect(await stack.store.read("deepseek")).toBeUndefined();
+      await stack.store.modify("deepseek", async () => ({ type: "api_key", key: "stored" }));
+      expect((await row()).envVar).toBeUndefined();
+      await stack.store.delete("deepseek");
+      process.env.DEEPSEEK_API_KEY = "   ";
+      expect((await row()).envVar).toBeUndefined();
+    } finally {
+      stack.models.deleteProvider("deepseek");
+      if (previous === undefined) delete process.env.DEEPSEEK_API_KEY;
+      else process.env.DEEPSEEK_API_KEY = previous;
+    }
+  });
+
   test("providers report credential status and set/remove round-trips without leaking the secret", async () => {
     await stack.store.modify("faux", async () => ({ type: "api_key", key: "sk-secret" }));
 
@@ -275,9 +300,14 @@ describe("hearth wire", () => {
     const bad = await api("/providers/deepseek", { method: "POST", body: JSON.stringify({ nope: true }) });
     expect(bad.status).toBe(400);
 
-    // Import copies whatever the host's OpenCode store holds; the shape is always an array.
+    await writeFile(join(home, "opencode-auth.json"), JSON.stringify({
+      faux: { type: "api", key: "keep-local" }, blind: { type: "api", key: "synthetic-import" },
+      foreign: { type: "api", key: "unregistered" },
+    }));
     const imported = await body(await api("/providers/import", { method: "POST" }));
-    expect(Array.isArray(imported.imported)).toBe(true);
+    expect(imported.imported).toEqual(["blind"]);
+    expect(await stack.store.read("foreign")).toBeUndefined();
+    await stack.store.delete("blind");
   });
 
   test("create, submit, read entries, and page by cursor", async () => {
@@ -2718,6 +2748,7 @@ describe("hearth wire", () => {
 
 test('alignment previews contain no secrets and imports are fill-only and merge peers', async () => {
   const sourceId = 'alignment-wire';
+  stack.models.setProvider(fauxProvider({ provider: sourceId }).provider);
   const destination = { id: 'alignment-peer', label: 'Alignment peer', url: 'http://100.64.0.25:3002', token: 'alignment-private-peer-token' };
   try {
     const unauthorised = await fetch(`${stack.server.url}/alignment`);
@@ -2727,7 +2758,13 @@ test('alignment previews contain no secrets and imports are fill-only and merge 
     expect((await body(imported)).keys).toBe(1);
     const again = await body(await api('/alignment/import', { method: 'POST', body: JSON.stringify({ peers: [{ ...destination, token: 'replacement' }], keys: [{ providerId: sourceId, key: 'replacement' }] }) }));
     expect(again).toMatchObject({ connections: 0, keys: 0 });
+    await stack.store.modify('stale-import', async () => ({ type: 'api_key', key: 'old' }));
     const preview = await (await api('/alignment')).text();
+    expect(preview).not.toContain('stale-import');
+    const staleShare = await api('/alignment/share', { method: 'POST', body: JSON.stringify({ targets: [
+      { ...destination, providers: [{ providerId: 'stale-import', type: 'api_key' }] },
+    ] }) });
+    expect(staleShare.status).toBe(400);
     expect(preview).toContain(sourceId);
     expect(preview).not.toContain('alignment-private-key');
     expect(preview).not.toContain(destination.token);
@@ -2773,12 +2810,15 @@ test('alignment previews contain no secrets and imports are fill-only and merge 
     });
     expect(oversizedToken.status).toBe(400);
   } finally {
+    await stack.store.delete('stale-import');
+    stack.models.deleteProvider(sourceId);
     await api(`/providers/${sourceId}`, { method: 'DELETE' });
     await api('/directory/peers', { method: 'PUT', body: JSON.stringify({ peers: [] }) });
   }
 });
 
 test('alignment routes require authentication and explicit OAuth review without provider requests', async () => {
+  stack.models.setProvider(fauxProvider({ provider: 'openai-codex' }).provider);
   const refresh = stack.models.refresh;
   let providerRequests = 0;
   stack.models.refresh = async () => { providerRequests++; throw new Error('Provider requests must not run during alignment'); };
@@ -2810,8 +2850,11 @@ test('alignment routes require authentication and explicit OAuth review without 
   const failure = await invalidShare.text();
   expect(failure).not.toContain('fake-private');
   expect(providerRequests).toBe(0);
-  } finally { stack.models.refresh = refresh; }
-  await api('/providers/openai-codex', { method: 'DELETE' });
+  } finally {
+    stack.models.refresh = refresh;
+    stack.models.deleteProvider('openai-codex');
+    await stack.store.delete('openai-codex');
+  }
 });
 
 describe('S7 transport hardening', () => {

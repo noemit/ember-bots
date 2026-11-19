@@ -6,11 +6,12 @@ let credentials: Record<string, 'api_key' | 'oauth' | null> = {};
 
 const providerList = () => ({
   providers: [
-    { id: 'opencode-go', name: 'OpenCode Go', credential: credentials['opencode-go'] ?? null },
+    { id: 'opencode-go', name: 'OpenCode Go', credential: credentials['opencode-go'] ?? null, envVar: 'OPENCODE_GO_API_KEY' },
     {
       id: 'xai',
       name: 'xAI',
       credential: credentials['xai'] ?? null,
+      envVar: 'XAI_API_KEY',
       signIn: { label: 'Sign in with SuperGrok or X Premium', pending: false },
     },
   ],
@@ -48,6 +49,7 @@ test('piLoadProviders maps the Hearth provider catalog and credential types', as
       id: 'xai',
       name: 'xAI',
       credential: null,
+      envVar: 'XAI_API_KEY',
       signIn: { label: 'Sign in with SuperGrok or X Premium', pending: false },
     },
   ]);

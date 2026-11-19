@@ -178,44 +178,53 @@ describe('starting (or adopting) the local harness', () => {
     expect(localHarnessNotice(state)).toBeNull();
   });
 
-  test('it starts the binary with the home, the port and no build watcher, then reports what answered', async () => {
-    const binaryDir = tempDir();
-    fs.writeFileSync(path.join(binaryDir, 'kiln'), '#!/bin/sh\n', { mode: 0o755 });
-    const home = tempDir();
-    let calls = 0;
-    let argv: { command: string; args: string[]; options: Record<string, unknown> } | null = null;
-    const { state } = await startLocalHarness({
-      resourcesDir: binaryDir,
-      home,
-      // The harness writes its token as it boots; the probe answers a beat before that lands.
-      readToken: () => (fs.existsSync(path.join(home, 'hearth.token')) ? fs.readFileSync(path.join(home, 'hearth.token'), 'utf8').trim() : undefined),
-      probe: async () => {
-        calls += 1;
-        // Not answering on the first look, answering once it has "booted".
-        return calls === 1 ? { ok: false } : { ok: true, version: '1.2.0' };
-      },
-      spawn: ((command: string, args: string[], options: Record<string, unknown>) => {
-        argv = { command, args, options };
-        // The harness writes its token as it boots.
-        fs.writeFileSync(path.join(home, 'hearth.token'), 'fresh-token\n');
-        return fakeChild();
-      }) as never,
-    });
-    expect(state.kind).toBe('started');
-    if (state.kind === 'started') {
-      expect(state.token).toBe('fresh-token');
-      expect(state.url).toBe('http://127.0.0.1:3002');
+  test.each([undefined, '0'])('it starts the binary with the selected CA policy (%s), home, port and no build watcher', async (policy) => {
+    const original = process.env.NODE_USE_SYSTEM_CA;
+    if (policy === undefined) delete process.env.NODE_USE_SYSTEM_CA;
+    else process.env.NODE_USE_SYSTEM_CA = policy;
+    try {
+      const binaryDir = tempDir();
+      fs.writeFileSync(path.join(binaryDir, 'kiln'), '#!/bin/sh\n', { mode: 0o755 });
+      const home = tempDir();
+      let calls = 0;
+      let argv: { command: string; args: string[]; options: Record<string, unknown> } | null = null;
+      const { state } = await startLocalHarness({
+        resourcesDir: binaryDir,
+        home,
+        // The harness writes its token as it boots; the probe answers a beat before that lands.
+        readToken: () => (fs.existsSync(path.join(home, 'hearth.token')) ? fs.readFileSync(path.join(home, 'hearth.token'), 'utf8').trim() : undefined),
+        probe: async () => {
+          calls += 1;
+          // Not answering on the first look, answering once it has "booted".
+          return calls === 1 ? { ok: false } : { ok: true, version: '1.2.0' };
+        },
+        spawn: ((command: string, args: string[], options: Record<string, unknown>) => {
+          argv = { command, args, options };
+          // The harness writes its token as it boots.
+          fs.writeFileSync(path.join(home, 'hearth.token'), 'fresh-token\n');
+          return fakeChild();
+        }) as never,
+      });
+      expect(state.kind).toBe('started');
+      if (state.kind === 'started') {
+        expect(state.token).toBe('fresh-token');
+        expect(state.url).toBe('http://127.0.0.1:3002');
+      }
+      expect(argv?.command).toBe(path.join(binaryDir, 'kiln'));
+      expect(argv?.args).toEqual([]);
+      const env = (argv?.options.env ?? {}) as Record<string, string>;
+      expect(env.NODE_USE_SYSTEM_CA).toBe(policy ?? '1');
+      expect(env.HEARTH_HOME).toBe(home);
+      expect(env.HEARTH_PORT).toBe('3002');
+      expect(env.HEARTH_BIND).toBe('127.0.0.1');
+      expect(env.HEARTH_AUTORELOAD).toBe('0');
+      // The lock records who owns the data home, so a second Ember cannot open it too.
+      expect(fs.existsSync(path.join(home, 'ember-harness.lock'))).toBe(true);
+      expect(localHarnessNotice(state)).toBeNull();
+    } finally {
+      if (original === undefined) delete process.env.NODE_USE_SYSTEM_CA;
+      else process.env.NODE_USE_SYSTEM_CA = original;
     }
-    expect(argv?.command).toBe(path.join(binaryDir, 'kiln'));
-    expect(argv?.args).toEqual([]);
-    const env = (argv?.options.env ?? {}) as Record<string, string>;
-    expect(env.HEARTH_HOME).toBe(home);
-    expect(env.HEARTH_PORT).toBe('3002');
-    expect(env.HEARTH_BIND).toBe('127.0.0.1');
-    expect(env.HEARTH_AUTORELOAD).toBe('0');
-    // The lock records who owns the data home, so a second Ember cannot open it too.
-    expect(fs.existsSync(path.join(home, 'ember-harness.lock'))).toBe(true);
-    expect(localHarnessNotice(state)).toBeNull();
   });
 
   test('an immediate exit is reported with its code and the log path', async () => {

@@ -17,6 +17,10 @@ import { generateToken } from '../packages/kiln/src/token';
 
 export const DEFAULT_KILN_PORT = 3002;
 
+// Service managers do not necessarily inherit the environment of `tinder setup`.
+// Capture only the supported opt-out, never arbitrary shell input in a service file.
+const kilnSystemCA = (): '0' | '1' => process.env.NODE_USE_SYSTEM_CA === '0' ? '0' : '1';
+
 export type ServicePlatform = 'linux' | 'darwin' | 'win32';
 
 export type CliFlags = {
@@ -204,6 +208,7 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       `WorkingDirectory=${systemdQuote(opts.workspaceDir)}`,
       `Environment=${systemdQuote(`EMBER_HOME=${opts.homeDir}`)}`,
       `Environment=${systemdQuote(`HEARTH_HOME=${opts.homeDir}`)}`,
+      `Environment="NODE_USE_SYSTEM_CA=${kilnSystemCA()}"`,
       `Environment="HEARTH_PORT=${opts.port}"`,
       `Environment=${systemdQuote(`HEARTH_BIND=${opts.bind ?? '127.0.0.1'}`)}`,
       `Environment=${systemdQuote(`HEARTH_WORKSPACE=${opts.workspaceDir}`)}`,
@@ -233,6 +238,8 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
       `    <string>${xml(opts.workspaceDir)}</string>`,
       '    <key>EnvironmentVariables</key>',
       '    <dict>',
+      '      <key>NODE_USE_SYSTEM_CA</key>',
+      `      <string>${kilnSystemCA()}</string>`,
       '      <key>EMBER_HOME</key>',
       `      <string>${xml(opts.homeDir)}</string>`,
       '      <key>HEARTH_HOME</key>',
@@ -260,6 +267,7 @@ export const generateServiceConfig = (opts: ServiceConfigOptions): string => {
 
   const ps = (value: string) => "'" + value.replace(/'/g, "''") + "'";
   const runner = [
+    `$env:NODE_USE_SYSTEM_CA = ${ps(kilnSystemCA())}`,
     `$env:EMBER_HOME = ${ps(opts.homeDir)}`,
     `$env:HEARTH_HOME = ${ps(opts.homeDir)}`,
     `$env:HEARTH_PORT = ${ps(String(opts.port))}`,
@@ -760,7 +768,7 @@ export const runCli = async (argv: readonly string[] = process.argv.slice(2)): P
       ? path.join(flags.harnessDir, 'src', 'index.ts')
       : fileURLToPath(new URL('../packages/kiln/src/index.ts', import.meta.url));
     const child = spawn(process.execPath, ['run', entry], {
-      stdio: 'inherit', env: { ...process.env, HEARTH_HOME: flags.home, EMBER_HOME: flags.home,
+      stdio: 'inherit', env: { ...process.env, NODE_USE_SYSTEM_CA: kilnSystemCA(), HEARTH_HOME: flags.home, EMBER_HOME: flags.home,
         HEARTH_PORT: String(flags.port), HEARTH_WORKSPACE: flags.workspace,
         ...(flags.bind ? { HEARTH_BIND: flags.bind } : {}) },
     });

@@ -457,20 +457,23 @@ levels and its `reasoning_content` echo are known. Kimi K2.x is deliberately lef
 `thinking` object that this slot does not send, so a K2 model should stay with
 `ORCAROUTER_REASONING=off` (its default).
 
-`opencode-go` and `opencode` (Zen) are the providers that aren't limited to the catalog pi-ai
-ships: on every boot each asks its own list (`/inference/go/v1/models`, `/inference/v1/models`)
-with the provider's own key and serves what the service lists (see `src/model-discovery.ts`) —
-pi-ai's own entries keep their api and limits, ids pi-ai doesn't describe yet are described from
-[models.dev](https://models.dev) with a catalog- (or family-) inferred wire API, and models
-OpenCode retires stop being offered. An id whose catalog entry names no protocol this provider
-can stream is probed once against the provider's own routes and offered only where one answered;
-both providers speak Anthropic, both OpenAI shapes and Google as of pi-ai 1.3.0, so Go's Gemini
-is offered too. It is best-effort: offline, unauthenticated or unreadable, the shipped catalog
-stands. `HEARTH_DISCOVER_MODELS=0` turns it off. Credentials live in Hearth's own store
-(`$HEARTH_HOME/auth.json`); on first boot Hearth adopts any existing OpenCode credentials
-(`~/.local/share/opencode/auth.json`) into it, and `OPENCODE_API_KEY` remains an env fallback.
-`HEARTH_DEFAULT_MODEL` (`provider/modelId`, default `opencode-go/glm-5.3-flash`) sets the default
-agent.
+Kiln refreshes the OpenCode Zen (`opencode`) model catalog from the provider. If the refresh
+fails, Kiln keeps the previous list or uses its shipped catalog. `HEARTH_DISCOVER_MODELS=0`
+turns off discovery. `HEARTH_DEFAULT_MODEL` (`provider/modelId`, default
+`opencode/glm-5.3-flash`) sets the default agent.
+
+Credentials live in Kiln's own store (`$HEARTH_HOME/auth.json`). Starting Kiln does not copy
+accounts from OpenCode or Pi. To copy missing credentials for registered providers from
+OpenCode, run `bun scripts/provider.ts import` from `packages/kiln` against the running host.
+Removing a saved credential from Kiln does not change OpenCode's file. If a provider still
+has a key in the host environment (for example, `OPENCODE_API_KEY`), unset it there and restart
+Kiln to disconnect it.
+
+For secure provider connections, packaged Kiln and Tinder use the host’s trusted certificate
+roots by default. If your organization uses a private certificate authority, ask your network
+administrator for its root certificate. You can also point `NODE_EXTRA_CA_CERTS` at a trusted
+PEM file in the environment that starts Kiln, then restart it. `NODE_USE_SYSTEM_CA=0` opts out
+of system roots without disabling certificate verification.
 
 ## Repo layout
 

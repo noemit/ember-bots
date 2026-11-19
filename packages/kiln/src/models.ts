@@ -3,7 +3,7 @@ import { CustomProviders } from "./custom-providers";
 import { dirname, join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { createModels, createProvider, envApiKeyAuth, type CredentialStore, type Model, type Models, type Provider } from "@earendil-works/pi-ai";
-import { FileCredentialStore, FileModelsStore, importOpenCodeCredentials } from "./credentials";
+import { FileCredentialStore, FileModelsStore } from "./credentials";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
@@ -361,11 +361,9 @@ export const hearthDefault = (): HearthDefault => {
  * orcarouter only when its endpoint is configured.
  */
 export const hearthModels = async (
-  authFile: string,
-  openCodeSource?: string
+  authFile: string
 ): Promise<{
   models: Models;
-  seeded: string[];
   store: FileCredentialStore;
   /**
    * What the local-runtime probe found at boot (Ollama, LM Studio). Not a model list: it is the
@@ -377,10 +375,6 @@ export const hearthModels = async (
   ollamaSettings: OllamaSettings;
 }> => {
   const store = new FileCredentialStore(authFile);
-  // Retired the env bridge: instead of copying OpenCode's keys into the environment, adopt them
-  // into Hearth's own store on first boot (idempotent, no-clobber) so a device that hasn't run
-  // `provider import` still works. Remove this once every device has migrated (PROVIDER_MIGRATION.md).
-  const seeded = await importOpenCodeCredentials(store, openCodeSource);
   // A stored credential wins over an env var (`envApiKeyAuth` resolves stored-first); env stays
   // as the fallback. The model-catalog store lives next to the credentials so boot can restore
   // the last known lists without network access; the network refresh runs in the background
@@ -434,5 +428,5 @@ export const hearthModels = async (
   await ollamaSettings.ready;
   const customProviders = new CustomProviders(dirname(authFile), store, models);
   await customProviders.ready;
-  return { models, seeded, store, localRuntimes, customProviders, ollamaSettings };
+  return { models, store, localRuntimes, customProviders, ollamaSettings };
 };

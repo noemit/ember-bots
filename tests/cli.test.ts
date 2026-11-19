@@ -212,3 +212,27 @@ test('standalone services launch Tinder itself with the selected port, without a
     expect(config).not.toContain('/usr/bin/env bun');
   }
 });
+
+for (const [label, setting, expected] of [['default', undefined, '1'], ['opt-out', '0', '0']] as const) {
+  test(`Tinder passes the system CA ${label} to generated services and foreground Kiln`, () => {
+    const env = { ...process.env };
+    if (setting === undefined) delete env.NODE_USE_SYSTEM_CA;
+    else env.NODE_USE_SYSTEM_CA = setting;
+    const cli = path.resolve(import.meta.dir, '../cli/ember.ts');
+    const run = (...args: string[]) => {
+      const result = Bun.spawnSync([process.execPath, cli, ...args], { env });
+      expect(result.exitCode).toBe(0);
+      return result.stdout.toString();
+    };
+    expect(run('service-config', '--platform', 'linux')).toContain(`Environment="NODE_USE_SYSTEM_CA=${expected}"`);
+    expect(run('service-config', '--platform', 'darwin')).toMatch(
+      new RegExp(`<key>NODE_USE_SYSTEM_CA</key>\\s*<string>${expected}</string>`));
+    // The generated installer embeds the runner in a PowerShell single-quoted string.
+    expect(run('service-config', '--platform', 'win32')).toContain(`$env:NODE_USE_SYSTEM_CA = ''${expected}''`);
+
+    const harness = makeTempDir();
+    fs.mkdirSync(path.join(harness, 'src'));
+    fs.writeFileSync(path.join(harness, 'src/index.ts'), 'console.log(process.env.NODE_USE_SYSTEM_CA);');
+    expect(run('serve', '--harness-dir', harness).trim()).toBe(expected);
+  });
+}

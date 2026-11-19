@@ -33,6 +33,8 @@ export type ServerDeps = {
   defaultAgent: HearthDefault;
   /** Provider credential store; backs `GET /providers`. */
   store?: CredentialStore;
+  /** Host-local path for explicit OpenCode migration; never taken from a request. */
+  openCodeImportSource?: string;
   /** Config owner serializes this guard with custom provider edits and republishes imported keys. */
   alignmentConfig?: AlignmentConfig;
   /** Semver release from package.json, surfaced on `/health`. */

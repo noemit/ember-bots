@@ -8,7 +8,7 @@ import {
   shareApiKeys,
   type ShareTarget,
 } from "../../alignment";
-import { importOpenCodeCredentials, isCredential, normalizeProviderId } from "../../credentials";
+import { credentialEnvVar, importOpenCodeCredentials, isCredential, normalizeProviderId } from "../../credentials";
 import { loginSupport, unreachableQuestion, type LoginInput, type LoginState } from "../../login";
 import { ensureConditionalProviders } from "../../models";
 import {
@@ -161,10 +161,12 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
     const providers = models.getProviders().map((provider) => {
       const oauth = provider.auth.oauth;
       const support = loginSupport(provider.id);
+      const credential = types.get(provider.id) ?? null;
       return {
         id: provider.id,
         name: provider.name,
-        credential: types.get(provider.id) ?? null,
+        credential,
+        envVar: credential ? undefined : credentialEnvVar(provider.id),
         custom: provider.id.startsWith("custom-"),
         signIn:
           oauth?.login && support.supported
@@ -178,12 +180,17 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
     return json({ providers, default: defaultAgent.model, ...(localRuntimes ? { localRuntimes } : {}) });
   }
 
+  // Old boot imports could leave unrelated credentials on disk. Never advertise or transfer
+  // them as accounts of this Kiln; don't delete potentially user-owned data during discovery.
+  const registeredProviders = () => new Set(models.getProviders().map((provider) => provider.id));
   if (path === "/alignment" && request.method === "GET") {
     try {
       const state = await harness.snapshot(AgentsDoc, context);
-      const credentials = store ? await store.list() : [];
+      const registered = registeredProviders();
+      const providers = store ? (await alignmentProviders(store, deps.alignmentConfig)).filter(p => registered.has(p.providerId)) : [];
+      const credentials = providers.filter(p => p.source === "stored");
       return json({
-        providers: store ? await alignmentProviders(store, deps.alignmentConfig) : [],
+        providers,
         apiKeys: credentials.filter((c) => c.type === "api_key").map((c) => c.providerId),
         signIns: credentials.filter((c) => c.type === "oauth").length,
         peers: (state?.peers ?? []).filter((p) => portablePeer(p)).map(({ id, label, url }) => ({ id, label, url })),
@@ -250,7 +257,7 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
       return badRequest("Choose up to 100 destination instances.");
     }
     try {
-      const results = await shareApiKeys(store, body.targets as ShareTarget[], fetch, deps.alignmentConfig);
+      const results = await shareApiKeys(store, body.targets as ShareTarget[], fetch, deps.alignmentConfig, registeredProviders());
       return json({ results });
     } catch {
       return badRequest("Kiln could not validate the provider review. Refresh providers and review the selection again.");
@@ -259,7 +266,7 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
 
   if (request.method === "POST" && path === "/providers/import") {
     if (!store) return badRequest("no credential store");
-    const imported = await importOpenCodeCredentials(store);
+    const imported = await importOpenCodeCredentials(store, registeredProviders(), deps.openCodeImportSource);
     if (imported.length > 0) refreshModelCatalog("an import");
     return json({ imported });
   }

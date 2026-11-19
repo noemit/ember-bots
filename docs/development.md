@@ -32,6 +32,29 @@ bun run dev:web
 Open `http://localhost:5179`. `?threads` demonstrates source links and quiet internal coordination;
 `?legacy` selects the OpenChamber mock. These fixtures do not operate on real accounts or sessions.
 
+## Kiln's TLS trust store
+
+Bundled Kiln, standalone Kiln/Tinder, and newly generated Tinder services include the host OS's
+trusted certificate authorities for outgoing HTTPS and secure WebSockets. Certificates must still
+verify. Set `NODE_USE_SYSTEM_CA=0` **before launch** to opt out of the additional system roots.
+For a Tinder service, set it when generating the service or in the installed service definition,
+then restart. This does not disable any separate trust you explicitly supply, such as
+`NODE_EXTRA_CA_CERTS`.
+
+Bun 1.4.2 reads the transport setting at process startup. A bare standalone executable with no
+setting therefore starts itself once with `NODE_USE_SYSTEM_CA=1`: in-place on Unix, or as an
+attached child on Windows (which lacks `execve`). Set the variable to `1` or `0` in the launching
+environment for a single-process Windows launch. Ember and generated services already do this.
+Under Wine with Bun 1.4.2, forcibly terminating the manual launcher also terminated its attached
+child. Native Windows process termination has not been separately verified.
+Direct `bun .../src/tinder.ts` and `bun .../src/index.ts` source invocations do not relaunch;
+pass `NODE_USE_SYSTEM_CA=1` in their environment to opt in.
+
+`bun test tests/compiledSystemCa.test.ts` verifies the default, explicit opt-in, opt-out and an
+untrusted chain against loopback HTTPS and WSS with a temporary CA on Linux. No host trust store
+is edited. Windows builds run the packaged self-test under Wine; this is not a native Windows
+certificate-store integration test.
+
 ## Development and verification
 
 | Command | Purpose |

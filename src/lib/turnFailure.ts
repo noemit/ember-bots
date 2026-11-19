@@ -21,7 +21,7 @@ export type TurnFailure = {
   /** Whether waiting and trying again can plausibly succeed. */
   retryable: boolean;
   /** A one-line plain-language name for the category. */
-  kind: 'rate-limit' | 'quota' | 'overloaded' | 'auth' | 'server' | 'timeout' | 'network' | 'refused' | 'unknown';
+  kind: 'rate-limit' | 'quota' | 'overloaded' | 'auth' | 'server' | 'timeout' | 'network' | 'tls' | 'refused' | 'unknown';
 };
 
 const KIND_LABEL: Record<TurnFailure['kind'], string> = {
@@ -32,6 +32,7 @@ const KIND_LABEL: Record<TurnFailure['kind'], string> = {
   server: 'Provider error',
   timeout: 'Timed out',
   network: 'Connection lost',
+  tls: 'Certificate error',
   refused: 'Request refused',
   unknown: 'Failed',
 };
@@ -107,6 +108,8 @@ const parseBody = (body: string): { message?: string; type?: string } => {
 
 const classify = (status: number | undefined, code: string | undefined, detail: string): TurnFailure['kind'] => {
   const haystack = `${code ?? ''} ${detail}`.toLowerCase();
+  // A certificate check can arrive wrapped in a generic socket or fetch error.
+  if (/self[-_ ]signed|certificate|unable_to_verify|unable_to_get_issuer_cert|\bcert_|err_tls_cert/.test(haystack)) return 'tls';
   // Quota outranks the status: a drained balance also arrives as 429 but retrying will not help.
   if (/credit|balance|quota|billing|insufficient|recharge|exceeded_current_quota/.test(haystack)) {
     return 'quota';
@@ -159,7 +162,7 @@ export const readTurnFailure = (raw: string | undefined, stopReason?: string): T
   const { status, body } = splitStatus(source);
   const { message, type } = parseBody(body);
   const detail = shorten(message ?? body ?? source);
-  const kind = classify(status, type, `${type ?? ''} ${detail}`);
+  const kind = classify(status, type, message ?? body);
   return { status, code: type, detail, retryable: isRetryable(kind), kind };
 };
 
@@ -169,6 +172,13 @@ export const readTurnFailure = (raw: string | undefined, stopReason?: string): T
  */
 export const describeTurnFailure = (failure: TurnFailure): string => {
   const head = failureLabel(failure);
+  if (failure.kind === 'tls') {
+    return [
+      head,
+      'Kiln could not verify the provider’s secure connection. The certificate may come from the provider or from a proxy, VPN or security tool.',
+      'Check the provider’s certificate or ask your network administrator which certificate the computer running Kiln should trust. Then try again.',
+    ].join('\n');
+  }
   const guidance = failure.retryable
     ? failure.kind === 'rate-limit' || failure.kind === 'overloaded'
       ? 'Try again in a moment, or switch model.'

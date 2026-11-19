@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createModels, createProvider, envApiKeyAuth } from '@earendil-works/pi-ai';
@@ -41,24 +41,28 @@ test('a stored credential wins over the environment; env is the fallback', async
   expect((await withStore.getAuth('hearth-demo'))?.auth.apiKey).toBe('stored-key');
 });
 
-test('hearthModels adopts OpenCode credentials into its own store on first boot', async () => {
+test('boot leaves OpenCode credentials alone, including after deleting a Kiln key', async () => {
   const file = storeFile();
-  const source = join(file, '..', 'opencode-auth.json');
-  writeFileSync(source, JSON.stringify({ deepseek: { type: 'api', key: 'sk-deep' }, xai: { type: 'api', key: 'sk-x' } }));
-
-  const first = await hearthModels(file, source);
-  expect(first.seeded.sort()).toEqual(['deepseek', 'xai']);
-  expect(await first.store.read('deepseek')).toEqual({ type: 'api_key', key: 'sk-deep' });
-
-  // Second boot: nothing left to adopt, and the adopted key is retained (no clobber).
-  const second = await hearthModels(file, source);
-  expect(second.seeded).toEqual([]);
-  expect(await second.store.read('deepseek')).toEqual({ type: 'api_key', key: 'sk-deep' });
+  const home = join(file, '..');
+  const sourceDir = join(home, '.local/share/opencode');
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(join(sourceDir, 'auth.json'), JSON.stringify({ deepseek: { type: 'api', key: 'foreign' } }));
+  // os.homedir() is fixed at process start in Bun. Use a child so no real profile is involved.
+  const child = Bun.spawn([process.execPath, '-e', `
+    import { hearthModels } from ${JSON.stringify(import.meta.resolve('../src/models'))};
+    const file = process.env.KILN_TEST_AUTH;
+    const { store } = await hearthModels(file);
+    if ((await store.list()).length) throw Error('unexpected boot import');
+    await store.modify('deepseek', async () => ({ type: 'api_key', key: 'mine' }));
+    await store.delete('deepseek');
+    if (await (await hearthModels(file)).store.read('deepseek')) throw Error('removed key reappeared');
+  `], { env: { ...process.env, HOME: home, USERPROFILE: home, KILN_TEST_AUTH: file } });
+  expect(await child.exited).toBe(0);
 });
 
 test('hearthModels registers opencode, kimi-coding, and moonshotai (and excludes opencode-go)', async () => {
   const file = storeFile();
-  const { models, store } = await hearthModels(file, join(file, '..', 'missing.json'));
+  const { models, store } = await hearthModels(file);
   const providerIds = models.getProviders().map((provider) => provider.id);
   expect(providerIds).toContain('opencode');
   expect(providerIds).toContain('kimi-coding');

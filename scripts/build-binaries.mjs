@@ -49,7 +49,7 @@ const windowsTarget = (target ?? '').includes('windows') || (target === undefine
 const binary = resolve(directory, outName ?? binaryName(kind, target, process.platform, process.arch));
 mkdirSync(directory, { recursive: true });
 
-const buildArgs = ['build', '--compile', entry, 'packages/kiln/src/codemode-worker.ts', '--outfile', binary];
+const buildArgs = ['build', '--compile', '--define=KILN_STANDALONE=true', entry, 'packages/kiln/src/codemode-worker.ts', '--outfile', binary];
 if (target !== undefined) buildArgs.push(`--target=${target}`);
 const result = spawnSync('bun', buildArgs, { stdio: 'inherit' });
 if (result.error) throw result.error;

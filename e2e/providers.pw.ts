@@ -81,6 +81,24 @@ test('both keys can be present at once, each with its own status', async ({ page
   await findModel(picker, 'Claude Sonnet 5.5');
 });
 
+test('environment access appears in the inventory without a removable credential', async ({ page }) => {
+  await page.goto('/?noDock');
+  await page.waitForFunction(() => Boolean(window.ember?.piRequest));
+  await page.evaluate(() => {
+    const original = window.ember.piRequest!;
+    window.ember.piRequest = async (id, path, init) => path === '/providers'
+      ? { ok: true, status: 200, data: { providers: [{ id: 'openai', name: 'OpenAI', credential: null, envVar: 'OPENAI_API_KEY' }] } as never }
+      : original(id, path, init);
+  });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await expect(page.getByText('OPENAI_API_KEY', { exact: true })).toBeVisible();
+  await expect(page.getByText(/unset it on the computer running this Kiln/i)).toBeVisible();
+  await page.getByRole('button', { name: 'Manage OpenAI', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'API key for OpenAI' })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Remove credential for OpenAI' })).toHaveCount(0);
+});
+
 test('switching computers during a pending save clears scoped controls and ignores the old response', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?noDock');

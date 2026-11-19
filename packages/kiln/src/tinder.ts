@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /** Compiled Tinder carries the same backend as Ember's bundled Kiln. */
+import "./systemCa";
 import { parseArgs, runCli } from '../../../cli/ember';
 
 const main = async (): Promise<void> => {

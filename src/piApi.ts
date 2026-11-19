@@ -1484,6 +1484,8 @@ export type PiProviderInfo = {
   name: string;
   /** The credential Hearth holds for this provider, or null when it has none. */
   credential: PiProviderCredential | null;
+  /** Host environment variable name, only for access not backed by a saved credential. */
+  envVar?: string;
   /**
    * Present when Hearth can drive this provider's sign-in itself: the label to put on the button,
    * and whether a flow is already running (so the UI can resume rather than start a second one).
@@ -1543,15 +1545,16 @@ const credentialOf = (value: unknown): PiProviderCredential | null =>
 
 export const piLoadProviders = async (endpointId: string): Promise<PiProviderCatalog | null> => {
   const response = await request<{
-    providers?: Array<{ id?: unknown; name?: unknown; credential?: unknown }>;
+    providers?: Array<{ id?: unknown; name?: unknown; credential?: unknown; envVar?: unknown }>;
     default?: { provider: string; modelId: string };
   }>(endpointId, '/providers');
   if (!response.ok) return null;
   const providers = (Array.isArray(response.data.providers) ? response.data.providers : [])
-    .filter((entry): entry is { id: string; name?: unknown; credential?: unknown } =>
+    .filter((entry): entry is { id: string; name?: unknown; credential?: unknown; envVar?: unknown } =>
       typeof entry?.id === 'string' && entry.id.length > 0
     )
     .map((entry) => {
+      const credential = credentialOf(entry.credential);
       const signIn = (entry as { signIn?: unknown }).signIn;
       const parsed = signIn && typeof signIn === 'object'
         ? {
@@ -1564,7 +1567,8 @@ export const piLoadProviders = async (endpointId: string): Promise<PiProviderCat
       return {
         id: entry.id,
         name: typeof entry.name === 'string' && entry.name ? entry.name : entry.id,
-        credential: credentialOf(entry.credential),
+        credential,
+        ...(!credential && typeof entry.envVar === 'string' && /^[A-Z_][A-Z0-9_]*$/.test(entry.envVar) ? { envVar: entry.envVar } : {}),
         signIn: parsed,
         ...((entry as { custom?: unknown }).custom === true ? { custom: true } : {}),
       };

@@ -48,10 +48,11 @@ const run = async (): Promise<void> => {
   switch (command) {
     case "list": {
       const result = await call("GET", "/providers");
-      const providers = (result.providers as Array<{ id: string; name: string; credential: string | null }>) ?? [];
+      const providers = (result.providers as Array<{ id: string; name: string; credential: string | null; envVar?: string }>) ?? [];
       for (const provider of providers) {
-        const mark = provider.credential ? "✓" : "·";
-        const detail = provider.credential ? ` (${provider.credential})` : "";
+        const source = provider.credential ?? provider.envVar;
+        const mark = source ? "✓" : "·";
+        const detail = source ? ` (${source})` : "";
         console.log(`${mark} ${provider.id.padEnd(16)} ${provider.name}${detail}`);
       }
       const fallback = result.default as { provider: string; modelId: string } | undefined;

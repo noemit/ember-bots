@@ -48,6 +48,19 @@ describe('a failed turn names the actual error', () => {
     expect(describeTurnFailure(failure)).toContain('Check the API key');
   });
 
+  test.each(['self signed certificate in certificate chain', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'fetch failed: CERT_HAS_EXPIRED'])(
+    'explains the certificate failure without suggesting a blind retry: %s', (raw) => {
+      const failure = readTurnFailure(raw);
+      expect(failure.kind).toBe('tls');
+      expect(failure.retryable).toBe(false);
+      const text = describeTurnFailure(failure);
+      expect(text).toMatch(/Kiln/);
+      expect(text).toMatch(/proxy|VPN/);
+      expect(text).toMatch(/check|ask/i);
+      expect(text).not.toContain(raw);
+    }
+  );
+
   test('a 5xx is retryable', () => {
     const failure = readTurnFailure('503: {"message":"Service unavailable"}');
     expect(failure.kind).toBe('server');

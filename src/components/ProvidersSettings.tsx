@@ -55,8 +55,8 @@ const credentialLabel: Record<NonNullable<PiProviderInfo['credential']>, string>
 };
 
 /**
- * Provider credentials, one Hearth host at a time. `GET /providers` reports only the
- * credential *type* a host holds; a key set here is written to that host's
+ * Provider credentials, one Hearth host at a time. `GET /providers` reports the saved credential
+ * type or the host environment variable name; a key set here is written to that host's
  * `$HEARTH_HOME/auth.json` and is never sent back or rendered. Subscription sign-in runs on that
  * same host; this panel shows the browser link and polls for confirmed credential storage.
  */
@@ -287,11 +287,11 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
       ) : null}
 
       {inventory ? <div className="flex items-center justify-between gap-3 border-t pt-5">
-        <div><h3 className="text-base font-semibold">Your providers</h3><p className="mt-1 text-xs text-muted-foreground">{providers?.filter(provider => provider.credential).length ?? 0} with saved credentials</p></div>
+        <div><h3 className="text-base font-semibold">Your providers</h3><p className="mt-1 text-xs text-muted-foreground">{providers?.filter(provider => provider.credential || provider.envVar).length ?? 0} configured</p></div>
         <Button disabled={loading || !providers} onClick={() => { focusChosenCredential.current = false; setAdding(true); }}>Add provider</Button>
       </div> : null}
-      {inventory && providers && !providers.some(provider => provider.credential) ? <p className="rounded-lg border p-5 text-sm text-muted-foreground">No saved provider credentials on {endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this computer'} yet. Choose Add provider to connect one.</p> : null}
-      {providers?.filter(provider => !provider.custom && provider.id !== 'ollama' && (!inventory || !!provider.credential || managing === provider.id)).map((provider) => {
+      {inventory && providers && !providers.some(provider => provider.credential || provider.envVar) ? <p className="rounded-lg border p-5 text-sm text-muted-foreground">No provider credentials configured on {endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this computer'} yet. Choose Add provider to connect one.</p> : null}
+      {providers?.filter(provider => !provider.custom && provider.id !== 'ollama' && (!inventory || provider.credential || provider.envVar || managing === provider.id)).map((provider) => {
         const draft = drafts[provider.id] ?? '';
         const isBusy = busy === provider.id;
         return (
@@ -305,7 +305,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
                 <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10.5px] text-foreground">
                   {credentialLabel[provider.credential]} saved
                 </span>
-              ) : (
+              ) : provider.envVar ? null : (
                 <span className="flex-none text-[10.5px] text-muted-foreground">No saved credential</span>
               )}
               {inventory ? <Button size="sm" variant="outline" aria-expanded={managing === provider.id} onClick={() => { setManaging(managing === provider.id ? null : provider.id); setRemoving(null); }} aria-label={'Manage ' + provider.name}>Manage</Button> : null}
@@ -321,6 +321,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
                 </Button>
               ) : null}
             </div>
+            {provider.envVar ? <p className="mt-1 break-words text-xs text-muted-foreground">Kiln uses <code>{provider.envVar}</code>. To disconnect, unset it on the computer running this Kiln and restart Kiln.</p> : null}
             {!inventory || managing === provider.id ? <>
             {provider.signIn ? (
               <div className="mt-2 flex items-center gap-2">
@@ -384,7 +385,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
           <DialogHeader><DialogTitle>Add provider</DialogTitle><DialogDescription>Choose a provider to connect on {endpoints.find(endpoint => endpoint.id === endpointId)?.label}. Adding access never changes the default model by itself.</DialogDescription></DialogHeader>
           <div className="flex flex-col gap-2">
             {providers?.filter(provider => !provider.custom && provider.id !== 'ollama').map(provider => <Button key={provider.id} variant="outline" className="min-h-11 justify-between" onClick={() => { focusChosenCredential.current = true; setAdding(false); setManaging(provider.id); }}>
-              {provider.name}<span className="text-xs text-muted-foreground">{provider.credential ? 'Manage saved access' : 'Connect'}</span>
+              {provider.name}<span className="text-xs text-muted-foreground">{provider.credential ? 'Manage saved access' : provider.envVar ? 'Using environment' : 'Connect'}</span>
             </Button>)}
             <p className="mt-3 text-xs text-muted-foreground">For Ollama or a custom OpenAI-compatible server, use the sections below Your providers.</p>
           </div>

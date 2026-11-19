@@ -432,6 +432,7 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
       spawned = spawnFn(binaryPath, [], {
         env: {
           ...process.env,
+          NODE_USE_SYSTEM_CA: process.env.NODE_USE_SYSTEM_CA ?? '1',
           HEARTH_HOME: home,
           EMBER_HOME: home,
           HEARTH_PORT: String(port),

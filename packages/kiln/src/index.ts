@@ -1,3 +1,4 @@
+import "./systemCa";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -118,7 +119,7 @@ export const runKiln = async (): Promise<void> => {
 
   const storage = await openNodeSqliteStorage(config.databasePath);
   tightenSqlitePermissions(config.databasePath);
-  const { models, seeded, store, localRuntimes, customProviders, ollamaSettings } = await hearthModels(join(config.home, "auth.json"));
+  const { models, store, localRuntimes, customProviders, ollamaSettings } = await hearthModels(join(config.home, "auth.json"));
   // Restore the last dynamic catalogs before recovered work resumes, but do no network I/O here:
   // a slow provider must not keep /health down. The network refresh starts after the server listens.
   const restored = await models.refresh({ allowNetwork: false }).catch((error: unknown) => {
@@ -258,7 +259,6 @@ export const runKiln = async (): Promise<void> => {
   scheduler = startScheduler(harness);
   // Crew reports live in each leader's crew doc; this loop reports settled workers and wakes leaders.
   crew = startCrewSupervisor(harness, storage);
-  if (seeded.length > 0) console.log(`[hearth] adopted OpenCode credentials for: ${seeded.join(", ")}`);
 
   const backup = () => {
     try {

@@ -39,32 +39,35 @@ export const PROVIDER_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
   xai: ["XAI_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   nvidia: ["NVIDIA_API_KEY"],
-  anthropic: ["ANTHROPIC_API_KEY"],
+  anthropic: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
   // Subscription-only: the credential is an OAuth token stored by a sign-in, never an env var.
   "openai-codex": [],
   // Google Antigravity: likewise a sign-in only. There is no API key for a Cloud Code Assist
   // consumer account, so listing an env var here would offer a field that cannot work.
   antigravity: [],
-  "github-copilot": ["GITHUB_TOKEN"],
+  "github-copilot": ["COPILOT_GITHUB_TOKEN"],
   meta: ["META_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
   deepinfra: ["DEEPINFRA_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY"],
-  google: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  google: ["GEMINI_API_KEY"],
   fireworks: ["FIREWORKS_API_KEY"],
   "kimi-coding": ["KIMI_CODING_API_KEY", "KIMI_API_KEY"],
   moonshotai: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
   orcarouter: ["ORCAROUTER_API_KEY"],
 };
 
-/** True when any environment variable for `providerId` holds a non-empty key. */
-export const hasEnvCredential = (
+/** The first configured variable in resolution order. Never return its value. */
+export const credentialEnvVar = (
   providerId: string,
   env: Record<string, string | undefined> = process.env
-): boolean => {
+): string | undefined => {
   const vars = PROVIDER_ENV_VARS[normalizeProviderId(providerId)] ?? [];
-  return vars.some((name) => Boolean(env[name]?.trim()));
+  return vars.find((name) => Boolean(env[name]?.trim()));
 };
+
+export const hasEnvCredential = (providerId: string, env = process.env): boolean =>
+  credentialEnvVar(providerId, env) !== undefined;
 
 /** True when an OAuth credential has a numeric `expires` timestamp at or before `now`. */
 export const isCredentialExpired = (cred: Credential | undefined, now = Date.now()): boolean =>
@@ -193,6 +196,7 @@ const fromOpenCode = (entry: unknown): Credential | undefined => {
  */
 export const importOpenCodeCredentials = async (
   store: CredentialStore,
+  allowedProviders: ReadonlySet<string>,
   source = join(homedir(), ".local/share/opencode/auth.json")
 ): Promise<string[]> => {
   let auth: Record<string, unknown>;
@@ -201,13 +205,14 @@ export const importOpenCodeCredentials = async (
   } catch {
     return [];
   }
+  if (!auth || typeof auth !== "object" || Array.isArray(auth)) return [];
   const imported: string[] = [];
   for (const [rawProviderId, entry] of Object.entries(auth)) {
-    const credential = fromOpenCode(entry);
-    if (!credential) continue;
     const providerId = normalizeProviderId(rawProviderId);
     // A portable key has no verified custom-server destination; only the custom editor may bind it.
-    if (providerId.startsWith("custom-")) continue;
+    if (!allowedProviders.has(providerId) || providerId.startsWith("custom-") || providerId === "orcarouter") continue;
+    const credential = fromOpenCode(entry);
+    if (!credential) continue;
     await store.modify(providerId, async (current) => {
       if (current) return undefined; // already have one — keep it
       imported.push(providerId);

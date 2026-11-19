@@ -54,10 +54,11 @@ const oauthProviders = new Set(['openai-codex', 'antigravity']);
 const providerIdValid = (id: unknown): id is string => typeof id === 'string' && /^[a-z0-9][a-z0-9_-]{0,119}$/.test(id);
 const custom = (id: string) => id.startsWith('custom-') || id === 'orcarouter';
 const invalid = () => new Error('Kiln could not validate the provider review. Refresh providers and review the selection again.');
-const selection = (value: unknown): ProviderSelection => {
+const selection = (value: unknown, registered?: ReadonlySet<string>): ProviderSelection => {
   if (!value || typeof value !== 'object') throw invalid();
   const v = value as ProviderSelection;
   if (!providerIdValid(v.providerId) || !['api_key', 'oauth'].includes(v.type)) throw invalid();
+  if (registered && !registered.has(normalizeProviderId(v.providerId))) throw invalid();
   if (v.type === 'oauth' && (!oauthProviders.has(v.providerId) || v.experimental !== true)) throw invalid();
   if (v.type === 'api_key' && oauthProviders.has(v.providerId)) throw invalid();
   if (custom(v.providerId) && (!v.configIdentity || v.configIdentity.id !== v.providerId || !shareableCustomUrl(v.configIdentity.baseUrl))) throw invalid();
@@ -167,12 +168,12 @@ export const importApiKeys = async (store: CredentialStore, input: unknown): Pro
 
 export type ShareTarget = PeerEndpoint & { providers: ProviderSelection[] };
 /** Explicit source+destination review, no redirects and no credential-bearing response/error bodies. */
-export const shareApiKeys = async (store: CredentialStore, targets: readonly ShareTarget[], send: typeof fetch = fetch, config?: AlignmentConfig) => {
+export const shareApiKeys = async (store: CredentialStore, targets: readonly ShareTarget[], send: typeof fetch = fetch, config?: AlignmentConfig, registered?: ReadonlySet<string>) => {
   if (!Array.isArray(targets) || targets.length > 100) throw invalid();
   const reviewed = targets.map(target => {
     const peer = portablePeer(target);
     if (!peer || !Array.isArray(target.providers) || !target.providers.length || target.providers.length > 100) throw invalid();
-    const providers: ProviderSelection[] = target.providers.map(selection);
+    const providers: ProviderSelection[] = target.providers.map((p: unknown) => selection(p, registered));
     for (const p of providers) {
       if (custom(p.providerId)) {
         const source = p.configIdentity;

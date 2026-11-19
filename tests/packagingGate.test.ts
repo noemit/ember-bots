@@ -34,6 +34,7 @@ for (const kind of ['kiln', 'tinder']) {
       expect(result.error).toBeUndefined();
       expect(result.calls).toHaveLength(2);
       const [build, check] = result.calls;
+      expect(build.args).toContain('--define=KILN_STANDALONE=true');
       expect(build.args).toContain('packages/kiln/src/codemode-worker.ts');
       expect(check.command).toBe(build.args[build.args.indexOf('--outfile') + 1]);
       expect(check.command.endsWith('.exe')).toBe(platform === 'win32');

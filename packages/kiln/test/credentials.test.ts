@@ -54,7 +54,7 @@ test('maps fireworks-ai alias to fireworks on load and on import without clobber
   const store2 = new FileCredentialStore(file2);
   const source = join(file2, '..', 'opencode-fw.json');
   writeFileSync(source, JSON.stringify({ 'fireworks-ai': { type: 'api', key: 'fw-from-opencode' } }));
-  expect(await importOpenCodeCredentials(store2, source)).toEqual(['fireworks']);
+  expect(await importOpenCodeCredentials(store2, new Set(['fireworks']), source)).toEqual(['fireworks']);
   expect(await store2.read('fireworks')).toEqual({ type: 'api_key', key: 'fw-from-opencode' });
 });
 
@@ -137,17 +137,20 @@ test('imports OpenCode credentials (api -> api_key, oauth passthrough) without c
       xai: { type: 'oauth', refresh: 'r', access: 'a', expires: 42, accountId: 'acct' },
       lmstudio: { type: 'api', key: 'sk-local' },
       broken: { type: 'nope' },
+      'custom-local': { type: 'api', key: 'unbound' },
+      orcarouter: { type: 'api', key: 'unbound' },
     })
   );
 
-  const imported = await importOpenCodeCredentials(store, source);
-  expect(imported.sort()).toEqual(['deepseek', 'lmstudio', 'xai']);
+  const allowed = new Set(['deepseek', 'opencode', 'xai', 'broken', 'custom-local', 'orcarouter']);
+  const imported = await importOpenCodeCredentials(store, allowed, source);
+  expect(imported.sort()).toEqual(['deepseek', 'xai']);
   // Existing credential kept (no clobber).
   expect(await store.read('opencode')).toEqual({ type: 'api_key', key: 'mine' });
   expect(await store.read('deepseek')).toEqual({ type: 'api_key', key: 'sk-deep' });
   expect(await store.read('xai')).toEqual({ type: 'oauth', refresh: 'r', access: 'a', expires: 42, accountId: 'acct' });
-  expect(await store.read('broken')).toBeUndefined();
+  for (const id of ['broken', 'lmstudio', 'custom-local', 'orcarouter']) expect(await store.read(id)).toBeUndefined();
 
   // A missing source is a no-op, not a throw.
-  expect(await importOpenCodeCredentials(store, join(file, '..', 'missing.json'))).toEqual([]);
+  expect(await importOpenCodeCredentials(store, allowed, join(file, '..', 'missing.json'))).toEqual([]);
 });
