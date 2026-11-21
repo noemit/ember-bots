@@ -104,7 +104,7 @@ const kindLabel: Record<Instance['kind'], string> = {
   remote: 'openchamber',
   ssh: 'openchamber',
   relay: 'openchamber',
-  pi: 'ember-harness',
+  pi: 'Kiln',
 };
 
 const statusLabel: Record<InstanceStatus, string> = {

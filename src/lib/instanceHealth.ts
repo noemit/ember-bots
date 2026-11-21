@@ -156,7 +156,7 @@ export const outageCopy = (entry: SilentInstance): { status: string; detail: str
 
 const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
-const endpoints = (n: number): string => `${n} ember-harness endpoint${n === 1 ? '' : 's'}`;
+const endpoints = (n: number): string => `${n} Kiln connection${n === 1 ? '' : 's'}`;
 
 const verb = (n: number): string => (n === 1 ? 'is' : 'are');
 
@@ -174,15 +174,15 @@ export const railEmptyCopy = (input: {
 }): string => {
   const { state, endpointCount } = input;
   if (state === 'no-endpoints') {
-    return 'No ember-harness endpoints yet. Add one in Settings → Instances and its sessions will appear here.';
+    return 'No Kiln connections yet. Add one in Settings → Computers and Containers and its sessions will appear here.';
   }
   if (state === 'checking') {
-    return 'Checking your ember-harness endpoints — this takes a moment.';
+    return 'Checking your Kiln connections — this takes a moment.';
   }
   if (state === 'no-answers') {
     // Names the control rather than a position: an outage row can be dismissed, so "Retry above"
     // would point at nothing in the very case that leaves this list empty.
-    return `No sessions to show: none of your ${endpoints(endpointCount)} ${verb(endpointCount)} answering. Choose Reprobe instances in the Instances menu once a host is back, or check Settings → Instances.`;
+    return `No sessions to show: none of your ${endpoints(endpointCount)} ${verb(endpointCount)} answering. Choose Reprobe instances in the Instances menu once a host is back, or check Settings → Computers and Containers.`;
   }
   const query = input.query?.trim();
   if (query) return `No sessions match “${query}”.`;
@@ -200,9 +200,9 @@ export const paletteEmptyCopy = (input: {
 }): string => {
   const { state, endpointCount, query } = input;
   if (state === 'no-endpoints') {
-    return 'Nothing to search yet — add an ember-harness endpoint in Settings → Instances.';
+    return 'Nothing to search yet — add a Kiln connection in Settings → Computers and Containers.';
   }
-  if (state === 'checking') return 'Waiting for your ember-harness endpoints to answer — then this list fills in.';
+  if (state === 'checking') return 'Waiting for your Kiln connections to answer — then this list fills in.';
   if (state === 'no-answers') {
     return `Your ${endpoints(endpointCount)} ${verb(endpointCount)} not answering, so there is nothing to search. Retry from the Instances menu once a host is back.`;
   }
@@ -213,9 +213,9 @@ export const paletteEmptyCopy = (input: {
 export const archiveEmptyCopy = (input: { state: EndpointState; endpointCount: number }): string => {
   const { state, endpointCount } = input;
   if (state === 'no-endpoints') {
-    return 'No ember-harness endpoints yet, so there is nothing to hide. Add one in Settings → Instances.';
+    return 'No Kiln connections yet, so there is nothing to hide. Add one in Settings → Computers and Containers.';
   }
-  if (state === 'checking') return 'Waiting for your ember-harness endpoints to answer — hidden sessions appear here after that.';
+  if (state === 'checking') return 'Waiting for your Kiln connections to answer — hidden sessions appear here after that.';
   if (state === 'no-answers') {
     return `Your ${endpoints(endpointCount)} ${verb(endpointCount)} not answering, so Ember can’t list hidden sessions. Retry from the Instances menu once a host is back.`;
   }

@@ -71,7 +71,7 @@ export type TranscriptNoticeInput = {
 export const RETRY_HINT = 'Retrying on its own.';
 
 /** A Hearth that isn't answering yet, named when we know its label. */
-const label = (instanceLabel?: string): string => instanceLabel ?? 'ember-harness';
+const label = (instanceLabel?: string): string => instanceLabel ?? 'Kiln';
 
 /**
  * `'error'` with no recorded source is the historical shape (a status of `'error'` was only ever
@@ -163,13 +163,13 @@ export const startupNotice = ({
   if (waitingForSessions > 0) {
     return sessionCount > 0
       ? `Loading your sessions — ${sessionCount} so far…`
-      : 'Connecting to ember-harness and loading your sessions…';
+      : 'Connecting to Kiln and loading your sessions…';
   }
   if (bootstrapping && sessionCount === 0) return 'Starting up…';
   if (unreachable > 0) {
     return unreachable === 1
-      ? 'ember-harness is not answering yet — still trying.'
-      : `${unreachable} ember-harness instances are not answering yet — still trying.`;
+      ? 'Kiln is not answering yet — still trying.'
+      : `${unreachable} Kiln instances are not answering yet — still trying.`;
   }
   return null;
 };

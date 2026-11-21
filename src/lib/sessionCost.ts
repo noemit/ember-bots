@@ -39,7 +39,7 @@ export const COST_UNKNOWN_LABEL = 'Cost unknown';
  * reader the conclusion to draw — the provider probably doesn't price this model.
  */
 export const COST_UNKNOWN_TITLE =
-  "ember-harness's usage ledger reported no cost for this session's turns. The provider may not price this model, so spend can't be shown here.";
+  "Kiln's usage ledger reported no cost for this session's turns. The provider may not price this model, so spend can't be shown here.";
 
 /** The badge's tooltip for a priced session. */
 export const COST_PRICED_TITLE = "Spent on this session, from the host's own usage ledger";

@@ -178,13 +178,13 @@ describe('the three empty states are three different sentences', () => {
     expect(copy('no-endpoints')).toMatch(/add one|settings/i);
     // The old copy said this whenever nothing was connected, which invited re-adding an endpoint
     // that already existed. Neither of the other two cases may say it.
-    expect(copy('no-answers')).not.toMatch(/add an? ember-harness endpoint|add one/i);
-    expect(copy('connected')).not.toMatch(/add an? ember-harness endpoint|add one/i);
+    expect(copy('no-answers')).not.toMatch(/add a Kiln connection|add one/i);
+    expect(copy('connected')).not.toMatch(/add a Kiln connection|add one/i);
   });
 
   test('"none answering" names the hosts, counts them, and names the recovery that exists', () => {
     const text = copy('no-answers');
-    expect(text).toMatch(/2 ember-harness endpoints/);
+    expect(text).toMatch(/2 Kiln connections/);
     // The control by its label, not by where it sits: every outage row can be dismissed, so this
     // sentence has to hold with no Retry button anywhere on screen.
     expect(text).toMatch(/Reprobe instances/i);
@@ -199,7 +199,7 @@ describe('the three empty states are three different sentences', () => {
 
   test('a search that finds nothing on a silent host does not claim there is nothing to find', () => {
     const searching = railEmptyCopy({ state: 'no-answers', endpointCount: 1, query: 'habit' });
-    expect(searching).toMatch(/1 ember-harness endpoint /);
+    expect(searching).toMatch(/1 Kiln connection /);
     expect(searching).toMatch(/reprobe/i);
     // The connected case still answers the query it was given.
     expect(railEmptyCopy({ state: 'connected', endpointCount: 1, query: 'habit' })).toContain('habit');

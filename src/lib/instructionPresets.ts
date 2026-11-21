@@ -33,7 +33,7 @@ export const INSTRUCTION_PRESETS: readonly InstructionPreset[] = [
     name: 'Pi Classic',
     blurb: 'Nothing added — the harness prompt as it is.',
     instructions: '',
-    note: 'No standing instructions. The session gets ember-harness\'s own system prompt and its folder\'s AGENTS.md, exactly as a session started before this existed.',
+    note: 'No standing instructions. The session gets Kiln\'s own system prompt and its folder\'s AGENTS.md, exactly as a session started before this existed.',
   },
   {
     id: 'delegator',

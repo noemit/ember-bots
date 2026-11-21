@@ -2611,7 +2611,7 @@ let settings: EmberSettings = {
     ? {
         kind: 'failed',
         notice:
-          'The local Kiln server did not start: it did not answer on 127.0.0.1:3002 within 20s. You can still add a host in Settings → Instances. Log: ~/.ember/kiln.log',
+          'The local Kiln server did not start: it did not answer on 127.0.0.1:3002 within 20s. You can still add a host in Settings → Computers and Containers. Log: ~/.ember/kiln.log',
       }
     : { kind: 'started', url: 'http://127.0.0.1:3002', notice: null },
   remoteAccessEnabled: false,

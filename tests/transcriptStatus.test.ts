@@ -37,7 +37,7 @@ test('an unreachable host is named, and the empty pane is not blamed on the sess
   expect(text).not.toContain('!');
   // Without a label it still names the party that is not answering.
   const unlabelled = transcriptNotice({ state: error('poll'), messagesEmpty: true, instanceStatus: 'unreachable' });
-  expect(unlabelled.kind === 'waiting' ? unlabelled.text : '').toContain('ember-harness');
+  expect(unlabelled.kind === 'waiting' ? unlabelled.text : '').toContain('Kiln');
   // A probe still out is the cold-boot sentence, which is a different fact from an outage.
   expect(
     transcriptNotice({ state: error('poll'), messagesEmpty: true, instanceStatus: 'checking', instanceLabel: 'Tower' })
@@ -120,7 +120,7 @@ test('startup says what it is doing instead of looking empty', () => {
   const base = { bootstrapping: false, waitingForSessions: 0, unreachable: 0, sessionCount: 0 };
   expect(startupNotice(base)).toBeNull();
   expect(startupNotice({ ...base, waitingForSessions: 1 })).toBe(
-    'Connecting to ember-harness and loading your sessions…'
+    'Connecting to Kiln and loading your sessions…'
   );
   // Counting as it fills makes it legible that work is progressing rather than stalled.
   expect(startupNotice({ ...base, waitingForSessions: 2, sessionCount: 7 })).toBe(
@@ -129,12 +129,12 @@ test('startup says what it is doing instead of looking empty', () => {
   expect(startupNotice({ ...base, bootstrapping: true })).toBe('Starting up…');
   // Once sessions are listed, a mid-boot bootstrap is no longer the interesting fact.
   expect(startupNotice({ ...base, bootstrapping: true, sessionCount: 7 })).toBeNull();
-  expect(startupNotice({ ...base, unreachable: 1 })).toBe('ember-harness is not answering yet — still trying.');
+  expect(startupNotice({ ...base, unreachable: 1 })).toBe('Kiln is not answering yet — still trying.');
   expect(startupNotice({ ...base, unreachable: 2 })).toBe(
-    '2 ember-harness instances are not answering yet — still trying.'
+    '2 Kiln instances are not answering yet — still trying.'
   );
   // Waiting for a list outranks the reachability verdict: the list is the thing in progress.
   expect(startupNotice({ ...base, waitingForSessions: 1, unreachable: 2 })).toBe(
-    'Connecting to ember-harness and loading your sessions…'
+    'Connecting to Kiln and loading your sessions…'
   );
 });

@@ -125,7 +125,7 @@ describe('the rail during an outage', () => {
   test('never says the endpoint is missing while an endpoint exists', () => {
     const text = textOf(render([host], sessions));
     expect(text).not.toMatch(/No instances connected/i);
-    expect(text).not.toMatch(/Add an ember-harness endpoint/i);
+    expect(text).not.toMatch(/Add a Kiln connection/i);
   });
 
   test('offers a way to stop the warning, named after the host it belongs to', () => {
@@ -154,19 +154,19 @@ describe('the rail during an outage', () => {
     // Silencing the warning is not a claim that the host is back: the empty state still names the
     // real reason rather than pretending everything is fine.
     const empty = textOf(render([host], [], { dismissed: ['pi:keep'] }));
-    expect(empty).toMatch(/none of your 1 ember-harness endpoint is answering/i);
+    expect(empty).toMatch(/none of your 1 Kiln connection is answering/i);
     expect(empty).toMatch(/reprobe/i);
   });
 
   test('an empty rail names the case instead of asserting absence', () => {
     const silent = textOf(render([host], []));
-    expect(silent).toMatch(/none of your 1 ember-harness endpoint is answering/i);
+    expect(silent).toMatch(/none of your 1 Kiln connection is answering/i);
     // The way back is named by its label, not by where it sits: every outage row can be dismissed,
     // so this list can be empty with no Retry button anywhere above it.
     expect(silent).toMatch(/reprobe instances in the instances menu/i);
 
     const noEndpoints = textOf(render([], []));
-    expect(noEndpoints).toMatch(/No ember-harness endpoints yet/i);
+    expect(noEndpoints).toMatch(/No Kiln connections yet/i);
     expect(noEndpoints).toMatch(/settings/i);
 
     const connectedEmpty = textOf(

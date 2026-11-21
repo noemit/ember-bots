@@ -45,7 +45,7 @@ describe('cost copy', () => {
   });
 
   test('the tooltip names the actor and what it reported', () => {
-    expect(COST_UNKNOWN_TITLE).toContain('ember-harness');
+    expect(COST_UNKNOWN_TITLE).toContain('Kiln');
     expect(COST_UNKNOWN_TITLE.toLowerCase()).toContain('usage ledger');
     expect(COST_UNKNOWN_TITLE.toLowerCase()).toMatch(/reported no cost/);
     // Says what the reader can conclude, rather than "an error occurred".

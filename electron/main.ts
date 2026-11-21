@@ -1580,7 +1580,7 @@ if (primaryInstance) app.whenReady().then(async () => {
         localHarnessStop = result.stop;
         broadcast({ instanceId: '*', type: 'ember:instances-updated' });
       }).catch(() => {
-        localHarnessState = { kind: 'failed', reason: 'Ember could not restart its bundled Kiln after the update failed. Use Retry in Settings → Instances.' };
+        localHarnessState = { kind: 'failed', reason: 'Ember could not restart its bundled Kiln after the update failed. Use Retry in Settings → Computers and Containers.' };
         broadcast({ instanceId: '*', type: 'ember:instances-updated' });
       });
     }

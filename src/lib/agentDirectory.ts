@@ -325,10 +325,10 @@ export const hostDirectoryNote = (directory: HostDirectory): string | null => {
 /** The whole view's empty line, when even the hosts that answered have nothing. */
 export const directoryEmptyCopy = (groups: readonly DirectoryGroup[]): string => {
   if (groups.length === 0) {
-    return 'No ember-harness endpoints yet. Add one in Settings → Instances and its bots appear here.';
+    return 'No Kiln connections yet. Add one in Settings → Computers and Containers and its bots appear here.';
   }
   if (groups.every((group) => group.directory.state !== 'agents')) {
-    return 'No host is serving a directory right now. Check Settings → Instances, then come back.';
+    return 'No host is serving a directory right now. Check Settings → Computers and Containers, then come back.';
   }
   return 'No named bots yet. Promote a worker from its column header to give it a name.';
 };

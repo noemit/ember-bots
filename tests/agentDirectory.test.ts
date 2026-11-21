@@ -84,7 +84,7 @@ describe('grouping the directory by host', () => {
   });
 
   test('the empty state names the case instead of asserting absence', () => {
-    expect(directoryEmptyCopy([])).toMatch(/No ember-harness endpoints yet/);
+    expect(directoryEmptyCopy([])).toMatch(/No Kiln connections yet/);
     expect(directoryEmptyCopy([host('Tower', { state: 'silent' })] )).toMatch(/No host is serving a directory/);
     expect(directoryEmptyCopy([host('Tower', { state: 'agents', agents: [] })])).toMatch(/Promote a worker/);
   });

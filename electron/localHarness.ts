@@ -373,7 +373,7 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
 
   if (options.disabled === true) return { state: { kind: 'disabled' }, stop: async () => {} };
   if (existing.occupied) return {
-    state: { kind: 'failed', reason: `another server is using port ${port}, and Ember could not authenticate it as Kiln. Add that Kiln's URL and token in Settings → Instances, or stop the server and select Retry` },
+    state: { kind: 'failed', reason: `another server is using port ${port}, and Ember could not authenticate it as Kiln. Add that Kiln's URL and token in Settings → Computers and Containers, or stop the server and select Retry` },
     stop: async () => {},
   };
 
@@ -553,9 +553,9 @@ export const localHarnessNotice = (state: LocalHarnessState, home = defaultHarne
     case 'disabled':
       return null;
     case 'missing':
-      return `This copy of Ember did not ship its local Kiln server (${path.basename(state.binaryPath)} is missing). Add a host in Settings → Instances, or run \`tinder setup\` to install one here.`;
+      return `This copy of Ember did not ship its local Kiln server (${path.basename(state.binaryPath)} is missing). Add a host in Settings → Computers and Containers, or run \`tinder setup\` to install one here.`;
     case 'failed':
-      return `The local Kiln server did not start: ${state.reason}. You can still add a host in Settings → Instances. Log: ${path.join(home, 'kiln.log')}`;
+      return `The local Kiln server did not start: ${state.reason}. You can still add a host in Settings → Computers and Containers. Log: ${path.join(home, 'kiln.log')}`;
   }
 };
 

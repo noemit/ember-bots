@@ -662,8 +662,8 @@ const unsupportedAttachmentsError = (files: FileAttachment[]) => ({
   data: {
     error:
       files.length === 1
-        ? `Only images can be attached to an ember-harness message (${files[0].filename} is not one) — save the file and ask the bot to read it.`
-        : `Only images can be attached to an ember-harness message (${files.length} files are not images) — save them and ask the bot to read them.`,
+        ? `Only images can be attached to a Kiln message (${files[0].filename} is not one) — save the file and ask the bot to read it.`
+        : `Only images can be attached to a Kiln message (${files.length} files are not images) — save them and ask the bot to read them.`,
   },
 });
 
@@ -1414,7 +1414,7 @@ export const piRunScheduledTask = async (
     { method: 'POST' }
   );
   if (!response.ok) {
-    return { ok: false, error: response.data?.error ?? `ember-harness refused (${response.status})` };
+    return { ok: false, error: response.data?.error ?? `Kiln refused (${response.status})` };
   }
   return {
     ok: true,

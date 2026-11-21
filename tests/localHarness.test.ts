@@ -156,7 +156,7 @@ describe('starting (or adopting) the local harness', () => {
     expect(notice).toMatch(/missing|did not ship/);
     expect(notice).not.toMatch(/\bagent\b/i);
     // It points at the recovery that is on screen.
-    expect(notice).toContain('Settings → Instances');
+    expect(notice).toContain('Settings → Computers and Containers');
   });
 
   test('turned off in settings means nothing is started', async () => {
@@ -664,7 +664,7 @@ test('an occupied port with the wrong credentials is explained without spawning 
   const notice = localHarnessNotice(result.state);
   expect(notice).toContain('Kiln');
   expect(notice).toContain('3002');
-  expect(notice).toMatch(/Settings.*Instances/);
+  expect(notice).toMatch(/Settings.*Computers and Containers/);
   expect(notice).toContain('Retry');
 });
 

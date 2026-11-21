@@ -562,7 +562,7 @@ const mapPiScheduledTask = (
     key: scheduledTaskKey(instanceId, projectId, task.id),
     instanceId,
     projectId,
-    projectName: project?.name ?? (projectId.split('/').filter(Boolean).pop() || 'ember-harness'),
+    projectName: project?.name ?? (projectId.split('/').filter(Boolean).pop() || 'Kiln'),
     id: task.id,
     name: task.name,
     enabled: task.enabled !== false,

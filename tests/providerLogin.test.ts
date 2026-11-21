@@ -38,7 +38,7 @@ describe('what a sign-in poll means', () => {
     const outcome = loginPollOutcome({ ok: false, status: 0 });
     expect(outcome.kind).toBe('unreachable');
     if (outcome.kind === 'unreachable') {
-      expect(outcome.error).toMatch(/host|ember-harness/i);
+      expect(outcome.error).toMatch(/host|kiln/i);
       expect(outcome.error.length).toBeGreaterThan(20);
     }
   });
