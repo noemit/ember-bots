@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
 describe('promote-to-a-persistent-bot copy', () => {
-  const header = read('src/components/ChatView.tsx');
+  const header = read('src/components/chat/ChatHeader.tsx');
   const dialog = read('src/components/PromoteWorkerDialog.tsx');
   const strip = read('src/components/CrewStrip.tsx');
   const app = read('src/App.tsx');

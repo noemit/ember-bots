@@ -3,50 +3,50 @@ import {
   DocumentExplorationProvider,
   invalidateSessionDocuments,
 } from '../lib/documentExploration';
-import type { AnnotationGuard } from '../lib/annotationNavigation';
-import { isRemoteBrowser, isRemoteExpired, remoteAuxiliaryDrafts, setRemoteDraftBlocker } from '../lib/remoteLifecycle';
-import QuestionsShelf from './QuestionsShelf';
 import QuestionAnswerComposer from './QuestionAnswerComposer';
 import { useQuestionComposer } from '../hooks/useQuestionComposer';
-import type { ProjectUsage } from '../lib/projectUsage';
-import type { ThreadQuestion } from '../lib/threadQuestions';
 import { threadShelfStatus } from '../lib/crew';
 import { ThreadLinkContext } from './threadLinkContext';
 import { useComposerConnection } from './workspaceConnection';
 import ComposerIdentity from './ComposerIdentity';
 import YoloLabel from './YoloLabel';
-import { PermissionRulesButton } from './PermissionRules';
 import * as React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Box, ChevronDown, CircleDashed, CircleDollarSign, CircleHelp, Eye, Folder, Loader2, MessageCircleQuestion, Minus, Moon, NotebookPen, Paperclip, Pencil, RefreshCw, Reply, ShieldAlert, Square, EyeOff, UserPlus, X, Zap } from 'lucide-react';
-import Blob from '../blob/Blob';
-import { freezeDraftAppearance, previewDraftAppearance } from '../lib/draftAppearance';
+import {
+  ArrowUp,
+  ChevronDown,
+  CircleHelp,
+  Loader2,
+  NotebookPen,
+  Paperclip,
+  Reply,
+  Square,
+  X,
+  Zap,
+} from 'lucide-react';
 import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
-import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
-import type { ModelPrefill } from '../lib/newSessionDefaults';
-import type { ThreadRow } from '../lib/crew';
+import { DEFAULT_MODEL, modelRefKey, sessionKey, sessionKey as makeSessionKey } from '../types';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import type { PromptInput } from '../api';
-import DelegatorModelChoices from './DelegatorModelChoices';
-import { seedDelegatorChoices, delegatorModelsError, type DelegatorChoices } from '../lib/delegatorModels';
 import { ModelPickerFallback } from './ModelPickerFallback';
 import ReasoningLevelPicker from './ReasoningLevelPicker';
-import { INSTRUCTION_PRESETS, presetFor, delegatorChoices, delegatorInstructions, type InstructionPreset } from '../lib/instructionPresets';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { clearComposerText, composerMemory, removedDrafts, type ComposerState, type DraftChanges } from '@/lib/composerDrafts';
+import {
+  clearComposerText,
+  composerMemory,
+  removedDrafts,
+  type ComposerState,
+  type DraftChanges,
+} from '@/lib/composerDrafts';
 import { canonicalVariant, resolveComposerModel } from '@/lib/modelSelection';
 import { noteModelChoice } from '@/lib/noteStore';
 import { applyMention, matchMentions, mentionQueryAt, type MentionQuery } from '@/lib/mentions';
 import MentionSuggest from './MentionSuggest';
 import { isTurnLive } from '@/lib/turnActivity';
 import { shortcutLabel } from '@/lib/shortcuts';
-import type { QueueReplaceRequest } from '@/lib/queueMerge';
 import { useStableProps } from '@/lib/useStableProps';
 import { useStableCallback } from '@/lib/useStableCallback';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -59,425 +59,71 @@ import {
 } from '@/components/ui/select';
 import type {
   AvatarIdentity,
-  DraftAppearance,
   BallState,
-  BallMood,
-  BlobStyle,
   ChatMessage,
   FileAttachment,
-  Instance,
-  InstanceStatus,
   MessagesStatus,
-  MessageQueueSession,
   ModelOption,
   NewSessionOptions,
-  Project,
-  PermissionReply,
   PermissionRequest,
-  QuestionAnswers,
   QuestionRequest,
   Session,
   SessionNote,
-  SessionReadMark,
-  StoredComposerDraft,
-  ViewSettings,
-  ViewSettingsPatch,
 } from '../types';
-import { isSettledFailure, transcriptNotice, type TranscriptFailureSource } from '../lib/transcriptStatus';
 import type { RepairHalt } from '../lib/repairBudget';
+import type { CrewCostState } from '../lib/crewCost';
+import { transcriptNotice } from '../lib/transcriptStatus';
 import ContextMeter from './ContextMeter';
 import ContextCompactionStatus from './ContextCompactionStatus';
 import ContextRecommendation from './ContextRecommendation';
 import { contextMeterState } from '../lib/contextMeter';
-import { COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE, hostReportsCost, sessionCostState } from '../lib/sessionCost';
-import { crewCostLabel, crewCostTitle, type CrewCostState } from '../lib/crewCost';
-import ViewMenu from './ViewMenu';
-import CrewStrip from './CrewStrip';
-import ComposerShelf, { type ShelfSection, type ShelfSectionId } from './ComposerShelf';
-import SessionProcessesNotice, {
-  processesNeedAttention,
-  processesSectionLabel,
-  type StopProcessesResult,
-} from './SessionProcessesNotice';
+import { hostReportsCost, sessionCostState } from '../lib/sessionCost';
+import ComposerShelf, { type ShelfSectionId } from './ComposerShelf';
+import type { StopProcessesResult } from './SessionProcessesNotice';
 import SelectionCommentBar from './SelectionCommentBar';
 import { processKey } from '../lib/processExpiry';
-import { sessionKey as makeSessionKey } from '../types';
-import { createQuoteLinkId, validateQuoteAnchor, type QuoteAnchor, type QuoteLink } from '@/lib/quoteLinks';
-import { useSelectionComments } from '@/hooks/useSelectionComments';
-import { pendingCreateComposerText, pendingCreateMessages, type PendingCreate } from '../lib/pendingCreate';
+import { validateQuoteAnchor, type QuoteLink } from '@/lib/quoteLinks';
+import { pendingCreateComposerText, pendingCreateMessages } from '../lib/pendingCreate';
+import type { ChatViewProps } from './chat/types';
+import {
+  composerFromStored,
+  EMPTY_PERMISSIONS,
+  EMPTY_QUESTIONS,
+  EMPTY_QUEUE_ITEMS,
+  EMPTY_QUOTE_LINK_LIST,
+  EMPTY_SESSIONS,
+  EMPTY_STRINGS,
+  EMPTY_THREAD_ROWS,
+  messageContextText,
+  PENDING_CREATE_LABELS,
+  readYeet,
+  saveComposerDraft,
+  shouldOfferSessionReload,
+  storedFromComposer,
+  TranscriptFallback,
+  writeYeet,
+} from './chat/helpers';
+import { useInstructionsEditor } from './chat/useInstructionsEditor';
+import { useComposerAttachments } from './chat/useComposerAttachments';
+import { useSelectionAnnotations } from './chat/useSelectionAnnotations';
+import { useShelfSections } from './chat/useShelfSections';
+import { PendingCreateHeader, SessionHeader } from './chat/ChatHeader';
+import { NewBotEmptyState } from './chat/NewBotEmptyState';
+import {
+  AnnotationDecisionDialog,
+  DraftAppearanceDialog,
+  PresetPreviewDialog,
+  StandingInstructionsDialog,
+} from './chat/ChatDialogs';
+
+export { shouldOfferSessionReload };
 
 const loadModelPicker = () => import('./ModelPicker');
 const ModelPicker = React.lazy(loadModelPicker);
 const Transcript = React.lazy(() => import('./Transcript'));
-const SessionNotes = React.lazy(() => import('./SessionNotes'));
 const ProjectPicker = React.lazy(() => import('./ProjectPicker'));
-const AvatarPicker = React.lazy(() => import('./AvatarPicker'));
-const QueuedMessageList = React.lazy(() => import('./QueuedMessageList'));
 
-const TranscriptFallback = () => (
-  <div className="flex min-h-0 flex-1 items-center justify-center text-xs text-muted-foreground" role="status">
-    Loading conversation…
-  </div>
-);
-
-/**
- * YEET mode is a per-composer preference, so it is remembered per composer key rather than in
- * app settings: steering one agent says nothing about the next. Reads are defensive — a
- * throwaway localStorage value must not break the composer.
- */
-const YEET_KEY = 'ember.composer.yeet';
-const readYeet = (key: string | null | undefined): boolean => {
-  if (!key) return false;
-  try {
-    return window.localStorage.getItem(`${YEET_KEY}:${key}`) === '1';
-  } catch {
-    return false;
-  }
-};
-const writeYeet = (key: string | null | undefined, enabled: boolean): void => {
-  if (!key) return;
-  try {
-    const storageKey = `${YEET_KEY}:${key}`;
-    if (enabled) window.localStorage.setItem(storageKey, '1');
-    else window.localStorage.removeItem(storageKey);
-  } catch {
-    // storage unavailable: the toggle still works for this session
-  }
-};
-
-type Props = {
-  session: Session | null;
-  instance: Instance | null;
-  instanceMarkerColor?: number;
-  newSessionInstanceId: string | null;
-  workspaceDirectory?: string;
-  recentDirectories?: string[];
-  projectUsage?: ProjectUsage[];
-  delegatorModels?: Record<string, DelegatorChoices>;
-  onDelegatorModelsChange?: (instanceId: string, choices: DelegatorChoices) => void;
-  onWorkspaceChange?: (instanceId: string, directory: string) => void;
-  /** Prefill for a new-agent draft: last-used or default folder, model and YOLO on that instance. */
-  newSessionPrefill: { directory: string | null; model: ModelPrefill | null; bypass: boolean } | null;
-  instances: Instance[];
-  /** Session titles the composer may tag with `@`; empty disables mentions. */
-  mentionNames?: readonly string[];
-  projectsByInstance: Record<string, Project[]>;
-  seed: string;
-  identity: AvatarIdentity;
-  /**
-   * Resolve any session's blob identity the way the rail resolves it. The crew strip draws a worker
-   * at 22px while its column draws the same worker at full size, so both have to ask one question
-   * or the two blobs disagree whenever a project colour or an avatar override applies.
-   */
-  identityFor?: (session: Session) => AvatarIdentity | undefined;
-  /** Resolves the blob a new-agent draft will get from its target folder (project colour + override). */
-  resolveDraftIdentity: (instanceId: string, directory: string, appearance?: DraftAppearance | null) => AvatarIdentity;
-  draftAppearance?: DraftAppearance | null;
-  onDraftAppearanceChange?: (appearance: DraftAppearance | null) => void;
-  draftAppearanceTheme?: string;
-  state: BallState;
-  mood: BallMood;
-  blobStyle: BlobStyle;
-  messages: ChatMessage[];
-  messagesStatus: MessagesStatus;
-  /** Which path raised `messagesStatus === 'error'`; only an explicit reload is a settled failure. */
-  transcriptFailure?: TranscriptFailureSource;
-  /** A full read has landed, so nothing above the rendered window is missing. */
-  historyComplete?: boolean;
-  /**
-   * Set when Ember has stopped repairing this session by itself: a full read cannot succeed for it
-   * (see `lib/repairBudget`). The missing-history line says so and offers compaction instead of a
-   * "Load them" that retries the same doomed request.
-   */
-  repairHalt?: RepairHalt | null;
-  /** The instance's own health, so an absent Hearth reads as "still starting", not "broken session". */
-  instanceStatus?: InstanceStatus;
-  instanceLabel?: string;
-  permissions: PermissionRequest[];
-  questions: QuestionRequest[];
-  asyncQuestions?: QuestionRequest[];
-  threadQuestions?: ThreadQuestion[];
-  models: ModelOption[];
-  defaultModelId: string | null;
-  instanceDefaultModelId?: string | null;
-  onSetInstanceDefault?: (model: ModelOption) => void;
-  /** `provider/model` keys the instance used most recently, newest first. */
-  recentModels: string[];
-  /** Re-read this instance's model catalogue (`upstream: false` on open; `upstream: true` on manual Refresh). */
-  onModelsRefresh?: (options?: { upstream?: boolean }) => Promise<unknown> | void;
-  sending: boolean;
-  /** True while a stop was requested and the run hasn't reconciled yet. */
-  stopping?: boolean;
-  queue: MessageQueueSession | null;
-  reloading: boolean;
-  bypass: boolean;
-  view: ViewSettings;
-  sessionNotes: SessionNote[];
-  /** Settings key the notes are stored under; project sessions share one across the project. */
-  notesKey: string;
-  savedComposerDrafts: Record<string, StoredComposerDraft>;
-  composerDraftsHydrated: boolean;
-  onComposerDraftsChange: (drafts: DraftChanges) => void;
-  /** Send an unconfirmed message again, with the input the first attempt used. */
-  onRetryPendingSend?: (message: ChatMessage) => void;
-  /** Drop an unconfirmed message from the transcript. */
-  onDiscardPendingSend?: (message: ChatMessage) => void;
-  onSaveNote: (sessionKey: string, text: string) => void;
-  /** Save an edit to one parked note: its text, its model, or both (see `lib/noteStore`). */
-  onUpdateNote: (sessionKey: string, noteId: string, patch: { text?: string; modelId?: string; variant?: string }) => void;
-  onDeleteNote: (sessionKey: string, noteId: string) => void;
-  /**
-   * A message this column should open on (Home's link context bars). The token makes a repeat
-   * request for the same message still count, so clicking the same link twice works.
-   */
-  focusTarget?: { messageId: string; token: number } | null;
-  onAnnotate: (input: PromptInput, source: QuoteAnchor) => Promise<boolean>;
-  onSaveAnnotationNote: (text: string, source: QuoteAnchor, requestId?: string) => Promise<boolean>;
-  quoteLinks: QuoteLink[];
-  onNavigateQuote: (link: QuoteLink, direction: 'source' | 'destination') => void;
-  quoteFocus?: QuoteAnchor | null;
-  quoteDestinationFocus?: { destination: QuoteLink['destination'] | null; token: number } | null;
-  onViewChange: (patch: ViewSettingsPatch) => void;
-  /** Read a session's standing instructions (Hearth only; resolves `supported: false` elsewhere). */
-  onLoadInstructions?: (session: Session) => Promise<{ supported: boolean; instructions?: string }>;
-  /** Set them; `null` clears. Resolves false when the host refused. */
-  onSaveInstructions?: (session: Session, instructions: string | null) => Promise<boolean>;
-  onBypassChange: (enabled: boolean) => void;
-  /**
-   * Stop programs this session left running on its host (Hearth's `processes`). Absent where the
-   * host has no such route, in which case the notice is not drawn at all.
-   */
-  onStopProcesses?: (session: Session, pids: number[], options: { force?: boolean }) => Promise<StopProcessesResult>;
-  /** This session's read mark: which messages are read. Muting is a separate preference. */
-  readMark?: SessionReadMark;
-  /** Mark one message read (the dot beside it). Omitted where marking is not offered. */
-  onMarkMessageRead?: (session: Session, message: ChatMessage) => void;
-  onUndoMarkMessageRead?: (session: Session, message: ChatMessage) => void;
-  /**
-   * "Mark as unread": that reply and everything after it become unread again.
-   *
-   * Passed only where unread state exists at all — the app withholds every unread control from a
-   * worker thread, whose unread state is invisible everywhere. With no callback the transcript draws
-   * no menu for it; `canManageUnread` says the same thing explicitly so the reply's right-click menu
-   * also stays away from a draft, where the message is not on a host yet.
-   */
-  onMarkMessageUnread?: (session: Session, message: ChatMessage) => void;
-  /** Mark the whole session read (the unread navigation bar). */
-  onMarkAllRead?: (session: Session) => void;
-  /** Mute unread indicators and in-chat prompts without changing explicit read marks. */
-  onQuietChange?: (session: Session, quiet: boolean) => void;
-  notificationsMuted?: boolean;
-  /**
-   * Extra minutes bought for each session's leftovers, keyed `instanceId::id`.
-   *
-   * Data rather than a lookup function on purpose: `useStableProps` pins function props to their
-   * first identity for `React.memo`, so a callback here would serve the extension the app had when
-   * the window opened. A map is shared structurally, so a change reaches the tray.
-   */
-  processExtensions?: Readonly<Record<string, number>>;
-  /** Buy another ten minutes for what this session left running. */
-  onExtendProcesses?: (session: Session) => void;
-  onNewSessionInstanceChange: (instanceId: string) => void;
-  /** Draft submit: create the session, then send the first message into it. */
-  onCreateAndSend: (options: NewSessionOptions, input: PromptInput) => Promise<boolean>;
-  onCancelNewSession: () => void;
-  /**
-   * The draft's first message while its session is being created, or after the host refused it.
-   * App owns it: the create outlives this pane (a person who leaves still gets the session), so its
-   * state cannot live in a component that unmounts.
-   */
-  pendingCreate?: PendingCreate | null;
-  /** Try a refused create again, to the destination the draft row shows now. */
-  onRetryCreate?: (pendingId: string, options: NewSessionOptions) => void;
-  /** Take a refused create's messages back into the composer, to edit and send again. */
-  onEditCreate?: (pendingId: string) => void;
-  /** Park a note while the session is starting; App moves it under the session's key on success. */
-  onSaveDraftNote?: (text: string) => void;
-  /**
-   * Send one user message. `retainOnFailure` defaults to true (a failed send keeps its bubble so
-   * the text has a home); a failed annotation attempt stays in its floating editor rather than
-   * duplicating that text in the transcript.
-   */
-  onSend: (input: PromptInput, options?: { retainOnFailure?: boolean }) => Promise<boolean>;
-  onQueue: (input: PromptInput) => Promise<boolean>;
-  onSendQueued: (itemId: string) => Promise<boolean>;
-  onMoveQueued: (itemId: string, direction: -1 | 1) => Promise<boolean>;
-  onRemoveQueued: (itemId: string) => Promise<boolean>;
-  /** Replace queued rows with one item: the queue's edit and merge path. */
-  onReplaceQueued: (request: QueueReplaceRequest) => Promise<boolean>;
-  onRetryQueued: (itemId: string) => Promise<boolean>;
-  onDiscardQueued: (itemId: string) => boolean;
-  onReload: () => void | Promise<void>;
-  onAbort: () => void;
-  onPermission: (request: PermissionRequest, reply: PermissionReply) => Promise<boolean>;
-  onQuestion: (request: QuestionRequest, answers: QuestionAnswers | null) => Promise<boolean>;
-  /** True while this session's context is being compacted. */
-  compacting: boolean;
-  onCompact: () => void;
-  /** True while a side question ("btw …") is being forked into a worker. */
-  askingSideQuestion?: boolean;
-  /** Ask a side question via a forked worker carrying this session's context; omitted when unsupported. */
-  onAskSideQuestion?: (question: string) => Promise<boolean>;
-  /** Column chrome: collapse this column into the tab strip. */
-  onMinimize?: () => void;
-  /** Column chrome: archive this session (Undo is offered by the app-level notice). */
-  onArchive?: () => void;
-  snoozed?: boolean;
-  onSnooze?: () => void;
-  /** Start a draft on this session’s host in its current folder. */
-  onNewBotInFolder?: () => void;
-  /**
-   * Promote this worker to a named peer. Rendered only on an unpromoted
-   * worker column; the app opens `PromoteWorkerDialog` and calls Hearth.
-   */
-  onPromote?: () => void;
-  /**
-   * Open the Providers screen for this column's host. The model picker offers it when the host has
-   * no providers at all, because that is the one state refreshing cannot fix.
-   */
-  onOpenProviders?: (instanceId: string) => void;
-  /** Persist a new session title on its instance (double-click on the header title). */
-  onRename?: (title: string) => void;
-  /** Called when the user interacts with this column, so the active session follows focus. */
-  onActivate?: () => void;
-  /** Ask before a parent navigation changes which session owns this editor. */
-  onBeforeNavigate?: (request: AnnotationGuard | null) => void;
-  /** The column the user is working in; inactive columns trim their composer chrome. Defaults true. */
-  active?: boolean;
-  /** A leader's direct workers; used in transcript status. */
-  crew?: Session[];
-  /** Authorized descendants ordered by reporting lead for the Threads shelf. */
-  threadRows?: ThreadRow[];
-  /** Known descendants for inline source links, including unblocked nested threads. */
-  threadTargets?: Session[];
-  /**
-   * What this session has cost, its crew included (`lib/crewCost`). Absent where there is nothing to
-   * add up — a draft, or a caller that has not loaded the siblings — and then the badge falls back to
-   * the session's own ledger alone.
-   */
-  crewCost?: CrewCostState;
-  /** Coarse ball state per worker, from the instance's status poll. */
-  workerState?: (worker: Session) => BallState;
-  /** Data crosses both memo boundaries; a stabilized lookup callback cannot signal YOLO changes. */
-  workerAutoAcceptByKey?: Readonly<Record<string, boolean>>;
-  /** Open a worker as a transient column. */
-  onOpenWorker?: (worker: Session, messageId?: string) => void;
-  /** Resolve a promoted worker's peer session, so the strip row links to the peer fork. */
-  workerPeer?: (worker: Session) => Session | null;
-  /** Toggle a worker's auto-accept from the strip. */
-  onToggleWorkerYolo?: (worker: Session, enabled: boolean) => void;
-};
-
-
-const messageContextText = (message: ChatMessage): string =>
-  message.text.trim() ||
-  message.parts
-    .map((part) => {
-      if (part.type === 'reasoning') return part.text;
-      if (part.type === 'file') return `File: ${part.file.filename}`;
-      if (part.type === 'tool') return `${part.call.tool}: ${part.call.title ?? part.call.output ?? ''}`;
-      return part.text;
-    })
-    .filter(Boolean)
-    .join('\n');
-
-/**
- * Attachments travel inline as data URLs, the same shape OpenChamber sends.
- *
- * These are **Hearth's** ceilings, not Ember's own taste: `hearth/src/view.ts` refuses an image over
- * `MAX_IMAGE_BYTES` (12 MB) and `hearth/src/images.ts` refuses a submission whose images total more
- * than `MAX_TOTAL_IMAGE_BYTES` (18 MB, decoded; at most 8 images). Raising these past that would not
- * let anyone attach more — it would only replace Ember's clear "skipped, too large" with a refusal from
- * the host after the whole upload had already gone out.
- *
- * The real cost of a bigger number is the session: an attachment is stored as base64 in the message
- * that carried it, so a 12 MB screenshot adds ~16 MB to that conversation's history for ever. If big
- * images need to work, downscaling them on the way out is the change that helps, not a larger cap.
- */
-const MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024;
-const MAX_TOTAL_ATTACHMENT_BYTES = 18 * 1024 * 1024;
-const megabytes = (bytes: number): string => `${Math.round(bytes / (1024 * 1024))} MB`;
-const STALE_AGENT_MS = 10 * 60_000;
-
-const MAX_COMPOSER_DRAFTS = 50;
-
-const saveComposerDraft = (
-  drafts: Map<string, ComposerState>,
-  key: string,
-  state: ComposerState
-) => {
-  drafts.delete(key);
-  drafts.set(key, state);
-  // Remote drafts have no durable fallback. Never evict unsent private content to meet a cap.
-  if (isRemoteBrowser()) return;
-  while (drafts.size > MAX_COMPOSER_DRAFTS) {
-    const oldest = drafts.keys().next().value;
-    if (!oldest) break;
-    drafts.delete(oldest);
-  }
-};
-
-const composerFromStored = (draft: StoredComposerDraft): ComposerState => ({
-  text: draft.text,
-  modelId: draft.modelId ?? DEFAULT_MODEL,
-  variant: draft.variant ?? '',
-  attachments: [],
-  replyContext: null,
-});
-
-const storedFromComposer = (state: ComposerState): StoredComposerDraft => {
-  const draft: StoredComposerDraft = {
-    text: state.text,
-    modelId: state.modelId,
-    updatedAt: Date.now(),
-  };
-  if (state.variant) draft.variant = state.variant;
-  return draft;
-};
-
-export const shouldOfferSessionReload = (
-  state: BallState,
-  messagesStatus: MessagesStatus,
-  sessionUpdated: number | undefined,
-  messages: ChatMessage[],
-  now: number,
-  /**
-   * Which path raised the error. Absent means the historical reload shape, which stays a failure.
-   * A transient error (`'poll'`, `'tail'`, `'initial'`) is retried on its own, so offering Refresh
-   * there just advertises a problem the user did not have.
-   */
-  transcriptFailure?: TranscriptFailureSource
-): boolean => {
-  if (messagesStatus === 'error') return isSettledFailure({ status: 'error', failure: transcriptFailure });
-  if (state !== 'active') return false;
-  const assistantUpdates = messages
-    .filter((message) => message.role === 'assistant')
-    .map((message) => message.completedAt ?? message.createdAt ?? 0);
-  const lastUpdate = assistantUpdates.length ? Math.max(...assistantUpdates) : sessionUpdated ?? 0;
-  return lastUpdate > 0 && now - lastUpdate >= STALE_AGENT_MS;
-};
-
-const readAttachment = (file: File): Promise<FileAttachment> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () =>
-      resolve({
-        filename: file.name,
-        mime: file.type || 'application/octet-stream',
-        url: String(reader.result),
-      });
-    reader.readAsDataURL(file);
-  });
-
-const EMPTY_STRINGS: readonly string[] = Object.freeze([]);
-const EMPTY_QUESTIONS: QuestionRequest[] = Object.freeze([]) as unknown as QuestionRequest[];
-const EMPTY_PERMISSIONS: PermissionRequest[] = Object.freeze([]) as unknown as PermissionRequest[];
-const EMPTY_SESSIONS: Session[] = Object.freeze([]) as unknown as Session[];
-const EMPTY_THREAD_ROWS: ThreadRow[] = Object.freeze([]) as unknown as ThreadRow[];
-const EMPTY_QUOTE_LINK_LIST: QuoteLink[] = Object.freeze([]) as unknown as QuoteLink[];
-const EMPTY_QUEUE_ITEMS: NonNullable<MessageQueueSession['items']> = Object.freeze([]) as unknown as NonNullable<MessageQueueSession['items']>;
-const PENDING_CREATE_LABELS = Object.freeze({ retry: 'Try again', discard: 'Edit' });
+type Props = ChatViewProps;
 
 function ChatView({
   session,
@@ -649,15 +295,6 @@ function ChatView({
     [processExtensions]
   );
 
-  const [annotationDraft, setAnnotationDraft] = React.useState('');
-  const [annotationBusy, setAnnotationBusy] = React.useState(false);
-  const [annotationError, setAnnotationError] = React.useState<string | null>(null);
-  const annotationOperation = React.useRef<Promise<boolean> | null>(null);
-  const annotationEpoch = React.useRef(0);
-  const [annotationDecisionOpen, setAnnotationDecisionOpen] = React.useState(false);
-  const annotationDecisionResolver = React.useRef<((allowed: boolean) => void) | null>(null);
-  const annotationDecisionPromise = React.useRef<Promise<boolean> | null>(null);
-  const annotationRequestId = React.useRef<string | null>(null);
   const [sideQuestionOpen, setSideQuestionOpen] = React.useState(false);
   const [sideQuestionText, setSideQuestionText] = React.useState('');
   const sideQuestionInputRef = React.useRef<HTMLInputElement>(null);
@@ -713,125 +350,50 @@ function ChatView({
       : null;
   const [draftDirectory, setDraftDirectory] = React.useState('');
   const [draftBypass, setDraftBypass] = React.useState(false);
-  /**
-   * The standing instructions a *new* session will start with. Not persisted with the draft: it is a
-   * decision about the agent being created, and a half-written prompt restored days later is a trap.
-   */
-  const [instructions, setInstructions] = React.useState('');
-  const [instructionsOpen, setInstructionsOpen] = React.useState(false);
   const [draftAppearanceOpen, setDraftAppearanceOpen] = React.useState(false);
   const [draftPickerBase, setDraftPickerBase] = React.useState<AvatarIdentity | null>(null);
-  const [instructionsDraft, setInstructionsDraft] = React.useState('');
-  const [editingCustomInstructions, setEditingCustomInstructions] = React.useState(false);
-  const instructionsTextRef = React.useRef<HTMLTextAreaElement>(null);
-  /** What an existing session has, once the dialog has read it. Keyed, so switching columns is safe. */
-  const [instructionsByKey, setInstructionsByKey] = React.useState<Record<string, string>>({});
-  const [instructionsLoading, setInstructionsLoading] = React.useState(false);
-  const instructionsAttempt = React.useRef(0);
-  React.useLayoutEffect(() => {
-    instructionsAttempt.current += 1;
-    setInstructionsOpen(false);
-    setInstructionsLoading(false);
-    return () => { instructionsAttempt.current += 1; };
-  }, [composerKey]);
-  const changeInstructionsOpen = (open: boolean) => {
-    if (!open) { instructionsAttempt.current += 1; setInstructionsLoading(false); }
-    setInstructionsOpen(open);
-  };
-  const editInstructions = () => { instructionsAttempt.current += 1; setInstructionsLoading(false); };
-  /** The preset whose full text is being read, or null. */
-  const [previewPreset, setPreviewPreset] = React.useState<InstructionPreset | null>(null);
-  const instructionsKey = session ? sessionKey(session) : null;
-  /** The text in force: the draft's choice for a new session, what was read back for an existing one. */
-  const knownInstructions = draftInstanceId ? instructions : instructionsKey ? instructionsByKey[instructionsKey] : undefined;
-  const instructionsPreset = presetFor(knownInstructions);
-  /** Both paths reach the same dialog; only the footer differs. */
-  const canEditInstructions = Boolean(
-    (draftInstanceId && draftInstance?.kind === 'pi') || (session && !draftInstanceId && instance?.kind === 'pi')
-  );
-
-  const instructionInstanceId = draftInstanceId ?? session?.instanceId;
-  const previousInstructionInstance = React.useRef(instructionInstanceId);
-  React.useEffect(() => {
-    if (previousInstructionInstance.current === instructionInstanceId || loadedComposerKey !== composerKey) return;
-    previousInstructionInstance.current = instructionInstanceId;
-    // A generated draft belongs to one catalogue. Custom prose is never rewritten on host changes.
-    if (draftInstanceId && presetFor(instructions)?.id === 'delegator') {
-      const choices = seedDelegatorChoices(delegatorModels?.[draftInstanceId], modelId, defaultModelId, models);
-      setInstructions(delegatorInstructions(choices));
-      onDelegatorModelsChange?.(draftInstanceId, choices);
-    }
-    setInstructionsOpen(false);
-  }, [instructionInstanceId, draftInstanceId, instructions, delegatorModels, modelId, defaultModelId, models, onDelegatorModelsChange, loadedComposerKey, composerKey]);
-  const seedWorkerModels = () => seedDelegatorChoices(instructionInstanceId ? delegatorModels?.[instructionInstanceId] : undefined, modelId, defaultModelId, models);
-  const rememberWorkerModels = (choices: DelegatorChoices) => {
-    if (instructionInstanceId) onDelegatorModelsChange?.(instructionInstanceId, choices);
-  };
-  const pickInstructions = (preset: InstructionPreset, editor: boolean) => {
-    if (editor) editInstructions();
-    let next = preset.instructions;
-    if (preset.id === 'delegator') {
-      const choices = seedWorkerModels();
-      next = delegatorInstructions(choices);
-      rememberWorkerModels(choices);
-    }
-    if (editor) { setInstructionsDraft(next); setEditingCustomInstructions(false); }
-    else setInstructions(next);
-  };
-  const workerModelControls = (value: string, editor: boolean) => (
-    <DelegatorModelChoices choices={delegatorChoices(value) ?? {}} models={models} recentModels={recentModels}
-      instanceId={instructionInstanceId ?? undefined} instanceLabel={draftInstance?.label ?? instanceLabel}
-      onRefresh={onModelsRefresh ? () => onModelsRefresh({ upstream: true }) : undefined}
-      onAddProviders={instructionInstanceId && onOpenProviders ? () => onOpenProviders(instructionInstanceId) : undefined}
-      onChange={choices => {
-        if (editor) editInstructions();
-        rememberWorkerModels(choices);
-        if (editor) setInstructionsDraft(delegatorInstructions(choices));
-        else setInstructions(delegatorInstructions(choices));
-      }} />
-  );
-  const draftWorkerModelError = presetFor(instructions)?.id === 'delegator' ? delegatorModelsError(delegatorChoices(instructions) ?? {}, models) : null;
-  const editorWorkerModelError = presetFor(instructionsDraft)?.id === 'delegator' ? delegatorModelsError(delegatorChoices(instructionsDraft) ?? {}, models) : null;
-
-  const openInstructions = () => {
-    setEditingCustomInstructions(!presetFor(knownInstructions));
-    setInstructionsOpen(true);
-    setInstructionsDraft(knownInstructions ?? '');
-    if (draftInstanceId || !session || !onLoadInstructions) return;
-    const key = sessionKey(session);
-    if (key in instructionsByKey) return;
-    setInstructionsLoading(true);
-    const attempt = ++instructionsAttempt.current;
-    void onLoadInstructions(session)
-      .then((result) => {
-        if (!result.supported || instructionsAttempt.current !== attempt) return;
-        const text = result.instructions ?? '';
-        setInstructionsByKey((previous) => ({ ...previous, [key]: text }));
-        setInstructionsDraft(text);
-        setEditingCustomInstructions(!presetFor(text));
-      })
-      .catch(() => undefined)
-      .finally(() => { if (instructionsAttempt.current === attempt) setInstructionsLoading(false); });
-  };
-
-  const saveInstructions = async (text = instructionsDraft) => {
-    if (presetFor(text)?.id === 'delegator' && delegatorModelsError(delegatorChoices(text) ?? {}, models)) return;
-    if (draftInstanceId) {
-      setInstructions(text);
-      setInstructionsOpen(false);
-      return;
-    }
-    if (!session || !onSaveInstructions) {
-      setInstructionsOpen(false);
-      return;
-    }
-    const key = sessionKey(session);
-    const attempt = instructionsAttempt.current;
-    const saved = await onSaveInstructions(session, text || null);
-    if (!saved) return;
-    setInstructionsByKey((previous) => ({ ...previous, [key]: text }));
-    if (instructionsAttempt.current === attempt) setInstructionsOpen(false);
-  };
+  const {
+    instructions,
+    setInstructions,
+    instructionsOpen,
+    changeInstructionsOpen,
+    instructionsDraft,
+    setInstructionsDraft,
+    editingCustomInstructions,
+    setEditingCustomInstructions,
+    instructionsTextRef,
+    instructionsLoading,
+    previewPreset,
+    setPreviewPreset,
+    knownInstructions,
+    instructionsPreset,
+    canEditInstructions,
+    editInstructions,
+    pickInstructions,
+    workerModelControls,
+    draftWorkerModelError,
+    editorWorkerModelError,
+    openInstructions,
+    saveInstructions,
+  } = useInstructionsEditor({
+    composerKey,
+    loadedComposerKey,
+    session,
+    instance,
+    draftInstanceId,
+    draftInstance,
+    instanceLabel,
+    modelId,
+    defaultModelId,
+    models,
+    recentModels,
+    delegatorModels,
+    onDelegatorModelsChange,
+    onModelsRefresh,
+    onOpenProviders,
+    onLoadInstructions,
+    onSaveInstructions,
+  });
   /**
    * YEET mode: every message steers the running turn instead of queueing behind it. Queueing is
    * the safe default — a queued message waits its turn and cannot change what the agent is doing —
@@ -980,92 +542,15 @@ function ChatView({
     [messagesStatus, transcriptFailure, messages.length, instanceStatus, instanceLabel]
   );
 
-  const addFiles = async (files: FileList | null) => {
-    if (questionComposer.isAnswering || !files) return;
-    let remaining =
-      MAX_TOTAL_ATTACHMENT_BYTES -
-      attachments.reduce((sum, file) => sum + Math.ceil(file.url.length * 0.75), 0);
-    const accepted = [...files].filter((file) => {
-      if (file.size > MAX_ATTACHMENT_BYTES || file.size > remaining) return false;
-      remaining -= file.size;
-      return true;
-    });
-    const skippedForSize = files.length - accepted.length;
-    // A file this big is not going to fit down any wire this app has: a recording belongs on the
-    // host's disk, where the agent can inspect it by path, not inside a conversation as base64.
-    const oversized = [...files].filter((file) => file.size > MAX_ATTACHMENT_BYTES);
-    // One unreadable file (permissions, removed drive) must not drop the whole batch.
-    const results = await Promise.allSettled(accepted.map(readAttachment));
-    const read = results
-      .filter((result): result is PromiseFulfilledResult<FileAttachment> => result.status === 'fulfilled')
-      .map((result) => result.value);
-    const unreadable = results.length - read.length;
-    const problems = [
-      // Built from the constants: the sentence drifted from the numbers when they were literals.
-      skippedForSize > 0
-        ? `${skippedForSize} exceeding the ${megabytes(MAX_ATTACHMENT_BYTES)} file / ${megabytes(MAX_TOTAL_ATTACHMENT_BYTES)} total limit`
-        : null,
-      // Never a dead end: for a file that is over the ceiling rather than merely over the budget,
-      // point at the route that does work — the host's own disk, reached by path.
-      oversized.length > 0
-        ? `put ${oversized.length === 1 ? 'it' : 'them'} on the host's disk and send the path instead — a recording that big cannot ride in a message`
-        : null,
-      unreadable > 0 ? `${unreadable} could not be read` : null,
-    ].filter((entry): entry is string => entry !== null);
-    setAttachmentError(problems.length > 0 ? `Skipped ${problems.join(', ')}.` : null);
-    if (read.length > 0) setAttachments((prev) => [...prev, ...read]);
-  };
-
-  // Enter/leave fire for every child crossed, so count depth rather than toggling.
-  const dragDepth = React.useRef(0);
-  const [dragging, setDragging] = React.useState(false);
-  React.useEffect(() => {
-    if (!questionComposer.isAnswering) return;
-    dragDepth.current = 0;
-    setDragging(false);
-  }, [questionComposer.isAnswering]);
-  const carriesFiles = (event: React.DragEvent) =>
-    !questionComposer.isAnswering && Boolean(composerKey) && event.dataTransfer.types.includes('Files');
-  const dropHandlers = {
-    onDragEnter: (event: React.DragEvent) => {
-      if (!carriesFiles(event)) return;
-      event.preventDefault();
-      dragDepth.current += 1;
-      setDragging(true);
-    },
-    onDragOver: (event: React.DragEvent) => {
-      if (questionComposer.isAnswering) {
-        if (event.dataTransfer.types.includes('Files')) {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'none';
-        }
-        return;
-      }
-      if (!carriesFiles(event)) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
-    },
-    onDragLeave: (event: React.DragEvent) => {
-      if (!carriesFiles(event)) return;
-      dragDepth.current = Math.max(0, dragDepth.current - 1);
-      if (dragDepth.current === 0) setDragging(false);
-    },
-    onDrop: (event: React.DragEvent) => {
-      if (questionComposer.isAnswering) {
-        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
-        dragDepth.current = 0;
-        setDragging(false);
-        return;
-      }
-      if (!carriesFiles(event)) return;
-      event.preventDefault();
-      dragDepth.current = 0;
-      setDragging(false);
-      onActivate?.();
-      void addFiles(event.dataTransfer.files);
-      textareaRef.current?.focus();
-    },
-  };
+  const { dragging, addFiles, dropHandlers } = useComposerAttachments({
+    composerKey,
+    isAnswering: questionComposer.isAnswering,
+    attachments,
+    setAttachments,
+    setAttachmentError,
+    textareaRef,
+    onActivate,
+  });
 
   React.useEffect(() => {
     if (!composerKey) return;
@@ -1294,119 +779,41 @@ function ChatView({
   // which one it is, so the labels stay neutral and the tooltip says why.
   const statusUnknown = Boolean(session) && state === 'unknown';
 
-  const [annotationKey, setAnnotationKey] = React.useState<string | null>(composerKey);
-  const annotationActions = React.useRef<{ clear: () => void; dismiss: () => void } | null>(null);
-  const clearAnnotationEditor = React.useCallback(() => {
-    annotationRequestId.current = null;
-    setAnnotationDraft('');
-    setAnnotationError(null);
-    annotationActions.current?.clear();
-    annotationActions.current?.dismiss();
-  }, []);
-  const settleAnnotationDecision = React.useCallback((allowed: boolean) => {
-    setAnnotationDecisionOpen(false);
-    annotationDecisionResolver.current?.(allowed);
-    annotationDecisionResolver.current = null;
-    annotationDecisionPromise.current = null;
-  }, []);
-  const discardAnnotation = React.useCallback(() => {
-    clearAnnotationEditor();
-    settleAnnotationDecision(true);
-  }, [clearAnnotationEditor, settleAnnotationDecision]);
-  const beginAnnotationDecision = React.useCallback(() => {
-    if (annotationDecisionPromise.current) return annotationDecisionPromise.current;
-    setAnnotationDecisionOpen(true);
-    annotationDecisionPromise.current = new Promise<boolean>(resolve => { annotationDecisionResolver.current = resolve; });
-    return annotationDecisionPromise.current;
-  }, []);
-  const requestAnnotationDismiss = React.useCallback((): boolean | Promise<boolean> => {
-    if (annotationDecisionPromise.current) return annotationDecisionPromise.current;
-    if (annotationOperation.current) return annotationOperation.current.then(accepted => accepted || beginAnnotationDecision());
-    if (!annotationDraft.trim()) { clearAnnotationEditor(); return true; }
-    return beginAnnotationDecision();
-  }, [annotationDraft, beginAnnotationDecision, clearAnnotationEditor]);
-  const annotationDismissRef = React.useRef(requestAnnotationDismiss);
-  annotationDismissRef.current = requestAnnotationDismiss;
-  const navigationCallbackRef = React.useRef(onBeforeNavigate);
-  navigationCallbackRef.current = onBeforeNavigate;
-  React.useLayoutEffect(() => {
-    navigationCallbackRef.current?.(() => annotationDismissRef.current());
-    return () => { navigationCallbackRef.current?.(null); settleAnnotationDecision(false); };
-  }, [composerKey, settleAnnotationDecision]);
-  const selectionComments = useSelectionComments({ regionRef: transcriptRef, hostRef: columnRef, enabled: Boolean(session), sessionKey: session ? makeSessionKey(session) : null, messages, hasDraft: Boolean(annotationDraft), onDismissRequest: requestAnnotationDismiss });
-  const { clearDraft: clearAnnotationSource, dismiss: dismissAnnotationEditor } = selectionComments;
-  annotationActions.current = { clear: clearAnnotationSource, dismiss: dismissAnnotationEditor };
-  const annotationSource = selectionComments.anchor;
-  const annotationHasSource = Boolean(annotationSource?.quote.trim() && annotationSource.spans.length && session && annotationSource.sessionKey === makeSessionKey(session));
-  const annotationSourceValid = annotationHasSource && validateQuoteAnchor(annotationSource!, messages, session ? makeSessionKey(session) : undefined).valid;
-  const annotationReason = selectionComments.reason ?? (annotationHasSource && !annotationSourceValid
-    ? 'Ember cannot find the unchanged passage, so it cannot link this annotation. Copy your text, then select the passage again to create a new annotation.' : null);
-  React.useLayoutEffect(() => {
-    annotationEpoch.current += 1;
-    settleAnnotationDecision(false);
-    setAnnotationDraft('');
-    annotationRequestId.current = null;
-    setAnnotationBusy(false);
-    dismissAnnotationEditor();
-    clearAnnotationSource();
-    setAnnotationKey(composerKey);
-    return () => { annotationEpoch.current += 1; };
-  }, [composerKey, clearAnnotationSource, dismissAnnotationEditor, settleAnnotationDecision]);
-  React.useLayoutEffect(() => {
-    setRemoteDraftBlocker(reloadBlockerKey, Boolean(text.length || attachments.length || replyContext || sideQuestionText.length || annotationDraft.length || annotationBusy));
-    if (isRemoteBrowser()) {
-      if (sideQuestionText || annotationDraft) remoteAuxiliaryDrafts.set(reloadBlockerKey, { question: sideQuestionText, annotationDraft, annotationQuote: annotationSource?.quote ?? '' });
-      else remoteAuxiliaryDrafts.delete(reloadBlockerKey);
-    }
-    return () => {
-      setRemoteDraftBlocker(reloadBlockerKey, false);
-      if (!isRemoteExpired()) remoteAuxiliaryDrafts.delete(reloadBlockerKey);
-    };
-  }, [reloadBlockerKey, text, attachments, replyContext, sideQuestionText, annotationDraft, annotationSource, annotationBusy]);
-  const annotationInput = (value: string): PromptInput => ({
-    requestId: annotationRequestId.current ??= createQuoteLinkId(),
-    text: `Re: “${annotationSource?.quote ?? ''}”\n\n${value.trim()}`,
+  const {
+    annotationDraft,
+    annotationBusy,
+    annotationError,
+    annotationDecisionOpen,
+    annotationKey,
+    selectionComments,
+    annotationSourceValid,
+    annotationReason,
+    handleAnnotationDraftChange,
+    settleAnnotationDecision,
+    discardAnnotation,
+    requestAnnotationDismiss,
+    sendAnnotation,
+    saveAnnotationNote,
+  } = useSelectionAnnotations({
+    composerKey,
+    loadedComposerKey,
+    session,
+    messages,
+    transcriptRef,
+    columnRef,
+    reloadBlockerKey,
+    text,
+    attachments,
+    replyContext,
+    sideQuestionText,
     model,
-    selectedModelId: modelId,
-    mode: session?.agent,
-    variant: variant || undefined,
+    modelId,
+    variant,
+    modelError,
+    onBeforeNavigate,
+    onAnnotate,
+    onSaveAnnotationNote,
   });
-  const submitAnnotation = (asNote: boolean): Promise<boolean> => {
-    if (annotationOperation.current) return annotationOperation.current;
-    if (!annotationSource || !annotationDraft.trim() || !session || !composerKey || loadedComposerKey !== composerKey || (!asNote && modelError)) return Promise.resolve(false);
-    if (!validateQuoteAnchor(annotationSource, messages, makeSessionKey(session)).valid) return Promise.resolve(false);
-    const epoch = annotationEpoch.current;
-    const input = annotationInput(annotationDraft);
-    const source = annotationSource;
-    setAnnotationError(null);
-    setAnnotationBusy(true);
-    const operation = (async () => {
-      try {
-        const accepted = asNote ? await onSaveAnnotationNote(input.text, source, input.requestId) : await onAnnotate(input, source);
-        if (annotationEpoch.current === epoch) {
-          if (accepted) { clearAnnotationEditor(); settleAnnotationDecision(true); }
-          else setAnnotationError(asNote ? 'Ember could not save this annotation. Your text is still here; try Save again.' : 'Ember could not finish saving this annotation and its source link. Your text is still here; try Send again.');
-        }
-        return accepted && annotationEpoch.current === epoch;
-      } catch {
-        if (annotationEpoch.current === epoch) setAnnotationError('Ember could not save this annotation. Your text is still here; try again.');
-        return false;
-      } finally {
-        annotationOperation.current = null;
-        if (annotationEpoch.current === epoch) setAnnotationBusy(false);
-      }
-    })();
-    annotationOperation.current = operation;
-    return operation;
-  };
-  const sendAnnotation = () => submitAnnotation(false);
-  const saveAnnotationNote = () => submitAnnotation(true);
-  React.useEffect(() => {
-    if (!annotationDraft.trim() && !annotationBusy) return;
-    const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
-    window.addEventListener('beforeunload', preventLoss);
-    return () => window.removeEventListener('beforeunload', preventLoss);
-  }, [annotationDraft, annotationBusy]);
 
   const hideToolCalls = view.hideToolCalls;
   const reasoningDisplay = view.reasoningDisplay;
@@ -1974,212 +1381,61 @@ function ChatView({
     [asyncQuestions]
   );
   const composerLoaded = loadedComposerKey === composerKey;
-  const shelfSections = React.useMemo<ShelfSection[]>(() => {
-    if (!session) return [];
-    const extensionMs = processExtensionFor(session);
-    return [
-      {
-        id: 'queue',
-        label: 'Queue',
-        count: queueItems.length,
-        // A row that failed to enqueue is stuck until someone acts on it.
-        alert: queueItems.some((item) => Boolean(item.error)),
-        content: (
-          <React.Suspense fallback={null}>
-            <QueuedMessageList
-              key={composerKey ?? 'none'}
-              queue={queue}
-              quoteLinks={destinationQuoteLinks}
-              onNavigateQuote={stableNavigateQuote}
-              focusItem={quoteDestinationFocus?.destination?.kind === 'queue' ? quoteItemFocus : null}
-              models={models}
-              instanceId={session.instanceId}
-              defaultModelId={defaultModelId}
-              instanceDefaultModelId={instanceDefaultModelId}
-              onSetInstanceDefault={onSetInstanceDefault}
-              onModelsRefresh={onModelsRefresh ? () => onModelsRefresh({ upstream: true }) : undefined}
-              onSendQueued={onSendQueued}
-              onMoveQueued={onMoveQueued}
-              onRemoveQueued={onRemoveQueued}
-              onParkQueued={stableParkQueuedItem}
-              onReplaceQueued={onReplaceQueued}
-              onRetryQueued={onRetryQueued}
-              onDiscardQueued={onDiscardQueued}
-            />
-          </React.Suspense>
-        ),
-      },
-      {
-        id: 'notes',
-        label: 'For later',
-        count: sessionNotes.length,
-        content: (
-          <React.Suspense fallback={null}>
-            <SessionNotes
-              key={`notes-${notesKey || 'none'}`}
-              notes={sessionNotes}
-              quoteLinks={destinationQuoteLinks}
-              onNavigateQuote={stableNavigateQuote}
-              focusItem={quoteDestinationFocus?.destination?.kind === 'note' ? quoteItemFocus : null}
-              canSend={composerLoaded}
-              onSend={stableSendNote}
-              onBringBack={stableBringBackNote}
-              models={models}
-              modelValue={modelId}
-              modelVariant={variant}
-              defaultModelId={defaultModelId}
-              instanceDefaultModelId={instanceDefaultModelId}
-              recentModels={recentModels}
-              onModelsRefresh={onModelsRefresh ? () => onModelsRefresh({ upstream: true }) : undefined}
-              onUpdate={stableUpdateNote}
-              onDelete={stableDeleteNote}
-            />
-          </React.Suspense>
-        ),
-      },
-      // What this agent's commands left running, and Ember's deadline for it. Its own
-      // tray rather than a row above the input: a notice that pushes the composer down
-      // moves the thing being typed in, every time a dev server starts or stops.
-      ...(session.processes && session.processes.count > 0 && onStopProcesses
-        ? [
-            {
-              id: 'processes' as const,
-              label: processesSectionLabel,
-              count: session.processes.count,
-              alert: processesNeedAttention(session.processes, session.hostMemory, extensionMs),
-              content: (
-                <SessionProcessesNotice
-                  // Keyed by the session: a refusal belongs to the process it was asked
-                  // about, not to whatever column is open next.
-                  key={`processes-${session.instanceId}::${session.id}`}
-                  processes={session.processes}
-                  {...(session.hostMemory ? { memory: session.hostMemory } : {})}
-                  {...(instanceLabel ? { hostLabel: instanceLabel } : {})}
-                  extensionMs={extensionMs}
-                  {...(onExtendProcesses ? { onExtend: stableExtendProcesses } : {})}
-                  onStop={stableStopProcesses}
-                />
-              ),
-            },
-          ]
-        : []),
-      ...(onOpenWorker
-        ? [
-            {
-              id: 'crew' as const,
-              label: 'Tasks',
-              summary: threadStatus.summary,
-              summaryLabel: threadStatus.detail,
-              count: threadStatus.total,
-              alert: crewNeedsInput,
-              content: (
-                <>
-                  <span className="sr-only" role="status">{threadStatus.detail}</span>
-                  <CrewStrip
-                    rows={threadRows}
-                    onOpenWorker={onOpenWorker}
-                    peerFor={workerPeer}
-                    blobStyle={blobStyle}
-                    stateFor={workerState}
-                    autoAcceptByKey={workerAutoAcceptByKey}
-                    onToggleYolo={onToggleWorkerYolo}
-                    identityFor={identityFor}
-                    // The leader's own blob colour, so the crew's chips read as one family
-                    // without recolouring a worker's blob (that has to keep matching its
-                    // column). `identity` is the exact object the leader's own column
-                    // draws, and it is stable across polls, so the memo holds.
-                    leaderIdentity={identity}
-                    leaderTitle={session.title?.trim() || undefined}
-                  />
-                </>
-              ),
-            },
-          ]
-        : []),
-      {
-        id: 'questions',
-        label: 'Questions',
-        count: asyncQuestionRootCount,
-        alert: asyncQuestionsAlert,
-        content: (
-          <QuestionsShelf
-            hostLabel={instanceLabel}
-            requests={asyncQuestions}
-            sessionId={session.id}
-            onAnswer={stableQuestion}
-            onOpenSource={stableOpenQuestionSource}
-            onSelectQuestion={questionComposer.openQuestion}
-            onMutationSuccess={questionComposer.handleMutationSuccess}
-            activeKey={questionComposer.activeKey}
-            answerModeOpen={questionComposer.answerModeOpen}
-            historyOpen={questionComposer.historyOpen}
-            onHistoryOpenChange={questionComposer.setHistoryOpen}
-          />
-        ),
-      },
-    ];
-  }, [
-    asyncQuestionRootCount,
-    asyncQuestions,
-    asyncQuestionsAlert,
-    blobStyle,
+  const shelfSections = useShelfSections({
+    session,
     composerKey,
     composerLoaded,
-    crewNeedsInput,
-    defaultModelId,
+    queue,
+    queueItems,
+    sessionNotes,
+    notesKey,
     destinationQuoteLinks,
+    quoteDestinationKind: quoteDestinationFocus?.destination?.kind,
+    quoteItemFocus,
+    models,
+    modelId,
+    variant,
+    defaultModelId,
+    instanceDefaultModelId,
+    recentModels,
+    instanceLabel,
+    blobStyle,
     identity,
     identityFor,
-    instanceDefaultModelId,
-    instanceLabel,
-    modelId,
-    models,
-    notesKey,
-    onDiscardQueued,
-    onExtendProcesses,
-    onModelsRefresh,
-    onMoveQueued,
+    threadRows,
+    threadStatus,
+    crewNeedsInput,
+    workerState,
+    workerAutoAcceptByKey,
+    workerPeer,
     onOpenWorker,
+    onToggleWorkerYolo,
+    asyncQuestions,
+    asyncQuestionRootCount,
+    asyncQuestionsAlert,
+    questionComposer,
+    processExtensionFor,
+    onSetInstanceDefault,
+    onModelsRefresh,
+    onSendQueued,
+    onMoveQueued,
     onRemoveQueued,
     onReplaceQueued,
     onRetryQueued,
-    onSendQueued,
-    onSetInstanceDefault,
+    onDiscardQueued,
+    onExtendProcesses,
     onStopProcesses,
-    onToggleWorkerYolo,
-    processExtensionFor,
-    questionComposer.activeKey,
-    questionComposer.answerModeOpen,
-    questionComposer.handleMutationSuccess,
-    questionComposer.historyOpen,
-    questionComposer.openQuestion,
-    questionComposer.setHistoryOpen,
-    queue,
-    queueItems,
-    quoteDestinationFocus?.destination?.kind,
-    quoteItemFocus,
-    recentModels,
-    session,
-    sessionNotes,
+    stableNavigateQuote,
+    stableParkQueuedItem,
+    stableSendNote,
     stableBringBackNote,
+    stableUpdateNote,
     stableDeleteNote,
     stableExtendProcesses,
-    stableNavigateQuote,
-    stableOpenQuestionSource,
-    stableParkQueuedItem,
-    stableQuestion,
-    stableSendNote,
     stableStopProcesses,
-    stableUpdateNote,
-    threadRows,
-    threadStatus.detail,
-    threadStatus.summary,
-    threadStatus.total,
-    variant,
-    workerAutoAcceptByKey,
-    workerPeer,
-    workerState,
-  ]);
+    stableQuestion,
+    stableOpenQuestionSource,
+  });
 
   /**
    * The wash of colour behind the top-left corner.
@@ -2283,183 +1539,38 @@ function ChatView({
             exit={{ opacity: 0 }}
             transition={{ duration: connection.connected ? .3 : .16 }}
           >
-            <header data-active={active} className="flex min-h-11 flex-none flex-wrap items-center gap-x-2.5 gap-y-1 border-b px-3 py-1 sm:px-4 data-[active=true]:bg-muted/25">
-              {instance?.kind === 'pi' ? <PermissionRulesButton key={`${session.instanceId}:${session.id}`} instanceId={session.instanceId} sessionId={session.id} /> : null}
-              {editingTitle ? (
-                <input
-                  autoFocus
-                  defaultValue={session.title ?? ''}
-                  aria-label="Rename session"
-                  className="min-w-0 flex-1 rounded-md border border-highlight/50 bg-background px-1.5 py-0.5 text-[13px] font-medium outline-none"
-                  onFocus={(event) => event.currentTarget.select()}
-                  onKeyDown={(event) => {
-
-                    if (event.key === 'Enter') commitRename(event.currentTarget.value);
-                    else if (event.key === 'Escape') setEditingTitle(false);
-                  }}
-                  onBlur={(event) => commitRename(event.currentTarget.value)}
-                />
-              ) : (
-                <span
-                  className={cn('min-w-[5.5rem] flex-1 truncate text-[13px] font-medium', onRename && 'cursor-text', connection.connected && 'sr-only')}
-                  title={onRename ? `${session.title ?? session.id} — double-click to rename` : undefined}
-                  onDoubleClick={onRename ? () => setEditingTitle(true) : undefined}
-                  style={instanceMarkerColor === undefined ? undefined : {
-                    textDecoration: 'underline',
-                    textDecorationColor: `var(--instance-marker-${instanceMarkerColor})`,
-                    textDecorationThickness: '2px',
-                    textUnderlineOffset: '3px',
-                  }}
-                >
-                  {session.title ?? session.id}
-                </span>
-              )}
-              {/* A worker's own session is the only place its role is known. The header used to
-                  guard a promote button on `session.kind`, which a worker's summary does not carry,
-                  so the control never rendered — there was no way to promote anything. Promote is
-                  spelled out here rather than hidden behind an icon: it forks the conversation into
-                  a peer, which is not something to discover by hovering. */}
-              {promotable && onPromote ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={onPromote}
-                  aria-label="Promote to a persistent bot"
-                  title="Promote to a persistent bot: it becomes its own named bot others can message, and keeps running on its own"
-                >
-                  <UserPlus aria-hidden="true" />
-                  Promote
-                </Button>
-              ) : null}
-              {offerReload || reloading ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  disabled={reloading}
-                  onClick={onReload}
-                  title="Reload this session from its instance"
-                >
-                  <RefreshCw className={cn(reloading && 'animate-spin')} />
-                  <span className="hidden sm:inline">{reloading ? 'Reloading…' : 'Refresh'}</span>
-                </Button>
-              ) : null}
-              {permissions.length ? (
-                <Badge variant="secondary" className="border-warning/40 bg-warning/10 font-normal text-warning">
-                  <ShieldAlert />
-                  {permissions.length === 1 ? 'Approval needed' : `${permissions.length} approvals`}
-                </Badge>
-              ) : null}
-              {questions.length ? (
-                <Badge variant="secondary" className="border-highlight/40 bg-highlight/10 font-normal text-highlight">
-                  <MessageCircleQuestion />
-                  {questions.length === 1 ? 'Question needed' : `${questions.length} questions`}
-                </Badge>
-              ) : null}
-              {instance ? (
-                <Badge variant="secondary" className="hidden font-normal text-muted-foreground sm:inline-flex">
-                  <Box aria-hidden="true" />
-                  {instance.label}
-                </Badge>
-              ) : null}
-              {sessionFolder ? (
-                <Badge
-                  variant="secondary"
-                  className="hidden font-normal text-muted-foreground sm:inline-flex"
-                  title={session?.directory}
-                >
-                  <Folder aria-hidden="true" />
-                  {sessionFolder}
-                </Badge>
-              ) : null}
-              {costState.kind === 'priced' ? (
-                // One number, never a misleading one: a "+" means some turns in this family were not
-                // priced, and the tooltip splits the bill between the session and its crew.
-                <Badge
-                  variant="secondary"
-                  className="hidden font-normal text-muted-foreground sm:inline-flex"
-                  title={crewCostTitle(costState)}
-                >
-                  <CircleDollarSign aria-hidden="true" />
-                  {crewCostLabel(costState)}
-                </Badge>
-              ) : costState.kind === 'unknown' ? (
-                // The session ran and the ledger reported nothing: say that, rather than showing
-                // "$0" (a claim that it was free) or nothing at all (which reads the same).
-                <Badge
-                  variant="secondary"
-                  className="hidden font-normal text-muted-foreground sm:inline-flex"
-                  title={COST_UNKNOWN_TITLE}
-                >
-                  <CircleDashed aria-hidden="true" />
-                  {COST_UNKNOWN_LABEL}
-                </Badge>
-              ) : null}
-              {connection.connected ? <span className="flex-1" aria-hidden="true" /> : null}
-              <ViewMenu
-                view={view}
-                onChange={onViewChange}
-                cost={costShown ? session?.cost : undefined}
-                costUnknown={costShown && costState.kind === 'unknown'}
-                instructions={session && canEditInstructions ? knownInstructions ?? '' : undefined}
-                onEditInstructions={session && canEditInstructions ? stableOpenInstructions : undefined}
-                // A worker is hidden from Home, so a read mark on it is invisible: offering the
-                // switch there would be a control with no observable effect.
-                quiet={notificationsMuted}
-                onQuietChange={
-                  session && onQuietChange && session.kind !== 'worker'
-                    ? stableQuietChange
-                    : undefined
-                }
-              />
-              {onMinimize || onArchive || onSnooze ? (
-                <div className="flex items-center gap-0.5">
-                  {onMinimize ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={onMinimize}
-                          aria-label="Close this column"
-                        >
-                          <Minus className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Close this column: the session stays in the list</TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                  {onSnooze ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" onClick={onSnooze}
-                          aria-label={snoozed ? 'Unsnooze session' : 'Snooze session'}
-                          aria-pressed={snoozed}>
-                          <Moon className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{snoozed ? 'Unsnooze session' : 'Snooze session — work and notifications stay on'}</TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                  {onArchive ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={onArchive}
-                          aria-label="Hide session"
-                        >
-                          <EyeOff className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Hide session</TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                </div>
-              ) : null}
-            </header>
+            <SessionHeader
+              session={session}
+              instance={instance}
+              active={active}
+              connected={connection.connected}
+              editingTitle={editingTitle}
+              setEditingTitle={setEditingTitle}
+              commitRename={commitRename}
+              onRename={onRename}
+              instanceMarkerColor={instanceMarkerColor}
+              promotable={promotable}
+              onPromote={onPromote}
+              offerReload={offerReload}
+              reloading={reloading}
+              onReload={onReload}
+              permissions={permissions}
+              questions={questions}
+              sessionFolder={sessionFolder}
+              costShown={costShown}
+              costState={costState}
+              view={view}
+              onViewChange={onViewChange}
+              canEditInstructions={canEditInstructions}
+              knownInstructions={knownInstructions}
+              onEditInstructions={stableOpenInstructions}
+              notificationsMuted={notificationsMuted}
+              onQuietChange={session && onQuietChange && session.kind !== 'worker' ? stableQuietChange : undefined}
+              onMinimize={onMinimize}
+              onSnooze={onSnooze}
+              snoozed={snoozed}
+              onArchive={onArchive}
+            />
 
             <div ref={transcriptRef} className="flex min-h-0 flex-1 flex-col">
               {sessionTranscript}
@@ -2474,171 +1585,30 @@ function ChatView({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
           >
-            {/* A draft with a message on its way is already a conversation-shaped thing: it has a
-                name, a destination and something the person wrote. The centre pane's blob and
-                instruction list would say "nothing has happened yet", which is the opposite. */}
-            <header className="flex min-h-11 flex-none flex-wrap items-center gap-x-2.5 gap-y-1 border-b px-3 py-1 sm:px-4">
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={pending.title}>
-                {pending.title}
-              </span>
-              {draftInstance ? (
-                <Badge variant="secondary" className="hidden font-normal text-muted-foreground sm:inline-flex">
-                  <Box aria-hidden="true" />
-                  {draftInstance.label}
-                </Badge>
-              ) : null}
-              {pending.options.directory ? (
-                <Badge
-                  variant="secondary"
-                  className="hidden font-normal text-muted-foreground sm:inline-flex"
-                  title={pending.options.directory}
-                >
-                  <Folder aria-hidden="true" />
-                  {normalizeDirectory(pending.options.directory).split(/[\\/]/).filter(Boolean).pop()}
-                </Badge>
-              ) : null}
-            </header>
+            <PendingCreateHeader pending={pending} draftInstance={draftInstance} />
             <div ref={transcriptRef} className="flex min-h-0 flex-1 flex-col">
               {pendingTranscript}
             </div>
           </motion.div>
         ) : (
-          <motion.div
-            key={newSessionInstanceId ? `new-${newSessionInstanceId}` : 'empty'}
-            className="flex flex-1 flex-col items-center justify-start gap-3 overflow-y-auto py-4 text-muted-foreground sm:justify-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-          >
-            {draftInstance ? (
-              <>
-                <button type="button" aria-label="Customize new bot appearance"
-                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4"
-                  onClick={() => { if (draftIdentity) { setDraftPickerBase(draftIdentity); setDraftAppearanceOpen(true); } }}>
-                  <Blob style={blobStyle} seed={`new:${draftInstance.id}`} identity={draftIdentity} size={48} interactive />
-                </button>
-                <div className="flex flex-col items-center gap-1 text-center">
-                  <span className="text-[13px] font-medium text-foreground">New bot on {draftInstance.label}</span>
-                  <span className="max-w-[420px] truncate text-xs">
-                    {draftDirectory.trim() || 'Pick a folder below to get started.'}
-                  </span>
-                </div>
-                {/* What the agent is *for* is the most consequential choice about a new agent, so it
-                    is made here, in the middle of the screen, by reading — not from a button on the
-                    composer. A radio list with a preview per entry and a Custom at the end: a choice,
-                    not a form. Nothing about instructions appears on the composer any more. */}
-                {canEditInstructions ? (
-                  <div className="flex w-full max-w-[460px] flex-col gap-2 px-4 text-left">
-                    <span className="px-0.5 text-[11px] font-medium tracking-wide uppercase text-muted-foreground">
-                      Standing instructions
-                    </span>
-                    <div className="flex flex-col gap-1" role="radiogroup" aria-label="Standing instructions">
-                      {INSTRUCTION_PRESETS.map((preset) => {
-                        const selected = instructionsPreset?.id === preset.id;
-                        return (
-                          <div
-                            key={preset.id}
-                            className={cn(
-                              'flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors',
-                              selected ? 'border-ring bg-muted/40' : 'border-border/70'
-                            )}
-                          >
-                            <button
-                              type="button"
-                              role="radio"
-                              aria-label={preset.name}
-                              aria-checked={selected}
-                              onClick={() => pickInstructions(preset, false)}
-                              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                            >
-                              <span
-                                aria-hidden="true"
-                                className={cn(
-                                  'size-3.5 flex-none rounded-full border transition-colors',
-                                  selected ? 'border-ring bg-highlight/70 ring-2 ring-ring/30' : 'border-muted-foreground/50'
-                                )}
-                              />
-                              <span className="min-w-0">
-                                <span className="block truncate text-xs font-medium text-foreground">{preset.name}</span>
-                                <span className="block truncate text-[11px] text-muted-foreground">{preset.blurb}</span>
-                              </span>
-                            </button>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => setPreviewPreset(preset)}
-                              aria-label={`Read the ${preset.name} prompt`}
-                              title={`Read the ${preset.name} prompt`}
-                              className="flex-none text-muted-foreground hover:text-foreground"
-                            >
-                              <Eye className="size-3.5" />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                      {/* Custom is a radio too, but it cannot select anything by itself: it opens the
-                          editor, and the list shows it as chosen only when the text matches no preset. */}
-                      <div
-                        className={cn(
-                          'flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors',
-                          instructionsPreset === undefined && instructions.trim()
-                            ? 'border-ring bg-muted/40'
-                            : 'border-border/70'
-                        )}
-                      >
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={instructionsPreset === undefined && Boolean(instructions.trim())}
-                          onClick={openInstructions}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={cn(
-                              'size-3.5 flex-none rounded-full border transition-colors',
-                              instructionsPreset === undefined && instructions.trim()
-                                ? 'border-ring bg-highlight/70 ring-2 ring-ring/30'
-                                : 'border-muted-foreground/50'
-                            )}
-                          />
-                          <span className="min-w-0">
-                            <span className="block truncate text-xs font-medium text-foreground">Custom (type your own)</span>
-                            <span className="block truncate text-[11px] text-muted-foreground">
-                              {instructionsPreset === undefined && instructions.trim()
-                                ? 'Your own words — click to edit'
-                                : 'Write your own standing instructions'}
-                            </span>
-                          </span>
-                        </button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={openInstructions}
-                          aria-label="Edit custom standing instructions"
-                          title="Edit custom standing instructions"
-                          className="flex-none text-muted-foreground hover:text-foreground"
-                        >
-                          <Pencil className="size-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                    {instructionsPreset?.id === 'delegator' ? workerModelControls(instructions, false) : null}
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <div className="flex -space-x-3">
-                  <Blob style={blobStyle} seed="empty one" size={48} interactive />
-                  <Blob style={blobStyle} seed="empty two" size={48} interactive />
-                  <Blob style={blobStyle} seed="empty three" size={48} interactive />
-                </div>
-                <span className="text-[13px]">Pick a session, or start a new bot.</span>
-              </>
-            )}
-          </motion.div>
+          <NewBotEmptyState
+            newSessionInstanceId={newSessionInstanceId}
+            draftInstance={draftInstance}
+            draftIdentity={draftIdentity}
+            draftDirectory={draftDirectory}
+            blobStyle={blobStyle}
+            canEditInstructions={canEditInstructions}
+            instructions={instructions}
+            instructionsPreset={instructionsPreset}
+            pickInstructions={pickInstructions}
+            setPreviewPreset={setPreviewPreset}
+            openInstructions={openInstructions}
+            workerModelControls={workerModelControls}
+            onCustomizeAppearance={(nextIdentity) => {
+              setDraftPickerBase(nextIdentity);
+              setDraftAppearanceOpen(true);
+            }}
+          />
         )}
       </AnimatePresence>
 
@@ -2651,29 +1621,23 @@ function ChatView({
           focusEditor={selectionComments.focusEditor}
           busy={annotationBusy}
           queueing={shouldQueue}
-          onDraftChange={(value) => { if (value !== annotationDraft) annotationRequestId.current = null; setAnnotationError(null); setAnnotationDraft(value); }}
+          onDraftChange={handleAnnotationDraftChange}
           onSend={sendAnnotation}
           onNote={saveAnnotationNote}
           onDismiss={() => { void requestAnnotationDismiss(); }}
           error={annotationError}
         />
       ) : null}
-      <Dialog open={annotationDecisionOpen} onOpenChange={(open) => { if (!open && !annotationBusy) settleAnnotationDecision(false); }}>
-        <DialogContent showCloseButton={false} data-annotation-decision="" onEscapeKeyDown={(event) => { event.preventDefault(); if (!annotationBusy) settleAnnotationDecision(false); }} onPointerDownOutside={(event) => { event.preventDefault(); }}>
-          <DialogHeader>
-            <DialogTitle>Save this annotation for later?</DialogTitle>
-            <DialogDescription>{annotationReason ?? "Save keeps your text and its quoted passage in this chat’s For later tray. Escape returns to the editor."}</DialogDescription>
-          </DialogHeader>
-          {annotationError ? <p role="alert" className="text-sm text-destructive">{annotationError}</p> : null}
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={annotationBusy} onClick={discardAnnotation}>Discard</Button>
-            <Button type="button" disabled={annotationBusy || !annotationSourceValid || Boolean(annotationReason)} onClick={async () => {
-              const saved = await saveAnnotationNote();
-              if (saved) settleAnnotationDecision(true);
-            }}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AnnotationDecisionDialog
+        open={annotationDecisionOpen}
+        busy={annotationBusy}
+        reason={annotationReason}
+        error={annotationError}
+        sourceValid={annotationSourceValid}
+        onSettle={settleAnnotationDecision}
+        onDiscard={discardAnnotation}
+        onSave={saveAnnotationNote}
+      />
       {composerKey ? (
         <div className="flex-none">
           <div data-composer-extras className="flex min-w-0 flex-col gap-2 px-2.5 py-2 empty:hidden sm:px-3">
@@ -3471,116 +2435,38 @@ function ChatView({
       ) : null}
       </div>
 
-      <Dialog open={previewPreset !== null} onOpenChange={(next) => { if (!next) setPreviewPreset(null); }}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{previewPreset?.name ?? 'Prompt'}</DialogTitle>
-            <DialogDescription>
-              {previewPreset?.note ?? 'Exactly what this session is told, before anything you type.'}
-            </DialogDescription>
-          </DialogHeader>
-          {previewPreset?.instructions ? (
-            <pre className="max-h-[50vh] overflow-auto rounded-md border bg-muted/30 p-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
-              {previewPreset.instructions}
-            </pre>
-          ) : null}
-          <DialogFooter>
-            <Button
-              disabled={!previewPreset}
-              onClick={() => {
-                if (previewPreset) pickInstructions(previewPreset, false);
-                setPreviewPreset(null);
-              }}
-            >
-              Use this
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {draftInstance && draftPickerBase && onDraftAppearanceChange ? (
-        <React.Suspense fallback={null}>
-        <AvatarPicker open={draftAppearanceOpen} onOpenChange={setDraftAppearanceOpen}
-          title="New bot" style={blobStyle} theme={draftAppearanceTheme}
-          identity={draftPickerBase}
-          scopes={[{ key: 'new-bot', label: 'This new bot', kind: 'session' }]}
-          overrides={draftAppearance ? { 'new-bot': draftAppearance.override } : {}}
-          resolvePreview={(_scope, override) => previewDraftAppearance(draftPickerBase, override)}
-          onSave={(_scope, override, preview) => {
-            onDraftAppearanceChange(override ? freezeDraftAppearance(preview, blobStyle) : null);
-            setDraftAppearanceOpen(false);
-          }} />
-        </React.Suspense>
-      ) : null}
-      <Dialog open={instructionsOpen} onOpenChange={changeInstructionsOpen}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Standing instructions</DialogTitle>
-            <DialogDescription>
-              {draftInstanceId
-                ? "What this bot is for. It becomes part of the session's own prompt, before anything you type — not a first message."
-                : "What this bot is for. Saved to the session itself and applied from its next turn — not sent as a message."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              {INSTRUCTION_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  aria-label={preset.name}
-                  onClick={() => pickInstructions(preset, true)}
-                  className={cn(
-                    'rounded-md border px-2.5 py-2 text-left transition-colors hover:bg-muted/60',
-                    !editingCustomInstructions && presetFor(instructionsDraft)?.id === preset.id && 'border-ring bg-muted/40'
-                  )}
-                >
-                  <span className="block text-xs font-medium">{preset.name}</span>
-                  <span className="block text-[11px] text-muted-foreground">{preset.blurb}</span>
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => { editInstructions(); setEditingCustomInstructions(true); instructionsTextRef.current?.focus(); }}
-                className={cn(
-                  'rounded-md border px-2.5 py-2 text-left text-xs font-medium transition-colors hover:bg-muted/60',
-                  editingCustomInstructions && 'border-ring bg-muted/40'
-                )}
-              >
-                Custom (type your own)
-              </button>
-            </div>
-            {!editingCustomInstructions && presetFor(instructionsDraft)?.id === 'delegator' ? workerModelControls(instructionsDraft, true) : null}
-            {instructionsLoading ? (
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" /> Reading this session's current prompt…
-              </span>
-            ) : null}
-            <Textarea
-              ref={instructionsTextRef}
-              value={instructionsDraft}
-              onChange={(event) => { editInstructions(); setInstructionsDraft(event.target.value); setEditingCustomInstructions(true); }}
-              placeholder="Or write your own — leave empty for none."
-              aria-label="Standing instructions text"
-              className="min-h-32 text-xs"
-            />
-          </div>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setInstructionsDraft('');
-                if (draftInstanceId) setInstructions('');
-                else void saveInstructions('');
-              }}
-            >
-              Clear
-            </Button>
-            <Button disabled={instructionsLoading || Boolean(editorWorkerModelError)} onClick={() => void saveInstructions()}>
-              {draftInstanceId ? 'Use these' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PresetPreviewDialog
+        preset={previewPreset}
+        onClose={() => setPreviewPreset(null)}
+        onPick={(preset) => pickInstructions(preset, false)}
+      />
+      <DraftAppearanceDialog
+        draftInstance={draftInstance}
+        draftPickerBase={draftPickerBase}
+        open={draftAppearanceOpen}
+        onOpenChange={setDraftAppearanceOpen}
+        blobStyle={blobStyle}
+        theme={draftAppearanceTheme}
+        draftAppearance={draftAppearance}
+        onDraftAppearanceChange={onDraftAppearanceChange}
+      />
+      <StandingInstructionsDialog
+        open={instructionsOpen}
+        onOpenChange={changeInstructionsOpen}
+        draftInstanceId={draftInstanceId}
+        instructionsDraft={instructionsDraft}
+        setInstructionsDraft={setInstructionsDraft}
+        setInstructions={setInstructions}
+        editingCustomInstructions={editingCustomInstructions}
+        setEditingCustomInstructions={setEditingCustomInstructions}
+        instructionsTextRef={instructionsTextRef}
+        instructionsLoading={instructionsLoading}
+        editorWorkerModelError={editorWorkerModelError}
+        editInstructions={editInstructions}
+        pickInstructions={pickInstructions}
+        workerModelControls={workerModelControls}
+        saveInstructions={saveInstructions}
+      />
       {dragging ? (
         <div
           data-testid="drop-overlay"

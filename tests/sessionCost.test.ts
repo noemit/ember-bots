@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COST_PRICED_TITLE, COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE, hostReportsCost, sessionCostState } from '../src/lib/sessionCost';
 
-const chatView = fs.readFileSync(path.join(import.meta.dir, '../src/components/ChatView.tsx'), 'utf8');
+const chatView = [
+  fs.readFileSync(path.join(import.meta.dir, '../src/components/ChatView.tsx'), 'utf8'),
+  fs.readFileSync(path.join(import.meta.dir, '../src/components/chat/ChatHeader.tsx'), 'utf8'),
+].join('\n');
 
 describe('sessionCostState', () => {
   test('a session that has never run reports nothing', () => {
