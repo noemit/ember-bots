@@ -178,8 +178,8 @@ test('a create whose answer was lost is adopted on retry, never created twice', 
     'ambiguous create'
   );
   // The adopted chat keeps its original topic name; retry does not create a numbered duplicate.
-  await expect(page.locator('aside').getByRole('button', { name: 'Ambiguous Scout', exact: true })).toHaveCount(1);
-  await expect(page.locator('aside').getByRole('button', { name: /^Ambiguous Scout \d/ })).toHaveCount(0);
+  await expect(page.locator('aside').getByRole('button', { name: 'Ambiguous create', exact: true })).toHaveCount(1);
+  await expect(page.locator('aside').getByRole('button', { name: /^Ambiguous create \d/ })).toHaveCount(0);
 });
 
 test('a create that succeeds but whose send fails lands in the session, without a banner', async ({ page }) => {

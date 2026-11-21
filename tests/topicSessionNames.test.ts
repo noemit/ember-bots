@@ -61,3 +61,15 @@ test.each(['OPENAI_API_KEY=sample_private_123', 'ACCESS_TOKEN=sample_private_123
 test.each(['password reset', 'authorization middleware', 'secret rotation'])('credential-related task %s remains meaningful', object => {
   expect(deriveSessionName({ text: 'Fix ' + object }).toLowerCase()).toBe(object);
 });
+
+test.each([
+  'For context: the demo is tomorrow.\nPlease fix the flaky tailnet reconnect.',
+  'This problem started last week and is especially hard to reproduce for people who switch between different network connections.\nCould you fix the flaky tailnet reconnect?',
+  'Background: the demo is tomorrow.\n```\nFix a misleading sample command\n```\n> Fix quoted instructions\nPlease fix the flaky tailnet reconnect.',
+])('a request after context still names the conversation', text => {
+  expect(deriveSessionName({ text })).toBe('Flaky tailnet reconnect');
+});
+
+test('background alone does not become the title', () => {
+  expect(deriveSessionName({ text: 'For context: the demo is tomorrow. This is only a status note.' })).toBe('New conversation');
+});
