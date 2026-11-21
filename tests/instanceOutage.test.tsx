@@ -13,7 +13,6 @@ import { InstanceOutageToasts } from '../src/components/InstanceOutageToasts';
 import LeftRail from '../src/components/LeftRail';
 import { TooltipProvider } from '../src/components/ui/tooltip';
 import { silentInstances } from '../src/lib/instanceHealth';
-import { buildRailEntries } from '../src/lib/projectGroups';
 import type { Instance, Session } from '../src/types';
 
 const host: Instance = { id: 'pi:keep', label: 'Keep', kind: 'pi', status: 'unreachable', attachable: false };
@@ -45,7 +44,6 @@ const render = (
   list: Session[],
   extra: {
     everySession?: Session[];
-    groups?: import('../src/types').SessionGroup[];
     scheduledTasks?: import('../src/types').ScheduledTask[];
     dismissed?: string[];
   } = {}
@@ -90,10 +88,6 @@ const render = (
         onArchiveMany={() => undefined}
         onCustomizeAppearance={() => undefined}
         onNewAgent={() => undefined}
-        groups={extra.groups ?? []}
-        onOpenGroup={() => undefined}
-        onUngroup={() => undefined}
-        onManageGroup={() => undefined}
       />
     </TooltipProvider>
   );
@@ -180,52 +174,5 @@ describe('the rail during an outage', () => {
     );
     expect(connectedEmpty).toMatch(/no sessions yet/i);
     expect(connectedEmpty).not.toMatch(/not answering/i);
-  });
-});
-
-/**
- * S4-5: searching a group's name must find the group's sessions, and keep them inside the group.
- *
- * The rail builds its search entries with `buildRailEntries(activeMatches, projectsByInstance,
- * groups)`. Without `groups` the members of a group fell through to standalone session rows (found
- * only when their own title matched) and the group card disappeared, so searching by the name the
- * reader gave the group returned nothing. The contract is pinned against the builder the rail calls
- * — there is no DOM here to type into the search box — plus the rail's own render of a group.
- */
-describe('searching a group by name', () => {
-  const member = (id: string, title: string, updated: number): Session => ({
-    id,
-    instanceId: 'local',
-    title,
-    updated,
-  });
-  const group = {
-    id: 'g-release',
-    name: 'Release train',
-    keys: ['local::g1', 'local::g2'],
-    primaryKey: 'local::g1',
-  };
-  const members = [member('g1', 'Wire the retry budget', 3), member('g2', 'Land the migration', 2)];
-
-  test('with `groups`, matching members stay in one group entry instead of splitting into rows', () => {
-    const withGroups = buildRailEntries(members, {}, [group]);
-    expect(withGroups).toHaveLength(1);
-    expect(withGroups[0].kind).toBe('group');
-    expect(withGroups[0].kind === 'group' ? withGroups[0].members.map((m) => m.id) : []).toEqual(['g1', 'g2']);
-    // The old call — no `groups` — is the bug: two bare rows and no group card.
-    const withoutGroups = buildRailEntries(members, {});
-    expect(withoutGroups.map((entry) => entry.kind)).toEqual(['session', 'session']);
-  });
-
-  test('the rail draws the group card for those entries', () => {
-    const html = render(
-      [{ id: 'local', label: 'Local', kind: 'local', status: 'ready', attachable: true }],
-      members,
-      { groups: [group] }
-    );
-    // An explicitly named group draws its custom name visibly in the header alongside its count,
-    // and exposes the same name as the row's accessible label.
-    expect(textOf(html)).toContain('Release train');
-    expect(html).toContain('aria-label="Open group Release train"');
   });
 });

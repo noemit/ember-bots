@@ -1,8 +1,7 @@
 import { projectForSession, projectIdentityKey } from '../blob/seed';
 import { isWorker } from './crew';
-import { customGroupName, defaultGroupName } from './sessionGroups';
 import { sessionKey } from '../types';
-import type { Project, Session, SessionGroup } from '../types';
+import type { Project, Session } from '../types';
 
 export type ProjectEntry = {
   kind: 'project';
@@ -24,82 +23,12 @@ export type SessionEntry = {
   updated: number;
 };
 
-/**
- * A group of agents that can span instances and projects. It outranks the project of any member, so a
- * grouped session leaves its project card and appears only here.
- */
-export type GroupEntry = {
-  kind: 'group';
-  id: string;
-  /** Accessible label for the group: `customName` when set, otherwise `defaultGroupName`. */
-  name: string;
-  /**
-   * Explicit user-authored group name when one was set on `SessionGroup.name`; `null` when the
-   * group is unnamed (or only held a synthesized default), so `GroupRow` knows whether to draw the
-   * name visibly or show `{N} bots`.
-   */
-  customName?: string | null;
-  /**
-   * The group's configured keys, exactly as saved — including ones that resolve to no session right
-   * now (an unreachable instance, a session outside the loaded window). Never derived from
-   * `members`: a member that cannot be read is still a member, and the Manage panel saves this list
-   * back, so deriving it would quietly drop those keys.
-   */
-  keys: string[];
-  /** Resolved members, most recent first. */
-  members: Session[];
-  /** Distinct instance ids among the resolved members, for the row's badges. */
-  instanceIds: string[];
-  /**
-   * The member new agents for this group default to. The configured key is kept even when it does
-   * not resolve (so an outage cannot re-point the group); only a key that is no longer configured
-   * falls back to the most recent resolved member.
-   */
-  primaryKey?: string;
-  updated: number;
-};
-
-export type RailEntry = ProjectEntry | SessionEntry | GroupEntry;
-
-/** The draft the Manage panel opens with. */
-export type GroupDraftSeed = {
-  id: string;
-  name: string;
-  /** The configured keys, resolved or not — see `GroupEntry.keys`. */
-  keys: string[];
-  primaryKey?: string;
-};
-
-/**
- * Seed the Manage panel from a rail entry. The configured key list is copied as it stands: a member
- * whose instance is not answering has no session to resolve to, and rebuilding the list from
- * `members` is what used to drop it (and then save the shorter list back). Unnamed groups seed an
- * empty input so the placeholder stays a hint rather than becoming a saved title.
- */
-export const groupDraftFromEntry = (entry: GroupEntry): GroupDraftSeed => {
-  const customName =
-    entry.customName !== undefined
-      ? entry.customName?.trim() || null
-      : (customGroupName(
-          entry.name,
-          entry.members.map((member) => member.title?.trim() || member.id)
-        ) ?? null);
-  return {
-    id: entry.id,
-    name: customName ?? '',
-    keys: [...entry.keys],
-    primaryKey: entry.primaryKey,
-  };
-};
+export type RailEntry = ProjectEntry | SessionEntry;
 
 const byRecency = (a: Session, b: Session) => (b.updated ?? 0) - (a.updated ?? 0);
 
 const nameOf = (entry: RailEntry): string =>
-  entry.kind === 'group'
-    ? entry.name
-    : entry.kind === 'project'
-      ? entry.project.name
-      : entry.session.title ?? entry.session.id;
+  entry.kind === 'project' ? entry.project.name : entry.session.title ?? entry.session.id;
 
 /**
  * Builds the rail's single recency-ordered list. Sessions that sit inside a configured project
@@ -112,17 +41,12 @@ const nameOf = (entry: RailEntry): string =>
  */
 export const buildRailEntries = (
   sessions: Session[],
-  projectsByInstance: Record<string, Project[]>,
-  groups: readonly SessionGroup[] = []
+  projectsByInstance: Record<string, Project[]>
 ): RailEntry[] => {
   const projects = new Map<string, ProjectEntry>();
   const standalone: SessionEntry[] = [];
-  // Grouped sessions belong to their group and nowhere else, so they are kept out of the project
-  // pass entirely. A project card stays as long as it still has ungrouped members.
-  const groupedKeys = new Set(groups.flatMap((group) => group.keys));
 
   sessions.forEach((session) => {
-    if (groupedKeys.has(sessionKey(session))) return;
     const project = projectForSession(session, projectsByInstance[session.instanceId] ?? []);
     if (project) {
       const id = projectIdentityKey(session.instanceId, project.id);
@@ -148,34 +72,7 @@ export const buildRailEntries = (
     }
   });
 
-  const byKey = new Map(sessions.map((session) => [sessionKey(session), session]));
-  const groupEntries: GroupEntry[] = groups.flatMap((group) => {
-    const members = group.keys
-      .flatMap((key) => byKey.get(key) ?? [])
-      .sort(byRecency);
-    // A group whose members are all gone (or archived out of `sessions`) has nothing to show.
-    if (members.length === 0) return [];
-    const memberTitles = members.map((member) => member.title?.trim() || member.id);
-    const customName = customGroupName(group.name, memberTitles) ?? null;
-    return [
-      {
-        kind: 'group' as const,
-        id: group.id,
-        name: customName ?? defaultGroupName(memberTitles),
-        customName,
-        keys: [...group.keys],
-        members,
-        instanceIds: [...new Set(members.map((member) => member.instanceId))],
-        primaryKey:
-          group.primaryKey !== undefined && group.keys.includes(group.primaryKey)
-            ? group.primaryKey
-            : sessionKey(members[0]),
-        updated: members[0].updated ?? 0,
-      },
-    ];
-  });
-
-  const entries: RailEntry[] = [...groupEntries, ...projects.values(), ...standalone];
+  const entries: RailEntry[] = [...projects.values(), ...standalone];
   entries.forEach((entry) => {
     if (entry.kind !== 'project') return;
     entry.sessions.sort(byRecency);
@@ -203,16 +100,14 @@ export const nextSessionAfterArchive = (
   archived: Session,
   sessions: readonly Session[],
   projectsByInstance: Record<string, Project[]>,
-  groups: readonly SessionGroup[] = [],
   minimizedKeys: ReadonlySet<string> = new Set()
 ): Session | null => {
   const key = sessionKey(archived);
   const order = buildRailEntries(
     sessions.filter((session) => !session.archived && !isWorker(session)),
-    projectsByInstance,
-    groups
+    projectsByInstance
   ).flatMap((entry) =>
-    entry.kind === 'project' ? entry.sessions : entry.kind === 'group' ? entry.members : [entry.session]
+    entry.kind === 'project' ? entry.sessions : [entry.session]
   );
   const start = order.findIndex((session) => sessionKey(session) === key);
   const from = start >= 0 ? start + 1 : 0;

@@ -1,7 +1,7 @@
 import { isWorker } from './crew';
 import { sessionKey, type Session } from '../types';
 
-/** Snooze changes only rail placement, never visibility, group membership or host state. */
+/** Snooze changes only rail placement, never visibility or host state. */
 export function splitSnoozedRail(
   recent: Session[],
   all: Session[],

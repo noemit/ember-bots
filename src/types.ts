@@ -699,8 +699,6 @@ export type EmberSettings = {
   showAvatars: boolean;
   /** The transcript's scrub rail; hidden automatically on short chats. */
   showActivityRail: boolean;
-  /** Agent groups: named, cross-instance sets of `instance::session` keys. */
-  sessionGroups: SessionGroup[];
   compactSpacing: boolean;
   /** Tighter session rows in the rail. */
   compactRail: boolean;
@@ -820,13 +818,6 @@ export type EmberSettingsPatch = Partial<EmberSettings> & {
 };
 
 /** The transcript/rail display controls the eye menu edits (a slice of `EmberSettings`). */
-export type SessionGroup = {
-  id: string;
-  name: string;
-  keys: string[];
-  primaryKey?: string;
-};
-
 export type ViewSettings = {
   reasoningDisplay: ReasoningDisplay;
   hideToolCalls: boolean;

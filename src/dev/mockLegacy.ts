@@ -315,10 +315,6 @@ let settings: EmberSettings = {
   autoFollow: true,
   splitView: false,
   showActivityRail: true,
-  sessionGroups: [
-    // Cross-instance on purpose: same project, two instances.
-    { id: 'g-release-train', name: 'Release train', keys: ['local::ses_a2', 'studio::ses_b1'] },
-  ],
   delegatorModels: storedDelegatorModels(),
   instanceDefaults: {
     local: { markerColor: 0 },

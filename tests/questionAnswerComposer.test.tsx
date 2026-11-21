@@ -6,6 +6,7 @@ import QuestionAnswerComposer from '../src/components/QuestionAnswerComposer';
 import { TooltipProvider } from '../src/components/ui/tooltip';
 import { WorkspaceConnection, useWorkspaceConnection } from '../src/components/workspaceConnection';
 import { questionDrafts } from '../src/lib/asyncQuestionDrafts';
+import { composerMemory } from '../src/lib/composerDrafts';
 import { piQuestionToQuestionRequest } from '../src/lib/piMapping';
 import { questionKey } from '../src/lib/threadQuestions';
 import { seedIdentity } from '../src/blob/seed';
@@ -300,6 +301,7 @@ const setupDomEnv = () => {
     doc,
     restore() {
       questionDrafts.clear();
+      composerMemory.delete('pi:hearth::16');
       for (const [key, prior] of saved) {
         if (prior.present) scope[key] = prior.value;
         else delete scope[key];

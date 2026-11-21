@@ -2378,7 +2378,6 @@ let settings: EmberSettings = {
   autoFollow: true,
   splitView: false,
   showActivityRail: true,
-  sessionGroups: [],
   instanceDefaults: storedRead.instanceDefaults ?? {},
   delegatorModels: parseDelegatorModels(storedRead.delegatorModels),
   sessionNotes: storedNotes,

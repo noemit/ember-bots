@@ -528,40 +528,6 @@ const toStoredSessionNote = (value: unknown, fallbackId: string): StoredSessionN
   return { id, text, ...(modelId ? { modelId } : {}), ...(variant ? { variant } : {}), ...(quoteLinkId ? { quoteLinkId } : {}) };
 };
 
-/** Notes saved per session; a lone string (or legacy single-note map) becomes one entry. */
-/** Groups that are not `{ id, name, keys[] }` are dropped; a key may appear in one group only. */
-export const parseSessionGroups = (value: unknown): SessionGroup[] => {
-  if (!Array.isArray(value)) return [];
-  const seenGroups = new Set<string>();
-  const seenKeys = new Set<string>();
-  const groups: SessionGroup[] = [];
-  value.slice(0, 200).forEach((entry) => {
-    if (!entry || typeof entry !== 'object') return;
-    const group = entry as Record<string, unknown>;
-    if (typeof group.id !== 'string' || !group.id || seenGroups.has(group.id)) return;
-    if (typeof group.name !== 'string') return;
-    const keys = Array.isArray(group.keys)
-      ? group.keys.filter((key): key is string => {
-          if (typeof key !== 'string' || !key.includes('::') || seenKeys.has(key)) return false;
-          seenKeys.add(key);
-          return true;
-        })
-      : [];
-    // A group needs two members to be a group, same rule as lib/sessionGroups.
-    if (keys.length < 2) return;
-    seenGroups.add(group.id);
-    groups.push({
-      id: group.id,
-      name: group.name.slice(0, 120),
-      keys: keys.slice(0, 16),
-      ...(typeof group.primaryKey === 'string' && keys.includes(group.primaryKey)
-        ? { primaryKey: group.primaryKey }
-        : { primaryKey: keys[0] }),
-    });
-  });
-  return groups;
-};
-
 /**
  * One session's read mark. The ordinal is the only thing that matters; `ids` are the out-of-order
  * marks kept until the run closes, and `readAt` is the fallback for wires without ordinals.
@@ -628,6 +594,7 @@ export const parseReadMarks = (value: unknown): Record<string, StoredReadMark> =
   return marks;
 };
 
+/** Notes saved per session; a lone string (or legacy single-note map) becomes one entry. */
 export const parseSessionNotes = (value: unknown): Record<string, StoredSessionNote[]> => {
   if (!value || typeof value !== 'object') return {};
   const notes: Record<string, StoredSessionNote[]> = {};
@@ -880,20 +847,6 @@ export const parseInstanceDefaults = (value: unknown): Record<string, InstanceDe
   return defaults;
 };
 
-/**
- * A named set of sessions that can span instances and projects. A session lives in at most one group;
- * `src/lib/sessionGroups.ts` enforces that when editing, and the parse below de-dupes defensively so a
- * hand-edited file cannot put one key in two groups.
- */
-export type SessionGroup = {
-  id: string;
-  name: string;
-  /** `instance::session`, the same format as the workspace keys. */
-  keys: string[];
-  /** The member whose instance and project a new agent in this group defaults to. */
-  primaryKey?: string;
-};
-
 export type EmberSettings = {
   theme: string;
   blobStyle: BlobStyle;
@@ -934,8 +887,6 @@ export type EmberSettings = {
   splitView: boolean;
   /** The transcript's scrub rail (hidden automatically on short chats). */
   showActivityRail: boolean;
-  /** Agent groups: named, cross-instance sets of `instance::session` keys. Ember-side only. */
-  sessionGroups: SessionGroup[];
   instanceDefaults: Record<string, InstanceDefaults>;
   /** Omitted roles seed from the current composer model when choosing Ultra Delegator; patches replace the whole map. */
   delegatorModels?: Record<string, DelegatorModels>;

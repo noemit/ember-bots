@@ -28,7 +28,6 @@ import {
   parseInstanceDefaults,
   parseDelegatorModels,
   parsePiEndpoints,
-  parseSessionGroups,
   parseReadMarks,
   parseSessionNotes,
   parseQuoteLinks,
@@ -438,7 +437,6 @@ const parseStaticEmberSettings = (root: Record<string, unknown>): StaticEmberSet
     railMode: isRailMode(root.railMode) ? root.railMode : 'normal',
     autoFollow: root.autoFollow !== false,
     splitView: root.splitView === true,
-    sessionGroups: parseSessionGroups(root.sessionGroups),
     instanceDefaults: parseInstanceDefaults(root.instanceDefaults),
     delegatorModels: parseDelegatorModels(root.delegatorModels),
     sessionNotes: parseSessionNotes(root.sessionNotes),
@@ -1086,7 +1084,6 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
   if (isRailMode(value.railMode)) settings.railMode = value.railMode;
   if (typeof value.autoFollow === 'boolean') settings.autoFollow = value.autoFollow;
   if (typeof value.splitView === 'boolean') settings.splitView = value.splitView;
-  if (value.sessionGroups !== undefined) settings.sessionGroups = parseSessionGroups(value.sessionGroups);
   if (value.delegatorModels !== undefined) settings.delegatorModels = parseDelegatorModels(value.delegatorModels);
   if (value.instanceDefaults !== undefined) settings.instanceDefaults = parseInstanceDefaults(value.instanceDefaults);
   if (value.sessionNotes !== undefined) settings.sessionNotes = parseSessionNotes(value.sessionNotes);
