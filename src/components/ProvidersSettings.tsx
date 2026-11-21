@@ -70,6 +70,36 @@ export default function ProvidersSettings(props: Props) {
     onEndpointChange={id => setSelection({ initialEndpointId, id })} />;
 }
 
+const sanitizeFailureDetail = (error: unknown): string | undefined => {
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const trimmed = raw.trim();
+  if (!trimmed || /\b(HTTP\s*\d+|undefined|null|stack)\b/i.test(trimmed)) return undefined;
+  return trimmed.replace(/!+$/, '');
+};
+
+export const formatProviderActionError = (
+  hostLabel: string,
+  providerName: string,
+  action: 'save' | 'remove',
+  error?: unknown,
+): string => {
+  const host = hostLabel.trim() || 'This Kiln';
+  const detail = sanitizeFailureDetail(error);
+  if (action === 'remove') {
+    return `${host} could not remove ${providerName}’s saved credential${detail ? ` (${detail})` : ''}. Check that ${host} is answering and choose Remove credential again.`;
+  }
+  return `${host} could not save ${providerName}’s key${detail ? ` (${detail})` : ''}. Check that ${host} is answering and try Save key again.`;
+};
+
+export const formatEnvFallbackNotice = (
+  hostLabel: string,
+  providerName: string,
+  envVar: string,
+): string => {
+  const host = hostLabel.trim() || 'this computer';
+  return `Saved key removed from ${host}. ${providerName} now uses ${envVar} from the host environment — unset ${envVar} on the computer running this Kiln and restart Kiln to disconnect it completely.`;
+};
+
 /** A host transition remounts every credential draft, action and dialog together. */
 function HostProvidersSettings({ inventory = false, onboarding = false, endpoints, instances, onProviderChange, instanceDefaults = {}, onDefaultChange, onProviderCatalog, endpointId, onEndpointChange }: Props & { endpointId: string; onEndpointChange: (id: string) => void }) {
   const mounted = React.useRef(true);
@@ -90,7 +120,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState<string | null>(null);
   /** The provider whose sign-in dialog is open, if any. */
-  const [confirmation, setConfirmation] = React.useState<{ endpointId: string; providerName: string; catalog: ModelList | null } | null>(null);
+  const [confirmation, setConfirmation] = React.useState<{ endpointId: string; providerName: string; providerId?: string; catalog: ModelList | null } | null>(null);
   const [choosingDefault, setChoosingDefault] = React.useState(false);
   const savedDefaultKey = instanceDefaults[endpointId]?.model ? modelRefKey(instanceDefaults[endpointId].model) : '';
   const previousDefaultKey = React.useRef(savedDefaultKey);
@@ -104,6 +134,8 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
   const [adding, setAdding] = React.useState(false);
   const [managing, setManaging] = React.useState<string | null>(null);
   const [removing, setRemoving] = React.useState<string | null>(null);
+  const [removeError, setRemoveError] = React.useState<{ providerId: string; message: string } | null>(null);
+  const [envFallbackNotices, setEnvFallbackNotices] = React.useState<Record<string, string>>({});
   const [signIn, setSignIn] = React.useState<PiProviderInfo | null>(null);
 
   // Stable identity, so the signing dialog's effects don't restart on every parent render.
@@ -111,55 +143,58 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
 
   const notifyCatalog = useStableCallback((id: string, providers: PiProviderInfo[]) => onProviderCatalog?.(id, providers));
 
-  const load = React.useCallback(async (id: string) => {
-    if (!mounted.current) return;
+  const load = React.useCallback(async (id: string): Promise<PiProviderInfo[] | null> => {
+    if (!mounted.current) return null;
     if (!id) {
       setProviders(null);
-      return;
+      return null;
     }
     const version = ++reads.current;
     setLoading(true);
     setError(null);
     const catalog = await piLoadProviders(id);
-    if (!mounted.current || reads.current !== version) return;
+    if (!mounted.current || reads.current !== version) return null;
     if (!catalog) {
       setProviders(null);
       setDefaultModel(null);
       notifyCatalog(id, []);
       setError((endpoints.find(endpoint => endpoint.id === id)?.label ?? 'This Kiln') + ' did not return its providers. Check its connection in Computers and Containers, then use Refresh providers above.');
       setLoading(false);
-      return;
+      return null;
     }
     setProviders(catalog.providers);
     notifyCatalog(id, catalog.providers);
     setDefaultModel(catalog.default ? `${catalog.default.provider} / ${catalog.default.modelId}` : null);
     setLoading(false);
+    return catalog.providers;
   }, [notifyCatalog, endpoints]);
 
   React.useEffect(() => {
     void load(endpointId);
   }, [endpointId, load]);
 
-  const confirmDefault = async (id: string, providerName: string) => {
+  const confirmDefault = async (id: string, providerName: string, providerId?: string) => {
     if (!mounted.current) return;
     const version = ++defaultReads.current;
-    setConfirmation({ endpointId: id, providerName, catalog: null });
+    setConfirmation({ endpointId: id, providerName, ...(providerId ? { providerId } : {}), catalog: null });
     const catalog = await piRefreshModels(id).catch(() => null);
     if (!mounted.current || defaultReads.current !== version) return;
     setConfirmation((current) => current?.endpointId === id ? { ...current, catalog } : current);
   };
 
   const save = async (provider: PiProviderInfo) => {
+    if (busy !== null) return;
     const key = (drafts[provider.id] ?? '').trim();
     if (!key) return;
     setBusy(provider.id);
     setError(null);
     const id = endpointId;
+    const hostLabel = endpoints.find(endpoint => endpoint.id === id)?.label ?? 'This Kiln';
     const result = await piSetProviderKey(id, provider.id, key);
     if (!mounted.current) return;
     setBusy(null);
     if (!result.ok) {
-      setError(`${provider.name}: ${result.error ?? 'could not save the key'}`);
+      setError(formatProviderActionError(hostLabel, provider.name, 'save', result.error));
       return;
     }
     setDrafts((prev) => {
@@ -167,25 +202,70 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
       delete next[provider.id];
       return next;
     });
-    await load(endpointId);
+    setEnvFallbackNotices((prev) => {
+      if (!(provider.id in prev)) return prev;
+      const next = { ...prev };
+      delete next[provider.id];
+      return next;
+    });
+    setRemoving((current) => (current === provider.id ? null : current));
+    setRemoveError((current) => (current?.providerId === provider.id ? null : current));
+    await load(id);
     if (!mounted.current) return;
-    notifyChanged(endpointId);
-    await confirmDefault(endpointId, provider.name);
+    notifyChanged(id);
+    await confirmDefault(id, provider.name, provider.id);
   };
 
   const remove = async (provider: PiProviderInfo) => {
+    if (busy !== null) return;
     setBusy(provider.id);
     setError(null);
+    setRemoveError(null);
     const id = endpointId;
+    const hostLabel = endpoints.find(endpoint => endpoint.id === id)?.label ?? 'This Kiln';
     const result = await piRemoveProvider(id, provider.id);
     if (!mounted.current) return;
-    setBusy(null);
     if (!result.ok) {
-      setError(`${provider.name}: ${result.error ?? 'could not remove the credential'}`);
+      setBusy(null);
+      setRemoveError({
+        providerId: provider.id,
+        message: formatProviderActionError(hostLabel, provider.name, 'remove', result.error),
+      });
       return;
     }
-    await load(endpointId);
-    if (mounted.current) notifyChanged(endpointId);
+    setRemoving((current) => (current === provider.id ? null : current));
+    setRemoveError((current) => (current?.providerId === provider.id ? null : current));
+    setDrafts((prev) => {
+      if (!(provider.id in prev)) return prev;
+      const next = { ...prev };
+      delete next[provider.id];
+      return next;
+    });
+    setConfirmation((current) => {
+      if (!current || current.endpointId !== id) return current;
+      const matches = current.providerId === provider.id || current.providerName === provider.name;
+      if (matches) setChoosingDefault(false);
+      return matches ? null : current;
+    });
+    const reloaded = await load(id);
+    if (!mounted.current) return;
+    setBusy(null);
+    const updated = reloaded?.find((item) => item.id === provider.id);
+    if (!updated?.credential && !updated?.envVar) {
+      setManaging((current) => (current === provider.id ? null : current));
+      setEnvFallbackNotices((prev) => {
+        if (!(provider.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[provider.id];
+        return next;
+      });
+    } else if (!updated.credential && updated.envVar) {
+      setEnvFallbackNotices((prev) => ({
+        ...prev,
+        [provider.id]: formatEnvFallbackNotice(hostLabel, provider.name, updated.envVar!),
+      }));
+    }
+    notifyChanged(id, { upstream: false });
   };
 
   if (endpoints.length === 0) {
@@ -308,20 +388,31 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
               ) : provider.envVar ? null : (
                 <span className="flex-none text-[10.5px] text-muted-foreground">No saved credential</span>
               )}
-              {inventory ? <Button size="sm" variant="outline" aria-expanded={managing === provider.id} onClick={() => { setManaging(managing === provider.id ? null : provider.id); setRemoving(null); }} aria-label={'Manage ' + provider.name}>Manage</Button> : null}
-              {provider.credential && (!inventory || managing === provider.id) ? (
+              {inventory ? <Button size="sm" variant="outline" aria-expanded={managing === provider.id} disabled={busy !== null} onClick={() => { setManaging(managing === provider.id ? null : provider.id); setRemoving(null); setRemoveError(null); }} aria-label={'Manage ' + provider.name}>Manage</Button> : null}
+              {provider.credential ? (
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  onClick={() => setRemoving(provider.id)}
-                  disabled={isBusy}
+                  onClick={() => { setRemoveError(null); setRemoving(provider.id); }}
+                  disabled={busy !== null}
                   aria-label={`Remove credential for ${provider.name}`}
                 >
                   {isBusy ? <Loader2 className="animate-spin" /> : <Trash2 />}
                 </Button>
               ) : null}
             </div>
-            {provider.envVar ? <p className="mt-1 break-words text-xs text-muted-foreground">Kiln uses <code>{provider.envVar}</code>. To disconnect, unset it on the computer running this Kiln and restart Kiln.</p> : null}
+            {!provider.credential && envFallbackNotices[provider.id] && provider.envVar ? (
+              <p role="status" className="mt-1 break-words text-xs text-muted-foreground">{envFallbackNotices[provider.id]}</p>
+            ) : provider.envVar ? (
+              <p className="mt-1 break-words text-xs text-muted-foreground">Kiln uses <code>{provider.envVar}</code>. To disconnect, unset it on the computer running this Kiln and restart Kiln.</p>
+            ) : null}
+            {removing === provider.id ? <div className="mt-3 space-y-2 rounded border p-3 text-xs" role="group" aria-label={'Remove ' + provider.name}>
+              <p>Remove {provider.name}’s saved credential from {endpoints.find(endpoint => endpoint.id === endpointId)?.label}? Chat history and other connections stay unchanged.</p>
+              {(instanceDefaults[endpointId]?.model?.providerID === provider.id || defaultModel?.startsWith(provider.id + ' / ')) ? <p className="text-warning">This provider supplies the default model. New chats may need another model or a new credential. Ember won’t choose a replacement.</p> : null}
+              {removeError?.providerId === provider.id ? <p role="alert" className="text-destructive">{removeError.message}</p> : null}
+              <Button size="sm" variant="destructive" disabled={isBusy} onClick={() => { void remove(provider); }}>{isBusy ? 'Removing…' : 'Remove credential'}</Button>{' '}
+              <Button size="sm" variant="outline" disabled={isBusy} onClick={() => { setRemoving(null); setRemoveError(null); }}>Keep credential</Button>
+            </div> : null}
             {!inventory || managing === provider.id ? <>
             {provider.signIn ? (
               <div className="mt-2 flex items-center gap-2">
@@ -359,16 +450,10 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
                 aria-label={`API key for ${provider.name}`}
                 className="h-8 flex-1 text-xs"
               />
-              <Button size="xs" variant="secondary" onClick={() => void save(provider)} disabled={isBusy || !draft.trim()}>
+              <Button size="xs" variant="secondary" onClick={() => void save(provider)} disabled={busy !== null || !draft.trim()}>
                 Save key
               </Button>
             </div>
-            {removing === provider.id ? <div className="mt-3 space-y-2 rounded border p-3 text-xs" role="group" aria-label={'Remove ' + provider.name}>
-              <p>Remove {provider.name}’s saved credential from {endpoints.find(endpoint => endpoint.id === endpointId)?.label}? Chat history and other connections stay unchanged.</p>
-              {(instanceDefaults[endpointId]?.model?.providerID === provider.id || defaultModel?.startsWith(provider.id + ' / ')) ? <p className="text-warning">This provider supplies the default model. New chats may need another model or a new credential. Ember won’t choose a replacement.</p> : null}
-              <Button size="sm" variant="destructive" disabled={isBusy} onClick={() => { void remove(provider); setRemoving(null); }}>Remove credential</Button>{' '}
-              <Button size="sm" variant="outline" onClick={() => setRemoving(null)}>Keep credential</Button>
-            </div> : null}
             </> : null}
           </div>
         );
@@ -402,7 +487,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
       <CustomProviders key={endpointId} endpointId={endpointId} hostName={endpoints.find(endpoint => endpoint.id === endpointId)?.label ?? 'this Kiln'} onChange={async (name) => {
         await load(endpointId);
         if (!mounted.current) return;
-        notifyChanged(endpointId);
+        notifyChanged(endpointId, { upstream: false });
         if (name) await confirmDefault(endpointId, name);
       }} />
       <ProviderSharing endpoints={endpoints} instances={instances} onProviderChange={(id, options) => { void notifyChanged(id, options); if (id === endpointId) void load(id); }} />
@@ -417,9 +502,15 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
             if (!open) setSignIn(null);
           }}
           onSignedIn={() => {
+            setEnvFallbackNotices((prev) => {
+              if (!(signIn.id in prev)) return prev;
+              const next = { ...prev };
+              delete next[signIn.id];
+              return next;
+            });
             void load(endpointId);
             notifyChanged(endpointId);
-            void confirmDefault(endpointId, signIn.name);
+            void confirmDefault(endpointId, signIn.name, signIn.id);
           }}
         />
       ) : null}

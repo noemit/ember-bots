@@ -3,6 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { createProvider, type Models, type Provider } from "@earendil-works/pi-ai";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
@@ -20,7 +22,8 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { Approvals, setAutoAccept } from "../src/approvals";
 import { AskTool } from "../src/ask";
 import { hearthConfig } from "../src/config";
-import { FileCredentialStore } from "../src/credentials";
+import { FileCredentialStore, FileModelsStore } from "../src/credentials";
+import { hearthModels } from "../src/models";
 import { QueueConfigDoc } from "../src/queueConfig";
 import { startHearthServer, type HearthServer } from "../src/server";
 import { withAbortRace } from "../src/interrupt";
@@ -3278,5 +3281,224 @@ describe("per-submission queue send-config isolation", () => {
       { modelId: "first-model", reasoning: "low" },
     ]);
     expect((await stack.harness.snapshot(QueueConfigDoc, conversation.id, context))?.items).toEqual({});
+  }, 20_000);
+});
+
+describe("provider and custom-provider deletion", () => {
+  test("DELETE /providers/:id and /custom-providers/:id immediately purge cached models when unbacked and keep env-backed models", async () => {
+    const home = await mkdtemp(join(tmpdir(), "hearth-provider-delete-"));
+    const prevOpenRouter = process.env.OPENROUTER_API_KEY;
+    const prevOpenAi = process.env.OPENAI_API_KEY;
+    const prevFireworks = process.env.FIREWORKS_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.FIREWORKS_API_KEY;
+
+    let server: HearthServer | undefined;
+    let storage: Awaited<ReturnType<typeof openNodeSqliteStorage>> | undefined;
+    try {
+      const authFile = join(home, "auth.json");
+      const modelsStoreFile = join(home, "models-store.json");
+      await writeFile(
+        modelsStoreFile,
+        JSON.stringify({
+          openrouter: {
+            models: [
+              {
+                id: "openrouter/cached-ghost",
+                name: "Cached Ghost",
+                api: "openai-completions",
+                provider: "openrouter",
+                baseUrl: "https://openrouter.ai/api/v1",
+                reasoning: false,
+                input: ["text"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 128000,
+                maxTokens: 8192,
+              },
+            ],
+            checkedAt: Date.now(),
+          },
+        })
+      );
+
+      const loaded = await hearthModels(authFile);
+      await loaded.models.refresh({ allowNetwork: false });
+      storage = await openNodeSqliteStorage(join(home, "hearth.sqlite"));
+      const harness = await Harness.open(
+        storage,
+        {
+          models: loaded.models,
+          registry: createRegistry(),
+          env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? process.cwd() }),
+        },
+        context
+      );
+      const token = "provider-delete-wire-token";
+      server = startHearthServer({
+        config: hearthConfig({ home, port: 0, workspace: home }),
+        token,
+        storage,
+        harness,
+        models: loaded.models,
+        defaultAgent: { model: { provider: "openrouter", modelId: "openrouter/cached-ghost" } },
+        store: loaded.store,
+        version: "0.0.0-test",
+        localRuntimes: loaded.localRuntimes,
+        customProviders: loaded.customProviders,
+        ollamaSettings: loaded.ollamaSettings,
+      });
+      const call = (path: string, init: RequestInit = {}) =>
+        fetch(`${server!.url}${path}`, {
+          ...init,
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+            ...(init.headers as Record<string, string> | undefined),
+          },
+        });
+
+      // 1. Built-in provider without env var: DELETE clears cached models & FileModelsStore before 200.
+      const saveOpenRouter = await call("/providers/openrouter", {
+        method: "POST",
+        body: JSON.stringify({ type: "api_key", key: "sk-or-test" }),
+      });
+      expect(saveOpenRouter.status).toBe(200);
+      const beforeModels = (await (await call("/models")).json()) as { models: Array<{ provider: string; id: string }> };
+      expect(beforeModels.models.some((m) => m.provider === "openrouter" && m.id === "openrouter/cached-ghost")).toBe(true);
+
+      const delOpenRouter = await call("/providers/openrouter", { method: "DELETE" });
+      expect(delOpenRouter.status).toBe(200);
+      expect(await delOpenRouter.json()).toEqual({ ok: true, provider: "openrouter", credential: null });
+
+      const afterDeleteModels = (await (await call("/models")).json()) as {
+        models: Array<{ provider: string; id: string }>;
+        default?: { provider: string; modelId: string };
+      };
+      expect(afterDeleteModels.models.some((m) => m.provider === "openrouter")).toBe(false);
+      expect(loaded.models.getModels().some((m) => m.id === "openrouter/cached-ghost")).toBe(false);
+      expect(await new FileModelsStore(modelsStoreFile).read("openrouter")).toBeUndefined();
+      // Removing a credential does not silently pick a replacement default model.
+      expect(afterDeleteModels.default).toEqual({ provider: "openrouter", modelId: "openrouter/cached-ghost" });
+      // Simulating an offline reload/boot still keeps the deleted catalog cleared.
+      await loaded.models.refresh({ allowNetwork: false });
+      const afterOfflineReload = (await (await call("/models")).json()) as { models: Array<{ provider: string }> };
+      expect(afterOfflineReload.models.some((m) => m.provider === "openrouter")).toBe(false);
+
+      // 2. Alias normalization on DELETE (/providers/fireworks-ai -> fireworks) + login cancellation.
+      await call("/providers/fireworks", {
+        method: "POST",
+        body: JSON.stringify({ type: "api_key", key: "sk-fw-test" }),
+      });
+      const delAlias = await call("/providers/fireworks-ai", { method: "DELETE" });
+      expect(delAlias.status).toBe(200);
+      expect(await delAlias.json()).toEqual({ ok: true, provider: "fireworks", credential: null });
+      expect(await loaded.store.read("fireworks")).toBeUndefined();
+      const afterAliasModels = (await (await call("/models")).json()) as { models: Array<{ provider: string }> };
+      expect(afterAliasModels.models.some((m) => m.provider === "fireworks")).toBe(false);
+
+      // Pending login flow is cancelled when DELETE /providers/:id runs.
+      let loginAborted = false;
+      const xaiTemplate = loaded.models.getProvider("xai")!;
+      (loaded.models as Models & { setProvider: (provider: Provider) => void }).setProvider(
+        createProvider({
+          id: "xai",
+          name: "xAI",
+          baseUrl: "https://api.x.ai/v1",
+          models: xaiTemplate.getModels(),
+          api: openAICompletionsApi(),
+          auth: {
+            oauth: {
+              name: "Test OAuth",
+              login: (interaction) => {
+                interaction.notify({
+                  type: "info",
+                  message: "Waiting for OAuth confirmation",
+                });
+                return new Promise((_, reject) => {
+                  interaction.signal?.addEventListener("abort", () => {
+                    loginAborted = true;
+                    reject(new Error("aborted"));
+                  });
+                });
+              },
+              refresh: async (cred) => cred,
+              toAuth: async (cred) => ({ apiKey: cred.access }),
+            },
+          },
+        })
+      );
+      const loginStart = await call("/providers/xai/login", { method: "POST", body: JSON.stringify({ prompt: true }) });
+      expect([200, 202]).toContain(loginStart.status);
+      const beforeDelLogin = (await (await call("/providers")).json()) as {
+        providers: Array<{ id: string; signIn?: { pending?: boolean } | null }>;
+      };
+      expect(beforeDelLogin.providers.find((p) => p.id === "xai")?.signIn?.pending).toBe(true);
+      const delXai = await call("/providers/xai", { method: "DELETE" });
+      expect(delXai.status).toBe(200);
+      expect(loginAborted).toBe(true);
+      const providersAfterLoginCancel = (await (await call("/providers")).json()) as {
+        providers: Array<{ id: string; signIn?: { pending?: boolean } | null }>;
+      };
+      expect(providersAfterLoginCancel.providers.find((p) => p.id === "xai")?.signIn?.pending).toBe(false);
+
+      // 3. Env-backed provider: DELETE removes stored key while retaining env-backed models & envVar notice.
+      process.env.OPENAI_API_KEY = "sk-openai-env";
+      await call("/providers/openai", {
+        method: "POST",
+        body: JSON.stringify({ type: "api_key", key: "sk-openai-stored" }),
+      });
+      const delOpenAi = await call("/providers/openai", { method: "DELETE" });
+      expect(delOpenAi.status).toBe(200);
+      expect(await loaded.store.read("openai")).toBeUndefined();
+      const envModels = (await (await call("/models")).json()) as { models: Array<{ provider: string }> };
+      expect(envModels.models.some((m) => m.provider === "openai")).toBe(true);
+      const envProviders = (await (await call("/providers")).json()) as {
+        providers: Array<{ id: string; credential: unknown; envVar?: string }>;
+      };
+      const openaiRow = envProviders.providers.find((p) => p.id === "openai");
+      expect(openaiRow?.credential).toBeNull();
+      expect(openaiRow?.envVar).toBe("OPENAI_API_KEY");
+
+      // 4. Custom provider DELETE removes models immediately without leaving ghosts.
+      const createdCustom = await call("/custom-providers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Local vLLM",
+          baseUrl: "http://127.0.0.1:8000/v1",
+          modelIds: ["qwen-custom-7b"],
+          apiKey: "custom-secret",
+        }),
+      });
+      expect(createdCustom.status).toBe(200);
+      const customProvider = (await createdCustom.json()) as { id: string };
+      const modelsWithCustom = (await (await call("/models")).json()) as {
+        models: Array<{ provider: string; id: string }>;
+      };
+      expect(modelsWithCustom.models.some((m) => m.provider === customProvider.id && m.id === "qwen-custom-7b")).toBe(true);
+
+      const deletedCustom = await call(`/custom-providers/${customProvider.id}`, { method: "DELETE" });
+      expect(deletedCustom.status).toBe(200);
+      expect(await deletedCustom.json()).toEqual({ ok: true });
+      const listedCustom = (await (await call("/custom-providers")).json()) as { providers: unknown[] };
+      expect(listedCustom.providers).toEqual([]);
+      const modelsAfterCustom = (await (await call("/models")).json()) as {
+        models: Array<{ provider: string; id: string }>;
+      };
+      expect(modelsAfterCustom.models.some((m) => m.provider === customProvider.id || m.id === "qwen-custom-7b")).toBe(false);
+      expect(loaded.models.getProvider(customProvider.id)).toBeUndefined();
+      const deleteAgain = await call(`/custom-providers/${customProvider.id}`, { method: "DELETE" });
+      expect(deleteAgain.status).toBe(400);
+    } finally {
+      if (prevOpenRouter === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = prevOpenRouter;
+      if (prevOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = prevOpenAi;
+      if (prevFireworks === undefined) delete process.env.FIREWORKS_API_KEY;
+      else process.env.FIREWORKS_API_KEY = prevFireworks;
+      await server?.close();
+      await storage?.close(context);
+      await rm(home, { recursive: true, force: true });
+    }
   }, 20_000);
 });

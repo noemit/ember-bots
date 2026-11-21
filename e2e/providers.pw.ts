@@ -153,3 +153,50 @@ test('switching computers during a pending save clears scoped controls and ignor
   await expect(page.getByRole('region', { name: 'Default model for new chats' })).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toContainText('Model B');
 });
+
+test('removing a saved credential from collapsed inventory clears its models immediately without picking a replacement default', async ({ page }) => {
+  await providersTab(page);
+  await saveKey(page, 'DeepInfra', 'mock-deepinfra-key');
+  // Re-open Settings so DeepInfra renders collapsed in inventory mode.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+
+  await expect(page.getByRole('button', { name: 'Manage DeepInfra', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: 'Remove credential for DeepInfra', exact: true }).click();
+  const group = page.getByRole('group', { name: 'Remove DeepInfra', exact: true });
+  await expect(group).toBeVisible();
+  await group.getByRole('button', { name: 'Remove credential', exact: true }).click();
+
+  await expect(page.getByRole('button', { name: 'Manage DeepInfra', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove credential for DeepInfra', exact: true })).toHaveCount(0);
+
+  const picker = await openPicker(page);
+  await findModel(picker, 'claude-opus-4-7', true);
+});
+
+test('custom provider can be removed with confirmation and its models leave the picker immediately', async ({ page }) => {
+  await providersTab(page);
+  await page.getByRole('button', { name: 'Add custom provider', exact: true }).click();
+  const form = page.getByRole('form', { name: 'Custom provider editor', exact: true });
+  await form.getByLabel('Display name', { exact: true }).fill('Local vLLM');
+  await form.getByLabel('Base URL', { exact: true }).fill('http://127.0.0.1:8000/v1');
+  await form.getByLabel('Model IDs (one per line)', { exact: true }).fill('qwen-custom-7b');
+  await form.getByRole('button', { name: 'Save custom provider', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove Local vLLM', exact: true })).toBeVisible();
+
+  const pickerWithCustom = await openPicker(page);
+  await findModel(pickerWithCustom, 'qwen-custom-7b');
+  await pickerWithCustom.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove Local vLLM', exact: true }).click();
+  const removeGroup = page.getByRole('group', { name: 'Remove Local vLLM', exact: true });
+  await expect(removeGroup).toBeVisible();
+  await removeGroup.getByRole('button', { name: 'Confirm remove', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove Local vLLM', exact: true })).toHaveCount(0);
+
+  const pickerAfterDelete = await openPicker(page);
+  await findModel(pickerAfterDelete, 'qwen-custom-7b', true);
+});

@@ -4,6 +4,22 @@ import { Input } from './ui/input';
 import SecretInput from './ui/secret-input';
 import { piCustomProviders, type PiCustomProvider } from '../piApi';
 
+const sanitizeDetail = (failure: unknown): string | undefined => {
+  const raw = failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
+  const trimmed = raw.trim();
+  if (!trimmed || /\b(HTTP\s*\d+|undefined|null|stack)\b/i.test(trimmed)) return undefined;
+  return trimmed.replace(/!+$/, '');
+};
+
+export const formatCustomProviderError = (hostName: string, action: string, failure: unknown): string => {
+  const host = hostName.trim() || 'This Kiln';
+  const detail = sanitizeDetail(failure);
+  if (detail) {
+    return `${host} could not ${action} (${detail}). Check that ${host} is answering and try again.`;
+  }
+  return `${host} did not answer while trying to ${action}. Check its connection and try again.`;
+};
+
 /** Shared by Settings and onboarding. Remounted per Kiln so secrets never follow host switches. */
 export default function CustomProviders({ endpointId, hostName, onChange }: {
   endpointId: string; hostName: string; onChange: (name?: string) => Promise<void>;
@@ -19,15 +35,18 @@ export default function CustomProviders({ endpointId, hostName, onChange }: {
   const [busy, setBusy] = React.useState(false);
   const [removing, setRemoving] = React.useState<string | null>(null);
   const generation = React.useRef(0);
+  const inFlight = React.useRef(false);
   React.useEffect(() => {
     let active = true;
     const counter = generation;
+    inFlight.current = false;
     void piCustomProviders<{ providers: PiCustomProvider[] }>(endpointId).then(result => { if (active) setProviders(result.providers); }).catch(() => {
       // Older hosts still show their normal providers. The editor explains compatibility on use.
     });
-    return () => { active = false; counter.current++; };
+    return () => { active = false; counter.current++; inFlight.current = false; };
   }, [endpointId]);
   const start = (provider: PiCustomProvider | 'new') => {
+    if (inFlight.current) return;
     generation.current++;
     setEditing(provider); setError(''); setApiKey(''); setReplaceKey(false); setRemoving(null);
     setName(provider === 'new' ? '' : provider.name);
@@ -36,14 +55,25 @@ export default function CustomProviders({ endpointId, hostName, onChange }: {
   };
   const savedKey = editing && editing !== 'new' && editing.hasApiKey;
   const secret = savedKey && !replaceKey ? undefined : apiKey;
-  const run = async (operation: () => Promise<void>) => {
+  const run = async (action: string, operation: (version: number, targetEndpoint: string) => Promise<void>) => {
+    if (inFlight.current) return;
     const version = generation.current;
+    const targetEndpoint = endpointId;
+    inFlight.current = true;
     setBusy(true); setError('');
-    try { await operation(); } catch (failure) {
-      if (version === generation.current) setError(`${hostName}: ${failure instanceof Error ? failure.message : 'Kiln did not answer. Retry when it is available.'}`);
-    } finally { if (version === generation.current) setBusy(false); }
+    try { await operation(version, targetEndpoint); } catch (failure) {
+      if (version === generation.current) setError(formatCustomProviderError(hostName, action, failure));
+    } finally {
+      if (version === generation.current) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
   };
-  const refresh = async () => setProviders((await piCustomProviders<{ providers: PiCustomProvider[] }>(endpointId)).providers);
+  const refresh = async (targetEndpoint = endpointId, version = generation.current) => {
+    const result = await piCustomProviders<{ providers: PiCustomProvider[] }>(targetEndpoint);
+    if (version === generation.current) setProviders(result.providers);
+  };
   return <section className="flex flex-col gap-2" aria-label="Custom OpenAI-compatible providers">
     <div className="flex items-center justify-between gap-2">
       <h3 className="text-xs font-medium">Custom / OpenAI-compatible</h3>
@@ -57,17 +87,26 @@ export default function CustomProviders({ endpointId, hostName, onChange }: {
       {provider.problem ? <p role="status" className="w-full text-destructive">{provider.problem}</p> : null}
       {removing === provider.id ? <div className="w-full space-y-2" role="group" aria-label={`Remove ${provider.name}`}>
         <p>Remove this provider and its key from {hostName}? Existing model choices stay unchanged and may need a replacement.</p>
-        <Button size="xs" variant="destructive" disabled={busy} onClick={() => void run(async () => {
-          await piCustomProviders(endpointId, `/${provider.id}`, 'DELETE'); setRemoving(null); await refresh(); await onChange();
-        })}>Confirm remove</Button>{' '}<Button size="xs" variant="ghost" onClick={() => setRemoving(null)}>Cancel</Button>
+        <Button size="xs" variant="destructive" disabled={busy} onClick={() => void run(`remove ${provider.name}`, async (version, targetEndpoint) => {
+          await piCustomProviders(targetEndpoint, `/${provider.id}`, 'DELETE');
+          if (version !== generation.current) return;
+          setRemoving(null);
+          setProviders(prev => prev.filter(entry => entry.id !== provider.id));
+          await refresh(targetEndpoint, version);
+          if (version === generation.current) await onChange();
+        })}>{busy && removing === provider.id ? 'Removing…' : 'Confirm remove'}</Button>{' '}<Button size="xs" variant="ghost" disabled={busy} onClick={() => { setRemoving(null); setError(''); }}>Cancel</Button>
       </div> : null}
     </div>)}
     {editing ? <form className="flex flex-col gap-3 rounded-lg border p-3" aria-label="Custom provider editor" onSubmit={event => {
-      event.preventDefault(); void run(async () => {
-        await piCustomProviders(endpointId, editing === 'new' ? '' : `/${editing.id}`, editing === 'new' ? 'POST' : 'PUT', {
+      event.preventDefault(); void run(editing === 'new' ? 'add this custom provider' : `save ${editing.name}`, async (version, targetEndpoint) => {
+        await piCustomProviders(targetEndpoint, editing === 'new' ? '' : `/${editing.id}`, editing === 'new' ? 'POST' : 'PUT', {
           name, baseUrl, modelIds: ids.split('\n').map(id => id.trim()).filter(Boolean), ...(secret === undefined ? {} : { apiKey: secret }),
         });
-        setApiKey(''); setEditing(null); await refresh(); await onChange(name);
+        if (version !== generation.current) return;
+        const savedName = name;
+        setApiKey(''); setEditing(null);
+        await refresh(targetEndpoint, version);
+        if (version === generation.current) await onChange(savedName);
       });
     }}>
       <label className="space-y-1 text-xs">Display name<Input required maxLength={100} value={name} disabled={busy} onChange={event => setName(event.target.value)} placeholder="Spark · DeepSeek" /></label>
@@ -75,10 +114,11 @@ export default function CustomProviders({ endpointId, hostName, onChange }: {
       <p className="text-xs text-muted-foreground">Include the API path (usually /v1). Use plain HTTP only on a trusted private network.</p>
       {savedKey ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={replaceKey} disabled={busy} onChange={event => { setReplaceKey(event.target.checked); setApiKey(''); }} />Replace or remove saved API key</label> : null}
       {!savedKey || replaceKey ? <label className="space-y-1 text-xs">API key (optional)<SecretInput value={apiKey} disabled={busy} onChange={event => setApiKey(event.target.value)} placeholder="Leave empty for a keyless server" /></label> : <p className="text-xs text-muted-foreground">The saved key stays on {hostName}. If you change the base URL, re-enter the key or choose keyless access.</p>}
-      <Button type="button" size="xs" variant="secondary" disabled={busy || !baseUrl.trim()} onClick={() => void run(async () => {
-        const result = await piCustomProviders<{ modelIds: string[]; error?: string }>(endpointId, '/discover', 'POST', {
+      <Button type="button" size="xs" variant="secondary" disabled={busy || !baseUrl.trim()} onClick={() => void run('discover models', async (version, targetEndpoint) => {
+        const result = await piCustomProviders<{ modelIds: string[]; error?: string }>(targetEndpoint, '/discover', 'POST', {
           baseUrl, ...(editing === 'new' ? {} : { id: editing.id }), ...(secret === undefined ? {} : { apiKey: secret }),
         });
+        if (version !== generation.current) return;
         if (result.error) setError(result.error);
         else setIds(current => [...new Set([...current.split('\n').filter(Boolean), ...result.modelIds])].join('\n'));
       })}>{busy ? 'Waiting for Kiln…' : 'Discover models'}</Button>

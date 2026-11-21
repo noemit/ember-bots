@@ -287,7 +287,7 @@ export const resolvePersistedPiEndpoints = (options: {
   secretStore: SecretStore;
 }): unknown[] | undefined => {
   const { rawStored, previousEffective, patchValue, synthesizedLocal, secretStore } = options;
-  if (patchValue === undefined) {
+  if (patchValue === undefined || !Array.isArray(patchValue)) {
     if (!Array.isArray(rawStored)) return undefined;
     const configured = parsePiEndpoints(unlockEndpointSecrets(rawStored, secretStore));
     const cleaned = withoutSynthesizedLocalEndpoint(configured, synthesizedLocal);
@@ -296,6 +296,25 @@ export const resolvePersistedPiEndpoints = (options: {
   const restored = parsePiEndpoints(restoreEndpointSecrets(patchValue, previousEffective));
   const cleaned = withoutSynthesizedLocalEndpoint(restored, synthesizedLocal);
   return lockEndpointSecrets(cleaned, rawStored, secretStore);
+};
+
+/**
+ * Reconcile a cached `Instance[]` snapshot with an updated `piEndpoints` list so removed Kiln hosts
+ * vanish immediately on cached reads instead of surviving until the next full probe.
+ */
+export const reconcilePiInstanceSnapshot = <T extends { id: string; label: string; url?: string; kind?: string }>(
+  snapshot: readonly T[],
+  nextEndpoints: readonly PiEndpoint[],
+  keepLocalStarting = false,
+): T[] => {
+  const byId = new Map(nextEndpoints.map((endpoint) => [endpoint.id, endpoint]));
+  return snapshot.flatMap<T>((instance) => {
+    if (instance.kind !== 'pi') return [instance];
+    const updated = byId.get(instance.id);
+    if (updated) return [{ ...instance, label: updated.label, url: updated.url }];
+    if (instance.id === 'pi:local' && keepLocalStarting) return [instance];
+    return [];
+  });
 };
 
 export const stripUndefinedKeys = (record: Record<string, unknown>): Record<string, unknown> =>

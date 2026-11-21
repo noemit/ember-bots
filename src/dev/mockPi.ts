@@ -1518,6 +1518,7 @@ const piRequest = async (
     const providerId = decodeURIComponent(providerMatch[1]);
     if (!providers.some((provider) => provider.id === providerId)) return fail(404, 'unknown provider');
     if (method === 'DELETE') {
+      mockLogins.delete(providerId);
       providerCredentials.delete(providerId);
       return ok({ ok: true, provider: providerId, credential: null });
     }

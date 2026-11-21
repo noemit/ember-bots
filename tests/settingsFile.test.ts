@@ -8,6 +8,7 @@ import {
   createSettingsFileController,
   initializeFirstRunSettings,
   quarantineCorruptSettings,
+  reconcilePiInstanceSnapshot,
   resolveEffectivePiEndpoints,
   resolvePersistedPiEndpoints,
   stripUndefinedKeys,
@@ -496,4 +497,125 @@ test('write-through settings cache avoids re-reading disk and re-decrypting secr
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('removing the last remote endpoint persists piEndpoints: [] across restarts without resurrecting legacy endpoints, and non-array patches never erase endpoints', async () => {
+  const secretStore = {
+    available: () => false,
+    encryptString: (value: string) => Buffer.from(value, 'utf8'),
+    decryptString: (value: Buffer) => value.toString('utf8'),
+  };
+  const legacyEndpoint = { id: 'pi:local', label: 'Legacy', url: 'http://127.0.0.1:4096', token: 'legacy-tok' };
+  const remoteEndpoint = { id: 'pi:studio', label: 'Studio', url: 'http://studio:4096/', token: 'studio-tok' };
+
+  const malformedPersisted = resolvePersistedPiEndpoints({
+    rawStored: [remoteEndpoint],
+    previousEffective: [remoteEndpoint],
+    patchValue: null,
+    synthesizedLocal: null,
+    secretStore,
+  });
+  expect(malformedPersisted).toEqual([remoteEndpoint]);
+
+  const clearedPersisted = resolvePersistedPiEndpoints({
+    rawStored: [remoteEndpoint],
+    previousEffective: [remoteEndpoint],
+    patchValue: [],
+    synthesizedLocal: null,
+    secretStore,
+  });
+  expect(Array.isArray(clearedPersisted)).toBe(true);
+  expect(clearedPersisted).toEqual([]);
+
+  const reloaded = resolveEffectivePiEndpoints({
+    root: { piEndpoints: clearedPersisted },
+    canaryBuild: false,
+    secretStore,
+    discoverLegacyLocal: () => legacyEndpoint,
+  });
+  expect(reloaded).toEqual([]);
+});
+
+test('emberSettingsCache updates immediately when removing the last endpoint or replacing an endpoint', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ember-settings-replace-'));
+  try {
+    const file = join(directory, 'settings.json');
+    const store = {
+      available: () => false,
+      encryptString: (value: string) => Buffer.from(value, 'utf8'),
+      decryptString: (value: Buffer) => value.toString('utf8'),
+    };
+    const cache = createSettingsFileCache<{ theme: string }, { id: string; label: string; url: string; token: string }>({
+      filePath: () => file,
+      readRoot: (target) => JSON.parse(readFileSync(target, 'utf8')) as Record<string, unknown>,
+      onCorrupt: () => {},
+      isQuarantined: () => false,
+    });
+    const controller = createSettingsFileController({
+      emberSettingsPath: () => file,
+      openchamberSettingsPath: () => join(directory, 'openchamber.json'),
+      quarantineDir: () => join(directory, 'quarantine'),
+      onEmberSettingsWritten: (written) => {
+        if (written === file) cache.invalidate();
+      },
+    });
+    const initial = { id: 'pi:studio', label: 'Studio', url: 'http://studio:4096/', token: 'old-tok' };
+    await controller.writeJson(file, { theme: 'ember', piEndpoints: [initial] });
+    expect(cache.readEntry().root.piEndpoints).toEqual([initial]);
+
+    const replaced = { id: 'pi:studio', label: 'Studio 2', url: 'http://studio2:4096/', token: 'new-tok' };
+    const replacedRoot = { theme: 'ember', piEndpoints: [replaced] };
+    await controller.writeJson(file, replacedRoot);
+    cache.recordWrite(file, replacedRoot, { theme: 'ember' }, [replaced]);
+    expect(cache.readEntry().configuredPiEndpoints).toEqual([replaced]);
+
+    const clearedPersisted = resolvePersistedPiEndpoints({
+      rawStored: replacedRoot.piEndpoints,
+      previousEffective: [replaced],
+      patchValue: [],
+      synthesizedLocal: null,
+      secretStore: store,
+    });
+    const clearedRoot = { theme: 'ember', piEndpoints: clearedPersisted };
+    await controller.writeJson(file, clearedRoot);
+    cache.recordWrite(file, clearedRoot, { theme: 'ember' }, []);
+    expect(cache.readEntry().root.piEndpoints).toEqual([]);
+    expect(cache.readEntry().configuredPiEndpoints).toEqual([]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('reconcilePiInstanceSnapshot drops removed Kiln instances immediately while preserving OpenChamber hosts', () => {
+  const snapshot = [
+    {
+      id: 'oc:work',
+      label: 'OpenChamber',
+      url: 'http://127.0.0.1:4095',
+      kind: 'opencode' as const,
+      status: 'ready' as const,
+      attachable: true,
+    },
+    {
+      id: 'pi:local',
+      label: 'This computer',
+      url: 'http://127.0.0.1:4096',
+      kind: 'pi' as const,
+      status: 'ready' as const,
+      attachable: true,
+    },
+    {
+      id: 'pi:studio',
+      label: 'Studio',
+      url: 'http://studio:4096',
+      kind: 'pi' as const,
+      status: 'unreachable' as const,
+      attachable: false,
+    },
+  ];
+  const next = reconcilePiInstanceSnapshot(snapshot, [
+    { id: 'pi:local', label: 'Local Kiln', url: 'http://127.0.0.1:4096', token: 'tok' },
+  ]);
+  expect(next.map((item) => item.id)).toEqual(['oc:work', 'pi:local']);
+  expect(next.find((item) => item.id === 'pi:local')?.label).toBe('Local Kiln');
 });
