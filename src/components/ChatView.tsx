@@ -6,6 +6,7 @@ import {
 import QuestionAnswerComposer from './QuestionAnswerComposer';
 import { useQuestionComposer } from '../hooks/useQuestionComposer';
 import { threadShelfStatus } from '../lib/crew';
+import { QuestionLinkContext } from './questionLinkContext';
 import { ThreadLinkContext } from './threadLinkContext';
 import { useComposerConnection } from './workspaceConnection';
 import ComposerIdentity from './ComposerIdentity';
@@ -520,6 +521,17 @@ function ChatView({
     setShelfSection,
     onRestoreMainFocus: restoreMainFocus,
   });
+  const { openQuestion, revealHistory } = questionComposer;
+  const resolveQuestionLink = React.useCallback((id: string) => {
+    const request = asyncQuestions.find((item) => !item.replyTo && item.id === id && item.sessionId === session?.id);
+    if (!request) return undefined;
+    return () => {
+      const closed = request.status && request.status !== 'pending';
+      if (closed) revealHistory();
+      openQuestion(request, closed ? 'view' : 'answer');
+    };
+  }, [asyncQuestions, session?.id, openQuestion, revealHistory]);
+
   const offerReload = React.useMemo(
     () =>
       Boolean(
@@ -1475,6 +1487,7 @@ function ChatView({
 
   return (
     <ThreadLinkContext.Provider value={threadLinks}>
+    <QuestionLinkContext.Provider value={resolveQuestionLink}>
     <DocumentExplorationProvider instance={instance} session={session} messages={messages}>
     <main
       ref={columnRef}
@@ -2478,6 +2491,7 @@ function ChatView({
       ) : null}
     </main>
     </DocumentExplorationProvider>
+    </QuestionLinkContext.Provider>
     </ThreadLinkContext.Provider>
   );
 }

@@ -5,7 +5,7 @@ import { hasMarkdownToCopy, messageMarkdown } from '../../lib/messageMarkdown';
 import { modelLabel } from '../../lib/modelLabel';
 import { validateQuoteAnchor } from '../../lib/quoteLinks';
 import type { MessageQuoteLink } from '../../lib/quoteLinkScope';
-import type { ChatMessage, QuoteAnchor, QuoteLink, TokenUsage, ToolCall } from '../../types';
+import type { ChatMessage, QuoteAnchor, QuoteLink, TokenUsage } from '../../types';
 import CopyButton from '../CopyButton';
 import Linkify from '../Linkify';
 import { formatDuration, formatTokens } from './blocks';
@@ -149,63 +149,6 @@ export const MessageFooter = ({
           ) : null}
         </span>
       ) : null}
-    </div>
-  );
-};
-
-export const AskRecord = ({ call }: { call: ToolCall }) => {
-  const input = call.input ?? {};
-  const question = typeof input.question === 'string' ? input.question : '';
-  const detail = (call.output ?? '').trim() || (call.error ?? '').trim();
-  if (!question || !detail) return null;
-  const options = Array.isArray(input.options)
-    ? (input.options as unknown[]).filter((option): option is string => typeof option === 'string')
-    : [];
-  const answered = /^The user answered:\s*([\s\S]+)$/.exec(detail);
-  const answer = answered?.[1]?.trim() || null;
-  const dismissed = !answer && /dismiss/i.test(detail);
-  return (
-    <div className="flex max-w-[85%] flex-col gap-1.5 self-start rounded-lg border border-highlight/30 bg-highlight/[0.04] px-3.5 py-2.5 text-[12.5px]">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        <MessageCircleQuestion className="size-3.5 flex-none text-highlight" />
-        <span>The bot asked</span>
-      </div>
-      <p className="whitespace-pre-wrap">
-        <Linkify text={question} />
-      </p>
-      {options.length ? (
-        <div className="flex flex-wrap gap-1">
-          {options.map((option) => (
-            <span
-              key={option}
-              className={cn(
-                'rounded-full border px-2 py-0.5 text-[11.5px]',
-                answer === option
-                  ? 'border-highlight/60 bg-highlight/10 font-medium text-foreground'
-                  : 'border-border text-muted-foreground'
-              )}
-            >
-              {option}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <p className="text-[11.5px] text-muted-foreground">
-        {answer ? (
-          <>
-            You answered:{' '}
-            <span className="font-medium text-foreground">
-              <Linkify text={answer} />
-            </span>
-          </>
-        ) : dismissed ? (
-          'You dismissed this question.'
-        ) : call.status === 'interrupted' ? (
-          'The question was interrupted.'
-        ) : (
-          detail.slice(0, 200)
-        )}
-      </p>
     </div>
   );
 };

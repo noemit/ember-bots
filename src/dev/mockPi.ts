@@ -662,6 +662,22 @@ const asyncQuestionFixture: PiQuestion[] = fixtureParam === 'async-questions' ? 
 ] : [];
 if (fixtureParam === 'async-questions') {
   fixtureG.entries.find(entry => entry.id === 91)!.model = [assistantMessage(text('Spinning up two workers. Keep the rollout gradual?'), 'stop', minutes(19))];
+  if (new URLSearchParams(window.location.search).has('askReceipt')) {
+    // The receipt points to a second pending decision, not the shelf's default selection.
+    const key = '182818';
+    const question = 'Which release channel should get the preview?';
+    const options = ['Canary channel', 'Internal channel'];
+    const callId = 'call_release_channel';
+    const receipt = JSON.stringify({ id: key, key, conversationId: '16', revision: 1, created: true });
+    fixtureG.entries.push(
+      { id: 100, kind: 'pi.assistant', model: [assistantMessage(toolCall(callId, 'ask', { action: 'create', question, options }), 'toolUse')] },
+      { id: 101, kind: 'pi.tool-result', model: [toolResult(callId, 'ask', receipt)] },
+    );
+    asyncQuestionFixture.push({
+      conversationId: '16', sourceTitle: fixtureG.title, key, question, options, mode: 'async', revision: 1,
+      status: 'pending', origin: { conversationId: '16', sourceMessageId: 'e100' }, ancestry: [],
+    });
+  }
   fixtureI.questions = [];
   fixtureI.parked = undefined;
   conversations.push(makeConversation({ id: 81, title: 'Backup audit', cwd: '/workspace/hearth', kind: 'worker', lead: { conversationId: 18, host: 'local' }, entries: [{ id: 810, kind: 'pi.user', model: [userMessage('Review the backup policy.', minutes(2))] }, { id: 811, kind: 'pi.assistant', model: [assistantMessage(text('Keep the migration backup?'), 'stop', minutes(1))] }] }));

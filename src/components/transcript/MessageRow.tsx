@@ -23,7 +23,8 @@ import MessageReadButton from '../MessageReadButton';
 import { formatElapsed, visibleBlocks, type Block, type ToolBlock } from './blocks';
 import { DeliveryRow } from './DeliveryStatus';
 import { Markdown, MarkdownFallback, spring } from './expansion';
-import { AskRecord, CopyAsMarkdown, CrewReportCard, MessageFooter, QuoteBacklinks } from './MessageMetadata';
+import AskRecord from '../AskRecord';
+import { CopyAsMarkdown, CrewReportCard, MessageFooter, QuoteBacklinks } from './MessageMetadata';
 import { FileBlock, MessageError, ReasoningRow } from './MessageParts';
 import { ToolGroupRow, ToolImages, ToolRollup } from './ToolBlocks';
 
