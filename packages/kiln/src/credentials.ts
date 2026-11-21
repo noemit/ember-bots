@@ -197,7 +197,8 @@ const fromOpenCode = (entry: unknown): Credential | undefined => {
 export const importOpenCodeCredentials = async (
   store: CredentialStore,
   allowedProviders: ReadonlySet<string>,
-  source = join(homedir(), ".local/share/opencode/auth.json")
+  source = join(homedir(), ".local/share/opencode/auth.json"),
+  selectedProviders?: ReadonlySet<string>
 ): Promise<string[]> => {
   let auth: Record<string, unknown>;
   try {
@@ -211,6 +212,7 @@ export const importOpenCodeCredentials = async (
     const providerId = normalizeProviderId(rawProviderId);
     // A portable key has no verified custom-server destination; only the custom editor may bind it.
     if (!allowedProviders.has(providerId) || providerId.startsWith("custom-") || providerId === "orcarouter") continue;
+    if (selectedProviders && !selectedProviders.has(providerId)) continue;
     const credential = fromOpenCode(entry);
     if (!credential) continue;
     await store.modify(providerId, async (current) => {

@@ -26,6 +26,14 @@ import type { RouteContext } from "../types";
 
 const context = serverContext;
 
+const providerSelection = (ids: unknown): string[] | undefined => {
+  if (ids === undefined) return undefined;
+  if (!Array.isArray(ids) || ids.length > 50 || ids.some(id => typeof id !== "string" || !id.trim())) {
+    throw new HttpFailure(400, "Choose up to 50 providers using non-empty provider IDs.");
+  }
+  return [...new Set(ids.map(id => normalizeProviderId(id.trim())))];
+};
+
 const loginInput = (body: Record<string, unknown>): LoginInput => {
   const prompt = body.prompt;
   return { prompt: typeof prompt === "object" && prompt !== null && (prompt as { capable?: unknown }).capable === true };
@@ -91,17 +99,7 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
   }
   if (request.method === "POST" && path === "/models/refresh") {
     const body = await readBody(request).catch((): Record<string, unknown> => ({}));
-    let providers: string[] | undefined;
-    if (body.providers !== undefined) {
-      if (
-        !Array.isArray(body.providers) ||
-        body.providers.length > 50 ||
-        body.providers.some((id: unknown) => typeof id !== "string" || !id.trim())
-      ) {
-        return badRequest("providers must be a list of provider IDs.");
-      }
-      providers = [...new Set((body.providers as string[]).map((id) => normalizeProviderId(id.trim())))];
-    }
+    const providers = providerSelection(body.providers);
     await runLiveModelRefresh(providers, AbortSignal.timeout(12_000));
     return await availableModelsResponse();
   }
@@ -266,7 +264,10 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
 
   if (request.method === "POST" && path === "/providers/import") {
     if (!store) return badRequest("no credential store");
-    const imported = await importOpenCodeCredentials(store, registeredProviders(), deps.openCodeImportSource);
+    const selected = providerSelection((await readBody(request)).providers);
+    const imported = await importOpenCodeCredentials(
+      store, registeredProviders(), deps.openCodeImportSource, selected && new Set(selected)
+    );
     if (imported.length > 0) refreshModelCatalog("an import");
     return json({ imported });
   }

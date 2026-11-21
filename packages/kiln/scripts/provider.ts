@@ -6,7 +6,7 @@
  *   bun scripts/provider.ts list
  *   bun scripts/provider.ts set <id> <api-key>
  *   bun scripts/provider.ts remove <id>
- *   bun scripts/provider.ts import
+ *   bun scripts/provider.ts import [id ...]
  *   bun scripts/provider.ts login <id>
  *
  * `login` drives an OAuth provider's browser sign-in. The flow is a device code — print it, wait
@@ -127,13 +127,13 @@ const run = async (): Promise<void> => {
       }
     }
     case "import": {
-      const result = await call("POST", "/providers/import");
+      const result = await call("POST", "/providers/import", args.length ? { providers: args } : undefined);
       const imported = (result.imported as string[]) ?? [];
       console.log(imported.length ? `imported: ${imported.join(", ")}` : "nothing to import");
       return;
     }
     default:
-      console.error("usage: provider list|set <id> <api-key>|remove <id>|import|login <id>");
+      console.error("usage: provider list|set <id> <api-key>|remove <id>|import [id ...]|login <id>");
       process.exit(2);
   }
 };
