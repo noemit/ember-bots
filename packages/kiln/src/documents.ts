@@ -277,7 +277,19 @@ export const isWideRoot = (dirPath: string, configHome: string): boolean => {
   if (!canonical) return true;
   if (dirname(canonical) === canonical) return true;
 
-  const wideCandidates = new Set<string>(["/", "/home", "/Users", "/tmp", "/var", "/private/tmp", homedir(), configHome]);
+  const home = homedir();
+  const homeParent = dirname(home);
+  const wideCandidates = new Set<string>([
+    "/",
+    "/home",
+    "/Users",
+    "/tmp",
+    "/var",
+    "/private/tmp",
+    home,
+    ...(homeParent && homeParent !== home ? [homeParent] : []),
+    configHome,
+  ]);
   const canonWide = new Set<string>();
   for (const entry of wideCandidates) {
     if (!entry) continue;
@@ -398,12 +410,84 @@ type ParsedCandidate =
   | { ok: true; raw: string; pathPart: string; kind: DocumentKind; isExplicit: boolean }
   | { ok: false };
 
+const hasControlOrNonSpaceWhitespace = (value: string): boolean => {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f || (/\s/.test(value[i]!) && code !== 0x20)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const isExplicitAbsolutePath = (targetPath: string): boolean =>
+  isAbsolute(targetPath) || targetPath.startsWith("~/") || /^[A-Za-z]:[/\\]/.test(targetPath);
+
+/**
+ * Strictly parse local `file:///...` and `file://localhost/...` URLs into local filesystem paths.
+ * Rejects foreign/UNC hosts, userinfo credentials, query strings, backslashes, encoded separators,
+ * control characters, and `.` / `..` traversal segments before normalization.
+ */
+const parseLocalFileUrl = (rawUrl: string): string | null => {
+  if (!/^file:\/\//i.test(rawUrl)) return null;
+  const afterScheme = rawUrl.slice(7);
+  const hashIdx = afterScheme.indexOf("#");
+  const beforeHash = hashIdx >= 0 ? afterScheme.slice(0, hashIdx) : afterScheme;
+  const fragment = hashIdx >= 0 ? afterScheme.slice(hashIdx + 1) : "";
+  if (fragment && hasControlOrNonSpaceWhitespace(fragment)) return null;
+  if (beforeHash.includes("?") || beforeHash.includes("\\")) return null;
+
+  const slashIdx = beforeHash.indexOf("/");
+  if (slashIdx === -1) return null;
+  const authority = beforeHash.slice(0, slashIdx);
+  if (authority.includes("@")) return null;
+  if (authority !== "" && authority.toLowerCase() !== "localhost") return null;
+
+  const rawPath = beforeHash.slice(slashIdx);
+  if (!rawPath.startsWith("/") || rawPath.startsWith("//")) return null;
+
+  const rawSegments = rawPath.slice(1).split("/");
+  if (rawSegments.length === 0) return null;
+  const decodedSegments: string[] = [];
+  for (const segment of rawSegments) {
+    if (!segment) return null;
+    if (/%(?:2f|5c|0[0-9a-f]|1[0-9a-f]|7f)/i.test(segment)) return null;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return null;
+    }
+    if (!decoded || decoded === "." || decoded === "..") return null;
+    if (decoded.includes("/") || decoded.includes("\\") || hasControlOrNonSpaceWhitespace(decoded)) {
+      return null;
+    }
+    decodedSegments.push(decoded);
+  }
+
+  if (decodedSegments.length >= 2 && /^[A-Za-z]:$/.test(decodedSegments[0]!)) {
+    return `${decodedSegments[0]}/${decodedSegments.slice(1).join("/")}`;
+  }
+  return `/${decodedSegments.join("/")}`;
+};
+
 const parseCandidateInput = (raw: unknown, maxLength: number): ParsedCandidate => {
   if (typeof raw !== "string") return { ok: false };
   const trimmed = raw.trim();
   if (!trimmed || trimmed.length > maxLength) return { ok: false };
-  if (/[\x00-\x1f\x7f]/.test(trimmed)) return { ok: false };
-  // Never accept URLs or file:// URIs in document paths/candidates (allow Windows drive letter only if applicable).
+  if (hasControlOrNonSpaceWhitespace(trimmed)) return { ok: false };
+  // Reject UNC network paths (`//host/share` or `\\host\share`).
+  if (trimmed.startsWith("//") || trimmed.startsWith("\\\\")) return { ok: false };
+
+  if (/^file:/i.test(trimmed)) {
+    const decodedPath = parseLocalFileUrl(trimmed);
+    if (!decodedPath) return { ok: false };
+    const kind = docKindForPath(decodedPath);
+    if (!kind) return { ok: false };
+    return { ok: true, raw, pathPart: decodedPath, kind, isExplicit: true };
+  }
+
+  // Reject all other URI schemes (allow Windows drive letters like `C:\...` or `C:/...`).
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[A-Za-z]:[/\\]/.test(trimmed)) {
     return { ok: false };
   }
@@ -420,8 +504,7 @@ const parseCandidateInput = (raw: unknown, maxLength: number): ParsedCandidate =
   if (!kind) return { ok: false };
 
   const isExplicit =
-    isAbsolute(pathPart) ||
-    pathPart.startsWith("~/") ||
+    isExplicitAbsolutePath(pathPart) ||
     pathPart.startsWith("./") ||
     pathPart.startsWith("../") ||
     pathPart.includes("/") ||
@@ -658,7 +741,7 @@ const resolveExplicitPath = (
 ): ResolveOutcome => {
   const rawPath = parsed.pathPart;
 
-  if (isAbsolute(rawPath) || rawPath.startsWith("~/")) {
+  if (isExplicitAbsolutePath(rawPath)) {
     const expanded = rawPath.startsWith("~/") ? join(homedir(), rawPath.slice(2)) : resolve(rawPath);
     if (isSecretPath(expanded, ctx.configHome, ctx.conversationNumber)) return { status: "denied" };
     const canonical = safeRealpath(expanded);
@@ -698,6 +781,7 @@ const resolveExplicitPath = (
     if (isSecretPath(canonProv, ctx.configHome, ctx.conversationNumber)) continue;
     for (const record of records) {
       const joinedFromProv = resolve(record.cwd, rawPath);
+      if (isSecretPath(joinedFromProv, ctx.configHome, ctx.conversationNumber)) continue;
       const canonJoined = safeRealpath(joinedFromProv);
       if (canonJoined === canonProv) {
         matched.add(canonProv);
@@ -720,7 +804,7 @@ const resolveRelativeToBase = (
   ctx: ConversationDocContext
 ): ResolveOutcome => {
   const rawPath = parsed.pathPart;
-  if (isAbsolute(rawPath) || rawPath.startsWith("~/")) {
+  if (isExplicitAbsolutePath(rawPath)) {
     return resolveExplicitPath(parsed, ctx);
   }
   const baseDir = dirname(baseCanonicalPath);

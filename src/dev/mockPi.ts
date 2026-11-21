@@ -333,6 +333,7 @@ if (fixtureParam === 'long-messages') {
 
 if (fixtureParam === 'doc-exploration' || fixtureParam === 'doc-exploration-legacy') {
   fixtureA.title = 'Document Exploration QA';
+  fixtureA.delegates = fixtureParam === 'doc-exploration';
   fixtureA.entries = [
     {
       id: 1,
@@ -368,6 +369,73 @@ if (fixtureParam === 'doc-exploration' || fixtureParam === 'doc-exploration-lega
           ],
           'stop',
           minutes(18)
+        ),
+      ],
+    },
+    {
+      id: 3,
+      kind: 'pi.assistant',
+      model: [
+        assistantMessage(
+          [
+            ...toolCall('call_doc_read_ok', 'read', { path: 'docs/tool-notes.md' }),
+            ...toolCall('call_doc_codemode_ok', 'codemode', { code: 'await tools.read({ path: "docs/nested-spec.md" });' }),
+            ...toolCall('call_doc_read_err', 'read', { path: 'docs/missing-tool.md' }),
+            ...toolCall('call_doc_bash', 'bash', { command: 'cat docs/secret.md' }),
+          ],
+          'toolUse',
+          minutes(16)
+        ),
+      ],
+    },
+    {
+      id: 4,
+      kind: 'pi.tool-result',
+      model: [toolResult('call_doc_read_ok', 'read', '# Tool Notes\nVerified via read tool.', false, minutes(16))],
+    },
+    {
+      id: 5,
+      kind: 'pi.tool-result',
+      model: [
+        {
+          role: 'toolResult',
+          toolCallId: 'call_doc_codemode_ok',
+          toolName: 'codemode',
+          content: text('ok'),
+          isError: false,
+          timestamp: minutes(16),
+          details: {
+            calls: [
+              { id: 'c1', name: 'read', args: { path: 'docs/nested-spec.md' }, status: 'ok', durationMs: 12 },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: 6,
+      kind: 'pi.tool-result',
+      model: [toolResult('call_doc_read_err', 'read', 'ENOENT: missing-tool.md', true, minutes(16))],
+    },
+    {
+      id: 7,
+      kind: 'pi.tool-result',
+      model: [toolResult('call_doc_bash', 'bash', 'secret', false, minutes(16))],
+    },
+    {
+      id: 8,
+      kind: 'pi.assistant',
+      model: [
+        assistantMessage(
+          text(
+            [
+              'Extended targets: [Local File](file:///workspace/habit/docs/plan.md#phase-2), [My Notes](docs/My%20Notes.md#L3-L5), and [Localhost Notes](file://localhost/workspace/habit/docs/My%20Notes.md#L4).',
+              '',
+              'Blocked targets: [Remote Blocked](file://evil-host/share/plan.md) and [Unverified Local](file:///etc/passwd.md).',
+            ].join('\n')
+          ),
+          'stop',
+          minutes(15)
         ),
       ],
     },
@@ -808,6 +876,32 @@ const fixturePromotedPeer = makeConversation({
 });
 
 if (promotedFixture) conversations.push(fixturePromotedWorker, fixturePromotedPeer);
+if (fixtureParam === 'doc-exploration') {
+  conversations.push(
+    makeConversation({
+      id: 24,
+      cwd: '/workspace/habit',
+      title: 'Docs review worker',
+      kind: 'worker',
+      lead: { conversationId: 10, host: 'local' },
+      task: { id: '24:1', title: 'Review docs links', status: 'waiting' },
+      entries: [
+        { id: 240, kind: 'pi.user', model: [userMessage('Verify docs in this worker thread.', minutes(12))] },
+        {
+          id: 241,
+          kind: 'pi.assistant',
+          model: [
+            assistantMessage(
+              text('Checked `docs/plan.md#phase-2` and [My Notes](docs/My%20Notes.md#L3-L5) inside the worker.'),
+              'stop',
+              minutes(11)
+            ),
+          ],
+        },
+      ],
+    })
+  );
+}
 
 // The local agent name registry (`hearth.agents`): names are display-unique per host, so a second
 // promotion of the same name is rejected. In memory for the mock's lifetime.
@@ -1318,6 +1412,35 @@ const mockDocs: Record<string, { kind: 'markdown' | 'html'; content: string }> =
       '',
       'Isolated triple-lock document viewer architecture.',
     ].join('\n'),
+  },
+  '/workspace/habit/docs/My Notes.md': {
+    kind: 'markdown',
+    content: [
+      '# My Notes',
+      '',
+      'Line 3 target',
+      'Line 4 target',
+      'Line 5 target',
+      '',
+      '- [x] Verified task item',
+      '- [ ] Pending task item',
+      '',
+      '| Check | Status |',
+      '| --- | --- |',
+      '| Sandbox | Active |',
+      '',
+      '```ts',
+      'const answer = 42;',
+      '```',
+    ].join('\n'),
+  },
+  '/workspace/habit/docs/tool-notes.md': {
+    kind: 'markdown',
+    content: '# Tool Notes\n\nVerified from a completed read tool call.\n',
+  },
+  '/workspace/habit/docs/nested-spec.md': {
+    kind: 'markdown',
+    content: '# Nested Spec\n\nVerified from a completed codemode nested read call.\n',
   },
   '/workspace/habit/docs/report.html': {
     kind: 'html',
@@ -2133,18 +2256,65 @@ const piRequest = async (
   }
   if (
     fixtureParam !== 'doc-exploration-legacy' &&
-    conversation.id === 10 &&
+    (conversation.id === 10 || (fixtureParam === 'doc-exploration' && conversation.id === 24)) &&
     (action === 'documents/resolve' || action === 'documents/read') &&
     method === 'POST'
   ) {
+    const decodeSafeVirtualPath = (rawPath: string): string | null => {
+      if (rawPath.includes('\\') || rawPath.includes('?')) return null;
+      if (/%(?:2f|5c|0[0-9a-f]|1[0-9a-f]|7f)/i.test(rawPath)) return null;
+      const rawSegments = rawPath.split('/');
+      for (const seg of rawSegments) {
+        if (seg === '.' || seg === '..') return null;
+      }
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(rawPath);
+      } catch {
+        return null;
+      }
+      if (decoded.includes('\\') || decoded.includes('?')) return null;
+      for (let i = 0; i < decoded.length; i += 1) {
+        const code = decoded.charCodeAt(i);
+        if (code < 0x20 || code === 0x7f) return null;
+      }
+      if (decoded.split('/').some((seg) => seg === '.' || seg === '..')) return null;
+      return decoded;
+    };
+
+    const parseVirtualCandidate = (raw: string): string | null => {
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      if (/^file:/i.test(trimmed)) {
+        if (!/^file:\/\//i.test(trimmed)) return null;
+        const afterScheme = trimmed.slice(7);
+        const hashIdx = afterScheme.indexOf('#');
+        const beforeHash = hashIdx >= 0 ? afterScheme.slice(0, hashIdx) : afterScheme;
+        if (beforeHash.includes('?') || beforeHash.includes('\\')) return null;
+        const slashIdx = beforeHash.indexOf('/');
+        if (slashIdx === -1) return null;
+        const authority = beforeHash.slice(0, slashIdx);
+        if (authority.includes('@')) return null;
+        if (authority !== '' && authority.toLowerCase() !== 'localhost') return null;
+        const rawPath = beforeHash.slice(slashIdx);
+        if (!rawPath.startsWith('/') || rawPath.startsWith('//')) return null;
+        return decodeSafeVirtualPath(rawPath);
+      }
+      const noHash = trimmed.replace(/#[^#]*$/, '');
+      const normalizedPrefix = noHash.startsWith('./') ? noHash.slice(2) : noHash;
+      return decodeSafeVirtualPath(normalizedPrefix);
+    };
+
     const resolveVirtualDoc = (raw: string, basePath?: string): { resolvedPath: string; kind: 'markdown' | 'html'; content: string } | null => {
-      const stripFrag = raw.replace(/#[^#]*$/, '').replace(/^\.\//, '');
+      const clean = parseVirtualCandidate(raw);
+      if (!clean) return null;
+      const stripFrag = clean.replace(/^\.\//, '');
       const baseDir = basePath ? basePath.slice(0, basePath.lastIndexOf('/')) : '/workspace/habit';
-      const normRel = basePath
-        ? `${baseDir}/${stripFrag}`.replace(/\/+/g, '/')
-        : stripFrag.startsWith('/')
-          ? stripFrag
-          : `/workspace/habit/${stripFrag}`;
+      const normRel = stripFrag.startsWith('/')
+        ? stripFrag.replace(/\/+/g, '/')
+        : basePath
+          ? `${baseDir}/${stripFrag}`.replace(/\/+/g, '/')
+          : `/workspace/habit/${stripFrag}`.replace(/\/+/g, '/');
       // Reject traversal above workspace or secret segments
       if (normRel.includes('..') || normRel.includes('.env') || !normRel.startsWith('/workspace/habit/')) {
         return null;

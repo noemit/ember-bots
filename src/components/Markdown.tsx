@@ -1,6 +1,6 @@
 import { ThreadLinkContext, threadIdFromLink, type ThreadLinks } from './threadLinkContext';
 import * as React from 'react';
-import ReactMarkdown, { type Components } from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Element, Root, RootContent } from 'hast';
 import { cn } from '@/lib/utils';
@@ -9,7 +9,9 @@ import { useImageViewer, type ImageViewerApi } from './imageViewerContext';
 import CopyButton from './CopyButton';
 import { rehypeQuotePositions } from '../lib/quoteMarkdown';
 import { registerQuoteMarkdown, unregisterQuoteMarkdown } from '../lib/quoteDom';
+import { isSafeRasterDataImageUrl } from '../lib/staticHtmlPreview';
 import {
+  hasActiveTextSelection,
   isExternalWebHref,
   parseDocCandidate,
   tokenizeProseDocCandidates,
@@ -20,10 +22,21 @@ import {
 const SKIP_TAGS = new Set(['a', 'code', 'pre']);
 const InsidePreContext = React.createContext(false);
 
-const hasActiveTextSelection = (): boolean => {
-  if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
-  const sel = window.getSelection();
-  return Boolean(sel && !sel.isCollapsed && sel.toString().trim().length > 0);
+export const safeMarkdownUrlTransform = (url: string, key: string): string => {
+  const trimmed = url.trim();
+  if (key === 'src') {
+    return isSafeRasterDataImageUrl(trimmed) ? trimmed.replace(/\s+/g, '') : defaultUrlTransform(url);
+  }
+  if (key === 'href') {
+    const allowed = defaultUrlTransform(url);
+    if (allowed) return allowed;
+    if (isExternalWebHref(trimmed)) return trimmed;
+    if (/^file:\/\//i.test(trimmed) && parseDocCandidate(trimmed, { allowSpaces: true })) {
+      return trimmed;
+    }
+    return '';
+  }
+  return defaultUrlTransform(url);
 };
 
 const collectHastText = (node: Element | undefined): string => {
@@ -135,8 +148,10 @@ const InlineCodeSpan = ({
     );
   }
   const rawText = collectHastText(node);
-  const candidate = rawText && rawText.trim() === rawText ? parseDocCandidate(rawText) : null;
-  const hit = candidate ? docs.lookup(rawText) : null;
+  const hit =
+    rawText && rawText.trim() === rawText
+      ? docs.lookup(rawText, { allowSpaces: true })
+      : null;
   if (!hit) {
     return (
       <code className={className} {...props}>
@@ -194,6 +209,9 @@ const buildComponents = (
       'data-doc-prose'?: string;
     };
     const href = anchorProps.href;
+    if (!href) {
+      return <React.Fragment>{children}</React.Fragment>;
+    }
     const threadId = threadIdFromLink(href);
     if (threadId !== null && !openThread?.has(threadId)) {
       return <span title="Open the parent chat’s Threads tab to find this source.">{children}</span>;
@@ -215,8 +233,8 @@ const buildComponents = (
       );
     }
 
-    if (proseGenerated || (typeof href === 'string' && !isExternalWebHref(href) && parseDocCandidate(href))) {
-      const hit = typeof href === 'string' && docs?.supported ? docs.lookup(href) : null;
+    if (proseGenerated || (typeof href === 'string' && !isExternalWebHref(href) && parseDocCandidate(href, { allowSpaces: true }))) {
+      const hit = typeof href === 'string' && docs?.supported ? docs.lookup(href, { allowSpaces: true }) : null;
       if (!hit) {
         return <React.Fragment>{children}</React.Fragment>;
       }
@@ -333,6 +351,7 @@ function Markdown({ text, className, streaming = false }: Props) {
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={streaming ? streamingRehypePlugins : settledRehypePlugins}
+        urlTransform={safeMarkdownUrlTransform}
         components={components}
       >
         {text}

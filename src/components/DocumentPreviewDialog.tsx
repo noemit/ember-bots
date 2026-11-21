@@ -24,6 +24,8 @@ import {
 } from '@/components/ui/dialog';
 import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
+import CopyButton from './CopyButton';
+import { codeSource, safeMarkdownUrlTransform } from './Markdown';
 import {
   closeDocumentPreview,
   decodePopoutPointerFromLocation,
@@ -32,11 +34,13 @@ import {
   openDocumentInPopoutWindow,
   openDocumentPreview,
   parseDocCandidate,
+  parseLineRangeFragment,
   readConversationDocumentViaBridge,
   refreshActiveDocumentPreview,
   requestPopoutInitialPayload,
   subscribePopoutLogoutWipe,
   useActiveDocumentPreview,
+  type DocumentLineRange,
   type LoadedConversationDocument,
 } from '@/lib/documentExploration';
 import {
@@ -123,6 +127,111 @@ const triggerSafeBlobDownload = (content: string, filename: string): void => {
   }, 0);
 };
 
+const SOURCE_LINE_RENDER_CAP = 10_000;
+
+const SourceLineRow = ({
+  lineNumber,
+  text,
+  highlighted,
+}: {
+  lineNumber: number;
+  text: string;
+  highlighted: boolean;
+}) => (
+  <div
+    data-line={lineNumber}
+    data-line-highlighted={highlighted ? 'true' : undefined}
+    className={cn(
+      'flex items-start px-2 py-px',
+      highlighted ? 'border-l-2 border-highlight bg-highlight/15' : 'border-l-2 border-transparent'
+    )}
+  >
+    <span
+      aria-hidden="true"
+      className="w-12 shrink-0 select-none pr-3 text-right tabular-nums text-muted-foreground/60"
+    >
+      {lineNumber}
+    </span>
+    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+      {text || '\u200b'}
+    </span>
+  </div>
+);
+
+const DocumentSourceView = ({
+  content,
+  lineRange,
+}: {
+  content: string;
+  lineRange: DocumentLineRange | null;
+}) => {
+  const lines = React.useMemo(() => content.split(/\r?\n/), [content]);
+
+  if (lines.length <= SOURCE_LINE_RENDER_CAP) {
+    return (
+      <div
+        data-testid="document-preview-source"
+        className="font-mono text-xs leading-relaxed text-foreground"
+      >
+        {lines.map((line, index) => {
+          const lineNumber = index + 1;
+          const highlighted =
+            lineRange !== null && lineNumber >= lineRange.startLine && lineNumber <= lineRange.endLine;
+          return (
+            <SourceLineRow
+              key={lineNumber}
+              lineNumber={lineNumber}
+              text={line}
+              highlighted={highlighted}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  // For massive files (>10k lines), keep non-targeted sections as compact blocks so rendering stays fast
+  // while still highlighting and anchoring the requested line range.
+  const start = lineRange ? Math.max(1, lineRange.startLine) : 0;
+  const end = lineRange ? Math.min(lines.length, lineRange.endLine) : 0;
+  const before = start > 1 ? lines.slice(0, start - 1).join('\n') : '';
+  const targetLines = lineRange && start <= end ? lines.slice(start - 1, end) : [];
+  const after = lineRange && end < lines.length ? lines.slice(end).join('\n') : '';
+
+  if (!lineRange || targetLines.length === 0) {
+    return (
+      <pre
+        data-testid="document-preview-source"
+        className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground"
+      >
+        {content}
+      </pre>
+    );
+  }
+
+  return (
+    <div
+      data-testid="document-preview-source"
+      className="font-mono text-xs leading-relaxed text-foreground"
+    >
+      {before ? (
+        <pre className="px-2 whitespace-pre-wrap break-words text-foreground">{before}</pre>
+      ) : null}
+      {targetLines.map((line, offset) => (
+        <SourceLineRow
+          key={start + offset}
+          lineNumber={start + offset}
+          text={line}
+          highlighted
+        />
+      ))}
+      {after ? (
+        <pre className="px-2 whitespace-pre-wrap break-words text-foreground">{after}</pre>
+      ) : null}
+    </div>
+  );
+};
+
 type SurfaceProps = {
   hostLabel: string;
   path: string;
@@ -152,15 +261,27 @@ export function DocumentPreviewSurface({
   onPopout,
   isPopoutWindow = false,
 }: SurfaceProps) {
-  const [viewMode, setViewMode] = React.useState<'rendered' | 'source'>('rendered');
+  const [viewMode, setViewMode] = React.useState<'rendered' | 'source'>(() =>
+    parseLineRangeFragment(fragment) ? 'source' : 'rendered'
+  );
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
   const [showExternalImages, setShowExternalImages] = React.useState(false);
   const [activeFragment, setActiveFragment] = React.useState<string | undefined>(fragment);
   const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const sourceScrollContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const lastAutoModeKeyRef = React.useRef<string>('');
 
   React.useEffect(() => {
     setActiveFragment(fragment);
   }, [fragment, loadedDoc?.path]);
+
+  React.useEffect(() => {
+    if (!loadedDoc) return;
+    const autoKey = `${loadedDoc.path}\u0000${fragment ?? ''}`;
+    if (lastAutoModeKeyRef.current === autoKey) return;
+    lastAutoModeKeyRef.current = autoKey;
+    setViewMode(parseLineRangeFragment(fragment) ? 'source' : 'rendered');
+  }, [loadedDoc, fragment]);
 
   React.useEffect(() => {
     setShowExternalImages(false);
@@ -174,7 +295,7 @@ export function DocumentPreviewSurface({
 
   const handleCopy = React.useCallback(async (key: string, text: string) => {
     const ok = await copyText(text);
-    if (ok) setCopiedKey(key);
+    setCopiedKey(ok ? key : `${key}-failed`);
   }, []);
 
   const markdownByteCount = React.useMemo(
@@ -197,6 +318,7 @@ export function DocumentPreviewSurface({
       : null;
 
   const effectiveMode: 'rendered' | 'source' = forcedSourceReason ? 'source' : viewMode;
+  const lineRange = React.useMemo(() => parseLineRangeFragment(activeFragment), [activeFragment]);
 
   const hasExternalMdImages = React.useMemo(
     () => (loadedDoc?.kind === 'markdown' ? markdownHasExternalImages(loadedDoc.content) : false),
@@ -213,9 +335,21 @@ export function DocumentPreviewSurface({
     for (const el of Array.from(headings)) {
       const id = el.getAttribute('id')?.toLowerCase();
       if (id === targetId || id === cleaned) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
         return;
       }
+    }
+  }, []);
+
+  const scrollToSourceLine = React.useCallback((range: DocumentLineRange) => {
+    const container = sourceScrollContainerRef.current;
+    if (!container) return;
+    const direct = container.querySelector(`[data-line="${range.startLine}"]`);
+    const target = direct ?? container.querySelector('[data-line-highlighted="true"]');
+    if (target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, []);
 
@@ -223,25 +357,57 @@ export function DocumentPreviewSurface({
     if (
       effectiveMode === 'rendered' &&
       loadedDoc?.kind === 'markdown' &&
-      activeFragment
+      activeFragment &&
+      !lineRange
     ) {
       const timer = window.setTimeout(() => scrollToFragment(activeFragment), 20);
       return () => window.clearTimeout(timer);
     }
     return undefined;
-  }, [effectiveMode, loadedDoc, activeFragment, scrollToFragment]);
+  }, [effectiveMode, loadedDoc, activeFragment, lineRange, scrollToFragment]);
+
+  React.useEffect(() => {
+    if (effectiveMode === 'source' && loadedDoc && lineRange) {
+      const timer = window.setTimeout(() => scrollToSourceLine(lineRange), 20);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [effectiveMode, loadedDoc, lineRange, scrollToSourceLine]);
 
   const markdownComponents = React.useMemo<Components>(() => ({
+    pre: ({ node, children }) => (
+      <div className="group/code relative my-3">
+        <pre className="overflow-x-auto rounded-md border border-border/50 bg-muted/60 p-3 pr-10 leading-relaxed">
+          {children}
+        </pre>
+        <div className="absolute right-1.5 top-1.5">
+          <CopyButton text={() => codeSource(node)} label="Copy code" done="Copied code" alwaysVisible />
+        </div>
+      </div>
+    ),
     a: ({ node: _node, href, children, ...props }) => {
-      if (typeof href === 'string' && href.startsWith('#')) {
+      if (!href) {
+        return (
+          <span className="text-muted-foreground" title="Link blocked in preview">
+            {children}
+          </span>
+        );
+      }
+      if (href.startsWith('#')) {
+        const nextFrag = href.slice(1);
         return (
           <a
             {...props}
             href={href}
             onClick={(event) => {
               event.preventDefault();
-              setActiveFragment(href.slice(1));
-              scrollToFragment(href);
+              setActiveFragment(nextFrag);
+              if (parseLineRangeFragment(nextFrag)) {
+                setViewMode('source');
+              } else {
+                if (!forcedSourceReason) setViewMode('rendered');
+                scrollToFragment(href);
+              }
             }}
             className="cursor-pointer underline decoration-current/50 underline-offset-2 hover:decoration-current"
           >
@@ -249,7 +415,7 @@ export function DocumentPreviewSurface({
           </a>
         );
       }
-      if (typeof href === 'string' && isExternalWebHref(href)) {
+      if (isExternalWebHref(href)) {
         return (
           <a
             {...props}
@@ -265,8 +431,8 @@ export function DocumentPreviewSurface({
           </a>
         );
       }
-      if (typeof href === 'string' && parseDocCandidate(href)) {
-        const parsed = parseDocCandidate(href)!;
+      const parsed = parseDocCandidate(href, { allowSpaces: true });
+      if (parsed) {
         return (
           <a
             {...props}
@@ -283,7 +449,7 @@ export function DocumentPreviewSurface({
         );
       }
       return (
-        <span className="text-muted-foreground" title={href ? `Link blocked in preview: ${href}` : undefined}>
+        <span className="text-muted-foreground" title={`Link blocked in preview: ${href}`}>
           {children}
         </span>
       );
@@ -321,7 +487,7 @@ export function DocumentPreviewSurface({
         </span>
       );
     },
-  }), [hostLabel, onOpenRelativeDoc, scrollToFragment, showExternalImages]);
+  }), [forcedSourceReason, hostLabel, onOpenRelativeDoc, scrollToFragment, showExternalImages]);
 
   const prompts = React.useMemo(
     () => buildHtmlScriptNoticePrompts(hostLabel, loadedDoc?.path ?? path),
@@ -361,7 +527,9 @@ export function DocumentPreviewSurface({
                 title="Copy file path"
               >
                 {copiedKey === 'path' ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
-                <span>{copiedKey === 'path' ? 'Copied' : 'Copy path'}</span>
+                <span>
+                  {copiedKey === 'path' ? 'Copied' : copiedKey === 'path-failed' ? 'Copy failed' : 'Copy path'}
+                </span>
               </Button>
             </div>
           </div>
@@ -426,6 +594,33 @@ export function DocumentPreviewSurface({
         </div>
       ) : null}
 
+      {loadedDoc && lineRange ? (
+        <div
+          data-testid="document-line-range-bar"
+          className="flex flex-none items-center justify-between gap-2 border-b bg-muted/35 px-4 py-1.5 text-xs text-muted-foreground"
+        >
+          <span>
+            {lineRange.startLine === lineRange.endLine
+              ? `Highlighted line ${lineRange.startLine}`
+              : `Highlighted lines ${lineRange.startLine}–${lineRange.endLine}`}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              if (effectiveMode !== 'source') {
+                setViewMode('source');
+              } else {
+                scrollToSourceLine(lineRange);
+              }
+            }}
+          >
+            {effectiveMode !== 'source' ? 'Jump to lines in Source' : 'Jump to lines'}
+          </Button>
+        </div>
+      ) : null}
+
       {effectiveMode === 'rendered' && loadedDoc?.kind === 'markdown' && hasExternalMdImages && !showExternalImages ? (
         <div className="flex flex-none items-center justify-between gap-3 border-b bg-muted/35 px-4 py-2 text-xs text-muted-foreground" role="status">
           <span>External images are hidden in preview.</span>
@@ -486,20 +681,16 @@ export function DocumentPreviewSurface({
           </div>
         ) : loadedDoc ? (
           effectiveMode === 'source' ? (
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              <pre
-                data-testid="document-preview-source"
-                className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground"
-              >
-                {loadedDoc.content}
-              </pre>
+            <div ref={sourceScrollContainerRef} className="min-h-0 flex-1 overflow-auto p-3">
+              <DocumentSourceView content={loadedDoc.content} lineRange={lineRange} />
             </div>
           ) : loadedDoc.kind === 'markdown' ? (
             <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto p-6" data-testid="document-preview-markdown">
-              <div className="mx-auto max-w-3xl text-sm leading-relaxed [&>*:first-child]:mt-0 [&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:my-2.5 [&_ul]:my-2.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2.5 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted/60 [&_pre]:p-3 [&_code]:font-mono [&_code]:text-[12.5px] [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:px-2.5 [&_td]:py-1.5">
+              <div className="mx-auto max-w-3xl text-[length:var(--conversation-text-size,14px)] leading-relaxed [&>*:first-child]:mt-0 [&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:text-base [&_h3]:font-semibold [&_p]:my-2.5 [&_ul]:my-2.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ul.contains-task-list]:list-none [&_ul.contains-task-list]:pl-2 [&_ol]:my-2.5 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_li.task-list-item>input[type='checkbox']]:mr-2 [&_li.task-list-item>input[type='checkbox']]:align-middle [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_hr]:my-4 [&_hr]:border-border [&_code]:font-mono [&_code]:text-[12.5px] [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted/70 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_table]:my-3 [&_table]:block [&_table]:w-max [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:bg-muted/50 [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_td]:border [&_td]:border-border [&_td]:px-2.5 [&_td]:py-1.5">
                 <ReactMarkdown
                   remarkPlugins={markdownRemarkPlugins}
                   rehypePlugins={markdownRehypePlugins}
+                  urlTransform={safeMarkdownUrlTransform}
                   components={markdownComponents}
                 >
                   {loadedDoc.content}
@@ -601,6 +792,7 @@ export function DocumentPopoutView() {
     instanceId: string;
     sessionId: string;
     path: string;
+    basePath?: string;
     fragment?: string;
     loading: boolean;
     document: LoadedConversationDocument | null;
@@ -615,7 +807,9 @@ export function DocumentPopoutView() {
     fragment: initialInfo.pointer?.fragment,
     loading: Boolean(initialInfo.popoutId || initialInfo.pointer),
     document: null,
-    error: initialInfo.popoutId || initialInfo.pointer ? null : 'This document preview window has no document reference.',
+    error: initialInfo.popoutId || initialInfo.pointer
+      ? null
+      : 'This document preview window has no document reference. Open the document from its conversation again.',
     history: [],
     wiped: false,
   }));
@@ -634,7 +828,7 @@ export function DocumentPopoutView() {
           ...prev,
           loading: false,
           document: null,
-          error: 'Session ended. Preview cleared.',
+          error: 'Your Ember session ended, so this preview was cleared. Reconnect and open it from the conversation again.',
           wiped: true,
         }));
         window.close();
@@ -707,7 +901,10 @@ export function DocumentPopoutView() {
       if (!state.instanceId || !state.sessionId) return;
       setState((prev) => ({
         ...prev,
+        path: targetPath,
+        basePath: opts?.basePath,
         loading: true,
+        document: opts?.basePath ? null : prev.document,
         error: null,
         fragment: opts?.fragment,
         history:
@@ -730,11 +927,13 @@ export function DocumentPopoutView() {
               loading: false,
               document: res.document,
               path: res.document.path,
+              basePath: undefined,
               error: null,
             }
           : {
               ...prev,
               loading: false,
+              document: null,
               error: res.error,
             };
       });
@@ -767,7 +966,12 @@ export function DocumentPopoutView() {
           setState((prev) => ({ ...prev, history: prev.history.slice(0, -1) }));
           void loadPath(prevEntry.path, { fragment: prevEntry.fragment });
         }}
-        onRefresh={() => void loadPath(state.document?.path ?? state.path, { fragment: state.fragment })}
+        onRefresh={() =>
+          void loadPath(state.document?.path ?? state.path, {
+            ...(state.basePath ? { basePath: state.basePath } : {}),
+            fragment: state.fragment,
+          })
+        }
         onOpenRelativeDoc={(href, nextFrag) => {
           if (!state.document) return;
           void loadPath(href, {

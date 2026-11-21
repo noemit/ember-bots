@@ -128,6 +128,7 @@ test('verified Markdown/HTML links, triple-lock static HTML modal + popout adver
   await expect(assistantPart.locator('pre a[data-doc-link="true"]')).toHaveCount(0);
 
   // Quote selection drag across verified inline code doc link preserves exact byte slice and never triggers modal:
+  await assistantPart.scrollIntoViewIfNeeded();
   await dragText(page, assistantPart, 'Inspect ', 'before rollout.');
   await expect(page.getByTestId('document-preview-dialog')).toHaveCount(0);
   const bar = column.getByRole('group', { name: 'Annotate selected text' });
@@ -234,5 +235,91 @@ test('legacy host returning 404/405/501 keeps candidates plain text silently wit
 
   await expect(assistantPart.locator('a[data-doc-link="true"]')).toHaveCount(0);
   await expect(assistantPart.locator('a[href="https://example.com/spec.html"]')).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+});
+
+test('file:// links, %20 spaces, #L line ranges, GFM + Copy code, ToolBlocks preview, and worker thread modal .md preview', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const consoleErrors: string[] = [];
+  page.on('pageerror', (err) => consoleErrors.push(err.message));
+
+  await page.goto('/?fixture=doc-exploration');
+  await page.locator('aside').getByRole('button', { name: /Document Exploration QA/ }).click();
+
+  const column = page.locator('main[data-session-key="pi:hearth::10"]');
+  const extPart = column.locator('[data-message-id="e8"] [data-quote-part-id]').first();
+  await expect(extPart).toContainText('Extended targets:');
+
+  // Verified file:// and %20 links become doc links; foreign file:// and unverified file:///etc/passwd.md stay plain text:
+  await expect(extPart.locator('a[data-doc-link="true"]', { hasText: 'Local File' })).toBeVisible();
+  await expect(extPart.locator('a[data-doc-link="true"]', { hasText: 'My Notes' })).toBeVisible();
+  await expect(extPart.locator('a[data-doc-link="true"]', { hasText: 'Localhost Notes' })).toBeVisible();
+  await expect(extPart.locator('a[data-doc-link="true"]', { hasText: 'Remote Blocked' })).toHaveCount(0);
+  await expect(extPart.locator('a[data-doc-link="true"]', { hasText: 'Unverified Local' })).toHaveCount(0);
+  await expect(extPart.locator('a', { hasText: 'Remote Blocked' })).toHaveCount(0);
+  await expect(extPart.locator('a', { hasText: 'Unverified Local' })).toHaveCount(0);
+
+  // Clicking %20 target with #L3-L5 opens Source view directly with lines 3-5 highlighted:
+  await extPart.locator('a[data-doc-link="true"]', { hasText: 'My Notes' }).click();
+  const dialog = page.getByTestId('document-preview-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('document-preview-path')).toHaveText('/workspace/habit/docs/My Notes.md');
+  await expect(dialog.getByTestId('document-line-range-bar')).toContainText('Highlighted lines 3–5');
+  const source = dialog.getByTestId('document-preview-source');
+  await expect(source).toBeVisible();
+  await expect(source.locator('[data-line="3"]')).toHaveAttribute('data-line-highlighted', 'true');
+  await expect(source.locator('[data-line="4"]')).toHaveAttribute('data-line-highlighted', 'true');
+  await expect(source.locator('[data-line="5"]')).toHaveAttribute('data-line-highlighted', 'true');
+  expect(await source.locator('[data-line="1"]').getAttribute('data-line-highlighted')).toBeNull();
+
+  // Switch to Rendered view and verify GFM task list, GFM table, and fenced code Copy code button:
+  await dialog.getByRole('button', { name: 'Rendered' }).click();
+  const rendered = dialog.getByTestId('document-preview-markdown');
+  await expect(rendered.locator('ul.contains-task-list input[type="checkbox"]')).toHaveCount(2);
+  await expect(rendered.locator('table')).toContainText('Sandbox');
+  await expect(rendered.locator('table')).toContainText('Active');
+  await rendered.getByRole('button', { name: 'Copy code' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('const answer = 42;');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  // Expand rolled-up tools and verify ToolBlocks Preview buttons (without interfering with expand/collapse):
+  await column.getByRole('button', { name: 'Used 4 tools' }).click();
+  const readRowBtn = column.locator('button', { hasText: 'docs/tool-notes.md' }).first();
+  await expect(readRowBtn).toBeVisible();
+  await expect(column.locator('[data-doc-preview-trigger="true"]')).toHaveCount(2);
+  await readRowBtn.click();
+  await expect(readRowBtn).toHaveAttribute('aria-expanded', 'true');
+  await expect(dialog).toHaveCount(0);
+
+  await column.getByRole('button', { name: 'Preview /workspace/habit/docs/tool-notes.md' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('document-preview-markdown')).toContainText('Tool Notes');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  await column.getByRole('button', { name: 'Preview /workspace/habit/docs/nested-spec.md' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('document-preview-markdown')).toContainText('Nested Spec');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  // Open worker thread inspection modal and verify .md link preview works cleanly on top:
+  await column.getByRole('button', { name: 'Review docs links', exact: true }).click();
+  const threadModal = page.getByTestId('thread-session-modal');
+  await expect(threadModal).toBeVisible();
+  const workerDocLink = threadModal.locator('a[data-doc-link="true"]', { hasText: 'docs/plan.md#phase-2' });
+  await expect(workerDocLink).toBeVisible();
+  await workerDocLink.click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('document-preview-markdown')).toContainText('Rollout Plan');
+
+  // Escape closes document preview only, leaving worker thread modal open underneath:
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(threadModal).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(threadModal).toHaveCount(0);
+
   expect(consoleErrors).toEqual([]);
 });
