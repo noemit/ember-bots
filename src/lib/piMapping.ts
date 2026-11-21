@@ -160,7 +160,7 @@ export const piConversationToSession = (
     conversation.compactionFailure && typeof conversation.compactionFailure.error === 'string'
       ? conversation.compactionFailure
       : undefined,
-  // The newest entry id is what lets Home answer "could this hold anything unread?" for free.
+  // The newest entry id is what lets unread checks answer "could this hold anything unread?" for free.
   lastEntryId: typeof conversation.lastEntryId === 'number' ? conversation.lastEntryId : undefined,
   // Only when the host says there are some: an absent field renders nothing, which is what an
   // ordinary session should do.

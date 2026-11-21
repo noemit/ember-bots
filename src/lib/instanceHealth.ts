@@ -221,29 +221,3 @@ export const archiveEmptyCopy = (input: { state: EndpointState; endpointCount: n
   }
   return 'No hidden sessions here. Use Hide session on a session’s menu to put it here; Unhide session brings it back.';
 };
-
-/** The Home screen's one-line status, when it has no cards to count. */
-export const activityIdleCopy = (input: { state: EndpointState; endpointCount: number }): string => {
-  const { state, endpointCount } = input;
-  if (state === 'no-endpoints') return 'No endpoints yet';
-  if (state === 'checking') return 'Waiting for your ember-harness endpoints to answer';
-  if (state === 'no-answers') {
-    return `Your ${endpoints(endpointCount)} ${verb(endpointCount)} not answering`;
-  }
-  return 'Everything is idle';
-};
-
-/** The Home screen's empty timeline line. */
-export const activityEmptyCopy = (input: { state: EndpointState; endpointCount: number }): string => {
-  const { state, endpointCount } = input;
-  if (state === 'no-answers') {
-    return `No activity to show — your ${endpoints(endpointCount)} ${verb(endpointCount)} not answering, so Ember can’t record milestones. Retry from the Instances menu once a host is back.`;
-  }
-  if (state === 'checking') {
-    return 'No activity to show yet — Ember records milestones as your ember-harness hosts answer.';
-  }
-  if (state === 'no-endpoints') {
-    return 'No activity recorded yet — add an ember-harness endpoint in Settings → Instances, then run a bot.';
-  }
-  return 'No activity recorded yet — run a bot and milestones will land here.';
-};

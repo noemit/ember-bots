@@ -11,8 +11,6 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  activityEmptyCopy,
-  activityIdleCopy,
   archiveEmptyCopy,
   endpointState,
   instanceReady,
@@ -216,8 +214,6 @@ describe('the three empty states are three different sentences', () => {
       paletteEmptyCopy({ state: 'no-answers', endpointCount: 3, query: 'x' }),
       paletteEmptyCopy({ state: 'connected', endpointCount: 3, query: 'x' }),
       archiveEmptyCopy({ state: 'no-answers', endpointCount: 3 }),
-      activityEmptyCopy({ state: 'no-answers', endpointCount: 3 }),
-      activityIdleCopy({ state: 'no-answers', endpointCount: 3 }),
     ];
     for (const text of all) {
       expect(text).not.toContain('!');
@@ -226,13 +222,9 @@ describe('the three empty states are three different sentences', () => {
     }
   });
 
-  test('the palette, archive and Home say the same thing in their own register', () => {
+  test('the palette and hidden-sessions list say the same thing in their own register', () => {
     expect(paletteEmptyCopy({ state: 'no-answers', endpointCount: 1, query: 'x' })).toMatch(/not answering/i);
     expect(archiveEmptyCopy({ state: 'no-answers', endpointCount: 1 })).toMatch(/not answering/i);
-    expect(activityEmptyCopy({ state: 'no-answers', endpointCount: 1 })).toMatch(/retry/i);
-    // Home's one-liner used to read "Everything is idle" during an outage.
-    expect(activityIdleCopy({ state: 'no-answers', endpointCount: 1 })).not.toMatch(/idle/i);
-    expect(activityIdleCopy({ state: 'connected', endpointCount: 1 })).toMatch(/idle/i);
   });
 });
 

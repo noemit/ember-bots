@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { digestUnread, excerptText, orderUnreadCards, promptItems, UNREAD_EXCERPT_LIMIT } from '../src/lib/unreadDigest';
-import type { ChatMessage, PermissionRequest, QuestionRequest } from '../src/types';
+import { digestUnread, excerptText, UNREAD_EXCERPT_LIMIT } from '../src/lib/unreadDigest';
+import type { ChatMessage } from '../src/types';
 
 const assistant = (id: string, text: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
@@ -107,47 +107,5 @@ describe('digestUnread', () => {
   test('an incomplete read says so instead of guessing', () => {
     const digest = digestUnread([assistant('e1', 'only one')], { mark: undefined, complete: false, version: 1 });
     expect(digest.complete).toBe(false);
-  });
-});
-
-describe('promptItems', () => {
-  const permission: PermissionRequest = {
-    id: 'perm-1',
-    instanceId: 'local',
-    sessionId: '1',
-    permission: 'bash',
-    patterns: ['bun run test:e2e'],
-    metadata: {},
-  };
-  const question: QuestionRequest = {
-    id: 'q-1',
-    instanceId: 'local',
-    sessionId: '1',
-    questions: [{ header: 'Copy', question: 'Which wording?', options: [] }],
-  };
-
-  test('a pending approval is sticky and asks for a decision, never "read"', () => {
-    const [item] = promptItems([permission], [], 7);
-    expect(item.sticky).toBe(true);
-    expect(item.kind).toBe('permission');
-    expect(item.excerpt).toContain('bun run test:e2e');
-    expect(item.at).toBe(7);
-  });
-
-  test('a pending question carries the question itself', () => {
-    const [item] = promptItems([], [question], 7);
-    expect(item.kind).toBe('question');
-    expect(item.excerpt).toBe('Which wording?');
-  });
-});
-
-describe('orderUnreadCards', () => {
-  test('most unread first, then most recent', () => {
-    const ordered = orderUnreadCards([
-      { id: 'a', count: 2, updated: 900 },
-      { id: 'b', count: 5, updated: 100 },
-      { id: 'c', count: 2, updated: 950 },
-    ]);
-    expect(ordered.map((card) => card.id)).toEqual(['b', 'c', 'a']);
   });
 });

@@ -1,12 +1,12 @@
 import { stripMarkdown } from '../api';
 import { entryOrdinal } from './piMapping';
 import { isMessageRead } from './readState';
-import type { ChatMessage, QuestionRequest, PermissionRequest, SessionReadMark } from '../types';
+import type { ChatMessage, SessionReadMark } from '../types';
 
 /**
- * What Home shows inside a session card: the messages you haven't read, cut short, newest last.
+ * Unread excerpts for a session: the messages you haven't read, cut short, newest last.
  *
- * A digest is built from a bounded tail or an append read, never a full transcript — Home must stay
+ * A digest is built from a bounded tail or an append read, never a full transcript — it stays
  * affordable for a session whose full history is tens of megabytes. It holds excerpts and counts
  * only: no message parts, no image data.
  */
@@ -121,50 +121,8 @@ export const digestUnread = (
 };
 
 /**
- * Pending approvals and questions as items to show above the unread messages.
- *
- * They have no transcript position yet, so they carry no ordinal; they are `sticky` so marking
- * everything read leaves them alone. They disappear when answered, which is the only way to clear
- * one, and that is deliberate: a blocked agent is not a read state.
- */
-export const promptItems = (
-  permissions: readonly PermissionRequest[],
-  questions: readonly QuestionRequest[],
-  at = 0
-): UnreadItem[] => {
-  const items: UnreadItem[] = [];
-  permissions.forEach((request) => {
-    const patterns = request.patterns.filter(Boolean).slice(0, 2).join(', ');
-    items.push({
-      id: `permission:${request.id}`,
-      ordinal: null,
-      at,
-      kind: 'permission',
-      excerpt: patterns ? `Wants to run ${patterns}` : `Wants to use ${request.permission}`,
-      truncated: false,
-      tags: ['Your call'],
-      sticky: true,
-    });
-  });
-  questions.forEach((request) => {
-    const first = request.questions[0];
-    items.push({
-      id: `question:${request.id}`,
-      ordinal: null,
-      at,
-      kind: 'question',
-      excerpt: first?.question ?? 'Asked you a question',
-      truncated: false,
-      tags: ['Your call'],
-      sticky: true,
-    });
-  });
-  return items;
-};
-
-/**
- * The rows a card should actually draw: the digest's messages minus anything a mark now covers,
- * plus every sticky prompt.
+ * The rows a caller should actually draw: the digest's messages minus anything a mark now covers,
+ * plus every sticky item.
  *
  * A digest is a snapshot of what *was* unread when it was read; a mark can land before the next
  * read (or without one at all), so every consumer filters here rather than trusting the snapshot.
@@ -175,7 +133,3 @@ export const visibleUnreadItems = (
   mark: SessionReadMark | undefined
 ): UnreadItem[] =>
   (digest?.items ?? []).filter((item) => item.sticky || !isMessageRead(mark, item.ordinal, item.at, item.id));
-
-/** Unread first: most unread messages wins, then the most recent activity. */
-export const orderUnreadCards = <T extends { count: number; updated: number }>(cards: readonly T[]): T[] =>
-  [...cards].sort((a, b) => b.count - a.count || b.updated - a.updated);

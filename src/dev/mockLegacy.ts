@@ -9,7 +9,13 @@
 import { parseDelegatorModels, mergeAvatarAssignments, parseSnoozedSessions } from '../../electron/transport';
 import type { ActivityEntry, ActivityPage, ActivityQuery, EmberBridge, EmberSettings, EmberSettingsPatch } from '../types';
 import type { ModelObservation } from '../lib/modelStats';
-import { activityDayKey } from '@/lib/activityView';
+
+const activityDayKey = (at: number): string => {
+  const date = new Date(at);
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
 
 type MockTool = {
   tool: string;

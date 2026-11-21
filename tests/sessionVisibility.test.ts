@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { archiveEmptyCopy } from '../src/lib/instanceHealth';
 import { sessionVisibilityFailure } from '../src/lib/sessionVisibility';
-import { entryLine } from '../src/lib/activityView';
 
 const source = (path: string) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 
@@ -72,11 +71,5 @@ describe('session hiding copy', () => {
       };
       visit(ast);
     }
-  });
-
-  test('old activity milestones display hiding without rewriting user content', () => {
-    const entry = { id: 'a', at: 1, instanceId: 'local', type: 'openchamber:session-archived', summary: 'session archived' };
-    expect(entryLine(entry)).toMatch(/hidden/);
-    expect(entryLine({ ...entry, type: 'message', summary: 'Archive my files' })).toBe('Archive my files');
   });
 });

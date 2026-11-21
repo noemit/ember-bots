@@ -11,7 +11,7 @@
  * nowhere to see which names exist, on which host. This module is the pure half of the view that fixes
  * that — grouping by host, pinned first, with the three ways a host can fail to answer kept apart.
  *
- * It is also the first piece a cross-host `send` would need (see TODO.md): a name is only addressable
+ * It is also the first piece a cross-host `send` would need: a name is only addressable
  * if it is unique across every connected host, which cannot be decided without this list.
  */
 import type { Instance, Session } from '../types';

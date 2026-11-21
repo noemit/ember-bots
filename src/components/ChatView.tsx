@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { blobColor } from '../blob/color';
 import { normalizeDirectory } from '../blob/seed';
-import { DEFAULT_MODEL, modelRefKey, sessionKey, sessionKey as makeSessionKey } from '../types';
+import { DEFAULT_MODEL, modelRefKey, sessionKey } from '../types';
 import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import type { PromptInput } from '../api';
 import { ModelPickerFallback } from './ModelPickerFallback';
@@ -1036,7 +1036,7 @@ function ChatView({
     if (!composerKey || !session) return false;
     const linked = note.quoteLinkId ? quoteLinks.find((link) => link.id === note.quoteLinkId) : undefined;
     if (linked) {
-      const valid = validateQuoteAnchor(linked.source, messages, makeSessionKey(session));
+      const valid = validateQuoteAnchor(linked.source, messages, sessionKey(session));
       if (!valid.valid) { showNoteError('This note’s quoted source changed. Keep the note, then select the passage again to make a new annotation.'); return false; }
       const choice = noteModelChoice(note);
       let modelChoice: { model?: ModelOption; selectedModelId: string; variant?: string };
@@ -1069,7 +1069,7 @@ function ChatView({
 
   const navigateQuote = (link: QuoteLink, direction: 'source' | 'destination') => {
     const target = direction === 'source' ? link.source.sessionKey : link.destination.sessionKey;
-    if (target === (session ? makeSessionKey(session) : null)) {
+    if (target === (session ? sessionKey(session) : null)) {
       if (link.destination.kind === 'note') { setShelfSection('notes'); setShelfOpen(true); }
       if (link.destination.kind === 'queue') { setShelfSection('queue'); setShelfOpen(true); }
     }
@@ -1170,7 +1170,7 @@ function ChatView({
     jumpToMessage(focusMessageRef.current);
   }, [focusToken, jumpToMessage]);
 
-  const quoteSessionKey = session ? makeSessionKey(session) : null;
+  const quoteSessionKey = session ? sessionKey(session) : null;
   const hasMarkMessageRead = Boolean(onMarkMessageRead);
   const hasUndoMarkMessageRead = Boolean(onUndoMarkMessageRead);
   const hasMarkMessageUnread = Boolean(onMarkMessageUnread);

@@ -158,11 +158,6 @@ export const blobStripLayout = (
 };
 
 /**
- * Where a session's notes live. A session inside a configured project shares its notes with every
- * other session in that project (so a note saved in one shows up in them all); a standalone session
- * keeps its own notes under its session key.
- */
-/**
  * Notes are parked against one session, not shared across a project: a note is usually a thought
  * about *this* conversation ("for later, in here"), and a project-wide bucket meant it surfaced in
  * every other session in the folder. Stored under the session key, so the same text can be parked

@@ -642,7 +642,7 @@ function Providers({
         {...(state.targetInstanceId ? { initialEndpointId: state.targetInstanceId } : {})}
       />
       <p className="text-base text-muted-foreground">
-        You can change all of this later in Settings → Providers ({String(onChange === undefined ? '' : 'it saves as you go')}).
+        You can change all of this later in Settings → Providers (it saves as you go).
       </p>
     </div>
   );

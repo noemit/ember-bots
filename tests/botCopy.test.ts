@@ -3,7 +3,6 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import ts from 'typescript';
 import { ONBOARDING_STEPS, workspaceHint } from '../src/lib/onboarding';
-import { activityEmptyCopy } from '../src/lib/instanceHealth';
 import { agentMessageBudgetRefusal, directoryEmptyCopy, hostDirectoryNote } from '../src/lib/agentDirectory';
 
 /** Product vocabulary is separate from protocol names (`agent`, `agents`, `first-agent`). */
@@ -28,11 +27,10 @@ describe('bot product terminology', () => {
     expectBotCopy(workspaceHint(null));
   });
 
-  test('directory and activity recovery copy uses bots rather than API terminology', () => {
+  test('directory recovery copy uses bots rather than API terminology', () => {
     expectBotCopy(agentMessageBudgetRefusal());
     expectBotCopy(directoryEmptyCopy([]));
     expectBotCopy(hostDirectoryNote({ state: 'agents', agents: [] })!);
-    expectBotCopy(activityEmptyCopy({ state: 'connected', endpointCount: 1 }));
   });
 });
 
