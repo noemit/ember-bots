@@ -2216,7 +2216,7 @@ function ChatView({
                 className="h-7 flex-none gap-1 px-1.5 text-xs data-[state=on]:border-destructive/60 data-[state=on]:bg-destructive/10 data-[state=on]:text-destructive @[490px]:pr-2"
               >
                 <Zap className="size-3.5 flex-none" />
-                <span className="hidden @[490px]:inline">Yeet</span>
+                <span className="hidden @[490px]:inline">YEET</span>
               </Toggle>
 
               <input
