@@ -447,17 +447,29 @@ async function acquireCode(
 
 // --- login / refresh ---------------------------------------------------------------------------
 
-async function login(interaction: ProviderAuthInteraction): Promise<OAuthCredential> {
+type AntigravityAuthInteraction = ProviderAuthInteraction & {
+  ask?: (prompt: ManualCodePrompt) => Promise<string>;
+};
+
+type ExtensionLoginCallbacks = {
+  signal?: AbortSignal;
+  onPrompt: (prompt: { message: string; placeholder?: string }) => Promise<string>;
+  onProgress?: (message: string) => void;
+  onAuth: (info: { url: string; instructions?: string }) => void;
+};
+
+async function login(interaction: AntigravityAuthInteraction): Promise<OAuthCredential> {
   // A login nobody completes must not hold the callback port forever, and a cancelled one must stop
   // the token exchange too, so both limits hang off the same signal.
   const signal = AbortSignal.any([interaction.signal, AbortSignal.timeout(LOGIN_TIMEOUT_MS)]);
+  const ask = interaction.ask;
   return runLogin(
     {
       // `ask` is the surface this wire can carry: the question becomes an event, and the answer
       // arrives later from whoever is looking at the screen. Without it the flow still gets a
       // `prompt` — and that one refuses rather than parks, which is the honest answer when nobody
       // can be asked.
-      ...(interaction.ask === undefined ? {} : { ask: (prompt: ManualCodePrompt) => interaction.ask!(prompt) }),
+      ...(ask === undefined ? {} : { ask: (prompt: ManualCodePrompt) => ask(prompt) }),
       prompt: (prompt) => interaction.prompt(prompt),
       notify: (event) => interaction.notify(event),
     },
@@ -497,7 +509,7 @@ async function runLogin(surface: AskSurface, signal: AbortSignal): Promise<OAuth
       signal
     );
     if (!tokenResponse.ok) {
-      throw new Error(`Google rejected the token exchange: `);
+      throw new Error(`Google rejected the token exchange: ${providerErrorText(await tokenResponse.text())}`);
     }
     const token = readTokenResponse((await tokenResponse.json()) as TokenResponse);
     if (!token.refresh) {
@@ -567,7 +579,9 @@ export function parseAntigravityApiKey(raw: string): { token: string; projectId:
   throw new Error("Missing Antigravity credentials. Sign in again from Ember's Providers screen.");
 }
 
-export const antigravityOAuth: OAuthAuth = {
+export const antigravityOAuth: OAuthAuth & {
+  extensionLogin: (callbacks: ExtensionLoginCallbacks) => Promise<OAuthCredential>;
+} = {
   name: "Google (Antigravity)",
   isSubscription: true,
   loginLabel: "Sign in with Google (Antigravity)",
