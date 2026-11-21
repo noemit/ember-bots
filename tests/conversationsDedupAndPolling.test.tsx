@@ -506,20 +506,23 @@ describe('bounded tail session open & 60s busy safety poll', () => {
   });
 
   test('App showTranscript and visible-column safety poll stay on bounded tail reads without eager full walks', () => {
-    const appSource = fs.readFileSync(path.join(import.meta.dir, '../src/App.tsx'), 'utf8');
-    const showStart = appSource.indexOf('const showTranscript = useStableCallback');
-    const showEnd = appSource.indexOf('// Selecting a column refreshes it immediately', showStart);
+    const streamsSource = fs.readFileSync(
+      path.join(import.meta.dir, '../src/app/useInstancePollingAndStreams.ts'),
+      'utf8'
+    );
+    const showStart = streamsSource.indexOf('const showTranscript = useStableCallback');
+    const showEnd = streamsSource.indexOf('// Selecting a column refreshes it immediately', showStart);
     expect(showStart).toBeGreaterThan(0);
     expect(showEnd).toBeGreaterThan(showStart);
-    const showBlock = appSource.slice(showStart, showEnd);
+    const showBlock = streamsSource.slice(showStart, showEnd);
     expect(showBlock).toContain('refreshMessageTail(ref)');
     expect(showBlock).not.toContain('refreshMessages(');
 
-    const pollStart = appSource.indexOf('const anyColumnBusy = watchedSessionKeys.some');
-    const pollEnd = appSource.indexOf('const toggleInstance =', pollStart);
+    const pollStart = streamsSource.indexOf('const anyColumnBusy = watchedSessionKeys.some');
+    const pollEnd = streamsSource.indexOf('return {', pollStart);
     expect(pollStart).toBeGreaterThan(0);
     expect(pollEnd).toBeGreaterThan(pollStart);
-    const pollBlock = appSource.slice(pollStart, pollEnd);
+    const pollBlock = streamsSource.slice(pollStart, pollEnd);
     expect(pollBlock).toContain('refreshMessageTail(ref)');
     expect(pollBlock).not.toContain('refreshMessages(');
   });

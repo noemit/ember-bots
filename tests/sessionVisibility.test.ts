@@ -40,9 +40,30 @@ describe('session hiding copy', () => {
   });
 
   test('UI text has no old archive or restore wording (internal identifiers stay intact)', () => {
-    const paths = ['App', ...['ArchiveDialog', 'ArchiveSessionDialog', 'SessionRow', 'ChatView', 'chat/ChatHeader', 'LeftRail', 'ProjectCard', 'ProjectCleanupMenu', 'SettingsPanel'].map(name => 'components/' + name)];
+    const paths = [
+      'App.tsx',
+      ...[
+        'AppDialogs.tsx',
+        'FeedbackBanner.tsx',
+        'SessionColumn.tsx',
+        'useAnnotationsAndNotes.ts',
+        'useAvatarIdentities.ts',
+        'useInstancePollingAndStreams.ts',
+        'useSendAndLifecycle.ts',
+        'useSessionSelectors.ts',
+        'useTranscriptStore.ts',
+        'useWorkspaceColumns.ts',
+      ].map((name) => 'app/' + name),
+      ...['ArchiveDialog', 'ArchiveSessionDialog', 'SessionRow', 'ChatView', 'chat/ChatHeader', 'LeftRail', 'ProjectCard', 'ProjectCleanupMenu', 'SettingsPanel'].map((name) => 'components/' + name + '.tsx'),
+    ];
     for (const path of paths) {
-      const ast = ts.createSourceFile(path + '.tsx', source('src/' + path + '.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const ast = ts.createSourceFile(
+        path,
+        source('src/' + path),
+        ts.ScriptTarget.Latest,
+        true,
+        path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+      );
       const visit = (node: ts.Node) => {
         if (ts.isStringLiteral(node) || ts.isJsxText(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
           expect(node.text).not.toMatch(/\b(?:archive|archived|archiving|restore|restoring)\b/i);

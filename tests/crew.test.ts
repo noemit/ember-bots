@@ -295,9 +295,11 @@ describe('crewNeedsInputKeySet', () => {
     expect(elapsedMs).toBeLessThan(250);
   });
 
-  test('App.tsx reuses crewWorkers via crewNeedsInputKeySet instead of per-session leaderNeedsInput', () => {
+  test('useSessionSelectors reuses crewWorkers via crewNeedsInputKeySet instead of per-session leaderNeedsInput', () => {
+    const selectorsSource = fs.readFileSync(path.join(import.meta.dir, '../src/app/useSessionSelectors.ts'), 'utf8');
+    expect(selectorsSource).toContain('crewNeedsInputKeySet(allInstanceSessions, crewWorkers)');
+    expect(selectorsSource).not.toContain('leaderNeedsInput(');
     const appSource = fs.readFileSync(path.join(import.meta.dir, '../src/App.tsx'), 'utf8');
-    expect(appSource).toContain('crewNeedsInputKeySet(allInstanceSessions, crewWorkers)');
     expect(appSource).not.toContain('leaderNeedsInput(');
   });
 });

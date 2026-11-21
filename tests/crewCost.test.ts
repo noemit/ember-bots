@@ -267,9 +267,11 @@ describe('crewCostsByKey batch derivation and O(N) scaling', () => {
     expect(elapsedMs).toBeLessThan(250);
   });
 
-  test('App.tsx derives crewCostByKey via crewCostsByKey rather than per-session crewCostOf', () => {
+  test('useSessionSelectors derives crewCostByKey via crewCostsByKey rather than per-session crewCostOf', () => {
+    const selectorsSource = fs.readFileSync(path.join(import.meta.dir, '../src/app/useSessionSelectors.ts'), 'utf8');
+    expect(selectorsSource).toContain('crewCostsByKey(');
+    expect(selectorsSource).not.toContain('crewCostOf(');
     const appSource = fs.readFileSync(path.join(import.meta.dir, '../src/App.tsx'), 'utf8');
-    expect(appSource).toContain('crewCostsByKey(');
     expect(appSource).not.toContain('crewCostOf(');
   });
 });

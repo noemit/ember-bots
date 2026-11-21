@@ -12,7 +12,7 @@ describe('promote-to-a-persistent-bot copy', () => {
   const header = read('src/components/chat/ChatHeader.tsx');
   const dialog = read('src/components/PromoteWorkerDialog.tsx');
   const strip = read('src/components/CrewStrip.tsx');
-  const app = read('src/App.tsx');
+  const app = read('src/app/useSendAndLifecycle.ts');
 
   test('the header button is short, and its accessible name and tooltip carry the full phrase', () => {
     expect(header).toContain('aria-label="Promote to a persistent bot"');
