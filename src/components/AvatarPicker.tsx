@@ -150,7 +150,6 @@ export default function AvatarPicker({
 
           <p data-testid="global-blob-style" className="text-xs text-muted-foreground">
             Blob style: <span className="font-medium text-foreground">{style[0].toUpperCase() + style.slice(1)}</span>.
-            Change it in Settings → General; it applies to every chat.
           </p>
 
           <section className="flex flex-col gap-2">

@@ -30,7 +30,7 @@ const customize = async (page: Page, style = 'Mosaic', shape = 'crown') => {
   await expect(page.getByRole('option')).toHaveCount(1);
   await page.getByRole('option', { name: 'This new bot', exact: true }).click();
   await expect(dialog.getByTestId('global-blob-style')).toContainText('Blob style: Buddy.');
-  await expect(dialog.getByTestId('global-blob-style')).toContainText('Change it in Settings → General; it applies to every chat.');
+  await expect(dialog.getByTestId('global-blob-style')).not.toContainText('Settings → General');
   await expect(dialog.getByRole('group', { name: 'Bot style' })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: /^(Buddy|Crystal|Mosaic|Lava|Scribble)$/ })).toHaveCount(0);
   await dialog.getByLabel('Custom bot color').fill('#158cba');
@@ -134,7 +134,7 @@ test('draft picker shows the global style without offering a misleading per-bot 
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Customize appearance' });
   await expect(dialog.getByTestId('global-blob-style')).toContainText('Blob style: Buddy.');
-  await expect(dialog.getByTestId('global-blob-style')).toContainText('Change it in Settings → General; it applies to every chat.');
+  await expect(dialog.getByTestId('global-blob-style')).not.toContainText('Settings → General');
   await expect(dialog.getByRole('group', { name: 'Bot style' })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: /^(Buddy|Crystal|Mosaic|Lava|Scribble)$/ })).toHaveCount(0);
 });
