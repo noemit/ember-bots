@@ -1,9 +1,14 @@
 import * as React from 'react';
 import { isRemoteExpired } from './remoteLifecycle';
 import { randomId } from './randomId';
-import type { ChatMessage, Instance, Session } from '../types';
+import type { ChatMessage, Instance, NestedToolCall, Session, ToolCall } from '../types';
 
 export type DocumentKind = 'markdown' | 'html';
+
+export type DocumentLineRange = {
+  startLine: number;
+  endLine: number;
+};
 
 export type ResolvedDocumentRef = {
   candidate: string;
@@ -24,20 +29,27 @@ export type LoadedConversationDocument = {
 export type ParsedDocCandidate = {
   /** Normalized lookup path without `#fragment` or leading `./`. */
   lookupKey: string;
-  /** Exact raw path string (without `#fragment`) sent to Kiln. */
+  /** Exact clean path string (without `#fragment`, with percent-escapes decoded) sent to Kiln. */
   requestPath: string;
   fragment?: string;
   kind: DocumentKind;
 };
 
+export type ParseDocCandidateOptions = {
+  allowSpaces?: boolean;
+};
+
 const DOC_EXTENSION_REGEX = /\.(md|markdown|mdx|html|htm)$/i;
 const DOC_EXTENSION_ANYWHERE_REGEX = /\.(md|markdown|mdx|html|htm)(?![A-Za-z0-9_])/i;
-const DOC_TOKEN_ALLOWED = /^(?:~\/|\.{1,2}\/|\/|[A-Za-z0-9_@.-])(?:[^\s"'`<>()[\]{}|*?$]*?)\.(?:md|markdown|mdx|html|htm)$/i;
+const DOC_TOKEN_NO_SPACE = /^(?:~\/|\.{1,2}\/|\/|[A-Za-z0-9_@.-])(?:[^\s"'`<>()[\]{}|*?$]*?)\.(?:md|markdown|mdx|html|htm)$/i;
+const DOC_TOKEN_WITH_SPACE = /^(?:~\/|\.{1,2}\/|\/|[A-Za-z0-9_@.-])(?:[^\t\r\n\v\f"'`<>()[\]{}|*?$]*?)\.(?:md|markdown|mdx|html|htm)$/i;
 const DOC_PROSE_PATTERN =
-  /(?<![A-Za-z0-9_:/\\@])(?:~\/|\.{1,2}\/|\/)?[A-Za-z0-9_@.-]+(?:\/[A-Za-z0-9_@.-]+)*\.(?:md|markdown|mdx|html|htm)(?:#[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?/gi;
+  /(?<![A-Za-z0-9_:/\\@%])(?:file:\/\/(?:localhost)?\/|~\/|\.{1,2}\/|\/)?[A-Za-z0-9_@.%+-]+(?:\/[A-Za-z0-9_@.%+-]+)*\.(?:md|markdown|mdx|html|htm)(?:#[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?/gi;
 
-const EXTERNAL_SCHEME_REGEX = /^(?:https?:|mailto:|tel:|data:|blob:|javascript:|vbscript:|file:|thread:)/i;
+const EXTERNAL_SCHEME_REGEX = /^(?:https?:|mailto:|tel:|data:|blob:|javascript:|vbscript:|thread:)/i;
 const BARE_WEB_HOST_REGEX = /^(?:www\.|(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+)/i;
+const FILE_TOOL_NAMES = new Set(['read', 'write', 'edit', 'view']);
+const UNICODE_SPACES_REGEX = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 
 export const MAX_RESOLVE_BATCH = 64;
 const MAX_SCOPES = 24;
@@ -46,6 +58,23 @@ const POSITIVE_TTL_MS = 60_000;
 const NEGATIVE_TTL_MS = 15_000;
 const POPOUT_TTL_MS = 60_000;
 const POPOUT_CHANNEL_NAME = 'ember-doc-popout-v1';
+
+export const hasActiveTextSelection = (): boolean => {
+  if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
+  const sel = window.getSelection();
+  return Boolean(sel && !sel.isCollapsed && sel.toString().trim().length > 0);
+};
+
+export const parseLineRangeFragment = (fragment: string | undefined): DocumentLineRange | null => {
+  if (!fragment) return null;
+  const cleaned = fragment.replace(/^#/, '').trim();
+  const match = /^L([1-9]\d*)(?:-L?([1-9]\d*))?$/i.exec(cleaned);
+  if (!match) return null;
+  const a = Number.parseInt(match[1]!, 10);
+  const b = match[2] ? Number.parseInt(match[2]!, 10) : a;
+  if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || a < 1 || b < 1) return null;
+  return a <= b ? { startLine: a, endLine: b } : { startLine: b, endLine: a };
+};
 
 export const docKindFromFilename = (filePath: string): DocumentKind | undefined => {
   const lower = filePath.toLowerCase();
@@ -60,7 +89,15 @@ export const isExternalWebHref = (href: string | undefined): boolean => {
   return /^(?:https?:|mailto:|tel:)/i.test(trimmed) || BARE_WEB_HOST_REGEX.test(trimmed);
 };
 
-const hasWhitespaceOrControlChars = (value: string): boolean => {
+const hasControlOrNonSpaceWhitespace = (value: string): boolean => {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f || (/\s/.test(value[i]!) && code !== 0x20)) return true;
+  }
+  return false;
+};
+
+const hasAnyWhitespaceOrControlChars = (value: string): boolean => {
   for (let i = 0; i < value.length; i += 1) {
     const code = value.charCodeAt(i);
     if (code <= 0x20 || code === 0x7f || /\s/.test(value[i]!)) return true;
@@ -68,13 +105,99 @@ const hasWhitespaceOrControlChars = (value: string): boolean => {
   return false;
 };
 
-export const parseDocCandidate = (rawInput: string): ParsedDocCandidate | null => {
+const decodeSafePercentSegments = (
+  segments: readonly string[],
+  options: { strict: boolean }
+): { decodedSegments: string[]; hadPercentSpace: boolean } | null => {
+  const decodedSegments: string[] = [];
+  let hadPercentSpace = false;
+
+  for (const segment of segments) {
+    if (options.strict && !segment) return null;
+    if (/%(?:2f|5c|0[0-9a-f]|1[0-9a-f]|7f)/i.test(segment)) return null;
+    let decoded = segment;
+    const hasPercentHex = /%[0-9a-f]{2}/i.test(segment);
+    if (hasPercentHex) {
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {
+        return null;
+      }
+      if (decoded.includes(' ') && !segment.includes(' ')) hadPercentSpace = true;
+      if (decoded.includes('/') || decoded.includes('\\') || hasControlOrNonSpaceWhitespace(decoded)) {
+        return null;
+      }
+      if (decoded === '.' || decoded === '..') return null;
+    }
+    if (options.strict) {
+      if (!decoded || decoded === '.' || decoded === '..') return null;
+      if (decoded.includes('/') || decoded.includes('\\') || hasControlOrNonSpaceWhitespace(decoded)) {
+        return null;
+      }
+    }
+    decodedSegments.push(decoded);
+  }
+
+  return { decodedSegments, hadPercentSpace };
+};
+
+/**
+ * Strictly parse local `file:///...` and `file://localhost/...` URLs into clean path candidates
+ * that still pass 100% of Kiln's conversation/cwd/provenance/secret verification.
+ */
+const parseLocalFileUrl = (trimmed: string): ParsedDocCandidate | null => {
+  if (!/^file:\/\//i.test(trimmed)) return null;
+  const afterScheme = trimmed.slice(7);
+  const hashIdx = afterScheme.indexOf('#');
+  const beforeHash = hashIdx >= 0 ? afterScheme.slice(0, hashIdx) : afterScheme;
+  const rawFragment = hashIdx >= 0 ? afterScheme.slice(hashIdx + 1) : '';
+  if (rawFragment && hasAnyWhitespaceOrControlChars(rawFragment)) return null;
+  if (beforeHash.includes('?') || beforeHash.includes('\\')) return null;
+
+  const slashIdx = beforeHash.indexOf('/');
+  if (slashIdx === -1) return null;
+  const authority = beforeHash.slice(0, slashIdx);
+  if (authority.includes('@')) return null;
+  if (authority !== '' && authority.toLowerCase() !== 'localhost') return null;
+
+  const rawPath = beforeHash.slice(slashIdx);
+  if (!rawPath.startsWith('/') || rawPath.startsWith('//')) return null;
+
+  const decodedResult = decodeSafePercentSegments(rawPath.slice(1).split('/'), { strict: true });
+  if (!decodedResult) return null;
+  const { decodedSegments } = decodedResult;
+
+  const decodedPath =
+    decodedSegments.length >= 2 && /^[A-Za-z]:$/.test(decodedSegments[0]!)
+      ? `${decodedSegments[0]}/${decodedSegments.slice(1).join('/')}`
+      : `/${decodedSegments.join('/')}`;
+
+  if (!DOC_TOKEN_WITH_SPACE.test(decodedPath)) return null;
+  const kind = docKindFromFilename(decodedPath);
+  if (!kind) return null;
+  const fragment = rawFragment || undefined;
+
+  return {
+    lookupKey: decodedPath,
+    requestPath: decodedPath,
+    ...(fragment ? { fragment } : {}),
+    kind,
+  };
+};
+
+export const parseDocCandidate = (rawInput: string, options?: ParseDocCandidateOptions): ParsedDocCandidate | null => {
   if (typeof rawInput !== 'string') return null;
   const trimmed = rawInput.trim();
   if (!trimmed || trimmed.length > 512) return null;
-  if (hasWhitespaceOrControlChars(trimmed)) return null;
+  if (hasControlOrNonSpaceWhitespace(trimmed)) return null;
+  if (trimmed.startsWith('//') || trimmed.startsWith('\\\\') || trimmed.startsWith('#')) return null;
+
+  if (/^file:/i.test(trimmed)) {
+    return parseLocalFileUrl(trimmed);
+  }
+
   if (EXTERNAL_SCHEME_REGEX.test(trimmed) || BARE_WEB_HOST_REGEX.test(trimmed)) return null;
-  if (trimmed.startsWith('#')) return null;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[A-Za-z]:[/\\]/.test(trimmed)) return null;
 
   let pathPart = trimmed;
   let fragment: string | undefined;
@@ -83,12 +206,26 @@ export const parseDocCandidate = (rawInput: string): ParsedDocCandidate | null =
     const before = trimmed.slice(0, hashIdx);
     const after = trimmed.slice(hashIdx + 1);
     if (DOC_EXTENSION_REGEX.test(before)) {
+      if (after && hasAnyWhitespaceOrControlChars(after)) return null;
       pathPart = before;
       fragment = after || undefined;
     }
   }
 
-  if (!DOC_TOKEN_ALLOWED.test(pathPart)) return null;
+  let hadPercentSpace = false;
+  if (pathPart.includes('%')) {
+    const sep = pathPart.includes('\\') && !pathPart.includes('/') ? '\\' : '/';
+    const decodedResult = decodeSafePercentSegments(pathPart.split(sep), { strict: false });
+    if (!decodedResult) return null;
+    pathPart = decodedResult.decodedSegments.join(sep);
+    hadPercentSpace = decodedResult.hadPercentSpace;
+  }
+
+  const allowSpaces = Boolean(options?.allowSpaces || hadPercentSpace);
+  if (!allowSpaces && pathPart.includes(' ')) return null;
+
+  const allowedPattern = allowSpaces ? DOC_TOKEN_WITH_SPACE : DOC_TOKEN_NO_SPACE;
+  if (!allowedPattern.test(pathPart)) return null;
   const kind = docKindFromFilename(pathPart);
   if (!kind) return null;
 
@@ -112,9 +249,9 @@ export const tokenizeProseDocCandidates = (text: string): DocTextToken[] => {
   for (const match of text.matchAll(DOC_PROSE_PATTERN)) {
     const start = match.index ?? 0;
     const raw = match[0];
-    // Avoid catching URLs like `https://example.com/foo.html` or `www.example.com/a.html`.
+    // Avoid catching URLs like `https://example.com/foo.html`, `file://evil/foo.md`, or `www.example.com/a.html`.
     const prefix = text.slice(Math.max(0, start - 128), start);
-    if (/https?:\/\/\S*$|www\.\S*$/i.test(prefix)) continue;
+    if (/(?:https?|file|mailto|tel|data|blob|javascript|vbscript):[^\s]*$|www\.[^\s]*$/i.test(prefix)) continue;
     const parsed = parseDocCandidate(raw);
     if (!parsed) continue;
     if (start > cursor) {
@@ -315,21 +452,24 @@ const flushScopeQueue = async (instanceId: string, sessionId: string): Promise<v
       })
     );
   } finally {
-    for (const candidate of batchList) state.inFlight.delete(candidate);
+    if (state.generation === generationAtStart) {
+      for (const candidate of batchList) state.inFlight.delete(candidate);
+    }
   }
 };
 
 export const enqueueDocumentCandidates = (
   instanceId: string,
   sessionId: string,
-  candidates: readonly string[]
+  candidates: readonly string[],
+  options?: ParseDocCandidateOptions
 ): void => {
   if (!instanceId || !sessionId || unsupportedHosts.has(instanceId) || candidates.length === 0) return;
   const state = touchScope(instanceId, sessionId);
   const now = Date.now();
   let added = false;
   for (const raw of candidates) {
-    const parsed = parseDocCandidate(raw);
+    const parsed = parseDocCandidate(raw, options);
     if (!parsed) continue;
     const key = parsed.requestPath;
     if (state.inFlight.has(key) || getCachedEntry(state, key, now)) continue;
@@ -347,10 +487,11 @@ export const enqueueDocumentCandidates = (
 export const lookupCachedDocument = (
   instanceId: string,
   sessionId: string,
-  rawCandidate: string
+  rawCandidate: string,
+  options?: ParseDocCandidateOptions
 ): { resolved: ResolvedDocumentRef; fragment?: string } | null => {
   if (!instanceId || !sessionId || unsupportedHosts.has(instanceId)) return null;
-  const parsed = parseDocCandidate(rawCandidate);
+  const parsed = parseDocCandidate(rawCandidate, options);
   if (!parsed) return null;
   const state = scopes.get(scopeKey(instanceId, sessionId));
   if (!state) return null;
@@ -430,7 +571,10 @@ export const readConversationDocumentViaBridge = async (
 ): Promise<{ ok: true; document: LoadedConversationDocument } | { ok: false; error: string }> => {
   const piRequest = typeof window !== 'undefined' ? window.ember?.piRequest : undefined;
   if (!piRequest) {
-    return { ok: false, error: `${hostLabel} cannot open "${path}" because the desktop or remote bridge is unavailable.` };
+    return {
+      ok: false,
+      error: `${hostLabel} cannot open "${path}" because the desktop or remote bridge is unavailable. Reconnect to Ember and try Refresh.`,
+    };
   }
   try {
     const response = await piRequest<LoadedConversationDocument & { error?: string }>(
@@ -447,7 +591,7 @@ export const readConversationDocumentViaBridge = async (
     if (!response.ok || typeof response.data?.content !== 'string' || typeof response.data?.path !== 'string') {
       const detail = typeof response.data?.error === 'string' && response.data.error.trim()
         ? response.data.error.trim()
-        : 'It may have been moved, deleted, or excluded by host security rules.';
+        : 'It may have been moved, deleted, or excluded by host security rules. Try Refresh above or open a file inside this conversation.';
       return {
         ok: false,
         error: `${hostLabel} could not read "${path}". ${detail}`,
@@ -479,15 +623,18 @@ export const openDocumentPreview = async (options: {
   basePath?: string;
   fragment?: string;
   pushHistory?: boolean;
+  preserveHistory?: boolean;
 }): Promise<void> => {
   const seq = ++activeLoadSeq;
   const previousHistory =
     options.pushHistory && activePreview.open
-      ? [
-          ...activePreview.history,
-          { path: activePreview.document?.path ?? activePreview.requestedPath, fragment: activePreview.fragment },
-        ]
-      : activePreview.open && options.pushHistory !== false && options.basePath
+      ? activePreview.document
+        ? [
+            ...activePreview.history,
+            { path: activePreview.document.path, fragment: activePreview.fragment },
+          ]
+        : activePreview.history
+      : options.preserveHistory && activePreview.open
         ? activePreview.history
         : [];
 
@@ -500,7 +647,7 @@ export const openDocumentPreview = async (options: {
     basePath: options.basePath,
     fragment: options.fragment,
     loading: true,
-    document: activePreview.open && !options.basePath ? activePreview.document : null,
+    document: activePreview.open && !options.basePath && options.preserveHistory ? activePreview.document : null,
     error: null,
     history: previousHistory,
   };
@@ -556,7 +703,9 @@ export const refreshActiveDocumentPreview = async (): Promise<void> => {
     hostLabel: activePreview.hostLabel,
     sessionId: activePreview.sessionId,
     path: activePreview.document?.path ?? activePreview.requestedPath,
+    ...(activePreview.basePath ? { basePath: activePreview.basePath } : {}),
     fragment: activePreview.fragment,
+    preserveHistory: true,
   });
 };
 
@@ -571,6 +720,7 @@ export const navigateBackDocumentPreview = async (): Promise<void> => {
     sessionId: activePreview.sessionId,
     path: target.path,
     fragment: target.fragment,
+    preserveHistory: true,
   });
 };
 
@@ -580,6 +730,8 @@ export const closeDocumentPreview = (): void => {
   activePreview = { open: false };
   emitStoreChange();
 };
+
+export const getActiveDocumentPreview = (): ActiveDocumentPreviewState => activePreview;
 
 export type PopoutDocumentPointer = {
   instanceId: string;
@@ -765,8 +917,11 @@ export type DocumentExplorationContextValue = {
   hostLabel: string;
   sessionId: string;
   supported: boolean;
-  lookup: (rawCandidate: string) => { resolved: ResolvedDocumentRef; fragment?: string } | null;
-  requestResolve: (rawCandidates: readonly string[]) => void;
+  lookup: (
+    rawCandidate: string,
+    options?: ParseDocCandidateOptions
+  ) => { resolved: ResolvedDocumentRef; fragment?: string } | null;
+  requestResolve: (rawCandidates: readonly string[], options?: ParseDocCandidateOptions) => void;
   openDocument: (path: string, fragment?: string, basePath?: string) => void;
   openResolved: (resolved: ResolvedDocumentRef, fragment?: string) => void;
 };
@@ -800,34 +955,114 @@ export const useActiveDocumentPreview = (): ActiveDocumentPreviewState =>
     () => ({ open: false } as const)
   );
 
-const extractCandidatesFromMessages = (messages: readonly ChatMessage[]): string[] => {
+const normalizeToolInputPath = (rawPath: string): string => {
+  const normalized = rawPath.replace(UNICODE_SPACES_REGEX, ' ').trim();
+  return normalized.startsWith('@') ? normalized.slice(1).trim() : normalized;
+};
+
+export const extractNestedCallDocPath = (nested: NestedToolCall): string | null => {
+  if (nested.status !== 'ok') return null;
+  const toolName = nested.name.replace(/^tools\./i, '').trim().toLowerCase();
+  if (!FILE_TOOL_NAMES.has(toolName)) return null;
+  if (!nested.args) return null;
+  try {
+    const parsed = JSON.parse(nested.args) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const rawPath =
+      typeof record.path === 'string'
+        ? record.path
+        : typeof record.filePath === 'string'
+          ? record.filePath
+          : null;
+    if (!rawPath) return null;
+    const doc = parseDocCandidate(normalizeToolInputPath(rawPath), { allowSpaces: true });
+    return doc ? doc.requestPath : null;
+  } catch {
+    return null;
+  }
+};
+
+export const extractToolCallDocPaths = (call: ToolCall): string[] => {
+  if (call.status !== 'completed') return [];
+  const toolName = call.tool.trim().toLowerCase();
+  const paths: string[] = [];
+  if (FILE_TOOL_NAMES.has(toolName)) {
+    const rawPath =
+      typeof call.input?.path === 'string'
+        ? call.input.path
+        : typeof call.input?.filePath === 'string'
+          ? call.input.filePath
+          : null;
+    if (rawPath) {
+      const doc = parseDocCandidate(normalizeToolInputPath(rawPath), { allowSpaces: true });
+      if (doc) paths.push(doc.requestPath);
+    }
+  } else if (toolName === 'codemode' && call.nestedCalls?.length) {
+    for (const nested of call.nestedCalls) {
+      const path = extractNestedCallDocPath(nested);
+      if (path && !paths.includes(path)) paths.push(path);
+    }
+  }
+  return paths;
+};
+
+export const extractCandidatesFromMessages = (messages: readonly ChatMessage[]): string[] => {
   const candidates = new Set<string>();
   const addFromText = (text: string) => {
     if (!DOC_EXTENSION_ANYWHERE_REGEX.test(text)) return;
+    // Strip fenced code blocks before scanning inline code, links, and bare prose.
+    const withoutFences = text.replace(/```[\s\S]*?```/g, ' ');
     // Inline code backticks
-    for (const match of text.matchAll(/`([^`\r\n]{1,512})`/g)) {
+    for (const match of withoutFences.matchAll(/`([^`\r\n]{1,512})`/g)) {
       const parsed = parseDocCandidate(match[1]!);
       if (parsed) candidates.add(parsed.requestPath);
     }
-    // Markdown link targets `[label](target)`
-    for (const match of text.matchAll(/\]\(([^)\s]{1,512})\)/g)) {
+    // Markdown link targets `[label](target)` and `[label](<target with spaces>)`
+    for (const match of withoutFences.matchAll(/\]\(([^)\s]{1,512})\)/g)) {
       const parsed = parseDocCandidate(match[1]!);
       if (parsed) candidates.add(parsed.requestPath);
     }
-    // Bare prose doc tokens
-    for (const token of tokenizeProseDocCandidates(text)) {
+    for (const match of withoutFences.matchAll(/\]\(<([^>\r\n]{1,512})>(?:\s+["'][^"'\r\n]*["'])?\)/g)) {
+      const parsed = parseDocCandidate(match[1]!, { allowSpaces: true });
+      if (parsed) candidates.add(parsed.requestPath);
+    }
+    // Mask inline code and link destinations so bare-prose tokenization never fragments
+    // `<docs/My Notes.md>` or `` `cat plan.md` `` into spurious partial tokens.
+    const bareProseOnly = withoutFences
+      .replace(/`[^`\r\n]*`/g, ' ')
+      .replace(/\]\(<[^>\r\n]*>(?:\s+["'][^"'\r\n]*["'])?\)/g, ']()')
+      .replace(/\]\([^)\r\n]*\)/g, ']()');
+    for (const token of tokenizeProseDocCandidates(bareProseOnly)) {
       if (token.type === 'doc') candidates.add(token.candidate.requestPath);
     }
   };
 
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type === 'text' && typeof part.text === 'string') {
+      if ((part.type === 'text' || part.type === 'reasoning') && typeof part.text === 'string') {
         addFromText(part.text);
+      } else if (part.type === 'tool') {
+        for (const path of extractToolCallDocPaths(part.call)) {
+          candidates.add(path);
+        }
       }
     }
   }
   return [...candidates];
+};
+
+const completedFileToolSignature = (messages: readonly ChatMessage[]): string => {
+  const ids: string[] = [];
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== 'tool' || part.call.status !== 'completed') continue;
+      if (extractToolCallDocPaths(part.call).length > 0) {
+        ids.push(part.call.id);
+      }
+    }
+  }
+  return ids.join('\u0001');
 };
 
 type ProviderProps = {
@@ -870,6 +1105,24 @@ export function DocumentExplorationProvider({
     });
   }, [enabled, instanceId, sessionId]);
 
+  const fileToolSig = React.useMemo(
+    () => (enabled ? completedFileToolSignature(messages) : ''),
+    [enabled, messages]
+  );
+  const prevFileToolRef = React.useRef<{ scope: string; sig: string } | null>(null);
+  React.useEffect(() => {
+    if (!enabled) {
+      prevFileToolRef.current = null;
+      return;
+    }
+    const currentScope = scopeKey(instanceId, sessionId);
+    const prev = prevFileToolRef.current;
+    if (prev && prev.scope === currentScope && prev.sig !== fileToolSig) {
+      invalidateSessionDocuments(instanceId, sessionId);
+    }
+    prevFileToolRef.current = { scope: currentScope, sig: fileToolSig };
+  }, [enabled, instanceId, sessionId, fileToolSig]);
+
   const extractedCandidates = React.useMemo(
     () => (enabled ? extractCandidatesFromMessages(messages) : []),
     [enabled, messages]
@@ -878,7 +1131,7 @@ export function DocumentExplorationProvider({
   // Enqueue candidates when transcript updates OR after cache invalidation bumps storeVersion.
   React.useEffect(() => {
     if (!enabled || extractedCandidates.length === 0) return;
-    enqueueDocumentCandidates(instanceId, sessionId, extractedCandidates);
+    enqueueDocumentCandidates(instanceId, sessionId, extractedCandidates, { allowSpaces: true });
   }, [enabled, instanceId, sessionId, extractedCandidates, storeVersion]);
 
   const supported = enabled && isHostDocumentResolveSupported(instanceId);
@@ -891,9 +1144,10 @@ export function DocumentExplorationProvider({
       hostLabel,
       sessionId,
       supported,
-      lookup: (rawCandidate: string) => lookupCachedDocument(instanceId, sessionId, rawCandidate),
-      requestResolve: (rawCandidates: readonly string[]) => {
-        enqueueDocumentCandidates(instanceId, sessionId, rawCandidates);
+      lookup: (rawCandidate: string, options?: ParseDocCandidateOptions) =>
+        lookupCachedDocument(instanceId, sessionId, rawCandidate, options),
+      requestResolve: (rawCandidates: readonly string[], options?: ParseDocCandidateOptions) => {
+        enqueueDocumentCandidates(instanceId, sessionId, rawCandidates, options);
       },
       openDocument: (path: string, fragment?: string, basePath?: string) => {
         void openDocumentPreview({

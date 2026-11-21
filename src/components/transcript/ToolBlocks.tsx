@@ -1,5 +1,13 @@
-import { Ban, Check, ChevronRight, CircleAlert, Loader2 } from 'lucide-react';
+import * as React from 'react';
+import { Ban, Check, ChevronRight, CircleAlert, FileCode2, FileText, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  extractNestedCallDocPath,
+  extractToolCallDocPaths,
+  hasActiveTextSelection,
+  useDocumentExploration,
+  type ResolvedDocumentRef,
+} from '../../lib/documentExploration';
 import type { ViewerImage } from '../../lib/gallery';
 import { countToolCalls, foldedToolsLabel } from '../../lib/toolDisplay';
 import { liveOutputTail } from '../../lib/toolTail';
@@ -33,8 +41,39 @@ const NestedStatusIcon = ({ status }: { status: NestedCall['status'] }) => {
   return <Loader2 className="size-3 flex-none animate-spin text-muted-foreground" />;
 };
 
+const ToolDocPreviewButton = ({
+  resolved,
+  onPreview,
+}: {
+  resolved: ResolvedDocumentRef;
+  onPreview: (resolved: ResolvedDocumentRef) => void;
+}) => (
+  <button
+    type="button"
+    data-doc-preview-trigger="true"
+    aria-label={`Preview ${resolved.resolvedPath}`}
+    title={`Preview ${resolved.resolvedPath}`}
+    onClick={(event) => {
+      event.stopPropagation();
+      if (hasActiveTextSelection()) return;
+      onPreview(resolved);
+    }}
+    className="inline-flex flex-none items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  >
+    {resolved.kind === 'html' ? (
+      <FileCode2 className="size-3 flex-none" aria-hidden="true" />
+    ) : (
+      <FileText className="size-3 flex-none" aria-hidden="true" />
+    )}
+    <span>Preview</span>
+  </button>
+);
+
 const NestedCallRow = ({ call }: { call: NestedCall }) => {
+  const docs = useDocumentExploration();
   const args = nestedArgsPreview(call.args);
+  const docPath = docs?.supported ? extractNestedCallDocPath(call) : null;
+  const docHit = docPath && docs?.supported ? docs.lookup(docPath, { allowSpaces: true }) : null;
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-baseline gap-2">
@@ -42,6 +81,9 @@ const NestedCallRow = ({ call }: { call: NestedCall }) => {
         <span className="flex-none font-mono text-[11px] text-foreground/90">{call.name}</span>
         {args ? (
           <span className="min-w-0 truncate font-mono text-[10.5px] text-muted-foreground/80">{args}</span>
+        ) : null}
+        {docHit ? (
+          <ToolDocPreviewButton resolved={docHit.resolved} onPreview={(resolved) => docs?.openResolved(resolved)} />
         ) : null}
         {call.durationMs !== undefined ? (
           <span className="ml-auto flex-none tabular-nums text-[10.5px] text-muted-foreground/70">
@@ -131,53 +173,77 @@ export const ToolRow = ({
   onOpen?: (image: ViewerImage) => void;
 }) => {
   const [open, setOpen] = useExpansion(`tool:${call.id}`, defaultOpen);
+  const docs = useDocumentExploration();
   const nested = nestedCalls(call);
   const script = call.tool === 'codemode' && typeof call.input?.code === 'string' ? call.input.code : null;
   const hasDetail = Boolean(call.input || call.output || call.diff || call.error || nested.length > 0);
   const interrupted = call.status === 'interrupted';
   const summary = toolSummary(call) ?? call.title;
+  const docPaths = React.useMemo(() => extractToolCallDocPaths(call), [call]);
+  const previewTargets = React.useMemo(() => {
+    if (!docs?.supported || docPaths.length === 0) return [];
+    const seen = new Set<string>();
+    const hits: ResolvedDocumentRef[] = [];
+    for (const p of docPaths) {
+      const hit = docs.lookup(p, { allowSpaces: true });
+      if (hit && !seen.has(hit.resolved.resolvedPath)) {
+        seen.add(hit.resolved.resolvedPath);
+        hits.push(hit.resolved);
+      }
+    }
+    return hits;
+  }, [docs, docPaths]);
+  const headerPreview = previewTargets.length === 1 ? previewTargets[0]! : null;
 
   return (
     <div className={cn('flex flex-col self-start', fillWidth ? 'w-full min-w-0' : 'max-w-[85%]')}>
-      <button
-        type="button"
-        disabled={!hasDetail}
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className={cn(
-          'flex items-center gap-2 rounded-md px-1 py-0.5 text-left text-[11.5px] text-muted-foreground',
-          hasDetail && 'hover:bg-muted/60 hover:text-foreground',
-          call.status === 'error' && 'text-destructive'
-        )}
-        title={interrupted ? 'This step was interrupted by the stop' : call.error ?? summary}
-      >
-        {call.status === 'completed' ? (
-          <Check className="size-3 flex-none text-success" />
-        ) : call.status === 'error' ? (
-          <CircleAlert className="size-3 flex-none" />
-        ) : interrupted ? (
-          <Ban className="size-3 flex-none text-warning" />
-        ) : (
-          <Loader2 className="size-3 flex-none animate-spin" />
-        )}
-        <span className="flex-none font-mono text-[11px]">{call.tool}</span>
-        {interrupted ? (
-          <span className="flex-none font-normal italic">[step interrupted]</span>
-        ) : summary ? (
-          <span className="min-w-0 truncate font-mono">{summary}</span>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          type="button"
+          disabled={!hasDetail}
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className={cn(
+            'flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-left text-[11.5px] text-muted-foreground',
+            hasDetail && 'hover:bg-muted/60 hover:text-foreground',
+            call.status === 'error' && 'text-destructive'
+          )}
+          title={interrupted ? 'This step was interrupted by the stop' : call.error ?? summary}
+        >
+          {call.status === 'completed' ? (
+            <Check className="size-3 flex-none text-success" />
+          ) : call.status === 'error' ? (
+            <CircleAlert className="size-3 flex-none" />
+          ) : interrupted ? (
+            <Ban className="size-3 flex-none text-warning" />
+          ) : (
+            <Loader2 className="size-3 flex-none animate-spin" />
+          )}
+          <span className="flex-none font-mono text-[11px]">{call.tool}</span>
+          {interrupted ? (
+            <span className="flex-none font-normal italic">[step interrupted]</span>
+          ) : summary ? (
+            <span className="min-w-0 truncate font-mono">{summary}</span>
+          ) : null}
+          {call.exitCode !== undefined && call.exitCode !== 0 ? (
+            <span
+              className="flex-none rounded-sm bg-destructive/15 px-1 font-mono text-[10px] leading-4 text-destructive"
+              title={`The command exited with code ${call.exitCode}`}
+            >
+              exit {call.exitCode}
+            </span>
+          ) : null}
+          {hasDetail ? (
+            <ChevronRight className={cn('size-3 flex-none opacity-60 transition-transform', open && 'rotate-90')} />
+          ) : null}
+        </button>
+        {headerPreview ? (
+          <ToolDocPreviewButton
+            resolved={headerPreview}
+            onPreview={(resolved) => docs?.openResolved(resolved)}
+          />
         ) : null}
-        {call.exitCode !== undefined && call.exitCode !== 0 ? (
-          <span
-            className="flex-none rounded-sm bg-destructive/15 px-1 font-mono text-[10px] leading-4 text-destructive"
-            title={`The command exited with code ${call.exitCode}`}
-          >
-            exit {call.exitCode}
-          </span>
-        ) : null}
-        {hasDetail ? (
-          <ChevronRight className={cn('size-3 flex-none opacity-60 transition-transform', open && 'rotate-90')} />
-        ) : null}
-      </button>
+      </div>
 
       <ToolImages calls={[call]} className="ml-6 mt-1" onOpen={onOpen} />
 

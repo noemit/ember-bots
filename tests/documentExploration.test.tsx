@@ -1,20 +1,30 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { DocumentPreviewSurface } from '../src/components/DocumentPreviewDialog';
 import Markdown from '../src/components/Markdown';
+import { ToolRow } from '../src/components/transcript/ToolBlocks';
 import {
   clearDocumentExplorationState,
   decodePopoutPointerFromLocation,
   DocumentExplorationProvider,
   enqueueDocumentCandidates,
+  extractCandidatesFromMessages,
+  extractToolCallDocPaths,
+  getActiveDocumentPreview,
   invalidateSessionDocuments,
   isHostDocumentResolveSupported,
   lookupCachedDocument,
+  navigateBackDocumentPreview,
+  openDocumentPreview,
   parseDocCandidate,
+  parseLineRangeFragment,
+  refreshActiveDocumentPreview,
   tokenizeProseDocCandidates,
 } from '../src/lib/documentExploration';
 import { quoteTextRuns } from '../src/lib/quoteDom';
-import type { ChatMessage, Instance, Session } from '../src/types';
+import type { ChatMessage, Instance, Session, ToolCall } from '../src/types';
 
 const flushMicrotasks = async (rounds = 4) => {
   for (let i = 0; i < rounds; i += 1) {
@@ -42,6 +52,8 @@ class StubText {
 
 const matchesSimpleSelector = (el: StubElement, selector: string): boolean => {
   const s = selector.trim();
+  const attrEq = /^\[([a-z0-9-]+)="([^"]*)"\]$/i.exec(s);
+  if (attrEq) return el.getAttribute(attrEq[1]!) === attrEq[2]!;
   const attr = /^\[([a-z0-9-]+)\]$/i.exec(s);
   if (attr) return el.hasAttribute(attr[1]!);
   return el.tagName.toLowerCase() === s.toLowerCase();
@@ -172,7 +184,7 @@ describe('documentExploration parser, batching, caching & quote compatibility', 
     clearDocumentExplorationState();
   });
 
-  test('parseDocCandidate and tokenizeProseDocCandidates preserve web links and reject unsupported schemes', () => {
+  test('parseDocCandidate and tokenizeProseDocCandidates handle local file://, %20 spaces, #L ranges and reject unsafe URLs', () => {
     expect(parseDocCandidate('docs/plan.md#phase-2')).toEqual({
       lookupKey: 'docs/plan.md',
       requestPath: 'docs/plan.md',
@@ -184,17 +196,58 @@ describe('documentExploration parser, batching, caching & quote compatibility', 
       requestPath: './report.html',
       kind: 'html',
     });
+    expect(parseDocCandidate('docs/My%20Notes.md#L10-L20')).toEqual({
+      lookupKey: 'docs/My Notes.md',
+      requestPath: 'docs/My Notes.md',
+      fragment: 'L10-L20',
+      kind: 'markdown',
+    });
+    expect(parseDocCandidate('file:///workspace/docs/My%20Notes.md#L10-L20')).toEqual({
+      lookupKey: '/workspace/docs/My Notes.md',
+      requestPath: '/workspace/docs/My Notes.md',
+      fragment: 'L10-L20',
+      kind: 'markdown',
+    });
+    expect(parseDocCandidate('file://localhost/workspace/docs/plan.md#phase-2')).toEqual({
+      lookupKey: '/workspace/docs/plan.md',
+      requestPath: '/workspace/docs/plan.md',
+      fragment: 'phase-2',
+      kind: 'markdown',
+    });
+
+    // Unsafe URLs, foreign hosts, UNC, query strings, traversal, encoded separators & shell text stay null:
     expect(parseDocCandidate('https://example.com/guide.html')).toBeNull();
-    expect(parseDocCandidate('file:///etc/passwd.md')).toBeNull();
+    expect(parseDocCandidate('file://evil-host/share/plan.md')).toBeNull();
+    expect(parseDocCandidate('file://127.0.0.1/workspace/plan.md')).toBeNull();
+    expect(parseDocCandidate('file:////server/share/plan.md')).toBeNull();
+    expect(parseDocCandidate('file://localhost//server/share/plan.md')).toBeNull();
+    expect(parseDocCandidate('file://user:pass@localhost/workspace/plan.md')).toBeNull();
+    expect(parseDocCandidate('file:///workspace/docs/../outside/secret.md')).toBeNull();
+    expect(parseDocCandidate('file:///workspace/docs/%2e%2e/outside/secret.md')).toBeNull();
+    expect(parseDocCandidate('file:///workspace/docs/plan.md?raw=1')).toBeNull();
+    expect(parseDocCandidate('file:///workspace/docs/bad%00.md')).toBeNull();
+    expect(parseDocCandidate('file:///workspace/docs/bad%2f.md')).toBeNull();
+    expect(parseDocCandidate('file:///workspace/docs/bad%5c.md')).toBeNull();
+    expect(parseDocCandidate('file:/etc/passwd.md')).toBeNull();
+    expect(parseDocCandidate('file:///etc/passwd')).toBeNull();
+    expect(parseDocCandidate('//server/share/plan.md')).toBeNull();
+    expect(parseDocCandidate('\\\\server\\share\\plan.md')).toBeNull();
     expect(parseDocCandidate('src/api.ts')).toBeNull();
     expect(parseDocCandidate('#section')).toBeNull();
     expect(parseDocCandidate('cat plan.md')).toBeNull();
 
+    expect(parseLineRangeFragment('L10')).toEqual({ startLine: 10, endLine: 10 });
+    expect(parseLineRangeFragment('#L10-L20')).toEqual({ startLine: 10, endLine: 20 });
+    expect(parseLineRangeFragment('L25-15')).toEqual({ startLine: 15, endLine: 25 });
+    expect(parseLineRangeFragment('phase-2')).toBeNull();
+    expect(parseLineRangeFragment('L0')).toBeNull();
+
     const tokens = tokenizeProseDocCandidates(
-      'Compare docs/plan.md and https://example.com/public.html before report.html#summary.'
+      'Compare docs/plan.md, file:///workspace/docs/My%20Notes.md#L10-L20, file://evil-host/share/nope.md, and https://example.com/public.html before report.html#summary.'
     );
     expect(tokens.filter((t) => t.type === 'doc').map((t) => t.value)).toEqual([
       'docs/plan.md',
+      'file:///workspace/docs/My%20Notes.md#L10-L20',
       'report.html#summary',
     ]);
   });
@@ -402,5 +455,305 @@ describe('documentExploration parser, batching, caching & quote compatibility', 
     });
     expect(bad.isPopout).toBe(true);
     expect(bad.pointer).toBeNull();
+  });
+
+  test('extractToolCallDocPaths and extractCandidatesFromMessages inspect completed file and codemode tools only', () => {
+    const mkTool = (overrides: Partial<ToolCall>): ToolCall => ({
+      id: 't1',
+      tool: 'read',
+      status: 'completed',
+      ...overrides,
+    });
+
+    expect(extractToolCallDocPaths(mkTool({ tool: 'read', input: { path: '@docs/My Notes.md' } }))).toEqual([
+      'docs/My Notes.md',
+    ]);
+    expect(extractToolCallDocPaths(mkTool({ tool: 'write', input: { path: 'docs/out.html' } }))).toEqual([
+      'docs/out.html',
+    ]);
+    expect(extractToolCallDocPaths(mkTool({ tool: 'edit', input: { path: 'README.md' }, status: 'error' }))).toEqual([]);
+    expect(extractToolCallDocPaths(mkTool({ tool: 'read', input: { path: 'docs/plan.md' }, status: 'running' }))).toEqual([]);
+    expect(extractToolCallDocPaths(mkTool({ tool: 'bash', input: { command: 'cat docs/plan.md' } }))).toEqual([]);
+    expect(
+      extractToolCallDocPaths(
+        mkTool({
+          tool: 'codemode',
+          nestedCalls: [
+            { id: 'c1', name: 'read', args: '{"path":"docs/nested.md"}', status: 'ok' },
+            { id: 'c2', name: 'write', args: '{"path":"docs/failed.md"}', status: 'error' },
+            { id: 'c3', name: 'bash', args: '{"command":"cat docs/secret.md"}', status: 'ok' },
+          ],
+        })
+      )
+    ).toEqual(['docs/nested.md']);
+
+    const msgs: ChatMessage[] = [
+      {
+        id: 'm1',
+        role: 'assistant',
+        text: '',
+        completed: true,
+        parts: [
+          {
+            type: 'text',
+            id: 'p1',
+            text: 'See [Notes](<docs/My Notes.md>) and [Local](file:///workspace/docs/plan.md#L10).',
+          },
+          { type: 'tool', id: 'p2', call: mkTool({ tool: 'edit', input: { path: 'docs/edited.md' } }) },
+          {
+            type: 'tool',
+            id: 'p3',
+            call: mkTool({
+              tool: 'codemode',
+              nestedCalls: [{ id: 'c1', name: 'view', args: '{"path":"docs/report.html"}', status: 'ok' }],
+            }),
+          },
+        ],
+      },
+    ];
+    expect(extractCandidatesFromMessages(msgs).sort()).toEqual(
+      ['/workspace/docs/plan.md', 'docs/My Notes.md', 'docs/edited.md', 'docs/report.html'].sort()
+    );
+  });
+
+  test('preview multi-hop Back history and Refresh preserve stack and basePath across failures', async () => {
+    const scope = globalThis as Record<string, unknown>;
+    const prevWindow = scope.window;
+    const readCalls: Array<{ path: string; basePath?: string }> = [];
+
+    scope.window = {
+      ember: {
+        piRequest: async (_endpointId: string, _url: string, init?: { body?: { path?: string; basePath?: string } }) => {
+          const path = init?.body?.path ?? '';
+          const basePath = init?.body?.basePath;
+          readCalls.push({ path, basePath });
+          if (path === 'missing.md') {
+            return { ok: false, status: 404, data: { error: 'Kiln could not find missing.md.' } };
+          }
+          return {
+            ok: true,
+            status: 200,
+            data: {
+              path: path.startsWith('/') ? path : `/proj/${path}`,
+              kind: 'markdown',
+              content: `# ${path}`,
+              size: 10,
+              mtimeMs: 1,
+            },
+          };
+        },
+      },
+    };
+
+    try {
+      await openDocumentPreview({
+        instanceId: 'pi:h1',
+        hostLabel: 'Host 1',
+        sessionId: '1',
+        path: '/proj/a.md',
+      });
+      await openDocumentPreview({
+        instanceId: 'pi:h1',
+        hostLabel: 'Host 1',
+        sessionId: '1',
+        path: 'b.md',
+        basePath: '/proj/a.md',
+        pushHistory: true,
+      });
+      await openDocumentPreview({
+        instanceId: 'pi:h1',
+        hostLabel: 'Host 1',
+        sessionId: '1',
+        path: 'missing.md',
+        basePath: '/proj/b.md',
+        pushHistory: true,
+      });
+
+      // Refresh while on failed relative link preserves basePath and 2-entry history!
+      await refreshActiveDocumentPreview();
+      expect(readCalls[readCalls.length - 1]).toEqual({ path: 'missing.md', basePath: '/proj/b.md' });
+      const onErrorState = getActiveDocumentPreview();
+      expect(onErrorState.open && onErrorState.history.map((h) => h.path)).toEqual(['/proj/a.md', '/proj/b.md']);
+
+      // Back -> b.md still keeps a.md in history!
+      await navigateBackDocumentPreview();
+      expect(readCalls[readCalls.length - 1]).toEqual({ path: '/proj/b.md', basePath: undefined });
+      const afterBack1 = getActiveDocumentPreview();
+      expect(afterBack1.open && afterBack1.history.map((h) => h.path)).toEqual(['/proj/a.md']);
+
+      // Back -> a.md works on the second hop too!
+      await navigateBackDocumentPreview();
+      expect(readCalls[readCalls.length - 1]).toEqual({ path: '/proj/a.md', basePath: undefined });
+      const afterBack2 = getActiveDocumentPreview();
+      expect(afterBack2.open && afterBack2.history).toEqual([]);
+    } finally {
+      if (prevWindow === undefined) delete scope.window;
+      else scope.window = prevWindow;
+    }
+  });
+
+  test('pi:tool_execution_update invalidates cache, ToolRow exposes sibling Preview, and DocumentPreviewSurface renders GFM + #L lines', async () => {
+    const scope = globalThis as Record<string, unknown>;
+    const prevWindow = scope.window;
+    const prevDocument = scope.document;
+    const prevNodeFilter = scope.NodeFilter;
+    const prevAct = scope.IS_REACT_ACT_ENVIRONMENT;
+
+    const doc = new StubDocument();
+    let writtenExists = false;
+    let eventHandler: ((event: unknown) => void) | null = null;
+    const win: Record<string, unknown> = {
+      Element: StubElement,
+      HTMLIFrameElement: class {},
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      ember: {
+        onEvent: (cb: (event: unknown) => void) => {
+          eventHandler = cb;
+          return () => {
+            eventHandler = null;
+          };
+        },
+        piRequest: async (_endpointId: string, url: string, init?: { body?: { candidates?: string[]; path?: string } }) => {
+          if (url.endsWith('/documents/read')) {
+            return {
+              ok: true,
+              status: 200,
+              data: {
+                path: '/workspace/project/docs/created.md',
+                kind: 'markdown',
+                content: '# Created\nline 2\nline 3\n',
+                size: 24,
+                mtimeMs: 2,
+              },
+            };
+          }
+          const cands = init?.body?.candidates ?? [];
+          return {
+            ok: true,
+            status: 200,
+            data: {
+              resolved: cands
+                .filter((c) => writtenExists && c === 'docs/created.md')
+                .map((c) => ({
+                  candidate: c,
+                  resolvedPath: '/workspace/project/docs/created.md',
+                  kind: 'markdown' as const,
+                  size: 24,
+                  mtimeMs: 2,
+                })),
+            },
+          };
+        },
+        openExternal: async () => true,
+      },
+    };
+    doc.defaultView = win;
+    scope.window = win;
+    scope.document = doc;
+    scope.NodeFilter = { SHOW_TEXT: 4 };
+    scope.IS_REACT_ACT_ENVIRONMENT = true;
+
+    const instance = { id: 'pi:h1', label: 'H1', kind: 'pi', status: 'ready', attachable: true } as Instance;
+    const session = { id: '10', instanceId: 'pi:h1', title: 'QA', directory: '/workspace/project', updated: 1 } as Session;
+    const toolCall: ToolCall = {
+      id: 'call-w1',
+      tool: 'write',
+      status: 'completed',
+      title: 'docs/created.md',
+      input: { path: 'docs/created.md', content: '# Created\nline 2\nline 3\n' },
+      output: 'wrote docs/created.md',
+    };
+    const messages: ChatMessage[] = [
+      { id: 'm1', role: 'assistant', text: '', completed: true, parts: [{ type: 'tool', id: 'p1', call: toolCall }] },
+    ];
+
+    try {
+      const container = doc.createElement('div');
+      const root = createRoot(container as unknown as globalThis.Element);
+
+      await React.act(async () => {
+        root.render(
+          React.createElement(
+            DocumentExplorationProvider,
+            { instance, session, messages },
+            React.createElement(ToolRow, { call: toolCall })
+          )
+        );
+      });
+      await React.act(async () => {
+        await flushMicrotasks();
+      });
+
+      // Before file exists on disk: negative-cached -> zero Preview buttons!
+      expect(container.querySelectorAll('[data-doc-preview-trigger="true"]')).toHaveLength(0);
+
+      // Simulate bot writing the file & Kiln emitting pi:tool_execution_update:
+      writtenExists = true;
+      await React.act(async () => {
+        eventHandler?.({ instanceId: 'pi:h1', type: 'pi:tool_execution_update', sessionId: '10' });
+        await flushMicrotasks();
+      });
+
+      const triggers = container.querySelectorAll('[data-doc-preview-trigger="true"]');
+      expect(triggers).toHaveLength(1);
+      // Preview button is a sibling of the expand button, never nested inside it!
+      expect(triggers[0]!.closest('button')).toBe(triggers[0]!);
+      expect(triggers[0]!.parentElement?.querySelectorAll('button')).toHaveLength(2);
+
+      // Surface renders #L2-L3 in Source view with highlighted lines AND Rendered GFM task lists/tables/Copy code:
+      const docFixture = {
+        path: '/workspace/project/docs/created.md',
+        kind: 'markdown' as const,
+        content: '# Created\nline 2\nline 3\n\n- [x] Done\n\n| Col |\n| --- |\n| Val |\n\n```ts\nconst x = 1;\n```\n',
+        size: 80,
+        mtimeMs: 2,
+      };
+      const sourceMarkup = renderToStaticMarkup(
+        React.createElement(DocumentPreviewSurface, {
+          hostLabel: 'H1',
+          path: docFixture.path,
+          loading: false,
+          document: docFixture,
+          error: null,
+          fragment: 'L2-L3',
+          onRefresh: () => undefined,
+          onOpenRelativeDoc: () => undefined,
+        })
+      );
+      expect(sourceMarkup).toContain('data-testid="document-preview-source"');
+      expect(sourceMarkup).toContain('data-line="2" data-line-highlighted="true"');
+      expect(sourceMarkup).toContain('data-line="3" data-line-highlighted="true"');
+      expect(sourceMarkup).not.toContain('data-line="1" data-line-highlighted="true"');
+
+      const renderedMarkup = renderToStaticMarkup(
+        React.createElement(DocumentPreviewSurface, {
+          hostLabel: 'H1',
+          path: docFixture.path,
+          loading: false,
+          document: docFixture,
+          error: null,
+          onRefresh: () => undefined,
+          onOpenRelativeDoc: () => undefined,
+        })
+      );
+      expect(renderedMarkup).toContain('aria-label="Copy code"');
+      expect(renderedMarkup).toContain('contains-task-list');
+      expect(renderedMarkup).toContain('<table>');
+
+      await React.act(async () => {
+        root.unmount();
+      });
+    } finally {
+      clearDocumentExplorationState();
+      if (prevWindow === undefined) delete scope.window;
+      else scope.window = prevWindow;
+      if (prevDocument === undefined) delete scope.document;
+      else scope.document = prevDocument;
+      if (prevNodeFilter === undefined) delete scope.NodeFilter;
+      else scope.NodeFilter = prevNodeFilter;
+      if (prevAct === undefined) delete scope.IS_REACT_ACT_ENVIRONMENT;
+      else scope.IS_REACT_ACT_ENVIRONMENT = prevAct;
+    }
   });
 });

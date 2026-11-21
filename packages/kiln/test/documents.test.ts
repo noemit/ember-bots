@@ -74,6 +74,7 @@ describe("Kiln documents resolution, provenance & containment", () => {
     writeFileSync(join(projectDir, "keyboard.md"), "# Keyboard shortcuts\n");
     writeFileSync(join(projectDir, "api-keys.md"), "# API key docs\n");
     writeFileSync(join(projectDir, "docs", "guide.md"), "# Guide\n\n## Intro\nRelative link: [Deep](nested/deep.html)\n");
+    writeFileSync(join(projectDir, "docs", "My Notes.md"), "# My Notes\n\nLine 3\nLine 4\nLine 5\n");
     writeFileSync(join(projectDir, "docs", "nested", "deep.html"), "<html><body><h1>Deep HTML</h1></body></html>");
     writeFileSync(
       join(projectDir, "docs", "nested", "a", "b", "c", "too-deep.md"),
@@ -500,7 +501,18 @@ describe("Kiln documents resolution, provenance & containment", () => {
       join(projectDir, "symlink-escape.md"),
       join(projectDir, "dir-as-doc.md"),
       join(outsideDir, "secret.md"),
-      `file://${join(projectDir, "README.md")}`,
+      "file:///etc/passwd.md",
+      `file://${join(outsideDir, "secret.md")}`,
+      `file://evil-host${join(projectDir, "README.md")}`,
+      `file:////evil-host/share/README.md`,
+      `file://localhost//evil-host/share/README.md`,
+      `file://user:pass@localhost${join(projectDir, "README.md")}`,
+      `file://${join(projectDir, "README.md")}?raw=1`,
+      `file://${join(projectDir, "docs")}/../outside/secret.md`,
+      `file://${join(projectDir, "docs")}/%2e%2e/outside/secret.md`,
+      `file://${join(projectDir, "README")}%00.md`,
+      `file://${join(projectDir, ".env.local.md")}`,
+      `file://${join(projectDir, "symlink-escape.md")}`,
     ];
 
     for (const target of deniedPaths) {
@@ -598,6 +610,57 @@ describe("Kiln documents resolution, provenance & containment", () => {
     const { resolved } = (await res.json()) as { resolved: Array<{ candidate: string }> };
     // Explicit path zzz-last/late.md resolves via step (b), while bare basename late.md is bounded out of step (d).
     expect(resolved.map((r) => r.candidate)).toEqual(["zzz-last/late.md"]);
+  });
+
+  test("local file:// URLs, %20 spaces, #L line fragments, and ./relative.md paths enforce full containment", async () => {
+    const conv = await harness.createConversation(
+      { ownership: { kind: "ownerless" }, agent: { cwd: projectDir, model: { provider: "faux", modelId: "faux-1" } } },
+      context
+    );
+
+    const fileUrlReadme = `file://${join(projectDir, "README.md")}`;
+    const fileUrlNotes = `file://localhost${join(projectDir, "docs", "My%20Notes.md")}#L3-L5`;
+    const fileUrlOutside = `file://${join(outsideDir, "secret.md")}`;
+    const fileUrlWide = `file://${join(hearthHome, "ambient.md")}`;
+
+    const resolveRes = await api(`/conversations/${conv.id}/documents/resolve`, {
+      method: "POST",
+      body: JSON.stringify({
+        candidates: [
+          "./README.md",
+          "README.md",
+          "docs/My Notes.md#L3-L5",
+          fileUrlReadme,
+          fileUrlNotes,
+          fileUrlOutside,
+          fileUrlWide,
+          `file://evil-host${join(projectDir, "README.md")}`,
+          `file://${join(projectDir, "docs")}/%2e%2e/outside/secret.md`,
+        ],
+      }),
+    });
+    expect(resolveRes.status).toBe(200);
+    const { resolved } = (await resolveRes.json()) as {
+      resolved: Array<{ candidate: string; resolvedPath: string }>;
+    };
+    expect(resolved.map((item) => item.candidate).sort()).toEqual(
+      [
+        "./README.md",
+        "README.md",
+        "docs/My Notes.md#L3-L5",
+        fileUrlNotes,
+        fileUrlReadme,
+      ].sort()
+    );
+
+    const readNotes = await api(`/conversations/${conv.id}/documents/read`, {
+      method: "POST",
+      body: JSON.stringify({ path: fileUrlNotes }),
+    });
+    expect(readNotes.status).toBe(200);
+    const doc = (await readNotes.json()) as { path: string; content: string };
+    expect(doc.path).toBe(realpathSync(join(projectDir, "docs", "My Notes.md")));
+    expect(doc.content).toContain("Line 3");
   });
 });
 

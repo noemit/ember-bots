@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 import {
+  hasActiveTextSelection,
   isExternalWebHref,
   parseDocCandidate,
   tokenizeProseDocCandidates,
@@ -44,12 +45,6 @@ export const tokenizeLinks = (text: string): LinkToken[] => {
 type Props = {
   text: string;
   className?: string;
-};
-
-const hasActiveTextSelection = (): boolean => {
-  if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
-  const sel = window.getSelection();
-  return Boolean(sel && !sel.isCollapsed && sel.toString().trim().length > 0);
 };
 
 /** Renders text with URLs, local paths, and Kiln-verified document references as links. */
