@@ -59,12 +59,12 @@ test('an available leader is tackling tasks with a green dot; an idle chat says 
   await expect(habit.locator('[data-session-status]')).toHaveCount(0);
 });
 
-test('the [crew] wake renders as a Crew report card, not a user bubble', async ({ page }) => {
+test('crew wakes do not render deprecated Crew report cards or raw [crew] bubbles', async ({ page }) => {
   await page.getByRole('button', { name: /Crew: auth refactor/ }).first().click();
   const column = page.locator('main[data-session-key="pi:hearth::16"]');
   const log = column.getByRole('log', { name: 'Conversation' });
-  await expect(log.getByText('Crew report', { exact: true })).toBeVisible();
-  await expect(log).toContainText('Parse config finished');
+  await expect(log).toContainText('Parse config is done.');
+  await expect(log.getByText('Crew report', { exact: true })).toHaveCount(0);
   // The raw bracket prefix is not shown as a user message.
   await expect(log.getByText(/^\[crew\]/)).toHaveCount(0);
 });

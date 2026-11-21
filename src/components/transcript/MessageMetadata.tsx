@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Megaphone, MessageCircleQuestion, Reply, Zap } from 'lucide-react';
+import { MessageCircleQuestion, Reply, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { hasMarkdownToCopy, messageMarkdown } from '../../lib/messageMarkdown';
 import { modelLabel } from '../../lib/modelLabel';
@@ -153,26 +153,11 @@ export const MessageFooter = ({
   );
 };
 
-export const CrewReportCard = ({
-  summary,
-  kind = 'crew',
-}: {
-  summary: string;
-  kind?: 'crew' | 'side-question';
-}) => (
+export const SideQuestionCard = ({ summary }: { summary: string }) => (
   <div className="flex max-w-[85%] flex-col gap-1 self-center rounded-lg border border-highlight/30 bg-highlight/[0.04] px-3.5 py-2.5 text-[12.5px]">
     <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-      {kind === 'side-question' ? (
-        <>
-          <MessageCircleQuestion className="size-3.5 flex-none text-highlight" />
-          <span>Side question</span>
-        </>
-      ) : (
-        <>
-          <Megaphone className="size-3.5 flex-none text-highlight" />
-          <span>Crew report</span>
-        </>
-      )}
+      <MessageCircleQuestion className="size-3.5 flex-none text-highlight" />
+      <span>Side question</span>
     </div>
     <p className="whitespace-pre-wrap break-words">
       <Linkify text={summary} />

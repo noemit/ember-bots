@@ -635,11 +635,10 @@ const fixtureG = makeConversation({
         ),
       ],
     },
-    // The server-generated wake: a user input whose text starts with `[crew] `, rendered as a
-    // "Crew report" system card rather than a user bubble.
+    // Internal thread notice: never rendered as a visible transcript message or Crew report card.
     {
       id: 92,
-      kind: new URLSearchParams(window.location.search).has('threads') ? 'hearth.thread-notice' : 'pi.user',
+      kind: 'hearth.thread-notice',
       model: [
         userMessage(
           '[crew] Crew report (generation 2): Parse config finished; Migrate schema needs a decision.',

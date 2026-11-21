@@ -24,7 +24,7 @@ import { formatElapsed, visibleBlocks, type Block, type ToolBlock } from './bloc
 import { DeliveryRow } from './DeliveryStatus';
 import { Markdown, MarkdownFallback, spring } from './expansion';
 import AskRecord from '../AskRecord';
-import { CopyAsMarkdown, CrewReportCard, MessageFooter, QuoteBacklinks } from './MessageMetadata';
+import { CopyAsMarkdown, MessageFooter, QuoteBacklinks, SideQuestionCard } from './MessageMetadata';
 import { FileBlock, MessageError, ReasoningRow } from './MessageParts';
 import { ToolGroupRow, ToolImages, ToolRollup } from './ToolBlocks';
 
@@ -47,6 +47,9 @@ const renderBlock = (
   if (block.type === 'text') {
     const crewReport = mine ? parseCrewReport(block.text) : null;
     if (crewReport) {
+      // Legacy `[crew] Crew report` wakes are hidden from transcripts; worker outcomes live in
+      // Tasks and result links. Only live side-question summaries render a card.
+      if (crewReport.kind !== 'side-question') return null;
       return (
         <motion.div
           key={block.id}
@@ -56,7 +59,7 @@ const renderBlock = (
           transition={spring}
           className="relative self-center"
         >
-          <CrewReportCard summary={crewReport.summary} kind={crewReport.kind} />
+          <SideQuestionCard summary={crewReport.summary} />
           {overlay}
         </motion.div>
       );
@@ -238,6 +241,14 @@ export const MessageRow = React.memo(function MessageRow({
     return Boolean(control && row.contains(control));
   };
   if (blocks.length === 0 && !message.error) return null;
+  if (
+    message.role === 'user' &&
+    !message.error &&
+    blocks.length > 0 &&
+    blocks.every((block) => block.type === 'text' && parseCrewReport(block.text)?.kind === 'crew')
+  ) {
+    return null;
+  }
   const textBlockIndex = blocks.findIndex((block) => block.type === 'text');
   const folding = toolDisplay === 'collapsed' && !hideToolCalls;
   const folded: ToolBlock[] = folding ? (blocks.filter(foldsIntoRollup) as ToolBlock[]) : [];
