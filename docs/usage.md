@@ -214,12 +214,12 @@ Keep settings and tokens private: settings can contain draft text and notes. Old
 
 Model scorecards use metadata from messages Ember already receives, not extra model evaluations.
 They retain up to 10,000 observations from the last 90 days, without transcript text or tool
-payloads. Clear observations and ratings in **Settings → General → Model experience**.
+payloads. Clear observations and ratings in **Settings → Providers → Model experience**.
 
 These are personal observations, not a benchmark or an automatic model router. Coverage is limited
 to chats Ember has seen; missing costs remain unknown, and reported durations may include tools or
 waiting. Helpful / Not helpful ratings reflect your assessment of a reply.
 
-Scheduled runs can hide themselves a day after finishing, controlled by **Settings → Sessions →
+Scheduled runs can hide themselves a day after finishing, controlled by **Settings → Conversations →
 Auto-hide scheduled runs**. Working or open runs remain available, and hidden runs can be
 found through Scheduled or Hidden sessions.

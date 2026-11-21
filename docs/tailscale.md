@@ -9,7 +9,7 @@ Your bots and files stay on their existing hosts. Keep the desktop computer awak
 
 1. [Install Tailscale](https://tailscale.com/download) on the computer running Ember and on the
    device you want to use. Sign both into the same private network (your tailnet).
-2. On the Ember computer, open **Settings → General**, enter a **Remote access password** and
+2. On the Ember computer, open **Settings → Remote access**, enter a **Remote access password** and
    choose **Set password**.
 3. Turn on **Allow access over Tailscale**. Check that Ember reports it is listening.
 4. Find that computer’s Tailscale IPv4 address in the Tailscale app. If you use its command line,
@@ -43,7 +43,7 @@ for network setup and access policies.
 Browser access and a remote bot backend serve different purposes. To run bots on a second
 computer while using the desktop app on your laptop, install [standalone Kiln with Tinder](instances.md#standalone-kiln-with-tinder)
 on that computer. Connect both computers to Tailscale, then add the backend’s reachable URL and
-bearer token in **Settings → Instances**. Use the backend’s own port, not Ember’s browser port `57821`.
+bearer token in **Settings → Computers and Containers**. Use the backend’s own port, not Ember’s browser port `57821`.
 
 Keep bearer tokens private. A remote Kiln has its own lifetime; quitting Ember does not stop it.
 The included local Kiln still stops when Ember quits. See [connections and remote access](instances.md)

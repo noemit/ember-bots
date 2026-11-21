@@ -12,7 +12,7 @@ running when you quit Ember.
 
 ## Add and share a Kiln
 
-Use **Settings → Instances → Add instance** to connect a local or remote Kiln by URL and bearer token.
+Use **Settings → Computers and Containers → Add computer or container** to connect a local or remote Kiln by URL and bearer token.
 See [Kiln sharing](kiln-sharing.md) for conditional tailnet setup, Cloudflare Access and platform support.
 
 ## Ollama
@@ -107,7 +107,7 @@ Use the same `--home` and `--port` with `status` and `token`.
 
 ## Connecting another Kiln
 
-Open **Settings → Instances** and add the Kiln’s reachable URL and bearer token. Add, edit and test
+Open **Settings → Computers and Containers** and add the Kiln’s reachable URL and bearer token. Add, edit and test
 connections there. A token authorizes access to that host, so do not put it in source or screenshots.
 
 On first launch, Ember can also seed an existing local endpoint at `http://127.0.0.1:3002` from a
@@ -136,7 +136,7 @@ If a host is unreachable, establish its HTTP connection or tunnel first, then us
 ## Remote access: Ember in your browser
 
 This is the **Ember browser UI**, not a Kiln API endpoint. **Share this Kiln** in Settings →
-Instances exposes the agent API with a bearer token; it does not serve a website or install a PWA.
+Remote access exposes the agent API with a bearer token; it does not serve a website or install a PWA.
 Browser access instead serves the desktop workspace on port **57821**, uses its own password,
 and ends when Ember quits. Keep that computer awake. On macOS, closing its window is not quitting.
 
@@ -144,7 +144,7 @@ and ends when Ember quits. Keep that computer awake. On macOS, closing its windo
 
 1. Connect Tailscale on the desktop and the device you want to use, with a tailnet policy that
    permits access between them.
-2. In the desktop's **Settings → General**, set a **Remote access password** (8–256 characters).
+2. In the desktop's **Settings → Remote access**, set a **Remote access password** (8–256 characters).
 3. Enable browser access, leaving the HTTPS proxy origin empty.
 4. Wait for the listener to report **Listening**, then open `http://<tailscale-ip>:57821` on the
    second device. Get the host's IPv4 address from Tailscale or `tailscale ip -4`.
@@ -273,7 +273,7 @@ Verify live reachability and installation on your own authorized devices before 
 
 ## Align multiple Ember setups
 
-In **Settings → Instances**, open **Align all my instances**, then **Review instances**.
+In **Settings → Computers and Containers**, open **Align all my instances**, then **Review instances**.
 Each connected Kiln reports the connections and stored API keys it can share. Expand the connection
 list to inspect addresses, then choose **Align now**. Missing connections are added to this Ember
 and shared with the reviewed Kilns. Run the same action in your other Ember apps to import them there.
@@ -316,8 +316,8 @@ available in the desktop app; remote browser clients cannot access alignment rou
 
 ## Add another Kiln
 
-In **Settings → Instances → Add instance**, choose **On this computer** or **On another
-computer**. For another computer, enter its name, Kiln URL and bearer token. Test the connection,
+In **Settings → Computers and Containers → Add computer or container**, choose **On this computer** or **On another
+computer or container**. For another computer, enter its name, Kiln URL and bearer token. Test the connection,
 then add it. You do not need to choose a networking product first. Reverse-proxy URL paths and
 IPv6 addresses (in brackets) are supported. Use HTTPS outside a trusted private network.
 
@@ -336,7 +336,7 @@ Kiln stays on loopback by default for new installations. Existing explicit bind 
 pre-upgrade standalone databases retain their previous bind behavior; changing that old setup is
 a separate, deliberate administrator action.
 
-On the computer running the included Kiln, open **Settings → Instances → Share this Kiln**.
+On the computer running the included Kiln, open **Settings → Remote access → Share this Kiln**.
 The panel checks sharing read-only; **Check sharing** refreshes it. Choose **Enable remote Kiln access** deliberately. Ember verifies authenticated
 readiness and anonymous denial, then uses Tailscale LocalAPI ETag/If-Match updates to add a persistent
 TCP forward. CLI writes, Funnel and whole-config resets are never used. Other settings are preserved;

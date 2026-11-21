@@ -1,6 +1,6 @@
 # Connect Ember to another Kiln
 
-In **Settings → Instances → Add instance**, choose **On this computer** or **On another computer**. Enter a name, the Kiln API URL and its bearer token. You do not have to choose a network type first. **Connection help** has optional Tailscale, Cloudflare Tunnel and custom-proxy guidance.
+In **Settings → Computers and Containers → Add computer or container**, choose **On this computer** or **On another computer or container**. Enter a name, the Kiln API URL and its bearer token. You do not have to choose a network type first. **Connection help** has optional Tailscale, Cloudflare Tunnel and custom-proxy guidance.
 
 Use **Test connection** before saving. The desktop test verifies Kiln’s health identity and an authenticated one-item conversation-list request; sharing reuses that same health/readiness checker and proves anonymous denial on the conversation route. A successful test means this Ember desktop reached Kiln and authenticated. It does not prove that another computer can connect.
 
@@ -12,7 +12,7 @@ Fresh Kiln installations, including standalone Tinder, default to binding `127.0
 
 ## Share this Kiln
 
-The host's **Settings → Instances → Share this Kiln** explains its listener and lifetime. Opening the panel inspects sharing read-only; **Check sharing** refreshes that review. Verified conditional-update access and loopback authentication make **Enable remote Kiln access** available. Press it deliberately to create a persistent tailnet-only TCP forward. **Reveal connection details** then shows a separately copyable URL and bearer token for Add instance on the other computer. Treat the token as full authority over that Kiln.
+The host's **Settings → Remote access → Share this Kiln** explains its listener and lifetime. Opening the panel inspects sharing read-only; **Check sharing** refreshes that review. Verified conditional-update access and loopback authentication make **Enable remote Kiln access** available. Press it deliberately to create a persistent tailnet-only TCP forward. **Reveal connection details** then shows a separately copyable URL and bearer token for adding a connection on the other computer. Treat the token as full authority over that Kiln.
 
 Only an included Kiln started by this Ember is eligible for networking changes. Existing unowned forwards can be inspected, not adopted or removed. External Kilns receive instructions, never process or networking changes.
 

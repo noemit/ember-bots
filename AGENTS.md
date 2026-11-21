@@ -168,7 +168,7 @@ follow durable tool-task ancestry; descriptive source text must never be parsed 
 - Agent prose has no bubble fill or wrapping border; user bubbles remain. `conversationFontSize`
   is a persisted, validated whole-pixel size from 12–20, default 14. The CSS variable
   `--conversation-text-size` reaches transcripts, reading sheets and composer text; toolbar and
-  metadata sizing stays independent. Settings → General contains the control and a live preview.
+  metadata sizing stays independent. Settings → Appearance contains the control and a live preview.
 
 ## Packaging
 
@@ -389,7 +389,7 @@ follow durable tool-task ancestry; descriptive source text must never be parsed 
   attachable (send, queue and steer alike): `piInputContent` turns an attachment into a pi-ai
   content part, and anything that is not an image is refused by name since the agent reads those
   from its own workspace.
-  Endpoints are managed in Settings → Instances (`src/components/EndpointsSettings.tsx`
+  Endpoints are managed in Settings → Computers and Containers (`src/components/EndpointsSettings.tsx`
   + `src/lib/endpoints.ts`): add/edit/remove, masked tokens, a live status from the instance
   list, and a Test probe through `piRequest`. Values are user config in `settings.piEndpoints`
   — never code — so the feature is safe for a public repo; main resolves a just-added endpoint
@@ -592,7 +592,7 @@ follow durable tool-task ancestry; descriptive source text must never be parsed 
   `e2e/directory.pw.ts`) was deleted in 0.82.0 at the owner's request, and what is left is the pure
   wire → list mapping (`agentAddress`, `buildDirectoryGroups`, `directoryCount`, `hostDirectoryNote`,
   `directoryEmptyCopy`) plus `resolveAgentName`, which governs a bare name resolving only when unique
-  across hosts — the rule a cross-host `send` would rest on (see `TODO.md`). `loadDirectory` in
+  across hosts — the rule a cross-host `send` would rest on. `loadDirectory` in
   `api.ts` still reads `GET /directory` per host; nothing in the UI calls it today.
 - `src/components/ModelUsagePanel.tsx` — the **Usage** view: every model Ember has seen reply to,
   across instances (calls, median time, throughput, provider-reported cost, reasoning levels, the
@@ -1050,7 +1050,7 @@ live in `docs/usage.md`, `docs/instances.md` and `docs/development.md`.
 
 ## Instance alignment
 
-`InstanceAlignment.tsx` owns the explicit Settings → Instances connection review/apply flow.
+`InstanceAlignment.tsx` owns the explicit Settings → Computers and Containers connection review/apply flow.
 `ProviderSharing.tsx` shares the reviewed provider flow with Settings → Providers. Alignment is
 one-time and fill-only: imported connections preserve existing URLs/tokens; provider sharing chooses
 one source and explicit provider/destination pairs. Stored API keys are supported; Codex and

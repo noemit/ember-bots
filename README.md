@@ -97,7 +97,7 @@ Follow the [short Tailscale setup guide](docs/tailscale.md).
 
 For bots that should keep working when you quit the desktop app, use a
 [standalone Kiln on an always-on computer](docs/instances.md#standalone-kiln-with-tinder), then
-connect it in **Settings → Instances**.
+connect it in **Settings → Computers and Containers**.
 
 ## What it does
 
@@ -133,7 +133,7 @@ sits beside the composer. Select another chat to bring its identity into that co
 its name there to rename it. A chat you minimize stays available in the rail.
 
 Use the composer to send, queue a follow-up, attach an image, or save a thought for later. Change
-conversation text size in **Settings → General**. Display controls let you reveal reasoning,
+conversation text size in **Settings → Appearance**. Display controls let you reveal reasoning,
 tools and message details as needed.
 
 [Keyboard controls and local data](docs/usage.md) · [Connections and remote access](docs/instances.md)
@@ -175,7 +175,7 @@ architecture.
 <details>
 <summary>Other computers, standalone Kiln, OpenChamber and browser access</summary>
 
-Ember can connect to additional Kilns in **Settings → Instances**, and can discover HTTP endpoints
+Ember can connect to additional Kilns in **Settings → Computers and Containers**, and can discover HTTP endpoints
 already configured in OpenChamber. Ember owns its included Kiln’s lifetime; connecting to another
 Kiln does not give it ownership of that process.
 
@@ -198,7 +198,7 @@ renderer, desktop process and harness fit together. Repository invariants live i
 
 ## Troubleshooting
 
-- **This computer is not answering:** open **Settings → Instances** to inspect the local Kiln’s
+- **This computer is not answering:** open **Settings → Computers and Containers** to inspect the local Kiln’s
   status, then use **Instances → Reprobe instances** after it is available again.
 - **Your model is unavailable:** use **Refresh models** or choose an available model in the picker.
   Your draft and explicit choice are kept until you decide what to use.
