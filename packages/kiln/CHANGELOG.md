@@ -1,3 +1,24 @@
+## 1.14.0 — 2026-11-22
+
+### Added
+- Selective provider import in `POST /providers/import` (`providerIds`) so callers choose exactly
+  which credentials to copy from OpenCode instead of auto-importing on boot.
+- Host system CA certificate trust (`NODE_USE_SYSTEM_CA=1`) by default in standalone compiled Kiln
+  and Tinder binaries (`src/systemCa.ts`), respecting explicit `NODE_USE_SYSTEM_CA=0`.
+
+### Changed
+- Modularized `src/server.ts` into dedicated route, middleware, and transport modules under
+  `src/server/`.
+
+### Fixed
+- Stopped automatic OpenCode credential import on startup so deleted providers never silently
+  reappear on restart.
+- `DELETE /providers/:id` and `DELETE /custom-providers/:id` now await purging cached models (or
+  refreshing env-backed models) before returning HTTP 200.
+- Passed `client_version=1.0.0` and skipped hidden models during Codex model catalog discovery.
+- Typed `antigravity-oauth.ts` independently of local `pi-ai` `.d.ts` patches so clean installs
+  pass `tsc --noEmit`, and fixed its truncated token-exchange error message.
+
 ## 1.13.0 — 2026-11-18
 
 ### Added

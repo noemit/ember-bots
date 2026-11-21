@@ -1,3 +1,44 @@
+## 1.26.0 — 2026-11-22
+
+### Added
+- Complete end-to-end `.md` document previewing: local `file:///` and `file://localhost/` links
+  with percent-encoded paths and `#L10` / `#L10-L20` source line ranges, clickable `Preview`
+  triggers on completed `read`, `write`, `edit`, `view` and `codemode` tool rows, and polished GFM
+  rendering, code-copy, and popout preview dialogs.
+- Selective OpenCode provider import (`POST /providers/import` with explicit provider IDs) so
+  credentials from external tools are never silently re-linked on restart.
+- System CA certificate trust (`NODE_USE_SYSTEM_CA=1`) for Ember's bundled Kiln and standalone
+  Tinder/Kiln binaries, with actionable certificate-trust error copy when a proxy or corporate CA
+  is still untrusted.
+
+### Changed
+- Decomposed `src/App.tsx` (6,241 → 1,234 lines), `src/components/ChatView.tsx`,
+  `src/components/Transcript.tsx`, and `packages/kiln/src/server.ts` into focused modules, and
+  removed ~1,260 lines of dead Home/updater modules and unused helpers.
+- Removed manual session groups from the rail while keeping all existing conversation history
+  intact.
+- Hidden deprecated `[crew] Crew report` cards from transcripts (worker outcomes live in Tasks and
+  result links; live `Side question` cards remain).
+- Capitalized the composer `YEET` label to match `YOLO`, updated remaining user-facing
+  `ember-harness` and `Settings → Instances` copy and documentation to `Kiln` and
+  `Settings → Computers and Containers`, and removed stale `Settings → General` blob-style copy
+  from `AvatarPicker`.
+- Includes Kiln 1.14.0.
+
+### Fixed
+- Fixed instance and provider removal end-to-end: removing a remote Kiln immediately disconnects
+  `PiClient`, broadcasts `ember:instances-updated`, persists an empty `piEndpoints: []` list
+  cleanly, and prunes removed-instance sessions, transcripts, caches, and open columns in the
+  renderer; deleting a provider or custom provider awaits purging its cached models from the
+  catalog so deleted providers stay gone across restarts.
+- Fixed async `ask` receipts in the transcript so clicking a pending question opens it directly in
+  the chat's Questions composer.
+- Improved conversation auto-naming to derive titles from the actual request after leading context.
+- Simplified disconnected-Kiln onboarding Steps 4 (`Choose an AI`) and 5 (`First bot`) with direct
+  routing back to `Where to run Kiln` and clearer bundled-Kiln failure copy on Step 2.
+- Fixed clean-install `packages/kiln` TypeScript compilation in `antigravity-oauth.ts` and its
+  truncated Google token-exchange error message.
+
 ## 1.25.0 — 2026-11-18
 
 ### Added
