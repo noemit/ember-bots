@@ -84,7 +84,7 @@ test('a missing host offers a visible route back to connection recovery', async 
   const wizard = page.getByTestId('onboarding');
   await wizard.getByRole('button', { name: /4\. Choose an AI/ }).click();
   await expect(wizard.locator('select[id=onboarding-default-model]')).toHaveCount(0);
-  await expect(wizard).toContainText('Retry this computer or connect another host');
+  await expect(wizard).toContainText('Retry the included Kiln on this computer or connect another host');
   await wizard.getByRole('button', { name: 'Where to run Kiln', exact: true }).click();
   await expect(wizard.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
   await expect(wizard).toContainText('another computer');

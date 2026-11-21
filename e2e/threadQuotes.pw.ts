@@ -7,7 +7,7 @@ test('a quoted thread opens its source while internal coordination stays out of 
   const log = leader.getByRole('log', { name: 'Conversation' });
   await expect(log.getByText('Crew report', { exact: true })).toHaveCount(0);
   await expect(log.getByText(/\[crew\]/)).toHaveCount(0);
-  await expect(leader.getByRole('tab', { name: /Threads.*running.*needs you/ })).toBeVisible();
+  await expect(leader.getByRole('tab', { name: /Tasks.*running.*needs you/ })).toBeVisible();
   await log.getByRole('link', { name: 'Parse config', exact: true }).click();
   const dialog = page.getByRole('dialog');
   const worker = dialog.locator('main[data-session-key="pi:hearth::17"]');
