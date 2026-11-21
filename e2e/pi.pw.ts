@@ -423,29 +423,31 @@ test('an answered question stays in the transcript as a Q&A record', async ({ pa
   await expect(column.getByText(/You answered:/)).toBeVisible();
 });
 
-test('Settings → Instances manages Hearth endpoints', async ({ page }) => {
-  // The mock ships one endpoint; it is listed with its masked token.
+test('Settings → Computers and Containers manages Hearth endpoints', async ({ page }) => {
+  // The mock ships one endpoint; it is listed with its URL and status.
   await page.getByRole('button', { name: 'Instances', exact: true }).click();
   await page.getByRole('menuitem', { name: /Instance settings/ }).click();
   const row = page.locator('[data-endpoint="pi:hearth"]');
   await expect(row).toBeVisible();
   await expect(row).toContainText('ember-harness (mock)');
-  await expect(row).toContainText('••••');
+  await expect(row).toContainText('http://127.0.0.1:3002');
 
   // Add a second endpoint.
-  await page.getByLabel('New endpoint label').fill('Studio (test)');
-  await page.getByLabel('New endpoint address').fill('http://127.0.0.1:3999');
-  await page.getByLabel('New endpoint token').fill('test-token');
-  await page.getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'On another computer or container' }).click();
+  await page.getByLabel('Computer or container name').fill('Studio (test)');
+  await page.getByLabel('Kiln URL').fill('http://127.0.0.1:3999');
+  await page.getByLabel('Bearer token').fill('test-token');
+  await page.getByRole('button', { name: 'Add connection' }).click();
   const added = page.locator('[data-endpoint="pi:studio-test"]');
   await expect(added).toBeVisible();
 
   // Test probes /health through the bridge; the mock answers.
-  await page.getByRole('button', { name: 'Test Studio (test)' }).click();
-  await expect(added).toContainText('up');
+  await added.getByRole('button', { name: 'Test', exact: true }).click();
+  await expect(added).toContainText('Studio (test) answered as Kiln and accepted the token.');
 
-  // Remove it again.
-  await page.getByRole('button', { name: 'Remove Studio (test)' }).click();
+  // Remove it again via the confirmation prompt.
+  await added.getByRole('button', { name: 'Remove Studio (test)' }).click();
+  await added.getByRole('button', { name: 'Confirm remove' }).click();
   await expect(added).toHaveCount(0);
 });
 
@@ -557,9 +559,11 @@ test('the session list has three widths: mini, normal, wide', async ({ page }) =
 test('the new-agent folder picker lists Hearth directories', async ({ page }) => {
   await page.getByRole('button', { name: 'New bot' }).click();
   await page.getByRole('button', { name: 'New bot project' }).click();
-  await page.getByRole('button', { name: 'Use this workspace' }).click();
-  await expect(page.getByRole('option', { name: /habit/ })).toBeVisible();
-  await page.getByRole('option', { name: /habit/ }).click();
+  await page.getByRole('button', { name: 'Browse folders on this host' }).click();
+  const habitFolder = page.getByRole('button', { name: 'Open folder /workspace/habit' });
+  await expect(habitFolder).toBeVisible();
+  await habitFolder.click();
+  await page.getByRole('button', { name: 'Choose this folder' }).click();
   await expect(page.getByRole('button', { name: 'New bot project' })).toContainText('habit');
 });
 

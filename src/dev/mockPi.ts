@@ -2099,6 +2099,10 @@ const piRequest = async (
         : {}),
     });
   }
+  if (action.startsWith('compact/') && method === 'GET') {
+    if (compactNoopFixture) return ok({ status: 'nothing' });
+    return ok({ status: conversation.compacting ? 'running' : 'landed' });
+  }
   if (action === 'compact' && method === 'POST') {
     contextCompactionCalls.push(conversation.id);
     // `?compactNoop` is what Hearth does when the transcript already fits the kept window: it answers
