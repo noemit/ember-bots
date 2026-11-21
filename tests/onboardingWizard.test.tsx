@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import OnboardingWizard from '../src/components/OnboardingWizard';
 import ProvidersSettings from '../src/components/ProvidersSettings';
-import type { OnboardingState } from '../src/lib/onboarding';
+import type { OnboardingState, OnboardingStepId } from '../src/lib/onboarding';
 import type { Instance, InstanceDefaults, ModelOption, PiEndpoint } from '../src/types';
 
 const baseState: OnboardingState = {
@@ -61,6 +61,7 @@ function withMockWindow<T>(run: () => T): T {
 function renderWizard(overrides: {
   open?: boolean;
   startAtWelcome?: boolean;
+  initialStepOverride?: OnboardingStepId;
   state?: OnboardingState;
   instances?: Instance[];
   endpoints?: PiEndpoint[];
@@ -72,6 +73,7 @@ function renderWizard(overrides: {
       <OnboardingWizard
         open={overrides.open ?? true}
         startAtWelcome={overrides.startAtWelcome ?? true}
+        initialStepOverride={overrides.initialStepOverride}
         state={overrides.state ?? baseState}
         instanceDefaults={overrides.instanceDefaults ?? {}}
         models={overrides.models ?? offeredModels}
@@ -171,5 +173,51 @@ describe('OnboardingWizard UX, Dialog containment, responsive layout & copy', ()
       )
     );
     expect(settingsHtml).toContain('New chats default to anthropic/claude-sonnet-4-5.');
+  });
+
+  test('simplifies disconnected-Kiln steps 4 and 5 and clarifies bundled Kiln failure copy', () => {
+    const disconnected: OnboardingState = {
+      localReady: false,
+      canRotate: false,
+      remoteReady: false,
+      targetInstanceId: null,
+    };
+
+    const connectionHtml = renderWizard({
+      startAtWelcome: false,
+      state: disconnected,
+      instances: [],
+      endpoints: [],
+      models: [],
+    });
+    expect(connectionHtml).toContain('Included Kiln is not ready on this computer');
+    expect(connectionHtml).toContain('Ember ships with a local Kiln');
+    expect(connectionHtml).toContain('Retry');
+
+    const providersHtml = renderWizard({
+      startAtWelcome: false,
+      initialStepOverride: 'providers',
+      state: disconnected,
+      instances: [],
+      endpoints: [],
+      models: [],
+    });
+    expect(providersHtml).toContain('data-testid="onboarding-providers-disconnected"');
+    expect(providersHtml).toContain('Where to run Kiln');
+    expect(providersHtml).toContain('Connect a Kiln first');
+    expect(providersHtml).not.toContain('Open OpenCode');
+
+    const firstAgentHtml = renderWizard({
+      startAtWelcome: false,
+      initialStepOverride: 'first-agent',
+      state: disconnected,
+      instances: [],
+      endpoints: [],
+      models: [],
+    });
+    expect(firstAgentHtml).toContain('data-testid="onboarding-first-agent-disconnected"');
+    expect(firstAgentHtml).toContain('Where to run Kiln');
+    expect(firstAgentHtml).toContain('Connect a Kiln first');
+    expect(firstAgentHtml).not.toContain('>Continue<');
   });
 });

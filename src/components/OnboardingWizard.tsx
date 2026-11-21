@@ -47,6 +47,7 @@ type Props = {
   onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onStartAgent: (input: { instanceId: string; directory: string | null }) => void;
   loadToken?: (options?: { rotate?: boolean }) => Promise<LocalHarnessToken>;
+  initialStepOverride?: OnboardingStepId;
 };
 
 const stepIcon = (id: OnboardingStepId) => {
@@ -93,9 +94,10 @@ export default function OnboardingWizard({
   onChange,
   onStartAgent,
   loadToken,
+  initialStepOverride,
 }: Props) {
   const steps = React.useMemo(() => stepsFor(state), [state]);
-  const initialStep: OnboardingStepId = startAtWelcome ? 'welcome' : state.localReady ? 'providers' : 'connection';
+  const initialStep: OnboardingStepId = initialStepOverride ?? (startAtWelcome ? 'welcome' : state.localReady ? 'providers' : 'connection');
   const [active, setActive] = React.useState<OnboardingStepId>(initialStep);
   const [retrying, setRetrying] = React.useState(false);
   const returnFocus = React.useRef<HTMLElement | null>(null);
@@ -314,15 +316,17 @@ export default function OnboardingWizard({
                 ) : null}
 
                 {step.id === 'providers' ? (
-                  <>
-                    {!target ? (
-                      <div className="mb-6 flex flex-col items-start gap-2 text-muted-foreground">
-                        <p>Ember needs a connected Kiln before it can list providers or models. Retry this computer or connect another host.</p>
-                        <Button variant="secondary" onClick={() => setActive('connection')}>Where to run Kiln</Button>
-                      </div>
-                    ) : null}
+                  !target ? (
+                    <div className="mb-6 flex max-w-xl flex-col items-start gap-3 text-muted-foreground" data-testid="onboarding-providers-disconnected">
+                      <h3 className="text-base font-semibold text-foreground">Connect a Kiln first</h3>
+                      <p className="leading-relaxed">
+                        Kiln isn’t connected yet, so Ember can’t list providers or models here. Retry the included Kiln on this computer or connect another host in Where to run Kiln.
+                      </p>
+                      <Button variant="secondary" onClick={() => setActive('connection')}>Where to run Kiln</Button>
+                    </div>
+                  ) : (
                     <Providers instanceDefaults={instanceDefaults} state={state} endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onRefreshInstances} onRefreshModels={onRefreshModels} onProviderCatalog={(id, providers) => setProviderCatalog({ id, providers })} providersReady={providersReady} />
-                  </>
+                  )
                 ) : null}
 
                 {step.id === 'first-agent' ? (
@@ -334,6 +338,7 @@ export default function OnboardingWizard({
                     instances={instances}
                     onChange={onChange}
                     onStart={next}
+                    onGoToConnection={() => setActive('connection')}
                     project={project}
                     setProject={setProject}
                     modelReady={modelReady}
@@ -355,7 +360,7 @@ export default function OnboardingWizard({
                 {last && !modelReady ? <span className="text-sm text-muted-foreground md:text-base">Choose a default model in Choose an AI before finishing setup.</span> : null}
                 {last || (canFinish(state) && step.id === 'first-agent') ? null : (
                   <span className="text-sm text-muted-foreground md:text-base">
-                    {step.id === 'providers' && !providersReady ? 'Connect a provider first' : step.id === 'providers' && !modelReady ? 'Choose a default model to continue' : marks[step.id]?.kind === 'pending' ? 'Continue when you’re ready' : ''}
+                    {!target && (step.id === 'providers' || step.id === 'first-agent') ? 'Connect a Kiln first' : step.id === 'providers' && !providersReady ? 'Connect a provider first' : step.id === 'providers' && !modelReady ? 'Choose a default model to continue' : marks[step.id]?.kind === 'pending' ? 'Continue when you’re ready' : ''}
                   </span>
                 )}
                 <Button size="sm" disabled={(last || step.id === 'providers' || step.id === 'first-agent') && !modelReady} onClick={last ? finish : next} data-testid="onboarding-next">
@@ -494,9 +499,9 @@ function Connection({
           <div className="flex items-start gap-2">
             <CircleAlert className="mt-0.5 size-4 flex-none text-destructive" />
             <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-base font-medium">Kiln is not ready on this computer</span>
+              <span className="text-base font-medium">Included Kiln is not ready on this computer</span>
               <span className="text-base leading-relaxed text-muted-foreground">
-                {problem ?? "Kiln isn't running on this computer, so there's nothing to connect to yet."}
+                {problem ?? "Ember ships with a local Kiln, but it isn’t answering on this computer yet. Choose Retry below, or connect a Kiln on another computer."}
               </span>
             </div>
           </div>
@@ -648,19 +653,31 @@ function Providers({
   );
 }
 
-function FirstAgent({ state, instances, projectUsageByInstance, instanceDefaults, onChange, onStart, modelReady, project, setProject }: {
+function FirstAgent({ state, instances, projectUsageByInstance, instanceDefaults, onChange, onStart, onGoToConnection, modelReady, project, setProject }: {
   state: OnboardingState;
   instances: Instance[];
   projectUsageByInstance?: Record<string, ProjectUsage[]>;
   instanceDefaults: Record<string, InstanceDefaults>;
   onChange: (patch: EmberSettingsPatch) => void;
   onStart: () => void;
+  onGoToConnection: () => void;
   project: string;
   setProject: (directory: string) => void;
   modelReady: boolean;
 }) {
   const target = instances.find((instance) => instance.id === state.targetInstanceId);
   const workspace = target ? instanceDefaults[target.id]?.workspaceDirectory : undefined;
+  if (!target) {
+    return (
+      <div className="flex max-w-xl flex-col items-start gap-3 text-muted-foreground" data-testid="onboarding-first-agent-disconnected">
+        <h3 className="text-base font-semibold text-foreground">Connect a Kiln first</h3>
+        <p className="leading-relaxed">
+          Kiln isn’t connected yet, so Ember can’t browse folders or start a bot here. Retry the included Kiln on this computer or connect another host in Where to run Kiln.
+        </p>
+        <Button variant="secondary" onClick={onGoToConnection}>Where to run Kiln</Button>
+      </div>
+    );
+  }
   return (
     <div className="flex max-w-xl flex-col gap-5">
       <h3 className="text-base font-semibold">Where does your work live?</h3>
@@ -671,7 +688,7 @@ function FirstAgent({ state, instances, projectUsageByInstance, instanceDefaults
       </p>
       {/* The approved copy omits the per-step model hint. Model validation stays unchanged;
           the final step's footer explains how to choose a default before finishing setup. */}
-      {target ? <div className="rounded-lg border bg-background/60 p-4">
+      <div className="rounded-lg border bg-background/60 p-4">
         <p className="mb-2 text-sm text-muted-foreground">Workspace on {target.label}</p>
         <ProjectPicker key={target.id} instance={target} projects={[]} projectUsage={projectUsageByInstance?.[target.id]} workspaceOnly value={workspace ?? ''} workspace={workspace}
           onWorkspaceChange={(directory) => {
@@ -679,8 +696,8 @@ function FirstAgent({ state, instances, projectUsageByInstance, instanceDefaults
             onChange({ instanceDefaults: { ...instanceDefaults, [target.id]: { ...instanceDefaults[target.id], workspaceDirectory: directory } } });
           }} onSelect={() => {}} />
         {workspace ? <p className="mt-2 break-all text-sm text-muted-foreground">{workspace}</p> : null}
-      </div> : <p className="text-muted-foreground">Connect a Kiln in the setup steps to choose a workspace.</p>}
-      {target && workspace ? <div>
+      </div>
+      {workspace ? <div>
         <p className="mb-2 text-sm text-muted-foreground">Start in a project, or work directly in your workspace.</p>
         <ProjectPicker key={`${target.id}:${workspace}`} instance={target} projects={[]} projectUsage={projectUsageByInstance?.[target.id]} value={project || workspace} workspace={workspace}
           onWorkspaceChange={(directory) => {
@@ -688,8 +705,8 @@ function FirstAgent({ state, instances, projectUsageByInstance, instanceDefaults
             onChange({ instanceDefaults: { ...instanceDefaults, [target.id]: { ...instanceDefaults[target.id], workspaceDirectory: directory } } });
           }} onSelect={setProject} />
       </div> : null}
-      <Button className="self-start" disabled={!target || !workspace || !modelReady} onClick={() => {
-        if (target && workspace && modelReady) onStart();
+      <Button className="self-start" disabled={!workspace || !modelReady} onClick={() => {
+        if (workspace && modelReady) onStart();
       }}>Continue<ArrowRight /></Button>
     </div>
   );
