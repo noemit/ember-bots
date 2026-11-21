@@ -13,10 +13,10 @@ const snapshot = (page: Page) => page.evaluate(async () => {
   return { overrides: settings.avatarOverrides, style: settings.blobStyle,
     conversations: (response.data as { conversations: { id: number }[] }).conversations.map(c => c.id) };
 });
-const start = async (page: Page, query = '') => {
-  await page.addInitScript(({ key, override }) => localStorage.setItem('ember-pi-read-state', JSON.stringify({
-    blobStyle: 'buddy', avatarOverrides: { [key]: override },
-  })), { key: projectKey, override: projectOverride });
+const start = async (page: Page, query = '', blobStyle: 'buddy' | 'crystal' | 'mosaic' | 'lava' = 'mosaic') => {
+  await page.addInitScript(({ key, override, style }) => localStorage.setItem('ember-pi-read-state', JSON.stringify({
+    blobStyle: style, avatarOverrides: { [key]: override },
+  })), { key: projectKey, override: projectOverride, style: blobStyle });
   await page.goto(`/?noDock${query}`);
   await page.getByRole('button', { name: 'New bot', exact: true }).first().click();
   await expect(center(page)).toBeVisible();
@@ -29,7 +29,7 @@ const customize = async (page: Page, style = 'Mosaic', shape = 'crown') => {
   await dialog.getByRole('combobox', { name: 'Appearance scope' }).click();
   await expect(page.getByRole('option')).toHaveCount(1);
   await page.getByRole('option', { name: 'This new bot', exact: true }).click();
-  await expect(dialog.getByTestId('global-blob-style')).toContainText('Blob style: Buddy.');
+  await expect(dialog.getByTestId('global-blob-style')).toContainText(`Blob style: ${style}.`);
   await expect(dialog.getByTestId('global-blob-style')).not.toContainText('Settings → General');
   await expect(dialog.getByRole('group', { name: 'Bot style' })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: /^(Buddy|Crystal|Mosaic|Lava|Scribble)$/ })).toHaveCount(0);
@@ -69,9 +69,9 @@ const assertCreated = async (page: Page, before: Awaited<ReturnType<typeof snaps
   if (globalStyle === 'mosaic') await expect(railBlob).toHaveAttribute('data-shape', shape);
 };
 
-for (const [style, shape] of [['Buddy', 'cloud'], ['Crystal', 'prism'], ['Mosaic', 'crown'], ['Lava', 'peanut']]) {
+for (const [style, shape] of [['Buddy', 'cloud'], ['Crystal', 'prism'], ['Mosaic', 'crown'], ['Lava', 'peanut']] as const) {
   test(`${style}: draft appearance stays local until send and follows the created bot`, async ({ page }) => {
-    const before = await start(page);
+    const before = await start(page, '', style.toLowerCase() as 'buddy' | 'crystal' | 'mosaic' | 'lava');
     const colors = await customize(page, style, shape);
     expect(await snapshot(page)).toEqual(before);
     if (style === 'Mosaic') await page.screenshot({ path: '/tmp/ember-draft-appearance-preview.png' });
@@ -129,7 +129,7 @@ test('a slow create keeps its appearance when it completes away from the draft',
 
 // No blob-style selector is available inside appearance customization; style changes live in Settings.
 test('draft picker shows the global style without offering a misleading per-bot selector', async ({ page }) => {
-  await start(page);
+  await start(page, '', 'buddy');
   await center(page).focus();
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Customize appearance' });
