@@ -7,10 +7,7 @@ import type { AvatarIdentity, BallState, Session } from '../src/types';
 /**
  * The crew strip renders to markup, no browser: these tests hold the *qualities* that a wrapped
  * brick strip introduced, not pixels. They exist because the strip is the only place a leader's
- * workers appear — a worker lost from it is a conversation the human cannot reach — and because
- * the same species of gap that `TODO.md` records for `GroupRow` ("no render test, and that gap has
- * now cost two bugs") applies here: every rule below was a bug once, or would be a bug the moment
- * someone re-ordered a class.
+ * workers appear — a worker lost from it is a conversation the human cannot reach.
  */
 
 /**

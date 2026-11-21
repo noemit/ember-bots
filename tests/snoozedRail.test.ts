@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { splitSnoozedRail } from '../src/lib/snoozedRail';
-import { buildRailEntries, groupDraftFromEntry } from '../src/lib/projectGroups';
+import { buildRailEntries } from '../src/lib/projectGroups';
 import { sessionKey, type Session } from '../src/types';
 
 const a: Session = { id: 'a', instanceId: 'local', directory: '/work/app', updated: 10 };
@@ -38,17 +38,5 @@ describe('snoozed rail placement', () => {
     expect(splitSnoozedRail([a, b], [a, b], snoozed, sessionKey(a), true).main).toEqual([b]);
     expect(splitSnoozedRail([a, b], [a, b], snoozed, sessionKey(a), true).snoozed).toEqual([a]);
     expect(snoozed.has(sessionKey(a))).toBe(true);
-  });
-
-  test('group display excludes snoozed members without rewriting configured membership', () => {
-    const group = { id: 'g', name: 'Work', keys: [sessionKey(a), sessionKey(b)], primaryKey: sessionKey(a) };
-    const placement = splitSnoozedRail([a, b], [a, b], snoozed, null, false);
-    const entries = buildRailEntries(placement.main, {}, [group]);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].kind).toBe('group');
-    if (entries[0].kind !== 'group') throw new Error('Expected a group');
-    expect(entries[0].members).toEqual([b]);
-    expect(groupDraftFromEntry(entries[0]).keys).toEqual(group.keys);
-    expect(groupDraftFromEntry(entries[0]).primaryKey).toBe(sessionKey(a));
   });
 });

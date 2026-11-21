@@ -2,7 +2,7 @@ import { useAvatarSize } from '../blob/size';
 import ProcessIndicator from './ProcessIndicator';
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { AlarmClock, AlarmClockOff, Eye, Bell, BellOff, CalendarClock, CheckCheck, Layers, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, EyeOff } from 'lucide-react';
+import { AlarmClock, AlarmClockOff, Eye, Bell, BellOff, CalendarClock, CheckCheck, Loader2, Palette, Play, Plus, RefreshCw, Sparkles, EyeOff } from 'lucide-react';
 import Blob from '../blob/Blob';
 import ProjectCleanupMenu from './ProjectCleanupMenu';
 import RailDescription from './RailDescription';
@@ -60,8 +60,6 @@ export type SessionRowProps = {
   onReload: (session: Session) => void;
   onArchive: (session: Session, archived: boolean) => void;
   onCustomizeAppearance: (session: Session) => void;
-  /** Start or extend a group with this session (right-click menu). */
-  onGroupWith?: (session: Session) => void;
   /** Right-click "Mark all as read": offered for a session Home says has unread messages. */
   onMarkAllRead?: (session: Session) => void;
   hasUnread?: boolean;
@@ -85,8 +83,6 @@ type SessionMenuProps = {
   onReload: (session: Session) => void;
   onArchive: (session: Session, archived: boolean) => void;
   onCustomizeAppearance: (session: Session) => void;
-  /** Start or extend a group with this session (right-click menu). */
-  onGroupWith?: (session: Session) => void;
   onMarkAllRead?: (session: Session) => void;
   hasUnread?: boolean;
   snoozed?: boolean;
@@ -107,7 +103,6 @@ export const SessionContextMenuContent = ({
   onReload,
   onArchive,
   onCustomizeAppearance,
-  onGroupWith,
   onMarkAllRead,
   hasUnread,
   quiet,
@@ -157,12 +152,6 @@ export const SessionContextMenuContent = ({
         <Palette />
         Customize appearance…
       </ContextMenuItem>
-      {onGroupWith ? (
-        <ContextMenuItem onSelect={() => onGroupWith(session)}>
-          <Layers />
-          Group with…
-        </ContextMenuItem>
-      ) : null}
       {scheduledTask ? (
         <>
           <ContextMenuSeparator />
@@ -216,7 +205,6 @@ const SessionRow = React.memo(function SessionRow({
   onReload,
   onArchive,
   onCustomizeAppearance,
-  onGroupWith,
   onMarkAllRead,
   hasUnread,
   quiet,
@@ -363,7 +351,6 @@ const SessionRow = React.memo(function SessionRow({
           onReload={onReload}
           onArchive={onArchive}
           onCustomizeAppearance={onCustomizeAppearance}
-          onGroupWith={onGroupWith}
           onMarkAllRead={onMarkAllRead}
           hasUnread={hasUnread}
           quiet={quiet}

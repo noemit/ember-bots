@@ -13,7 +13,6 @@ async function fixture(page: Page, compact: boolean) {
     const script = `
 settings.compactRail = ${compact};
 settings.snoozedSessions = ['pi:hearth::11'];
-settings.sessionGroups = [{ id: 'align-group', name: 'Alignment team', keys: ['pi:hearth::13', 'pi:hearth::16'] }];
 settings.openSessions = ['pi:hearth::15'];
 settings.activeSession = 'pi:hearth::15';
 `;
@@ -85,22 +84,6 @@ for (const compact of [false, true]) {
         await snoozedToggle.click();
       }
       await expectRowGeometry(rowFor(page, 'Remote access hardening'), expectedPixels);
-
-      // GroupRow member row (bare small blob + text column)
-      const member = rowFor(page, 'Dataset shortlist');
-      await member.scrollIntoViewIfNeeded();
-      const memberCenterDiff = await member.evaluate((el) => {
-        const blobEl = el.querySelector('.blob')!;
-        const blob = blobEl.getBoundingClientRect();
-        const wrapper = blobEl.closest('span.relative')!.getBoundingClientRect();
-        const text = el.querySelector('[data-group-member-title]')!.parentElement!.getBoundingClientRect();
-        return {
-          wrapperDiff: Math.abs(wrapper.y + wrapper.height / 2 - (text.y + text.height / 2)),
-          blobDiff: Math.abs(blob.y + blob.height / 2 - (text.y + text.height / 2)),
-        };
-      });
-      expect(memberCenterDiff.wrapperDiff).toBeLessThanOrEqual(2);
-      expect(memberCenterDiff.blobDiff).toBeLessThanOrEqual(2);
 
       // Docked ComposerIdentity (blob centered beside text stack)
       const dock = page.locator('[data-composer-identity]');

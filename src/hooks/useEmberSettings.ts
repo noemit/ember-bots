@@ -25,7 +25,6 @@ export const DEFAULT_SETTINGS: EmberSettings = {
   showMessageDetails: true,
   showAvatars: true,
   showActivityRail: true,
-  sessionGroups: [],
   compactSpacing: false,
   compactRail: false,
   railMode: 'normal' as const,

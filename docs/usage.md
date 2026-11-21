@@ -11,6 +11,9 @@ a working, queued or input-blocked chat asks for confirmation first. Ember does 
 command, but hiding a leader also hides its workers and stops any working workers. Open
 **Hidden sessions** in the rail to find it again; **Unhide session** (the eye) brings it back.
 
+If you used manual groups in an earlier version, open those chats individually from the rail or
+from their project cards. Their conversation histories stay with the chats.
+
 The current bot beside the composer keeps both actions: hover it or tab to **Hide session** and
 **New bot in this folder**. New bot opens a draft on that bot’s instance in the same folder; nothing
 is created until you send. These actions also work in the mini rail and beside an undocked composer.

@@ -359,7 +359,6 @@ describe('LeftRail SessionRow memoization', () => {
       const snoozed: string[] = [];
       const instanceDefaults = {};
       const scheduledTaskBySession = {};
-      const groups: import('../src/types').SessionGroup[] = [];
 
       const renderRail = async (
         moods: Record<string, BallMood>,
@@ -408,10 +407,6 @@ describe('LeftRail SessionRow memoization', () => {
                 quietKeys={emptySet}
                 onQuietChange={() => undefined}
                 onNewAgent={() => undefined}
-                groups={groups}
-                onOpenGroup={() => undefined}
-                onUngroup={() => undefined}
-                onManageGroup={() => undefined}
                 onRenameSession={() => undefined}
               />
             </TooltipProvider>

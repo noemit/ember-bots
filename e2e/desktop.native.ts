@@ -77,8 +77,13 @@ test('built Electron and authenticated remote access preserve local work', async
     await mkdir(ember, { recursive: true });
     await mkdir(join(home, 'profile'), { recursive: true });
     await writeFile(join(chamber, 'settings.json'), JSON.stringify({ desktopHosts: [{ id: 'fixture', label: 'Isolated fixture', url: upstreamUrl }] }));
+    const retained = {
+      openSessions: ['fixture::a', 'fixture::b'], activeSession: 'fixture::a', splitView: true,
+      sessionNotes: { 'fixture::a': [{ id: 'parked', text: 'Keep this note' }] },
+    };
+    const legacyGroups = [{ id: 'old', name: 'Old group', keys: ['fixture::b', 'fixture::a'], primaryKey: 'fixture::b' }];
     await writeFile(join(ember, 'settings.json'), JSON.stringify({
-      openSessions: ['fixture::a', 'fixture::b'], activeSession: 'fixture::a', splitView: true, localHarnessEnabled: false, remoteAccessEnabled: false, piEndpoints: [],
+      ...retained, sessionGroups: legacyGroups, localHarnessEnabled: false, remoteAccessEnabled: false, piEndpoints: [],
     }));
     const bootstrap = join(home, 'bootstrap.cjs');
     await writeFile(bootstrap, `const { app } = require('electron');
@@ -102,6 +107,20 @@ require(process.env.EMBER_TEST_ENTRY);
     await expect(nativeWindow.getByRole('log', { name: 'Conversation' }).getByText('Native fixture response a', { exact: true })).toBeVisible();
     await expect(nativeWindow.getByRole('log', { name: 'Conversation' }).getByText('Native fixture response b', { exact: true })).toBeVisible();
     expect(await nativeWindow.evaluate(() => Boolean(window.ember.capabilities))).toBe(true);
+
+    await test.step('old manual groups disappear without changing the workspace or its notes', async () => {
+      const loaded = await nativeWindow.evaluate(() => window.ember.getSettings());
+      expect(loaded).not.toHaveProperty('sessionGroups');
+      expect(loaded).toMatchObject(retained);
+      // A stale renderer may still send the retired field with a supported preference.
+      const patch = { theme: 'graphite', sessionGroups: legacyGroups };
+      const saved = await nativeWindow.evaluate(patch => window.ember.setSettings(patch), patch);
+      const disk = JSON.parse(await readFile(join(ember, 'settings.json'), 'utf8'));
+      for (const settings of [saved, disk]) {
+        expect(settings).not.toHaveProperty('sessionGroups');
+        expect(settings).toMatchObject({ ...retained, theme: 'graphite' });
+      }
+    });
 
     await test.step('the native top bar keeps its sidebar control beside the name and clear of window buttons', async () => {
       const toolbar = nativeWindow.getByTestId('window-toolbar');

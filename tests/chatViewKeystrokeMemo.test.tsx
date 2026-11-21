@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import ChatView from '../src/components/ChatView';
 import { TooltipProvider } from '../src/components/ui/tooltip';
 import { questionDrafts } from '../src/lib/asyncQuestionDrafts';
+import { composerMemory } from '../src/lib/composerDrafts';
 import { seedIdentity } from '../src/blob/seed';
 import type {
   ChatMessage,
@@ -326,7 +327,7 @@ describe('ChatView composer keystroke memoization', () => {
                 instances={[instance]}
                 mentionNames={['Alpha bot', 'Beta bot']}
                 projectsByInstance={{}}
-                seed="pi:local::42"
+                seed='pi:local::42'
                 identity={identity}
                 resolveDraftIdentity={() => identity}
                 state="idle"
@@ -347,7 +348,7 @@ describe('ChatView composer keystroke memoization', () => {
                 bypass={false}
                 view={view}
                 sessionNotes={[]}
-                notesKey="pi:local::42"
+                notesKey='pi:local::42'
                 savedComposerDrafts={drafts}
                 composerDraftsHydrated
                 onComposerDraftsChange={(changes) => {
@@ -510,6 +511,7 @@ describe('ChatView composer keystroke memoization', () => {
       });
     } finally {
       questionDrafts.clear();
+      composerMemory.delete('pi:local::42');
       for (const [key, prior] of savedGlobals) {
         if (prior.present) scope[key] = prior.value;
         else delete scope[key];

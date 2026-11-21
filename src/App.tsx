@@ -191,12 +191,10 @@ import { useProcessReaper } from './hooks/useProcessReaper';
 import { PROCESS_EXTENSION_MS, processKey } from './lib/processExpiry';
 import { usePoll } from './hooks/usePoll';
 import { useMotionPause } from './lib/useMotionPause';
-import ManageGroupDialog, { type GroupDraft } from './components/ManageGroupDialog';
 import { recentProjectDirectories, newSessionDirectoryPrefill, newSessionModelPrefill } from './lib/newSessionDefaults';
 import { isQuietlyArchivable, sessionStatusAnswer, staleScheduledRuns } from './lib/bulkArchive';
 import { instancesWithFreshStates, sessionStates } from './lib/sessionState';
 import { nextSessionAfterArchive, notesKeyForSession } from './lib/projectGroups';
-import { upsertGroup } from './lib/sessionGroups';
 import { recoverStrandedNotes } from './lib/notes';
 import { addNote, removeNote, updateNote } from './lib/noteStore';
 import { crewByLeader, crewNeedsInputKeySet, isWorker, threadRows, threadSourcesFor, workerKeySet } from './lib/crew';
@@ -434,7 +432,6 @@ export default function App() {
   const [autoAcceptByInstance, setAutoAcceptByInstance] = React.useState<Record<string, AutoAcceptPolicy>>({});
   // Nothing on screen is being looked at; stop animating (one listener for the whole window).
   useMotionPause();
-  const [groupDraft, setGroupDraft] = React.useState<GroupDraft | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   /** The Usage view, a sibling of Home rather than a dialog over it. */
   const [usageOpen, setUsageOpen] = React.useState(false);
@@ -1772,7 +1769,7 @@ export default function App() {
   // The helpers below are the only writers of workspace state; `activeSession` is the single
   // source of truth for `selected`, so existing selection-driven code keeps working unchanged.
 
-  /** The project identity the current open group belongs to, or a standalone bucket. */
+  /** The project identity the open columns belong to, or a standalone bucket. */
   const currentContextKey = React.useCallback((): string | null => {
     const first = openSessionsRef.current[0];
     if (!first) return null;
@@ -1866,34 +1863,6 @@ export default function App() {
    * layout). If none are open, the remembered layout is restored; otherwise every session opens in
    * recency order. An empty set opens a draft.
    */
-  /** Open a group: its members become the workspace's columns, replacing whatever was open. */
-  const openGroup = (members: Session[]) => navigateWithAnnotations(() => {
-    showActionError(null);
-    const keys = members.filter((session) => !session.archived && !isWorker(session)).map(sessionKey);
-    if (keys.length === 0) return;
-    saveCurrentLayout();
-    setNewSessionInstanceId(null);
-    setNewSessionDirectory(null);
-    setOpenSessions(keys);
-    setActiveSession(keys[0]);
-    setMinimizedSessions(new Set());
-    setUsageOpen(false);
-    setScheduledOpen(false);
-  });
-
-  const ungroupGroup = (groupId: string) => {
-    handleSettings({
-      sessionGroups: settingsRef.current.sessionGroups.filter((group) => group.id !== groupId),
-    });
-  };
-
-  /** Save (or create) a group from the panel. Editing keeps its place in the rail's order. */
-  const saveGroup = (group: { id: string; name: string; keys: string[]; primaryKey?: string }) => {
-    handleSettings({
-      sessionGroups: upsertGroup(settingsRef.current.sessionGroups, group),
-    });
-  };
-
   const performOpenProject = React.useCallback((instanceId: string, project: Project, projectSessions: Session[]) => {
     showActionError(null);
     const owned = projectSessions.filter((session) => !session.archived && !isWorker(session));
@@ -4273,7 +4242,6 @@ export default function App() {
               session,
               Object.values(sessionsByInstanceRef.current).flat(),
               projectsByInstanceRef.current,
-              settingsRef.current.sessionGroups,
               minimizedKeysRef.current
             )
           : null;
@@ -4475,7 +4443,6 @@ export default function App() {
               succeeded.find((session) => sessionKey(session) === activeKey) ?? succeeded[0],
               Object.values(sessionsByInstanceRef.current).flat(),
               projectsByInstanceRef.current,
-              settingsRef.current.sessionGroups,
               minimizedKeysRef.current
             )
           : null;
@@ -5859,10 +5826,6 @@ export default function App() {
               onRenameSession={(session, title) => void renameByHuman(session, title)}
               mode={settings.railMode}
               instances={instances}
-              groups={settings.sessionGroups}
-              onOpenGroup={openGroup}
-              onUngroup={ungroupGroup}
-              onManageGroup={setGroupDraft}
               projectsByInstance={railProjectsByInstance}
               instanceDefaults={settings.instanceDefaults}
               sessions={sessions}
@@ -6209,21 +6172,6 @@ export default function App() {
               />
             </React.Suspense>
           ) : null}
-
-          {groupDraft ? (
-            <ManageGroupDialog
-              open
-              draft={groupDraft}
-              sessions={everySession}
-              instances={instances}
-              onOpenChange={(open) => {
-                if (!open) setGroupDraft(null);
-              }}
-              onSave={saveGroup}
-              onUngroup={ungroupGroup}
-            />
-          ) : null}
-
 
           {avatarPickerSession ? (
             <React.Suspense fallback={<DialogFallback label="Loading appearance…" />}>

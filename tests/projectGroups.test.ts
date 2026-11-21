@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   blobStripLayout,
   buildRailEntries,
-  groupDraftFromEntry,
   nextSessionAfterArchive,
   notesKeyForSession,
 } from '../src/lib/projectGroups';
@@ -114,113 +113,6 @@ describe('blobStripLayout', () => {
   });
 });
 
-describe('groups in the rail', () => {
-  const project = (id: string) => ({ id, name: id, path: `/work/${id}` });
-  const inProject = (id: string, instanceId = 'local'): Session => ({
-    id,
-    instanceId,
-    directory: '/work/habit',
-    updated: 100,
-  });
-  const projectsByInstance = { local: [{ ...project('habit'), path: '/work/habit' }], studio: [] };
-
-  test('a grouped session leaves its project card and appears only in the group', () => {
-    const a = inProject('a');
-    const b = inProject('b');
-    const groups = [{ id: 'g', name: 'Release train', keys: ['local::a', 'studio::c'] }];
-    const entries = buildRailEntries([a, b, inProject('c', 'studio')], projectsByInstance, groups);
-    const card = entries.find((entry) => entry.kind === 'project');
-    expect(card && card.kind === 'project' ? card.sessions.map((session) => session.id) : []).toEqual(['b']);
-    const group = entries.find((entry) => entry.kind === 'group');
-    expect(group && group.kind === 'group' ? group.members.map((s) => s.id) : []).toEqual(['a', 'c']);
-    expect(group && group.kind === 'group' ? group.instanceIds.sort() : []).toEqual(['local', 'studio']);
-  });
-
-  test('a group whose members are all absent produces no entry', () => {
-    const entries = buildRailEntries([], projectsByInstance, [
-      { id: 'g', name: 'Gone', keys: ['local::x', 'local::y'] },
-    ]);
-    expect(entries).toEqual([]);
-  });
-
-  test('keeps every configured key, including members that do not resolve', () => {
-    // `b` and `c` are not in the loaded session list: one is a session outside the window, the
-    // other sits on an instance that is not answering. The group still owns all three keys.
-    const groups = [
-      {
-        id: 'g',
-        name: 'Release train',
-        keys: ['local::a', 'local::b', 'studio::c'],
-        primaryKey: 'studio::c',
-      },
-    ];
-    const entries = buildRailEntries([inProject('a')], projectsByInstance, groups);
-    const entry = entries.find((candidate) => candidate.kind === 'group');
-    if (entry?.kind !== 'group') throw new Error('expected a group entry');
-    expect(entry.keys).toEqual(['local::a', 'local::b', 'studio::c']);
-    expect(entry.members.map((member) => member.id)).toEqual(['a']);
-    // The configured primary survives even though it cannot resolve, so an outage cannot re-point
-    // where a new agent starts.
-    expect(entry.primaryKey).toBe('studio::c');
-  });
-
-  test('the Manage draft carries the configured keys, not the resolved members', () => {
-    const groups = [
-      { id: 'g', name: 'Release train', keys: ['local::a', 'local::b', 'studio::c'] },
-    ];
-    const entries = buildRailEntries([inProject('a')], projectsByInstance, groups);
-    const entry = entries.find((candidate) => candidate.kind === 'group');
-    if (entry?.kind !== 'group') throw new Error('expected a group entry');
-    expect(entry.customName).toBe('Release train');
-    const draft = groupDraftFromEntry(entry);
-    expect(draft.keys).toEqual(['local::a', 'local::b', 'studio::c']);
-    expect(draft).toMatchObject({ id: 'g', name: 'Release train' });
-    // Rebuilding the draft from `members` is the bug this guards: it would save two keys back and
-    // drop the member the instance could not answer for.
-    expect(entry.members.map(sessionKey)).not.toEqual(draft.keys);
-  });
-
-  test('unnamed groups preserve an accessible fallback name while leaving customName and draft name blank', () => {
-    const entries = buildRailEntries(
-      [
-        { ...inProject('a'), title: 'Parse config', updated: 20 },
-        { ...inProject('b'), title: 'Migrate schema', updated: 10 },
-      ],
-      projectsByInstance,
-      [{ id: 'g', name: '', keys: ['local::a', 'local::b'] }]
-    );
-    const entry = entries.find((candidate) => candidate.kind === 'group');
-    if (entry?.kind !== 'group') throw new Error('expected a group entry');
-    expect(entry.customName).toBeNull();
-    expect(entry.name).toBe('Parse config + Migrate schema');
-    expect(groupDraftFromEntry(entry).name).toBe('');
-  });
-
-  test('a primary that is no longer configured falls back to the most recent member', () => {
-    const groups = [{ id: 'g', name: 'G', keys: ['local::a', 'local::b'], primaryKey: 'local::gone' }];
-    const entries = buildRailEntries(
-      [{ ...inProject('a'), updated: 10 }, { ...inProject('b'), updated: 20 }],
-      projectsByInstance,
-      groups
-    );
-    const entry = entries.find((candidate) => candidate.kind === 'group');
-    if (entry?.kind !== 'group') throw new Error('expected a group entry');
-    expect(entry.primaryKey).toBe('local::b');
-  });
-
-  test('groups and projects interleave by recency, newest first', () => {
-    const older = { ...inProject('a'), updated: 10 };
-    const newer = { ...inProject('b'), updated: 900 };
-    const groups = [{ id: 'g', name: 'Group', keys: ['local::a', 'local::c'] }];
-    const entries = buildRailEntries(
-      [older, newer, { ...inProject('c'), updated: 10 }],
-      projectsByInstance,
-      groups
-    );
-    expect(entries.map((entry) => entry.kind)).toEqual(['project', 'group']);
-  });
-});
-
 describe('the session to show after archiving one', () => {
   const project = (id: string, name: string, path: string): Project => ({ id, name, path });
   const projects: Record<string, Project[]> = { local: [project('p1', 'Habit', '/work/habit'), project('p2', 'Ember', '/work/ember')] };
@@ -259,27 +151,16 @@ describe('the session to show after archiving one', () => {
     const b = at('b', '/work/habit', 800);
     const c = at('c', '/work/ember', 700);
     expect(
-      sessionKey(nextSessionAfterArchive(a, [a, b, c], projects, [], new Set(['local::b'])) ?? a)
+      sessionKey(nextSessionAfterArchive(a, [a, b, c], projects, new Set(['local::b'])) ?? a)
     ).toBe('local::c');
     // Everything else is minimized: a minimized one beats an empty workspace.
     expect(
-      sessionKey(nextSessionAfterArchive(a, [a, b], projects, [], new Set(['local::b'])) ?? a)
+      sessionKey(nextSessionAfterArchive(a, [a, b], projects, new Set(['local::b'])) ?? a)
     ).toBe('local::b');
   });
 
   test('returns null when the rail has nothing left, so Home is the honest answer', () => {
     const a = at('a', '/work/habit', 900);
     expect(nextSessionAfterArchive(a, [a], projects)).toBeNull();
-  });
-
-  test('a group member hands over within its group first (the rail order)', () => {
-    const a = at('a', '/work/habit', 900);
-    const b = at('b', '/work/habit', 800);
-    const c = at('c', '/work/ember', 700);
-    const groups = [{ id: 'g1', name: 'Release train', keys: ['local::c', 'local::a', 'local::b'] }];
-    // All three are in one group, so the group's own order decides.
-    const next = nextSessionAfterArchive(a, [a, b, c], projects, groups);
-    expect(['local::b', 'local::c']).toContain(sessionKey(next ?? a));
-    expect(sessionKey(next ?? a)).not.toBe('local::a');
   });
 });

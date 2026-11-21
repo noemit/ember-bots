@@ -28,7 +28,7 @@ describe('session hiding copy', () => {
   });
 
   test('session controls expose hide terminology, never deletion icons', () => {
-    for (const name of ['SessionRow', 'ChatView', 'LeftRail', 'ProjectCard', 'GroupRow', 'ProjectCleanupMenu', 'ArchiveSessionDialog']) {
+    for (const name of ['SessionRow', 'ChatView', 'LeftRail', 'ProjectCard', 'ProjectCleanupMenu', 'ArchiveSessionDialog']) {
       const code = source('src/components/' + name + '.tsx');
       expect(code).toContain('EyeOff');
       expect(code).not.toMatch(/Trash2|ArchiveRestore/);
@@ -40,7 +40,7 @@ describe('session hiding copy', () => {
   });
 
   test('UI text has no old archive or restore wording (internal identifiers stay intact)', () => {
-    const paths = ['App', ...['ArchiveDialog', 'ArchiveSessionDialog', 'SessionRow', 'ChatView', 'LeftRail', 'ProjectCard', 'GroupRow', 'ProjectCleanupMenu', 'SettingsPanel'].map(name => 'components/' + name)];
+    const paths = ['App', ...['ArchiveDialog', 'ArchiveSessionDialog', 'SessionRow', 'ChatView', 'LeftRail', 'ProjectCard', 'ProjectCleanupMenu', 'SettingsPanel'].map(name => 'components/' + name)];
     for (const path of paths) {
       const ast = ts.createSourceFile(path + '.tsx', source('src/' + path + '.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
       const visit = (node: ts.Node) => {

@@ -307,7 +307,7 @@ follow durable tool-task ancestry; descriptive source text must never be parsed 
   draft with `newSessionDirectory`. Ember keeps one project in the workspace at a time: `openProject`
   opens exactly the sessions its card showed (most recent as columns, the rest as tabs, so
   out-of-window/archived sessions in the same folder don't leak in) and `openSession` replaces the
-  group when the session belongs to a different project, so two projects' columns never mix by
+  open columns when the session belongs to a different project, so two projects' columns never mix by
   default.
 - `src/hooks/` — concerns pulled out of App: `useFeedback` (error banner + retry, notice toast,
   live-region announcements), `useEmberSettings` (optimistic writes to main with revision guarding),
@@ -524,7 +524,7 @@ follow durable tool-task ancestry; descriptive source text must never be parsed 
   and **Scheduled** views, then the instances menu. Sessions opens the latest chat if no column is
   open. Error/notice toasts render inline next to search. Home is no longer a view or command.
 - `src/components/LeftRail.tsx` — **three widths, one toggle** (`settings.railMode`): **mini** is a
-  64px dock of session blobs (tooltip = title + latest message; no search, groups or labels),
+  64px dock of session blobs (tooltip = title + latest message; no search, project cards or labels),
   **normal** is the 272px rail, and **wide** is about half the window, where each row shows the latest
   message over up to three lines (`SessionRow`'s `expanded`) and a project's blob strip spreads into
   the room. The panel button beside the app name in the top bar cycles them and `Cmd/Ctrl+B` does the same from anywhere.
@@ -534,8 +534,7 @@ follow durable tool-task ancestry; descriptive source text must never be parsed 
   there); a project with two or more sessions renders as a `ProjectCard`. Projects with no active
   sessions are omitted — start one from New agent. Standalone (root/chat) sessions are always
   `SessionRow`s. Cards and rows interleave by most-recent activity. Clicking a project body opens the
-  whole project — see App's `openProject`; the blobs are display-only (their right-click menu still
-  reloads/archives that session). The toolbar is New agent + search + the archive button. **A
+  whole project — see App's `openProject`; clicking a blob opens its session. The toolbar is New agent + search + the archive button. **A
   scheduled run is an ordinary session** — it lives in the list like any other, with a small calendar
   mark beside its title whose tooltip says "This was triggered by a scheduled task." and names the task
   — while **plans** and run history live in the Scheduled tab, without a duplicate section in the rail.

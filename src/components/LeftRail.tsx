@@ -25,12 +25,10 @@ import Blob from '../blob/Blob';
 import { useStableCallback } from '@/lib/useStableCallback';
 import { splitSnoozedRail } from '@/lib/snoozedRail';
 import { isWorker } from '@/lib/crew';
-import { groupNewAgentTarget, wideRailStripWidth } from '@/lib/railStrip';
+import { wideRailStripWidth } from '@/lib/railStrip';
 import { endpointState, instanceReady, railEmptyCopy } from '@/lib/instanceHealth';
 import {
   buildRailEntries,
-  groupDraftFromEntry,
-  type GroupEntry,
   type ProjectEntry,
   type RailEntry,
 } from '@/lib/projectGroups';
@@ -49,7 +47,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import ProjectCard from './ProjectCard';
-import GroupRow from './GroupRow';
 import SessionRow, { SessionContextMenuContent } from './SessionRow';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { sessionKey } from '../types';
@@ -63,7 +60,6 @@ import type {
   Project,
   RailMode,
   Session,
-  SessionGroup,
 } from '../types';
 
 type Props = {
@@ -125,12 +121,6 @@ type Props = {
   /** Mute or unmute notification indicators for a session. */
   onQuietChange?: (session: Session, quiet: boolean) => void;
   onNewAgent: (instanceId: string, directory?: string) => void;
-  /** Agent groups, already parsed; the rail draws them above projects. */
-  groups: SessionGroup[];
-  onOpenGroup: (members: Session[]) => void;
-  onUngroup: (groupId: string) => void;
-  /** Open the group panel for a group, or start one from a session. */
-  onManageGroup: (draft: { id?: string; name: string; keys: string[]; primaryKey?: string }) => void;
   onRenameSession: (session: Session, title: string) => void;
 };
 
@@ -182,10 +172,6 @@ export default function LeftRail({
   quietKeys,
   onQuietChange,
   onNewAgent,
-  groups,
-  onOpenGroup,
-  onUngroup,
-  onManageGroup,
   onRenameSession,
 }: Props) {
   const composerConnection = useWorkspaceConnection();
@@ -286,15 +272,12 @@ export default function LeftRail({
     [itemSessions, everySession, snoozedKeys, selectedKey, docked]
   );
   const entries = React.useMemo(
-    () => buildRailEntries(placement.main, projectsByInstance, groups).sort((a, b) => a.updated - b.updated || a.id.localeCompare(b.id)),
-    [placement.main, projectsByInstance, groups]
+    () => buildRailEntries(placement.main, projectsByInstance).sort((a, b) => a.updated - b.updated || a.id.localeCompare(b.id)),
+    [placement.main, projectsByInstance]
   );
 
   const matchesSession = React.useCallback(
     (session: Session) => {
-      // A session is also found by its group's name: the group is what the user named, and a
-      // search for "release" that hides the group's sessions makes the group look empty.
-      const groupName = groups.find((group) => group.keys.includes(sessionKey(session)))?.name;
       return matchesQuery(
         [
           session.title,
@@ -303,12 +286,11 @@ export default function LeftRail({
           session.directory,
           instanceById[session.instanceId]?.label,
           projectForSession(session, projectsByInstance[session.instanceId] ?? [])?.name,
-          groupName,
         ],
         needle
       );
     },
-    [previews, instanceById, projectsByInstance, needle, groups]
+    [previews, instanceById, projectsByInstance, needle]
   );
 
   // Search pools: active matches keep the project grouping; archived matches stay individual rows.
@@ -325,10 +307,10 @@ export default function LeftRail({
 
   const railEntries = React.useMemo(() => {
     if (!needle) return entries;
-    // Unsnoozed hits retain their groups; snoozed hits stay individual, as in their section.
+    // Unsnoozed hits retain their projects; snoozed hits stay individual, as in their section.
     // The activeMatches pool is keyed, so a selected snoozed chat appears only once.
     const withSessions: RailEntry[] = [
-      ...buildRailEntries(activeMatches.filter(session => !snoozedKeys.has(sessionKey(session))), projectsByInstance, groups),
+      ...buildRailEntries(activeMatches.filter(session => !snoozedKeys.has(sessionKey(session))), projectsByInstance),
       ...activeMatches.filter(session => snoozedKeys.has(sessionKey(session))).map(session => ({
         kind: 'session' as const, id: sessionKey(session), session, updated: session.updated ?? 0,
       })),
@@ -356,7 +338,7 @@ export default function LeftRail({
     });
     emptyProjects.sort((a, b) => a.project.name.localeCompare(b.project.name) || a.id.localeCompare(b.id));
     return [...withSessions, ...emptyProjects];
-  }, [needle, entries, activeMatches, projectsByInstance, groups, snoozedKeys]);
+  }, [needle, entries, activeMatches, projectsByInstance, snoozedKeys]);
 
   React.useLayoutEffect(() => {
     if (followBottom.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
@@ -419,10 +401,6 @@ export default function LeftRail({
   const snoozeSession = onSnooze ? snoozeStable : undefined;
   const quietStable = useStableCallback(onQuietChange ?? NO_QUIET);
   const quietChange = onQuietChange ? quietStable : undefined;
-  const manageGroup = useStableCallback(onManageGroup);
-  const groupWith = useStableCallback((target: Session) =>
-    manageGroup({ name: '', keys: [sessionKey(target)] })
-  );
   const newAgent = useStableCallback(onNewAgent);
   const runScheduledTask = useStableCallback(onRunScheduledTask);
   const changeScheduledTaskModel = useStableCallback(onChangeScheduledTaskModel);
@@ -498,7 +476,6 @@ export default function LeftRail({
         hasUnread={unreadKeys?.has(key) ?? false}
         quiet={quietKeys?.has(key) ?? false}
         onQuietChange={quietChange}
-        onGroupWith={groupWith}
         // Every agent gets a plus: the draft opens on this session's instance and folder, both
         // still changeable in its options row before the first message.
         onNewAgent={newAgent}
@@ -506,48 +483,8 @@ export default function LeftRail({
     );
   };
 
-  // A group's `+` starts a session on its primary member's instance, in that member's folder — the
-  // way the group panel already seeds one — and is left off when no member resolves.
-  const groupNewAgent = (entry: GroupEntry): (() => void) | undefined => {
-    const target = groupNewAgentTarget(entry.members, entry.primaryKey);
-    return target ? () => newAgent(target.instanceId, target.directory) : undefined;
-  };
   const renderEntry = (entry: RailEntry) => {
     if (entry.kind === 'session') return renderSession(entry.session);
-    // Group rows are built by buildRailEntries but not drawn yet: this step adds the rail pass and
-    // its tests, and the row component lands with the Manage group panel.
-    if (entry.kind === 'group') {
-      return (
-        <GroupRow
-          expanded={mode === 'wide'}
-          key={entry.id}
-          entry={entry}
-          folderNames={Object.fromEntries(entry.members.map(member => [sessionKey(member), folderNameOf(member)]))}
-          previews={previews}
-          instanceLabels={Object.fromEntries(instances.map((instance) => [instance.id, instance.label]))}
-          instanceMarkers={Object.fromEntries(instances.map(instance => [instance.id, instanceMarkerColor(instance.id, instanceDefaults[instance.id])]))}
-          avatarIdentities={avatarIdentities}
-          moods={moods}
-          visibleKeys={visibleColumnKeys}
-          blobStyle={blobStyle}
-          reloadingKeys={reloadingKeys}
-          archivingKeys={archivingKeys}
-          onOpen={() => onOpenGroup(entry.members)}
-          onOpenSession={openSession}
-          onNewAgent={groupNewAgent(entry)}
-          onReload={reloadSession}
-          onArchive={archiveSession}
-          snoozedKeys={snoozedKeys} onSnooze={snoozeSession}
-          onArchiveMany={archiveMany}
-          onCustomizeAppearance={customizeAppearance}
-          onUngroup={() => onUngroup(entry.id)}
-          // The configured keys, not the resolved members (see `groupDraftFromEntry`): a member
-          // on an unreachable instance is absent from `members`, and deriving the list from it
-          // made saving the panel drop that member for good.
-          onManage={() => manageGroup(groupDraftFromEntry(entry))}
-        />
-      );
-    }
     const instance = instanceById[entry.instanceId];
     const openProject = () => onOpenProject(entry.instanceId, entry.project, entry.sessions);
     // A lone project keeps its folder heading and its individual session title.
@@ -584,7 +521,6 @@ export default function LeftRail({
           hasUnread={unreadKeys?.has(key) ?? false}
           quiet={quietKeys?.has(key) ?? false}
           onQuietChange={quietChange}
-          onGroupWith={groupWith}
         />
       );
     }
@@ -647,7 +583,6 @@ export default function LeftRail({
         onArchive={archiveSession}
         snoozed={snoozedKeys.has(key)} onSnooze={snoozeSession}
         onCustomizeAppearance={customizeAppearance}
-        onGroupWith={groupWith}
       />
     );
   };
@@ -947,8 +882,7 @@ export default function LeftRail({
             quiet={quietKeys?.has(sessionKey(selectedSession))} onQuietChange={quietChange}
             scheduledTask={scheduledTaskBySession[sessionKey(selectedSession)]}
             scheduledRunning={Boolean(scheduledTaskBySession[sessionKey(selectedSession)] && runningScheduledKeys.has(scheduledTaskBySession[sessionKey(selectedSession)].key))}
-            onRunScheduledTask={runScheduledTask} onChangeScheduledTaskModel={changeScheduledTaskModel}
-            onGroupWith={selectedSession.kind === 'worker' ? undefined : groupWith} /></ContextMenu>
+            onRunScheduledTask={runScheduledTask} onChangeScheduledTaskModel={changeScheduledTaskModel} /></ContextMenu>
         </div>
       ) : null}
     </aside>

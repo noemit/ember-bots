@@ -8,7 +8,7 @@ const project = 'ConfiguredProjectWithAnUnbrokenName'.repeat(6);
 const multiProject = 'MultiSessionProjectWithAnUnbrokenName'.repeat(6);
 const pathTitle = `/second-parent/${folder}`;
 
-async function fixture(page: Page, options: { group?: boolean; compact?: boolean; empty?: boolean } = {}) {
+async function fixture(page: Page, options: { compact?: boolean; empty?: boolean } = {}) {
   await page.route(/\/src\/dev\/mockPi\.ts(?:\?|$)/, async route => {
     const response = await route.fetch();
     const script = `
@@ -34,7 +34,6 @@ mockFolders['/workspace'].push(${JSON.stringify(project)}, ${JSON.stringify(mult
 settings.compactRail = ${Boolean(options.compact)};
 settings.openSessions = ['pi:hearth::15']; settings.activeSession = 'pi:hearth::15';
 ${options.empty ? `railTextFixture.entries = [{ id: 99, kind: 'pi.assistant', model: [{role:'assistant', content:[], timestamp: Date.now() - 3600000}] }];` : ''}
-${options.group ? `settings.sessionGroups = [{id:'rail-text-group', name:'Review team', keys:['pi:hearth::10','pi:hearth::11']}];` : ''}
 `;
     await route.fulfill({ response, body: await response.text() + script });
   });
@@ -42,7 +41,7 @@ ${options.group ? `settings.sessionGroups = [{id:'rail-text-group', name:'Review
 }
 
 const rail = (page: Page) => page.getByTestId('session-rail');
-const rowFor = (page: Page, title: string) => rail(page).locator('button, [role="button"]:not([aria-label^="Open group"])').filter({ has: page.locator('[data-session-title]', { hasText: title }) });
+const rowFor = (page: Page, title: string) => rail(page).locator('button, [role="button"]').filter({ has: page.locator('[data-session-title]', { hasText: title }) });
 
 /** Check actual text glyph rectangles, not just the wrapper's (possibly clipped) dimensions. */
 async function fullText(locator: Locator, text: string, multiline = false) {
@@ -143,7 +142,6 @@ test('configured single project keeps its session title; multi project heading s
   await page.route(/\/src\/dev\/mockLegacy\.ts(?:\?|$)/, async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: await response.text() + `
-settings.sessionGroups = [];
 settings.openSessions = ['local::ses_a8']; settings.activeSession = 'local::ses_a8';
 projects.local = [
   {id:'single', path:'/workspace/single', label:${JSON.stringify(project)}},
@@ -164,8 +162,9 @@ for (const [id, directory, title] of [
   await expect(card).toContainText('Distinct multi session 13');
   await expect(card).toContainText('Distinct multi session 14');
   await page.screenshot({ path: '/tmp/ember-rail-text-projects.png' });
-  await rowFor(page, 'Distinct configured single session').click();
-  await page.locator('main[data-session-key="local::ses_a2"] header').getByRole('button', { name: 'Hide session', exact: true }).click();
+  const single = rowFor(page, 'Distinct configured single session');
+  await single.hover();
+  await single.locator('..').getByRole('button', { name: 'Hide session', exact: true }).click();
   await page.getByRole('button', { name: 'Hidden sessions', exact: true }).click();
   const hidden = page.getByRole('dialog', { name: 'Hidden sessions', exact: true });
   const hiddenRow = hidden.getByRole('button').filter({ has: page.locator('[data-session-title]', { hasText: 'Distinct configured single session' }) });
@@ -198,15 +197,32 @@ test('duplicate basenames and path-shaped session titles remain separate in sear
   await page.screenshot({ path: '/tmp/ember-rail-text-snoozed.png' });
 });
 
-test('group members keep full folder hierarchy and hide normal previews', async ({ page }) => {
-  await fixture(page, { group: true });
-  const member = rowFor(page, longName);
-  await hierarchy(member, folder, longName);
-  await expect(member.getByTestId('session-preview')).toHaveCount(0);
-  await page.keyboard.press('ControlOrMeta+b');
-  await hierarchy(member, folder, longName, false);
-  await expect(member.getByTestId('session-preview')).toBeVisible();
-  await page.screenshot({ path: '/tmp/ember-rail-text-group.png' });
+test('sessions in a saved manual group open independently with their original history', async ({ page }) => {
+  await page.route(/\/src\/dev\/mockPi\.ts(?:\?|$)/, async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: await response.text() + `
+settings.sessionGroups = [{id:'old-team', name:'Review team', keys:['pi:hearth::10','pi:hearth::11']}];
+settings.openSessions = ['pi:hearth::15']; settings.activeSession = 'pi:hearth::15';
+` });
+  });
+  await page.goto('/?noDock');
+  await expect(rowFor(page, 'Habit onboarding QA')).toBeVisible();
+  await expect(rowFor(page, 'Remote access hardening')).toBeVisible();
+  await expect(rail(page).getByText('Review team', { exact: true })).toHaveCount(0);
+  await rowFor(page, 'Habit onboarding QA').click({ button: 'right' });
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Hide session' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /Group with/i })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  for (const [id, title, prompt, reply] of [
+    ['10', 'Habit onboarding QA', 'QA the Habit onboarding flow.', 'Found a regression: the step counter'],
+    ['11', 'Remote access hardening', 'Review the Tailscale path and tighten auth.', 'The listener is correctly bound to Tailscale only.'],
+  ]) {
+    await rowFor(page, title).click();
+    const chat = page.locator(`main[data-session-key="pi:hearth::${id}"]`);
+    await expect(chat).toContainText(prompt);
+    await expect(chat).toContainText(reply);
+  }
 });
 
 test('dock retains complete folder and composer geometry through growth and mobile', async ({ page }) => {
