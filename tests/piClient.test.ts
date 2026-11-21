@@ -540,6 +540,7 @@ describe('PiClient shutdown, endpoint-edit races, and watchTimer cleanup', () =>
       await Bun.sleep(60);
       expect(client.hasWatchTimer()).toBe(false);
       expect(client.socketCount('pi:test')).toBe(0);
+      expect(client.status()).toEqual({});
     } finally {
       client.closeAll();
       server.stop(true);

@@ -58,6 +58,7 @@ import {
   initializeFirstRunSettings,
   readJson,
   readJsonRoot,
+  reconcilePiInstanceSnapshot,
   resolvePersistedPiEndpoints,
   stripUndefinedKeys,
 } from './settingsFile';
@@ -1191,6 +1192,28 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
     { ...nextStatic, readMarks: stripLegacyQuietFromReadMarks(settings.readMarks) },
     canCacheUnlockedEndpoints(nextConfigured) ? nextConfigured : undefined
   );
+  if (Array.isArray(value.piEndpoints)) {
+    const nextEndpoints = piEndpoints();
+    const previousPiById = new Map(
+      instanceSnapshot
+        .filter((instance) => instance.kind === 'pi')
+        .map((instance) => [instance.id, instance])
+    );
+    probeGeneration++;
+    activeInstanceLoad = null;
+    if (hasInstanceSnapshot) {
+      instanceSnapshot = reconcilePiInstanceSnapshot(instanceSnapshot, nextEndpoints, isLocalHarnessStarting());
+    }
+    void piClient.syncEndpoints(nextEndpoints);
+    broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+    const needsProbe = nextEndpoints.some((endpoint) => {
+      const previous = previousPiById.get(endpoint.id);
+      return !previous || previous.url !== endpoint.url;
+    });
+    if (needsProbe) {
+      void loadInstances(true);
+    }
+  }
   if (
     settings.remoteAccessEnabled !== previousRemoteAccessEnabled ||
     remotePasswordHash !== previousRemotePasswordHash ||

@@ -233,15 +233,27 @@ export const importOpenCodeCredentials = async (
 export class FileModelsStore implements ModelsStore {
   private readonly entries = new Map<string, ModelsStoreEntry>();
   private loaded?: Promise<void>;
+  private chain: Promise<void> = Promise.resolve();
 
   constructor(private readonly file: string) {}
+
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(task, task);
+    this.chain = next.then(() => undefined, () => undefined);
+    return next;
+  }
 
   private load(): Promise<void> {
     this.loaded ??= Promise.resolve().then(() => {
       try {
         const raw = JSON.parse(readFileSync(this.file, "utf8")) as Record<string, ModelsStoreEntry>;
-        for (const [providerId, entry] of Object.entries(raw)) {
-          if (entry && Array.isArray(entry.models)) this.entries.set(providerId, entry);
+        for (const [rawId, entry] of Object.entries(raw)) {
+          if (entry && Array.isArray(entry.models)) {
+            const canonical = normalizeProviderId(rawId);
+            if (canonical === rawId || !this.entries.has(canonical)) {
+              this.entries.set(canonical, entry);
+            }
+          }
         }
       } catch {
         // No store yet, or an unreadable one: start empty (every provider falls back to its catalog).
@@ -260,19 +272,30 @@ export class FileModelsStore implements ModelsStore {
     renameSync(tmp, this.file);
   }
 
-  async read(providerId: string): Promise<ModelsStoreEntry | undefined> {
-    await this.load();
-    return this.entries.get(providerId);
+  read(providerId: string): Promise<ModelsStoreEntry | undefined> {
+    const canonical = normalizeProviderId(providerId);
+    return this.enqueue(async () => {
+      await this.load();
+      return this.entries.get(canonical);
+    });
   }
 
-  async write(providerId: string, entry: ModelsStoreEntry): Promise<void> {
-    await this.load();
-    this.entries.set(providerId, entry);
-    this.persist();
+  write(providerId: string, entry: ModelsStoreEntry): Promise<void> {
+    const canonical = normalizeProviderId(providerId);
+    return this.enqueue(async () => {
+      await this.load();
+      this.entries.set(canonical, entry);
+      this.persist();
+    });
   }
 
-  async delete(providerId: string): Promise<void> {
-    await this.load();
-    if (this.entries.delete(providerId)) this.persist();
+  delete(providerId: string): Promise<void> {
+    const canonical = normalizeProviderId(providerId);
+    return this.enqueue(async () => {
+      await this.load();
+      const deletedCanonical = this.entries.delete(canonical);
+      const deletedRaw = canonical !== providerId && this.entries.delete(providerId);
+      if (deletedCanonical || deletedRaw) this.persist();
+    });
   }
 }

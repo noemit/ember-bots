@@ -344,7 +344,7 @@ export class PiClient {
     for (const id of [...this.endpoints.keys()]) {
       if (!wanted.has(id)) {
         this.endpoints.delete(id);
-        this.dropEndpoint(id);
+        this.dropEndpoint(id, true);
       }
     }
     if (this.endpoints.size === 0) {
@@ -371,7 +371,7 @@ export class PiClient {
     }
   }
 
-  private dropEndpoint(id: string): void {
+  private dropEndpoint(id: string, removed = false): void {
     this.endpointRevisions.delete(id);
     this.watchRefreshRevisions.delete(id);
     const prefix = `events:${id}:`;
@@ -379,6 +379,9 @@ export class PiClient {
       if (key.startsWith(prefix)) this.stopSubscription(this.conversations, key);
     }
     this.stopSubscription(this.tasks, `tasks:${id}`);
+    if (removed && !this.openSockets.has(id)) {
+      this.live.delete(id);
+    }
   }
 
   private stopSubscription(store: Map<string, Subscription>, key: string): boolean {
@@ -484,6 +487,14 @@ export class PiClient {
     const count = Math.max(0, (this.openSockets.get(endpointId) ?? 0) + delta);
     if (count === 0) this.openSockets.delete(endpointId);
     else this.openSockets.set(endpointId, count);
+    if (count === 0 && !this.endpoints.has(endpointId)) {
+      const wasLive = this.live.get(endpointId) === true;
+      this.live.delete(endpointId);
+      if (wasLive) {
+        this.broadcast({ instanceId: endpointId, type: 'ember:stream-status', connected: false });
+      }
+      return;
+    }
     const connected = count > 0;
     if (this.live.get(endpointId) === connected) return;
     this.live.set(endpointId, connected);

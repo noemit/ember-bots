@@ -3,11 +3,11 @@ import { CustomProviders } from "./custom-providers";
 import { dirname, join } from "node:path";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { createModels, createProvider, envApiKeyAuth, type CredentialStore, type Model, type Models, type Provider } from "@earendil-works/pi-ai";
-import { FileCredentialStore, FileModelsStore } from "./credentials";
+import { FileCredentialStore, FileModelsStore, normalizeProviderId } from "./credentials";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
-import { antigravityProvider } from "./antigravity";
+import { antigravityProvider, setDiscoveredRouting } from "./antigravity";
 import { openCodeZenWithDiscovery } from "./model-discovery";
 import {
   anthropicWithDiscovery,
@@ -355,6 +355,53 @@ export const hearthDefault = (): HearthDefault => {
   return { model: { provider: raw.slice(0, separator), modelId: raw.slice(separator + 1) } };
 };
 
+type ModelsCatalogStore = { delete: (providerId: string) => Promise<void> };
+const modelsStoreByModels = new WeakMap<object, ModelsCatalogStore>();
+const providerFactoriesByModels = new WeakMap<object, Map<string, () => Provider>>();
+
+/** Track the persistent `modelsStore` associated with a `Models` instance so catalog clears prune disk cache too. */
+export const registerModelsStore = (models: Models, catalogStore: ModelsCatalogStore): void => {
+  modelsStoreByModels.set(models, catalogStore);
+};
+
+/**
+ * Clear cached dynamic models and persisted `models-store.json` entries for a removed provider.
+ * Re-registers built-in providers cleanly via their factory so `GET /providers` keeps listing them
+ * while `GET /models` and `models.getModels()` drop discovered/account-specific models immediately.
+ */
+export const clearProviderCatalog = async (
+  models: Models & { setProvider?: (provider: Provider) => void; deleteProvider?: (id: string) => void },
+  rawProviderId: string,
+  aliasProviderId?: string
+): Promise<void> => {
+  const providerId = normalizeProviderId(rawProviderId);
+  const candidates = new Set([providerId, rawProviderId, ...(aliasProviderId ? [aliasProviderId] : [])]);
+  const catalogStore =
+    modelsStoreByModels.get(models) ??
+    (models as { modelsStore?: ModelsCatalogStore }).modelsStore;
+  if (catalogStore) {
+    for (const candidate of candidates) {
+      await catalogStore.delete(candidate).catch(() => undefined);
+    }
+  }
+  if (providerId === "antigravity") {
+    setDiscoveredRouting(undefined);
+  }
+  if (providerId.startsWith("custom-")) {
+    models.deleteProvider?.(providerId);
+    return;
+  }
+  const factory = providerFactoriesByModels.get(models)?.get(providerId);
+  if (factory) {
+    models.setProvider?.(factory());
+    return;
+  }
+  const existing = models.getProvider(providerId);
+  if (existing) {
+    models.setProvider?.(existing);
+  }
+};
+
 /**
  * Every provider Hearth serves. Built-ins are always registered — a provider without its
  * credential simply answers its calls with an auth error and is skipped by refresh — and
@@ -379,44 +426,58 @@ export const hearthModels = async (
   // as the fallback. The model-catalog store lives next to the credentials so boot can restore
   // the last known lists without network access; the network refresh runs in the background
   // instead of gating startup (see `main` in ./index.ts).
+  const modelsStore = new FileModelsStore(join(dirname(authFile), "models-store.json"));
   const models = createModels({
     credentials: store,
-    modelsStore: new FileModelsStore(join(dirname(authFile), "models-store.json")),
+    modelsStore,
   });
+  registerModelsStore(models, modelsStore);
   const modelsDevCache = createModelsDevCache();
+  const providerFactories = new Map<string, () => Provider>();
+  providerFactoriesByModels.set(models, providerFactories);
+  const registerBuiltin = (factory: () => Provider): void => {
+    const provider = factory();
+    providerFactories.set(provider.id, factory);
+    models.setProvider(provider);
+  };
   // Every built-in provider overlays live model discovery (its own `/models` endpoint and/or
   // `models.dev`) over pi-ai's shipped baseline so newly released models appear on Refresh without
   // waiting for a new Kiln release.
-  models.setProvider(openCodeZenWithDiscovery());
-  models.setProvider(xaiWithDiscovery(modelsDevCache));
-  models.setProvider(openaiWithDiscovery(modelsDevCache));
+  registerBuiltin(() => openCodeZenWithDiscovery());
+  registerBuiltin(() => xaiWithDiscovery(modelsDevCache));
+  registerBuiltin(() => openaiWithDiscovery(modelsDevCache));
   // NVIDIA's NIM catalogue is free at the point of signup and rotates models regularly (a free model
   // appears and is retired without notice), so it is registered the same way every keyed provider is:
   // listed always, offered only once a credential resolves.
-  models.setProvider(nvidiaWithDiscovery(modelsDevCache));
+  registerBuiltin(() => nvidiaWithDiscovery(modelsDevCache));
   // Subscription providers, registered so their **sign-in buttons exist at all**: `/providers` can
   // only offer what is registered, so "why is there no ChatGPT button" was really "the provider was
   // never listed". Which ones can *finish* is decided in `login.ts` (`CAN_COMPLETE`, `OBSTRUCTIONS`).
-  models.setProvider(anthropicWithDiscovery(modelsDevCache));
-  models.setProvider(openaiCodexWithDiscovery());
-  models.setProvider(githubCopilotWithDiscovery(modelsDevCache));
+  registerBuiltin(() => anthropicWithDiscovery(modelsDevCache));
+  registerBuiltin(() => openaiCodexWithDiscovery());
+  registerBuiltin(() => githubCopilotWithDiscovery(modelsDevCache));
   // Google Antigravity is not in pi-ai: its Cloud Code Assist transport is Hearth's own
   // (./antigravity.ts), so the provider is registered here like DeepInfra is.
-  models.setProvider(antigravityProvider());
-  models.setProvider(metaWithDiscovery(modelsDevCache));
-  models.setProvider(openrouterWithDiscovery());
+  registerBuiltin(() => antigravityProvider());
+  registerBuiltin(() => metaWithDiscovery(modelsDevCache));
+  registerBuiltin(() => openrouterWithDiscovery());
   // pi-ai has no DeepInfra provider (see ./deepinfra.ts); Hearth registers its own.
-  models.setProvider(deepinfraProvider());
-  models.setProvider(deepseekWithDiscovery(modelsDevCache));
-  models.setProvider(googleWithDiscovery(modelsDevCache));
-  models.setProvider(fireworksWithDiscovery(modelsDevCache));
+  registerBuiltin(() => deepinfraProvider());
+  registerBuiltin(() => deepseekWithDiscovery(modelsDevCache));
+  registerBuiltin(() => googleWithDiscovery(modelsDevCache));
+  registerBuiltin(() => fireworksWithDiscovery(modelsDevCache));
   const storedIds = (await store.list().catch(() => [])).map((entry) => entry.providerId);
   for (const provider of kimiProviders(storedIds, process.env, modelsDevCache)) models.setProvider(provider);
+  providerFactories.set("kimi-coding", () => kimiProviders([], process.env, modelsDevCache)[0]!);
+  providerFactories.set("moonshotai", () => createMoonshotProvider(kimiOptions(process.env)));
   if (!models.getProviders().some((provider) => provider.id === "moonshotai")) {
-    models.setProvider(createMoonshotProvider());
+    models.setProvider(createMoonshotProvider(kimiOptions(process.env)));
   }
   const router = orcarouterProvider();
-  if (router) models.setProvider(router);
+  if (router) {
+    providerFactories.set(router.id, () => orcarouterProvider() ?? router);
+    models.setProvider(router);
+  }
   // Local runtimes have no account, so "registered" cannot mean "has a credential" — it means
   // something is listening right now. A probe is local and cheap (loopback, 1.5s), and doing it
   // here is what keeps a stopped Ollama out of the picker instead of offering models that would

@@ -8,7 +8,8 @@ import {
   shareApiKeys,
   type ShareTarget,
 } from "../../alignment";
-import { credentialEnvVar, importOpenCodeCredentials, isCredential, normalizeProviderId } from "../../credentials";
+import { credentialEnvVar, hasEnvCredential, importOpenCodeCredentials, isCredential, normalizeProviderId } from "../../credentials";
+import { clearProviderCatalog } from "../../models";
 import { loginSupport, unreachableQuestion, type LoginInput, type LoginState } from "../../login";
 import { ensureConditionalProviders } from "../../models";
 import {
@@ -69,6 +70,7 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
       if (id && request.method === "PUT") return json(await custom.save(await readBody(request), id));
       if (id && request.method === "DELETE") {
         await custom.remove(id);
+        await clearProviderCatalog(models, id);
         return json({ ok: true });
       }
     } catch (error) {
@@ -274,14 +276,22 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
 
   if (path.startsWith("/providers/") && (request.method === "POST" || request.method === "DELETE")) {
     if (!store) return badRequest("no credential store");
-    const providerId = decodeSegment(path.slice("/providers/".length));
-    if (!providerId) return badRequest("missing provider id");
-    if (providerId.startsWith("custom-")) {
+    const rawProviderId = decodeSegment(path.slice("/providers/".length));
+    if (!rawProviderId) return badRequest("missing provider id");
+    const providerId = normalizeProviderId(rawProviderId);
+    if (rawProviderId.startsWith("custom-") || providerId.startsWith("custom-")) {
       return badRequest("Edit custom providers in Settings → Providers so Kiln can keep each key bound to its destination.");
     }
     if (request.method === "DELETE") {
+      loginSupervisor.cancel(providerId);
+      if (rawProviderId !== providerId) loginSupervisor.cancel(rawProviderId);
       await store.delete(providerId);
-      refreshModelCatalog(`clearing ${providerId}`);
+      if (rawProviderId !== providerId) await store.delete(rawProviderId);
+      if (hasEnvCredential(providerId)) {
+        await runLiveModelRefresh([providerId], AbortSignal.timeout(5_000)).catch(() => undefined);
+      } else {
+        await clearProviderCatalog(models, providerId, rawProviderId);
+      }
       return json({ ok: true, provider: providerId, credential: null });
     }
     const body = (await readBody(request)) as unknown;
