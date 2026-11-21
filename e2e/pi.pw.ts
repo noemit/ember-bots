@@ -486,14 +486,14 @@ test('a new bot is named from its first message, not given a number', async ({ p
   await page.getByRole('button', { name: 'New bot' }).first().click();
   await page.getByRole('button', { name: 'New bot project' }).waitFor();
   const composer = page.locator('textarea').first();
-  await composer.fill('Fix the flaky tailnet reconnect before the demo.');
+  await composer.fill('For context: the demo is tomorrow.\nPlease fix the flaky tailnet reconnect.');
   await composer.press('Enter');
 
   // The subject survives naming, and the dock exposes the same identity as the conversation.
   const column = page.locator('main[data-session-key]').first();
   await expect(column).toBeVisible();
-  await expect(column.locator('header')).toContainText('Network Navigator');
-  await expect(page.locator('[data-active-chat]')).toContainText('Network Navigator');
+  await expect(column.locator('header')).toContainText('Flaky tailnet reconnect');
+  await expect(page.locator('[data-active-chat]')).toContainText('Flaky tailnet reconnect');
 });
 
 test('closing every column keeps the rail available, and Sessions reopens a chat', async ({ page }) => {
