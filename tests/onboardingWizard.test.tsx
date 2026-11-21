@@ -215,7 +215,7 @@ describe('OnboardingWizard UX, Dialog containment, responsive layout & copy', ()
       endpoints: [],
       models: [],
     });
-    expect(firstAgentHtml).toContain('data-testid="onboarding-first-agent-disconnected"');
+    expect(firstAgentHtml).toContain('data-testid="onboarding-first-bot-disconnected"');
     expect(firstAgentHtml).toContain('Where to run Kiln');
     expect(firstAgentHtml).toContain('Connect a Kiln first');
     expect(firstAgentHtml).not.toContain('>Continue<');

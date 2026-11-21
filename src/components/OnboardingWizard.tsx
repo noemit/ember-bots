@@ -669,7 +669,7 @@ function FirstAgent({ state, instances, projectUsageByInstance, instanceDefaults
   const workspace = target ? instanceDefaults[target.id]?.workspaceDirectory : undefined;
   if (!target) {
     return (
-      <div className="flex max-w-xl flex-col items-start gap-3 text-muted-foreground" data-testid="onboarding-first-agent-disconnected">
+      <div className="flex max-w-xl flex-col items-start gap-3 text-muted-foreground" data-testid="onboarding-first-bot-disconnected">
         <h3 className="text-base font-semibold text-foreground">Connect a Kiln first</h3>
         <p className="leading-relaxed">
           Kiln isn’t connected yet, so Ember can’t browse folders or start a bot here. Retry the included Kiln on this computer or connect another host in Where to run Kiln.

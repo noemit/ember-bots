@@ -172,8 +172,9 @@ describe('the full read against the mock', () => {
     } finally {
       restore();
     }
-    // The fixture is four entries; the bug rendered four hundred pages of them.
-    expect(read.messages.map((message) => message.id)).toEqual(['e90', 'e91', 'e92', 'e93']);
+    // The fixture has 4 entries (e92 is an internal hearth.thread-notice omitted from visible messages);
+    // the bug rendered four hundred pages of them.
+    expect(read.messages.map((message) => message.id)).toEqual(['e90', 'e91', 'e93']);
     expect(read.complete).toBe(true);
     expect(seen.length).toBe(1);
   });
