@@ -189,6 +189,42 @@ const fromOpenCode = (entry: unknown): Credential | undefined => {
   return undefined;
 };
 
+export type OpenCodeImportCandidate = {
+  providerId: string;
+  type: "api_key" | "oauth";
+};
+
+/**
+ * Discover OpenCode credentials on disk that are eligible for explicit import into Hearth.
+ * Returns metadata only (provider ID and credential type) — never secrets.
+ */
+export const discoverOpenCodeCredentials = async (
+  store: CredentialStore,
+  allowedProviders: ReadonlySet<string>,
+  source = join(homedir(), ".local/share/opencode/auth.json")
+): Promise<OpenCodeImportCandidate[]> => {
+  let auth: Record<string, unknown>;
+  try {
+    auth = JSON.parse(readFileSync(source, "utf8")) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+  if (!auth || typeof auth !== "object" || Array.isArray(auth)) return [];
+  const storedIds = new Set((await store.list()).map((entry) => entry.providerId));
+  const seen = new Set<string>();
+  const candidates: OpenCodeImportCandidate[] = [];
+  for (const [rawProviderId, entry] of Object.entries(auth)) {
+    const providerId = normalizeProviderId(rawProviderId);
+    if (!allowedProviders.has(providerId) || providerId.startsWith("custom-") || providerId === "orcarouter") continue;
+    if (storedIds.has(providerId) || seen.has(providerId)) continue;
+    const credential = fromOpenCode(entry);
+    if (!credential) continue;
+    seen.add(providerId);
+    candidates.push({ providerId, type: credential.type });
+  }
+  return candidates;
+};
+
 /**
  * Copy provider credentials out of OpenCode's store into Hearth's, so Hearth stops depending on
  * OpenCode (see `PROVIDER_MIGRATION.md`). Never clobbers a credential Hearth already holds; returns

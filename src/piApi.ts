@@ -1530,9 +1530,16 @@ export type PiLoginInput = { prompt: { capable: boolean } };
 /** The capability Ember always has: it runs in front of the person. */
 export const EMBER_LOGIN_INPUT: PiLoginInput = { prompt: { capable: true } };
 
+export type PiOpenCodeImportCandidate = {
+  id: string;
+  name: string;
+  type: PiProviderCredential;
+};
+
 export type PiProviderCatalog = {
   providers: PiProviderInfo[];
   default?: { provider: string; modelId: string };
+  openCodeImportable?: PiOpenCodeImportCandidate[];
 };
 
 const providerErrorText = (data: unknown, fallback: string): string => {
@@ -1547,6 +1554,7 @@ export const piLoadProviders = async (endpointId: string): Promise<PiProviderCat
   const response = await request<{
     providers?: Array<{ id?: unknown; name?: unknown; credential?: unknown; envVar?: unknown }>;
     default?: { provider: string; modelId: string };
+    openCodeImportable?: Array<{ id?: unknown; name?: unknown; type?: unknown }>;
   }>(endpointId, '/providers');
   if (!response.ok) return null;
   const providers = (Array.isArray(response.data.providers) ? response.data.providers : [])
@@ -1573,7 +1581,45 @@ export const piLoadProviders = async (endpointId: string): Promise<PiProviderCat
         ...((entry as { custom?: unknown }).custom === true ? { custom: true } : {}),
       };
     });
-  return { providers, default: response.data.default };
+  const openCodeImportable = (Array.isArray(response.data.openCodeImportable) ? response.data.openCodeImportable : [])
+    .flatMap((entry): PiOpenCodeImportCandidate[] => {
+      if (typeof entry?.id !== 'string' || !entry.id.trim()) return [];
+      const type = credentialOf(entry.type);
+      if (!type) return [];
+      return [{
+        id: entry.id,
+        name: typeof entry.name === 'string' && entry.name.trim() ? entry.name : entry.id,
+        type,
+      }];
+    });
+  return {
+    providers,
+    default: response.data.default,
+    ...(openCodeImportable.length > 0 ? { openCodeImportable } : {}),
+  };
+};
+
+/** Import selected OpenCode credentials on the Hearth host without mutating OpenCode's store. */
+export const piImportOpenCodeProviders = async (
+  endpointId: string,
+  providers: readonly string[]
+): Promise<{ ok: boolean; status: number; imported: string[]; error?: string }> => {
+  const response = await request<{ imported?: unknown }>(endpointId, '/providers/import', {
+    method: 'POST',
+    body: { providers: [...providers] },
+  });
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      imported: [],
+      error: providerErrorText(response.data, response.status ? `HTTP ${response.status}` : ''),
+    };
+  }
+  const imported = Array.isArray(response.data?.imported)
+    ? response.data.imported.filter((id): id is string => typeof id === 'string')
+    : [];
+  return { ok: true, status: response.status, imported };
 };
 
 /** Set one provider's API key on the Hearth host; returns a message on failure. */

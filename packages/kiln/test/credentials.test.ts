@@ -6,6 +6,7 @@ import { moonshotaiProvider } from '@earendil-works/pi-ai/providers/moonshotai';
 import {
   FileCredentialStore,
   FileModelsStore,
+  discoverOpenCodeCredentials,
   hasEnvCredential,
   importOpenCodeCredentials,
   isCredentialExpired,
@@ -153,4 +154,38 @@ test('imports OpenCode credentials (api -> api_key, oauth passthrough) without c
 
   // A missing source is a no-op, not a throw.
   expect(await importOpenCodeCredentials(store, allowed, join(file, '..', 'missing.json'))).toEqual([]);
+});
+
+test('discoverOpenCodeCredentials returns metadata only, filters unregistered/stored, and maps aliases', async () => {
+  const file = storeFile();
+  const store = new FileCredentialStore(file);
+  await store.modify('opencode', async () => ({ type: 'api_key', key: 'already-saved' }));
+
+  const source = join(file, '..', 'opencode-auth.json');
+  writeFileSync(
+    source,
+    JSON.stringify({
+      opencode: { type: 'api', key: 'secret-opencode' },
+      'opencode-go': { type: 'api', key: 'retired-go-secret' },
+      'fireworks-ai': { type: 'api', key: 'secret-fireworks' },
+      xai: { type: 'oauth', refresh: 'secret-refresh', access: 'secret-access', expires: 42 },
+      'custom-local': { type: 'api', key: 'secret-custom' },
+      orcarouter: { type: 'api', key: 'secret-router' },
+      broken: { type: 'nope' },
+    })
+  );
+
+  const allowed = new Set(['opencode', 'fireworks', 'xai', 'custom-local', 'orcarouter', 'broken']);
+  const discovered = await discoverOpenCodeCredentials(store, allowed, source);
+  expect(discovered).toEqual([
+    { providerId: 'fireworks', type: 'api_key' },
+    { providerId: 'xai', type: 'oauth' },
+  ]);
+  expect(JSON.stringify(discovered)).not.toContain('secret-');
+
+  // Missing or malformed source returns [].
+  expect(await discoverOpenCodeCredentials(store, allowed, join(file, '..', 'missing.json'))).toEqual([]);
+  const badSource = join(file, '..', 'bad-opencode-auth.json');
+  writeFileSync(badSource, 'not-json');
+  expect(await discoverOpenCodeCredentials(store, allowed, badSource)).toEqual([]);
 });

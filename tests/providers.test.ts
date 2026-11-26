@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { piLoadProviders, piRemoveProvider, piSetProviderKey } from '../src/piApi';
+import { piImportOpenCodeProviders, piLoadProviders, piRemoveProvider, piSetProviderKey } from '../src/piApi';
 
 const calls: Array<{ method: string; path: string; body?: unknown }> = [];
 let credentials: Record<string, 'api_key' | 'oauth' | null> = {};
@@ -130,5 +130,49 @@ test('a provider sign-in starts, polls and cancels over the expected routes', as
     'POST /providers/xai/login',
     'GET /providers/xai/login',
     'DELETE /providers/xai/login',
+  ]);
+});
+
+test('piLoadProviders parses openCodeImportable and piImportOpenCodeProviders posts selected IDs', async () => {
+  calls.length = 0;
+  (globalThis as { window?: unknown }).window = {
+    ember: {
+      piRequest: async (_endpointId: string, path: string, init?: { method?: string; body?: unknown }) => {
+        const method = init?.method ?? 'GET';
+        calls.push({ method, path, body: init?.body });
+        if (path === '/providers' && method === 'GET') {
+          return {
+            ok: true,
+            status: 200,
+            data: {
+              providers: [],
+              openCodeImportable: [
+                { id: 'opencode', name: 'OpenCode Zen', type: 'api_key' },
+                { id: 'openai-codex', name: 'OpenAI Codex', type: 'oauth' },
+                { id: '', name: 'Broken', type: 'api_key' },
+                { id: 'badtype', name: 'Bad Type', type: 'unknown' },
+              ],
+            },
+          };
+        }
+        if (path === '/providers/import' && method === 'POST') {
+          return { ok: true, status: 200, data: { imported: ['opencode'] } };
+        }
+        return { ok: false, status: 404, data: null };
+      },
+    },
+  };
+
+  const catalog = await piLoadProviders('pi:test');
+  expect(catalog?.openCodeImportable).toEqual([
+    { id: 'opencode', name: 'OpenCode Zen', type: 'api_key' },
+    { id: 'openai-codex', name: 'OpenAI Codex', type: 'oauth' },
+  ]);
+
+  const imported = await piImportOpenCodeProviders('pi:test', ['opencode']);
+  expect(imported).toEqual({ ok: true, status: 200, imported: ['opencode'] });
+  expect(calls).toEqual([
+    { method: 'GET', path: '/providers', body: undefined },
+    { method: 'POST', path: '/providers/import', body: { providers: ['opencode'] } },
   ]);
 });

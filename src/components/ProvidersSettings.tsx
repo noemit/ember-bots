@@ -13,10 +13,17 @@ import {
 import { cn } from '@/lib/utils';
 import { useStableCallback } from '@/lib/useStableCallback';
 import { effectiveInstanceDefaultModel, withInstanceDefaultModel } from '@/lib/instanceDefaultModel';
-import { piLoadProviders, piRemoveProvider, piSetProviderKey, type PiProviderInfo } from '../piApi';
+import {
+  piImportOpenCodeProviders,
+  piLoadProviders,
+  piRefreshModels,
+  piRemoveProvider,
+  piSetProviderKey,
+  type PiOpenCodeImportCandidate,
+  type PiProviderInfo,
+} from '../piApi';
 import { DEFAULT_MODEL, modelRefKey } from '../types';
 import ModelPicker from './ModelPicker';
-import { piRefreshModels } from '../piApi';
 import type { ModelList } from '../api';
 import type { InstanceDefaults, ModelRef, Instance, PiEndpoint } from '../types';
 import ProviderSignInDialog from '@/components/ProviderSignInDialog';
@@ -136,6 +143,13 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
   const [removing, setRemoving] = React.useState<string | null>(null);
   const [removeError, setRemoveError] = React.useState<{ providerId: string; message: string } | null>(null);
   const [envFallbackNotices, setEnvFallbackNotices] = React.useState<Record<string, string>>({});
+  const [openCodeCandidates, setOpenCodeCandidates] = React.useState<PiOpenCodeImportCandidate[]>([]);
+  const [selectedOpenCode, setSelectedOpenCode] = React.useState<Set<string>>(() => new Set());
+  const knownOpenCodeIds = React.useRef<Set<string>>(new Set());
+  const [openCodeDismissed, setOpenCodeDismissed] = React.useState(false);
+  const [importingOpenCode, setImportingOpenCode] = React.useState(false);
+  const [openCodeError, setOpenCodeError] = React.useState<string | null>(null);
+  const [openCodeNotice, setOpenCodeNotice] = React.useState<string | null>(null);
   const [signIn, setSignIn] = React.useState<PiProviderInfo | null>(null);
 
   // Stable identity, so the signing dialog's effects don't restart on every parent render.
@@ -147,6 +161,9 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
     if (!mounted.current) return null;
     if (!id) {
       setProviders(null);
+      setOpenCodeCandidates([]);
+      setSelectedOpenCode(new Set());
+      knownOpenCodeIds.current = new Set();
       return null;
     }
     const version = ++reads.current;
@@ -157,11 +174,28 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
     if (!catalog) {
       setProviders(null);
       setDefaultModel(null);
+      setOpenCodeCandidates([]);
+      setSelectedOpenCode(new Set());
+      knownOpenCodeIds.current = new Set();
       notifyCatalog(id, []);
       setError((endpoints.find(endpoint => endpoint.id === id)?.label ?? 'This Kiln') + ' did not return its providers. Check its connection in Computers and Containers, then use Refresh providers above.');
       setLoading(false);
       return null;
     }
+    const importable = catalog.openCodeImportable ?? [];
+    setOpenCodeCandidates(importable);
+    setSelectedOpenCode((prev) => {
+      const next = new Set<string>();
+      for (const candidate of importable) {
+        if (knownOpenCodeIds.current.has(candidate.id)) {
+          if (prev.has(candidate.id)) next.add(candidate.id);
+        } else if (candidate.type === 'api_key') {
+          next.add(candidate.id);
+        }
+      }
+      knownOpenCodeIds.current = new Set(importable.map((candidate) => candidate.id));
+      return next;
+    });
     setProviders(catalog.providers);
     notifyCatalog(id, catalog.providers);
     setDefaultModel(catalog.default ? `${catalog.default.provider} / ${catalog.default.modelId}` : null);
@@ -268,6 +302,44 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
     notifyChanged(id, { upstream: false });
   };
 
+  const importOpenCode = async () => {
+    const selectedIds = openCodeCandidates
+      .filter((candidate) => selectedOpenCode.has(candidate.id))
+      .map((candidate) => candidate.id);
+    if (selectedIds.length === 0 || importingOpenCode || busy !== null) return;
+    const id = endpointId;
+    const hostLabel = endpoints.find((endpoint) => endpoint.id === id)?.label ?? 'This Kiln';
+    setImportingOpenCode(true);
+    setOpenCodeError(null);
+    setOpenCodeNotice(null);
+    const result = await piImportOpenCodeProviders(id, selectedIds);
+    if (!mounted.current) return;
+    setImportingOpenCode(false);
+    if (!result.ok) {
+      const detail = sanitizeFailureDetail(result.error);
+      setOpenCodeError(
+        `${hostLabel} could not import OpenCode credentials${detail ? ` (${detail})` : ''}. Check that ${hostLabel} is running, then select Import selected again.`
+      );
+      return;
+    }
+    const importedNames = result.imported.map(
+      (importedId) => openCodeCandidates.find((candidate) => candidate.id === importedId)?.name ?? importedId
+    );
+    await load(id);
+    if (!mounted.current) return;
+    notifyChanged(id);
+    if (result.imported.length > 0) {
+      setOpenCodeNotice(`Imported ${importedNames.join(', ')} to ${hostLabel}. Your OpenCode setup was not changed.`);
+      if (result.imported.length === 1 && !onboarding && onDefaultChange) {
+        await confirmDefault(id, importedNames[0]!, result.imported[0]);
+      }
+    } else {
+      setOpenCodeNotice(`No new OpenCode credentials were imported to ${hostLabel}. Existing credentials stay unchanged.`);
+    }
+  };
+
+  const hostLabel = endpoints.find((endpoint) => endpoint.id === endpointId)?.label ?? 'this computer';
+
   if (endpoints.length === 0) {
     return (
       <p className="text-[12px] text-muted-foreground">
@@ -308,7 +380,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
         <Button
           size="icon-xs"
           variant="ghost"
-          onClick={() => void load(endpointId)}
+          onClick={() => { setOpenCodeDismissed(false); setOpenCodeError(null); void load(endpointId); }}
           disabled={loading}
           aria-label="Refresh providers"
         >
@@ -355,6 +427,73 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
         }} />
       ) : null}
       {error ? <p className="text-[11.5px] text-destructive">{error}</p> : null}
+      {openCodeNotice ? (
+        <p role="status" className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-foreground">
+          {openCodeNotice}
+        </p>
+      ) : null}
+      {openCodeCandidates.length > 0 && !openCodeDismissed ? (
+        <div
+          role="region"
+          aria-label="Import OpenCode credentials"
+          className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 text-xs"
+        >
+          <p className="text-foreground">
+            Saved OpenCode credentials were found on {hostLabel}. Choose any you want to copy into Ember — your OpenCode setup won’t change.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {openCodeCandidates.map((candidate) => (
+              <label key={candidate.id} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedOpenCode.has(candidate.id)}
+                  disabled={importingOpenCode || busy !== null}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setSelectedOpenCode((prev) => {
+                      const next = new Set(prev);
+                      if (checked) next.add(candidate.id);
+                      else next.delete(candidate.id);
+                      return next;
+                    });
+                  }}
+                />
+                <span className="font-medium text-foreground">{candidate.name}</span>
+                <span className="text-muted-foreground">
+                  {candidate.type === 'oauth' ? 'OAuth sign-in' : 'API key'}
+                </span>
+              </label>
+            ))}
+          </div>
+          {openCodeCandidates.some((candidate) => candidate.type === 'oauth') ? (
+            <p className="text-muted-foreground">
+              OAuth sign-ins are unchecked by default. Signing in separately in Ember avoids token refresh conflicts with OpenCode.
+            </p>
+          ) : null}
+          {openCodeError ? <p role="alert" className="text-destructive">{openCodeError}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="xs"
+              variant="secondary"
+              disabled={selectedOpenCode.size === 0 || importingOpenCode || busy !== null}
+              onClick={() => void importOpenCode()}
+            >
+              {importingOpenCode ? 'Importing…' : 'Import selected'}
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={importingOpenCode}
+              onClick={() => {
+                setOpenCodeDismissed(true);
+                setOpenCodeError(null);
+              }}
+            >
+              Not now
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {loading && !providers ? (
         <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
@@ -407,7 +546,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
               <p className="mt-1 break-words text-xs text-muted-foreground">Kiln uses <code>{provider.envVar}</code>. To disconnect, unset it on the computer running this Kiln and restart Kiln.</p>
             ) : null}
             {removing === provider.id ? <div className="mt-3 space-y-2 rounded border p-3 text-xs" role="group" aria-label={'Remove ' + provider.name}>
-              <p>Remove {provider.name}’s saved credential from {endpoints.find(endpoint => endpoint.id === endpointId)?.label}? Chat history and other connections stay unchanged.</p>
+              <p>Remove {provider.name}’s saved credential from {hostLabel}? Chat history, other connections, and other apps such as OpenCode stay unchanged.</p>
               {(instanceDefaults[endpointId]?.model?.providerID === provider.id || defaultModel?.startsWith(provider.id + ' / ')) ? <p className="text-warning">This provider supplies the default model. New chats may need another model or a new credential. Ember won’t choose a replacement.</p> : null}
               {removeError?.providerId === provider.id ? <p role="alert" className="text-destructive">{removeError.message}</p> : null}
               <Button size="sm" variant="destructive" disabled={isBusy} onClick={() => { void remove(provider); }}>{isBusy ? 'Removing…' : 'Remove credential'}</Button>{' '}

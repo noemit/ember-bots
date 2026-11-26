@@ -8,7 +8,7 @@ import {
   shareApiKeys,
   type ShareTarget,
 } from "../../alignment";
-import { credentialEnvVar, hasEnvCredential, importOpenCodeCredentials, isCredential, normalizeProviderId } from "../../credentials";
+import { credentialEnvVar, discoverOpenCodeCredentials, hasEnvCredential, importOpenCodeCredentials, isCredential, normalizeProviderId } from "../../credentials";
 import { clearProviderCatalog } from "../../models";
 import { loginSupport, unreachableQuestion, type LoginInput, type LoginState } from "../../login";
 import { ensureConditionalProviders } from "../../models";
@@ -155,6 +155,10 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
     }
   }
 
+  // Old boot imports could leave unrelated credentials on disk. Never advertise or transfer
+  // them as accounts of this Kiln; don't delete potentially user-owned data during discovery.
+  const registeredProviders = () => new Set(models.getProviders().map((provider) => provider.id));
+
   if (request.method === "GET" && path === "/providers") {
     const stored = store ? await store.list() : [];
     const types = new Map(stored.map((entry) => [entry.providerId, entry.type]));
@@ -177,12 +181,21 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
             : null,
       };
     });
-    return json({ providers, default: defaultAgent.model, ...(localRuntimes ? { localRuntimes } : {}) });
+    const openCodeImportable = store
+      ? (await discoverOpenCodeCredentials(store, registeredProviders(), deps.openCodeImportSource)).map((entry) => ({
+          id: entry.providerId,
+          name: models.getProvider(entry.providerId)?.name ?? entry.providerId,
+          type: entry.type,
+        }))
+      : [];
+    return json({
+      providers,
+      default: defaultAgent.model,
+      ...(localRuntimes ? { localRuntimes } : {}),
+      ...(openCodeImportable.length > 0 ? { openCodeImportable } : {}),
+    });
   }
 
-  // Old boot imports could leave unrelated credentials on disk. Never advertise or transfer
-  // them as accounts of this Kiln; don't delete potentially user-owned data during discovery.
-  const registeredProviders = () => new Set(models.getProviders().map((provider) => provider.id));
   if (path === "/alignment" && request.method === "GET") {
     try {
       const state = await harness.snapshot(AgentsDoc, context);

@@ -568,6 +568,134 @@ describe('ProvidersSettings copy and credential removal UX', () => {
       await restore();
     }
   });
+
+  test('offers explicit OpenCode import with host label, OAuth unchecked by default, Not now + Refresh, and removal reassurance', async () => {
+    let importable = [
+      { id: 'opencode', name: 'OpenCode Zen', type: 'api_key' as const },
+      { id: 'openai-codex', name: 'OpenAI Codex', type: 'oauth' as const },
+    ];
+    let importShouldFail = false;
+    const importBodies: unknown[] = [];
+    const providerChanges: string[] = [];
+
+    const { container, root, restore } = setupDom(async (_endpointId, path, init) => {
+      if (path === '/providers' && (!init?.method || init.method === 'GET')) {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            providers: [
+              { id: 'opencode', name: 'OpenCode Zen', credential: importable.some((p) => p.id === 'opencode') ? null : 'api_key', signIn: null },
+              { id: 'openai-codex', name: 'OpenAI Codex', credential: null, signIn: null },
+            ],
+            default: null,
+            openCodeImportable: importable,
+          },
+        };
+      }
+      if (path === '/providers/import' && init?.method === 'POST') {
+        importBodies.push(init.body);
+        if (importShouldFail) {
+          return { ok: false, status: 500, data: { error: 'disk read-only' } };
+        }
+        importable = importable.filter((p) => p.id !== 'opencode');
+        return { ok: true, status: 200, data: { imported: ['opencode'] } };
+      }
+      if (path === '/custom-providers') return { ok: true, status: 200, data: { providers: [] } };
+      if (path === '/local-runtimes/ollama') {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            baseUrl: 'http://127.0.0.1:11434',
+            defaultBaseUrl: 'http://127.0.0.1:11434',
+            customAddress: false,
+            running: false,
+            hasModels: false,
+            models: [],
+          },
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    try {
+      await React.act(async () => {
+        root.render(
+          <ProvidersSettings
+            inventory
+            endpoints={[endpoint]}
+            instances={[instance]}
+            onProviderChange={(id) => { providerChanges.push(id); }}
+            onDefaultChange={() => undefined}
+          />,
+        );
+        await flushMicrotasks();
+      });
+
+      const region = findByAriaLabel(container, 'Import OpenCode credentials', 'region')!;
+      expect(region).not.toBeNull();
+      expect(region.textContent).toContain('Studio Mac');
+      expect(region.textContent).toContain('OpenCode setup won’t change');
+      expect(region.textContent).toContain('OAuth sign-ins are unchecked by default');
+
+      const checkboxes: DomEl[] = [];
+      region.walk((el) => {
+        if (el.tagName === 'INPUT') checkboxes.push(el);
+      });
+      expect(checkboxes.length).toBe(2);
+      expect(checkboxes[0]!.checked).toBe(true);
+      expect(checkboxes[1]!.checked).toBe(false);
+
+      // Not now hides the card without importing; Refresh providers brings it back.
+      await React.act(async () => {
+        findButtonByText(region, 'Not now')!.click();
+      });
+      expect(findByAriaLabel(container, 'Import OpenCode credentials', 'region')).toBeNull();
+      expect(importBodies).toEqual([]);
+
+      await React.act(async () => {
+        findByAriaLabel(container, 'Refresh providers')!.click();
+        await flushMicrotasks();
+      });
+      const reopened = findByAriaLabel(container, 'Import OpenCode credentials', 'region')!;
+      expect(reopened).not.toBeNull();
+
+      // Failed import shows host-naming alert with next step.
+      importShouldFail = true;
+      await React.act(async () => {
+        findButtonByText(reopened, 'Import selected')!.click();
+        await flushMicrotasks();
+      });
+      const alerts = findAllRoles(container, 'alert').map((el) => el.textContent).join(' ');
+      expect(alerts).toContain('Studio Mac');
+      expect(alerts).toContain('Import selected');
+
+      // Successful import posts selected IDs, reloads, notifies, and shows status notice.
+      importShouldFail = false;
+      await React.act(async () => {
+        findButtonByText(findByAriaLabel(container, 'Import OpenCode credentials', 'region')!, 'Import selected')!.click();
+        await flushMicrotasks();
+      });
+      expect(importBodies).toEqual([{ providers: ['opencode'] }, { providers: ['opencode'] }]);
+      expect(providerChanges).toEqual(['pi:studio']);
+      const statusText = findAllRoles(container, 'status').map((el) => el.textContent).join(' ');
+      expect(statusText).toContain('Imported OpenCode Zen to Studio Mac');
+      expect(statusText).toContain('OpenCode setup was not changed');
+
+      // Removal confirmation reassures that other apps such as OpenCode stay unchanged.
+      await React.act(async () => {
+        findByAriaLabel(container, 'Manage OpenCode Zen')!.click();
+      });
+      await React.act(async () => {
+        findByAriaLabel(container, 'Remove credential for OpenCode Zen')!.click();
+      });
+      const removeGroup = findByAriaLabel(container, 'Remove OpenCode Zen', 'group')!;
+      expect(removeGroup.textContent).toContain('other apps such as OpenCode stay unchanged');
+    } finally {
+      await restore();
+    }
+  });
 });
 
 describe('CustomProviders removal guards and error handling', () => {

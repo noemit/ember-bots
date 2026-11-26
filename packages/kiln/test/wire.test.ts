@@ -307,6 +307,11 @@ describe("hearth wire", () => {
       faux: { type: "api", key: "keep-local" }, blind: { type: "api", key: "synthetic-import" },
       foreign: { type: "api", key: "unregistered" },
     }));
+    const beforeImport = await body(await api("/providers"));
+    expect(beforeImport.openCodeImportable).toEqual([
+      { id: "blind", name: "blind", type: "api_key" },
+    ]);
+    expect(JSON.stringify(beforeImport)).not.toContain("synthetic-import");
     const select = (providers: unknown) => api("/providers/import", { method: "POST", body: JSON.stringify({ providers }) });
     for (const invalid of [null, "blind", [" "], Array(51).fill("blind")]) {
       expect((await select(invalid)).status).toBe(400);
@@ -315,6 +320,8 @@ describe("hearth wire", () => {
     expect(await body(await select(["foreign"]))).toEqual({ imported: [] });
     expect(await stack.store.read("blind")).toBeUndefined();
     expect(await body(await select([" blind ", "blind", "foreign"]))).toEqual({ imported: ["blind"] });
+    const afterImport = await body(await api("/providers"));
+    expect(afterImport.openCodeImportable).toBeUndefined();
     await stack.store.delete("blind");
     const imported = await body(await api("/providers/import", { method: "POST" }));
     expect(imported.imported).toEqual(["blind"]);
