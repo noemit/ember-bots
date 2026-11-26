@@ -39,7 +39,7 @@ import { sessionKey } from '../types';
 import type { ChatMessage, LiveDelta, MessagesStatus, Session, SessionRef } from '../types';
 import { MESSAGE_CACHE_LIMIT, sameSummary } from './appHelpers';
 
-export type PendingSendInput = { target: SessionRef; directory?: string; input: PromptInput };
+export type PendingSendInput = { target: SessionRef; directory?: string; input: PromptInput; submissionId?: string };
 
 type Options = {
   transcripts: Record<string, TranscriptState & { messages: ChatMessage[] }>;

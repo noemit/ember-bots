@@ -163,29 +163,37 @@ describe('markUnreadFrom', () => {
     expect(next.readAt).toBe(50);
   });
 
-  test('an exception below the new watermark is dropped as redundant', () => {
+  test('an exception above the new watermark is dropped as redundant', () => {
     // 5 was undone; mark unread from 4, which lowers the watermark to 3.
     const mark = { through: 30, unreadOrdinals: [5] };
     const next = markUnreadFrom(mark, 4);
     expect(next.through).toBe(3);
-    // 5 is above 3, so the exception still says something the watermark does not — it stays.
-    expect(next.unreadOrdinals).toEqual([5]);
-    // But an exception *at or below* the new watermark is covered by it and goes.
-    const absorbed = markUnreadFrom({ through: 30, unreadOrdinals: [2] }, 10);
-    expect(absorbed.through).toBe(9);
-    expect(absorbed.unreadOrdinals).toBeUndefined();
-    // 2 is at or below the new watermark, so it reads as read again — the exception was the only
-    // thing keeping it unread, and it is now redundant.
-    expect(isMessageRead(absorbed, 2, 0)).toBe(true);
+    // 5 is above 3, so the watermark already makes it unread and the exception is dropped.
+    expect(next.unreadOrdinals).toBeUndefined();
+    expect(isMessageRead(next, 5, 0)).toBe(false);
+    // An exception *at or below* the new watermark is NOT covered by it, so it stays unread.
+    const kept = markUnreadFrom({ through: 30, unreadOrdinals: [2] }, 10);
+    expect(kept.through).toBe(9);
+    expect(kept.unreadOrdinals).toEqual([2]);
+    expect(isMessageRead(kept, 2, 0)).toBe(false);
   });
 
-  test('keeps an exception that still stands after the rewind', () => {
-    // 25 was undone while 1..30 were otherwise read. Marking unread from 10 lowers the watermark to
-    // 9; 25 is above it, so the exception still names something the watermark does not.
-    const mark = { through: 30, unreadOrdinals: [25] };
+  test('drops an exception above the rewind and keeps an exception below it', () => {
+    const mark = { through: 30, unreadOrdinals: [3, 25] };
     const next = markUnreadFrom(mark, 10);
     expect(next.through).toBe(9);
-    expect(next.unreadOrdinals).toEqual([25]);
+    expect(next.unreadOrdinals).toEqual([3]);
+    expect(isMessageRead(next, 3, 0)).toBe(false);
+    expect(isMessageRead(next, 25, 0)).toBe(false);
+  });
+
+  test('can mark an out-of-order ids entry unread without moving through', () => {
+    const mark = { through: 5, ids: [7, 9] };
+    const next = markUnreadFrom(mark, 8);
+    expect(next.through).toBe(5);
+    expect(next.ids).toEqual([7]);
+    expect(isMessageRead(next, 7, 0)).toBe(true);
+    expect(isMessageRead(next, 9, 0)).toBe(false);
   });
 
   test('a reply that is already unread changes nothing, and pressing again is idempotent', () => {
@@ -207,7 +215,7 @@ describe('markUnreadFrom', () => {
   });
 
   test('the ordinal-free wire lowers `readAt` to just before the message', () => {
-    const mark = { through: 0, readAt: 2_000 };
+    const mark = { through: 0, readAt: 6_000 };
     const next = markUnreadFrom(mark, null, 5_000);
     expect(next.readAt).toBe(4_999);
     expect(isMessageRead(next, null, 4_999)).toBe(true);
@@ -216,11 +224,13 @@ describe('markUnreadFrom', () => {
 
   test('the timestamp variant is idempotent, and never moves the watermark up', () => {
     const mark = { through: 0, readAt: 2_000 };
-    // The message is already unread at that time: nothing to rewind.
-    expect(markUnreadFrom(mark, null, 1_500).readAt).toBe(2_000);
-    const lowered = markUnreadFrom(mark, null, 4_000);
-    expect(lowered.readAt).toBe(3_999);
-    expect(markUnreadFrom(lowered, null, 3_500).readAt).toBe(3_999);
+    // The message is already unread at 5,000 (> 2,000): nothing to rewind.
+    expect(markUnreadFrom(mark, null, 5_000).readAt).toBe(2_000);
+    const lowered = markUnreadFrom(mark, null, 1_500);
+    expect(lowered.readAt).toBe(1_499);
+    // Pressing again at 1,500 or 2,000 leaves it at 1,499.
+    expect(markUnreadFrom(lowered, null, 1_500).readAt).toBe(1_499);
+    expect(markUnreadFrom(lowered, null, 2_000).readAt).toBe(1_499);
   });
 
   test('a message with no usable stamp cannot be made unread by time, so nothing changes', () => {

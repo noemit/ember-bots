@@ -56,7 +56,9 @@ export default function EditQueuedMessageDialog({
   const [text, setText] = React.useState(original);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [selection, setSelection] = React.useState<QueueReplaceRequest['modelSelection']>();
-  const { config, error } = queueReplacementConfig(item.sendConfig, selection, models);
+  const { config, error } = selection !== undefined
+    ? queueReplacementConfig(item.sendConfig, selection, models)
+    : { config: item.sendConfig, error: null };
   const modelChanged = selection !== undefined && (
     selection.modelId !== modelRefKey(item.sendConfig) || selection.variant !== (item.sendConfig.variant ?? '')
   );

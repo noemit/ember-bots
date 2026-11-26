@@ -661,9 +661,16 @@ export function useSendAndLifecycle({
       }
       const outcome = submitOutcomeOf(sent.data, { steer: steered });
       if (outcome.kind === 'failed') {
-        retained = true;
-        failSend(outcome.error ?? 'The server refused the message.');
-        return { uiHeld: options.retainOnFailure === true, serverAccepted: false, messageId: optimisticId };
+        const reason = outcome.error ?? 'The server refused the message.';
+        if (options.retainOnFailure === true) {
+          retained = true;
+          failSend(reason);
+          return { uiHeld: true, serverAccepted: false, messageId: optimisticId };
+        }
+        releaseOptimistic(key, [optimisticId]);
+        removeOptimistic();
+        showActionError(reason, () => void sendTo(target, directory, input));
+        return { uiHeld: false, serverAccepted: false, messageId: optimisticId };
       }
       accepted = true;
       const receipt = submissionReceiptOf(sent.data, Boolean(isPi), isPi ? undefined : optimisticId);
@@ -730,6 +737,11 @@ export function useSendAndLifecycle({
         }
         void refreshQueues([instanceId]);
         return { uiHeld: annotationLinked, serverAccepted: true, messageId: optimisticId };
+      }
+      if (didSteer && outcome.queued && outcome.submissionId) {
+        const current = pendingInputs.current.get(optimisticId);
+        if (current) pendingInputs.current.set(optimisticId, { ...current, submissionId: outcome.submissionId });
+        void refreshQueues([instanceId]);
       }
       setDelivery(deliveryAfterAcceptance(outcome));
       const updated = Date.now();
@@ -1265,35 +1277,49 @@ export function useSendAndLifecycle({
   /**
    * Take back an unsent message.
    */
-  const handleDiscardPendingSend = (key: string, message: ChatMessage) => {
+  const handleDiscardPendingSend = async (key: string, message: ChatMessage) => {
     heldFollowUpsByTriggerId.current.delete(message.id);
     const ref = parseSessionKey(key);
     if (message.delivery === 'queued' && ref) {
       const items =
         (queuesByInstance[ref.instanceId] ?? []).find((entry) => entry.sessionId === ref.sessionId)?.items ?? [];
+      const storedSubmissionId = pendingInputs.current.get(message.id)?.submissionId;
       const wanted = message.text.trim();
       const item =
-        wanted.length > 0
+        (storedSubmissionId ? items.find((entry) => entry.id === storedSubmissionId) : undefined) ??
+        (wanted.length > 0
           ? items.find((entry) => entry.text.trim() === wanted) ?? null
           : items.find((entry) => entry.mode === 'steer' && entry.text.trim() === '') ??
             items.find((entry) => entry.mode === 'steer') ??
-            null;
-      forgetPendingSend(key, message.id);
-      disposePendingSend(key, message.id);
-      if (!item) {
+            null);
+      const targetItemId = item?.id ?? storedSubmissionId;
+      if (!targetItemId) {
+        forgetPendingSend(key, message.id);
+        disposePendingSend(key, message.id);
         setActionNotice({
           message: 'Removed it here. The host no longer lists it as waiting, so there was nothing left to withdraw.',
         });
         return;
       }
-      void removeQueuedMessage(ref.instanceId, ref.sessionId, item.id).then((removed) => {
+      try {
+        const removed = await removeQueuedMessage(ref.instanceId, ref.sessionId, targetItemId);
         void refreshQueues([ref.instanceId]);
-        setActionNotice({
-          message: removed.ok
-            ? 'Withdrew that message from the host.'
-            : 'Removed it here, but the host still holds it. Try Discard again.',
-        });
-      });
+        if (removed.ok) {
+          forgetPendingSend(key, message.id);
+          disposePendingSend(key, message.id);
+          setActionNotice({ message: 'Withdrew that message from the host.' });
+        } else {
+          showActionError(
+            `${instanceLabelOf(ref.instanceId)} still holds that message. Try Discard again.`,
+            () => void handleDiscardPendingSend(key, message)
+          );
+        }
+      } catch {
+        showActionError(
+          `${instanceLabelOf(ref.instanceId)} did not answer the discard request. Try Discard again.`,
+          () => void handleDiscardPendingSend(key, message)
+        );
+      }
       return;
     }
     const wasUnconfirmed = message.delivery === 'unconfirmed';
@@ -1634,10 +1660,16 @@ export function useSendAndLifecycle({
               succeeded.find((session) => sessionKey(session) === activeKey) ?? succeeded[0],
               Object.values(sessionsByInstanceRef.current).flat(),
               projectsByInstanceRef.current,
-              minimizedKeysRef.current
+              minimizedKeysRef.current,
+              succeededKeys
             )
           : null;
       const now = Date.now();
+      const updatedSucceeded = succeeded.map((session) => ({
+        ...session,
+        archived: archived ? now : undefined,
+        updated: now,
+      }));
       setSessionsByInstance((prev) => {
         const next = { ...prev };
         succeeded.forEach((session) => {
@@ -1653,6 +1685,25 @@ export function useSendAndLifecycle({
           openSession({ instanceId: nextToOpen.instanceId, sessionId: nextToOpen.id }, nextToOpen);
         }
       }
+      setArchivingKeys((current) => {
+        const next = new Set(current);
+        targets.forEach((session) => next.delete(sessionKey(session)));
+        return next;
+      });
+      if (failed > 0) {
+        showActionError(
+          `Ember could not ${archived ? 'hide' : 'unhide'} ${failed} of ${targets.length} sessions on their hosts. Try again from each session’s menu.`
+        );
+      }
+      setActionNotice({
+        message:
+          archived && notice
+            ? notice(succeeded.length)
+            : `${archived ? 'Hidden' : 'Unhidden'} ${succeeded.length} session${succeeded.length === 1 ? '' : 's'}.`,
+        actionLabel: 'Undo',
+        action: () => void handleArchiveMany(updatedSucceeded, !archived),
+      });
+      return;
     }
     setArchivingKeys((current) => {
       const next = new Set(current);
@@ -1663,16 +1714,6 @@ export function useSendAndLifecycle({
       showActionError(
         `Ember could not ${archived ? 'hide' : 'unhide'} ${failed} of ${targets.length} sessions on their hosts. Try again from each session’s menu.`
       );
-    }
-    if (succeeded.length > 0) {
-      setActionNotice({
-        message:
-          archived && notice
-            ? notice(succeeded.length)
-            : `${archived ? 'Hidden' : 'Unhidden'} ${succeeded.length} session${succeeded.length === 1 ? '' : 's'}.`,
-        actionLabel: 'Undo',
-        action: () => void handleArchiveMany(succeeded, !archived),
-      });
     }
   };
 
@@ -1907,11 +1948,6 @@ export function useSendAndLifecycle({
         else map[key] = prevState;
         return { ...prev, [session.instanceId]: map };
       });
-    setStatesByInstance((prev) => ({
-      ...prev,
-      [session.instanceId]: { ...(prev[session.instanceId] ?? {}), [key]: 'idle' },
-    }));
-    markSessionStepsInterrupted(session.instanceId, session.id);
     try {
       const aborted = await abortSession(session);
       if (!aborted.ok) {
@@ -1919,6 +1955,11 @@ export function useSendAndLifecycle({
         showActionError('Could not stop this bot.', () => void handleAbort(session));
         return;
       }
+      setStatesByInstance((prev) => ({
+        ...prev,
+        [session.instanceId]: { ...(prev[session.instanceId] ?? {}), [key]: 'idle' },
+      }));
+      markSessionStepsInterrupted(session.instanceId, session.id);
       abortReceipts.current.set(key, { ...aborted, at: Date.now() });
       if (aborted.parked > 0) {
         const kept = aborted.parked === 1 ? '1 unsent message' : `${aborted.parked} unsent messages`;

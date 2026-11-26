@@ -576,6 +576,8 @@ function RemoteSetup({ endpoints, instances, onChange, onAdded }: {
   );
 }
 
+const LazyEndpointsSettings = React.lazy(() => import('./EndpointsSettings'));
+
 function EndpointsInline({
   endpoints,
   instances,
@@ -587,10 +589,9 @@ function EndpointsInline({
   onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onAdded: () => void;
 }) {
-  const EndpointsSettings = React.lazy(() => import('./EndpointsSettings'));
   return (
     <React.Suspense fallback={<span className="text-base text-muted-foreground">Loading…</span>}>
-      <EndpointsSettings endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onAdded} />
+      <LazyEndpointsSettings endpoints={endpoints} instances={instances} onChange={onChange} onRefreshInstances={onAdded} />
     </React.Suspense>
   );
 }

@@ -156,6 +156,9 @@ export const queueReplacementConfig = (
   selection: QueueReplaceRequest['modelSelection'],
   models: readonly ModelOption[]
 ): { config: QueuedMessageSendConfig; error: string | null } => {
+  if (!selection && (!original.providerID || !original.modelID)) {
+    return { config: original, error: null };
+  }
   const key = selection?.modelId ?? modelRefKey(original);
   const model = models.find((entry) => modelRefKey(entry) === key);
   if (!model) return { config: original, error: `Selected model ${key} is unavailable. Refresh models or choose another model; Ember will not substitute one.` };

@@ -100,7 +100,8 @@ export const nextSessionAfterArchive = (
   archived: Session,
   sessions: readonly Session[],
   projectsByInstance: Record<string, Project[]>,
-  minimizedKeys: ReadonlySet<string> = new Set()
+  minimizedKeys: ReadonlySet<string> = new Set(),
+  excludeKeys: ReadonlySet<string> = new Set()
 ): Session | null => {
   const key = sessionKey(archived);
   const order = buildRailEntries(
@@ -112,8 +113,10 @@ export const nextSessionAfterArchive = (
   const start = order.findIndex((session) => sessionKey(session) === key);
   const from = start >= 0 ? start + 1 : 0;
   const rotated = [...order.slice(from), ...order.slice(0, from)];
-  const eligible = (session: Session): boolean =>
-    !session.archived && !isWorker(session) && sessionKey(session) !== key;
+  const eligible = (session: Session): boolean => {
+    const candidateKey = sessionKey(session);
+    return !session.archived && !isWorker(session) && candidateKey !== key && !excludeKeys.has(candidateKey);
+  };
   return (
     rotated.find((session) => eligible(session) && !minimizedKeys.has(sessionKey(session))) ??
     rotated.find(eligible) ??

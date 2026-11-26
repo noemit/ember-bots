@@ -167,8 +167,8 @@ const isListed = (ids: number[] | undefined, ordinal: number): boolean => {
  * the reply "already unread" either.
  */
 const isAlreadyUnread = (current: SessionReadMark, ordinal: number): boolean => {
-  if (ordinal > current.through) return true;
-  return isListed(current.ids, ordinal);
+  if (ordinal <= current.through) return isListed(current.unreadOrdinals, ordinal);
+  return !(current.ids?.some((id) => id >= ordinal) ?? false);
 };
 
 /**
@@ -200,13 +200,20 @@ const isAlreadyUnread = (current: SessionReadMark, ordinal: number): boolean => 
  */
 export const markUnreadFrom = (mark: SessionReadMark | undefined, ordinal: number | null, at = 0): SessionReadMark => {
   const current: SessionReadMark = mark || EMPTY_READ_MARK;
-  const result: SessionReadMark = Object.assign({}, current);
   if (ordinal === null) {
     const stamp: number = current.readAt === undefined ? 0 : current.readAt;
-    if (at > 0 && at > stamp) result.readAt = at - 1;
+    if (at > 0 && at <= stamp) {
+      return { ...current, readAt: at - 1 };
+    }
+    return current;
+  }
+  if (isAlreadyUnread(current, ordinal)) return current;
+  const result: SessionReadMark = Object.assign({}, current);
+  if (ordinal > current.through) {
+    const remaining = (current.ids ?? []).filter((id) => id < ordinal);
+    result.ids = remaining.length > 0 ? remaining : undefined;
     return result;
   }
-  if (isAlreadyUnread(current, ordinal)) return result;
   const below = ordinal - 1;
   result.through = below > 0 ? below : 0;
   result.ids = undefined;
@@ -214,7 +221,7 @@ export const markUnreadFrom = (mark: SessionReadMark | undefined, ordinal: numbe
   const previous: number[] = current.unreadOrdinals === undefined ? [] : current.unreadOrdinals;
   for (let index = 0; index < previous.length; index += 1) {
     const entry = previous[index];
-    if (entry > below) exceptions.push(entry);
+    if (entry <= result.through) exceptions.push(entry);
   }
   if (exceptions.length > 0) result.unreadOrdinals = exceptions;
   else result.unreadOrdinals = undefined;

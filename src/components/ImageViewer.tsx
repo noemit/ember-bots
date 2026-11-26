@@ -98,12 +98,9 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
 
   const zoomTo = React.useCallback(
     (next: number) => {
-      const el = surface;
-      const cx = el ? (el.clientWidth / 2 - view.x) / view.scale : 0;
-      const cy = el ? (el.clientHeight / 2 - view.y) / view.scale : 0;
-      zoomAt(cx, cy, next);
+      zoomAt(0, 0, next);
     },
-    [surface, view.x, view.y, view.scale, zoomAt]
+    [zoomAt]
   );
 
   // Scope navigation and zoom to this focus-trapped dialog. Escape belongs to Radix's
@@ -254,8 +251,8 @@ export default function ImageViewer({ images, index, onIndex, onClose }: Props) 
         onWheel={(event) => {
           // Cursor-anchored: the feature under the pointer stays under the pointer.
           const rect = event.currentTarget.getBoundingClientRect();
-          const px = event.clientX - rect.left;
-          const py = event.clientY - rect.top;
+          const px = event.clientX - rect.left - rect.width / 2;
+          const py = event.clientY - rect.top - rect.height / 2;
           zoomAt(px, py, view.scale * (event.deltaY < 0 ? 1.2 : 1 / 1.2));
         }}
         onDoubleClick={() => (atFit ? zoomTo(2) : setView(FIT_VIEW))}
