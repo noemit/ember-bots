@@ -1795,6 +1795,19 @@ export function useSendAndLifecycle({
 
   const autoReplyPermission = useStableCallback(handlePermission);
   React.useEffect(() => {
+    const onRulesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; instanceId?: string }>).detail;
+      if (!detail?.id || !detail?.instanceId) return;
+      const { id, instanceId } = detail;
+      setPermissionsByInstance((prev) => ({
+        ...prev,
+        [instanceId]: (prev[instanceId] ?? []).filter((entry) => entry.id !== id),
+      }));
+    };
+    window.addEventListener('ember:permission-rules-changed', onRulesChanged);
+    return () => window.removeEventListener('ember:permission-rules-changed', onRulesChanged);
+  }, [setPermissionsByInstance]);
+  React.useEffect(() => {
     if (!bypass || !selected || serverYolo) return;
     permissions
       .filter((request) => request.instanceId === selected.instanceId && request.sessionId === selected.sessionId)
@@ -1852,7 +1865,9 @@ export function useSendAndLifecycle({
       const ok = answers ? await replyQuestion(request, answers, directory) : await rejectQuestion(request, directory);
       if (!ok) {
         if (await confirmReceipt()) return true;
-        showActionError(failure, () => void handleQuestion(request, answers));
+        if (!isAsyncQuestion(request)) {
+          showActionError(failure, () => void handleQuestion(request, answers));
+        }
         return false;
       }
       if (!isAsyncQuestion(request)) dropQuestion(request);
@@ -1863,7 +1878,9 @@ export function useSendAndLifecycle({
       return true;
     } catch {
       if (await confirmReceipt()) return true;
-      showActionError(failure, () => void handleQuestion(request, answers));
+      if (!isAsyncQuestion(request)) {
+        showActionError(failure, () => void handleQuestion(request, answers));
+      }
       return false;
     }
   };

@@ -833,7 +833,7 @@ export const piEntriesToMessages = (
         role: 'user',
         text,
         parts,
-        createdAt: message.timestamp,
+        createdAt: typeof message.timestamp === 'number' && message.timestamp > 0 ? message.timestamp : undefined,
         completed: true,
         completedAt: message.timestamp,
       });
@@ -923,7 +923,7 @@ export const piEntriesToMessages = (
           ? describeTurnFailure(readTurnFailure(message.errorMessage, message.stopReason))
           : undefined,
       aborted,
-      createdAt: message.timestamp,
+      createdAt: typeof message.timestamp === 'number' && message.timestamp > 0 ? message.timestamp : undefined,
       // `timestamp` is request *start*, and `durationMs` is the span to the response's end, so a
       // finished turn has a real interval for the footer's duration and tok/s. Without the span
       // (an entry written before pi-ai stamped it) leave `completedAt` unset rather than fake a
@@ -931,7 +931,8 @@ export const piEntriesToMessages = (
       completedAt:
         message.stopReason &&
         message.stopReason !== 'toolUse' &&
-        message.timestamp !== undefined &&
+        typeof message.timestamp === 'number' &&
+        message.timestamp > 0 &&
         message.durationMs !== undefined
           ? message.timestamp + message.durationMs
           : undefined,
@@ -1062,7 +1063,7 @@ const liveGenerationMessage = (
       message.provider && message.model
         ? { providerID: message.provider, modelID: message.model, variant: thinkingLevelOf(message) }
         : undefined,
-    createdAt: message.timestamp,
+    createdAt: typeof message.timestamp === 'number' && message.timestamp > 0 ? message.timestamp : undefined,
     completed: false,
     live: true,
   };

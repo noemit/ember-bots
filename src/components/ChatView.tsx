@@ -1785,7 +1785,7 @@ function ChatView({
               </form>
             ) : null}
           </div>
-          {session ? <ContextCompactionStatus key={`compaction:${sessionKey(session)}`} session={session} host={instance?.label ?? 'Kiln'} onCompact={onCompact} /> : null}
+          {session ? <ContextCompactionStatus key={`compaction:${sessionKey(session)}`} session={session} host={instance?.label ?? 'Kiln'} onCompact={onCompact} turnBusy={busy} compacting={compacting} /> : null}
           {session ? (
             <ContextRecommendation
               key={sessionKey(session)}

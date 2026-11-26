@@ -108,12 +108,7 @@ export function useQuestionComposer({
     const settled = roots.find((request) => questionKey(request) === justAnswered.key);
     if (!settled || (settled.status && settled.status !== 'pending')) {
       finish(settled);
-      return;
     }
-    const timer = window.setTimeout(() => {
-      if (justAnsweredRef.current?.key === justAnswered.key) finish(settled);
-    }, 0);
-    return () => window.clearTimeout(timer);
   }, [bumpFocus, onRestoreMainFocus, pending, roots, settleTick]);
 
   const openQuestion = React.useCallback(
@@ -224,7 +219,13 @@ export function useQuestionComposer({
       }
       if (action === 'context') {
         const settled = roots.find((request) => questionKey(request) === key);
-        if (settled?.delivery?.status === 'held' && settled.resumeRequired) return;
+        const latestFollowup = settled
+          ? asyncQuestions.filter((entry) => entry.replyTo === settled.id).at(-1)
+          : undefined;
+        const held =
+          (settled?.delivery?.status === 'held' && settled.resumeRequired) ||
+          (latestFollowup?.delivery?.status === 'held' && latestFollowup.resumeRequired);
+        if (held) return;
         setAnswerModeOpen(false);
         setSelectedKey(null);
         onRestoreMainFocus();
@@ -244,7 +245,7 @@ export function useQuestionComposer({
         }
       }
     },
-    [activeKey, bumpFocus, onRestoreMainFocus, pending, roots, selectedKey]
+    [activeKey, asyncQuestions, bumpFocus, onRestoreMainFocus, pending, roots, selectedKey]
   );
 
   return {

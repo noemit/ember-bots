@@ -28,7 +28,7 @@ export default function ContextCompactionSettings({
   const instanceLabel = instance?.label;
   const [value, setValue] = React.useState<CompactionSettingsState | undefined>(initialValue);
   const [at, setAt] = React.useState(() => String(initialValue?.preference?.compactAtTokens ?? 70000));
-  const [keep, setKeep] = React.useState(() => String(initialValue?.preference?.keepRecentTokens ?? 5000));
+  const [keep, setKeep] = React.useState(() => String(initialValue?.preference?.keepRecentTokens ?? initialValue?.defaults?.keepRecentTokens ?? 20000));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
@@ -36,7 +36,7 @@ export default function ContextCompactionSettings({
   const apply = (state: CompactionSettingsState) => {
     setValue(state);
     setAt(String(state.preference?.compactAtTokens ?? 70000));
-    setKeep(String(state.preference?.keepRecentTokens ?? 5000));
+    setKeep(String(state.preference?.keepRecentTokens ?? state.defaults?.keepRecentTokens ?? 20000));
   };
   const load = React.useCallback(async () => {
     const version = ++revision.current;

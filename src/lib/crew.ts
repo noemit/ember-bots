@@ -182,11 +182,16 @@ export const taskStatusSignal = (worker: Session, state?: BallState): CrewBrickS
   const task = worker.task;
   if (!task) return brickStatusSignal(workerStateLabel(worker, { state }));
   if (taskIsDone(worker)) return { word: 'Completed', tone: 'done', showWord: true };
-  if (taskIsUnfinished(worker)) return { word: task.status === 'handoff-needed' ? 'Handoff needed' : task.status === 'blocked' ? 'Blocked' : 'Incomplete', tone: 'attention', showWord: true };
+  if (taskIsUnfinished(worker)) {
+    const outcome = task.completion?.outcome ?? task.status;
+    return { word: outcome === 'handoff-needed' ? 'Handoff needed' : outcome === 'blocked' ? 'Blocked' : 'Incomplete', tone: 'attention', showWord: true };
+  }
   if (task.status === 'stopped') return { word: 'Stopped', tone: 'quiet', showWord: true };
   if (task.status === 'failed') return { word: 'Failed', tone: 'failed', showWord: true };
   if (worker.needsInput || state === 'needs-input') return { word: 'Waiting for you', tone: 'attention', showWord: true };
   if (task.status === 'working') return { word: 'Working', tone: 'active', showWord: true };
+  if (task.status === 'handoff-needed') return { word: 'Handoff needed', tone: 'attention', showWord: true };
+  if (task.status === 'incomplete') return { word: 'Incomplete', tone: 'attention', showWord: true };
   if (task.status === 'blocked') return { word: 'Blocked', tone: 'quiet', showWord: true };
   return { word: 'Waiting', tone: 'quiet', showWord: true };
 };

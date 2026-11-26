@@ -331,7 +331,9 @@ export const ToolGroupRow = ({
             <ToolRow key={call.id} call={call} defaultOpen={defaultOpen} fillWidth={fillWidth} onOpen={onOpen} />
           ))}
         </div>
-      ) : null}
+      ) : (
+        <ToolImages calls={calls} className="ml-6 mt-1" onOpen={onOpen} />
+      )}
     </div>
   );
 };

@@ -275,7 +275,7 @@ function Transcript({
   const findInput = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
     if (!findRequest) return;
-    setFind('');
+    setFind((current) => current ?? '');
     const frame = requestAnimationFrame(() => { findInput.current?.focus(); findInput.current?.select(); });
     return () => cancelAnimationFrame(frame);
   }, [findRequest]);
@@ -473,7 +473,12 @@ function Transcript({
   const findMatches = React.useMemo(() => find?.trim() ? items.flatMap((item, index) =>
     (item.sourceIndices ?? [item.index]).some(source => {
       const message = messages[source];
-      return `${message.text}\n${message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('\n')}`.toLowerCase().includes(find.toLowerCase());
+      const reasoning = message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('\n');
+      const tools = message.parts
+        .filter((part): part is Extract<typeof part, { type: 'tool' }> => part.type === 'tool')
+        .map((part) => `${part.call.title ?? ''} ${part.call.output ?? ''}`)
+        .join('\n');
+      return `${message.text}\n${reasoning}\n${tools}\n${message.error ?? ''}`.toLowerCase().includes(find.toLowerCase());
     }) ? [index] : []
   ) : [], [find, items, messages]);
   const jumpToIndex = useStableCallback((index: number, align: 'start' | 'center' = 'center') => {
@@ -915,7 +920,11 @@ function Transcript({
   return (
     <ExpansionContext.Provider value={expansion.current}>
     <div className="relative flex min-h-0 flex-1 flex-col" onKeyDown={(event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') { event.preventDefault(); setFind(''); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setFind((current) => current ?? '');
+        requestAnimationFrame(() => { findInput.current?.focus(); findInput.current?.select(); });
+      }
     }}>
       {items.length > 80 ? <button type="button" className={readAll ? 'p-2 text-left text-xs text-muted-foreground' : 'sr-only focus:not-sr-only focus:p-2'} onClick={() => setReadAll((value) => !value)}>
         {readAll ? 'Return to windowed history' : 'Read all messages without virtualization'}
@@ -931,6 +940,8 @@ function Transcript({
           </span>
         ) : null}
         <span className="whitespace-nowrap text-xs">{findMatches.length ? (findIndex % findMatches.length) + 1 : 0}/{findMatches.length}</span>
+        <Button size="xs" variant="ghost" disabled={findMatches.length === 0} aria-label="Previous match" onClick={() => setFindIndex((index) => index + Math.max(1, findMatches.length - 1))}>Prev</Button>
+        <Button size="xs" variant="ghost" disabled={findMatches.length === 0} aria-label="Next match" onClick={() => setFindIndex((index) => index + 1)}>Next</Button>
         <Button size="xs" variant="ghost" onClick={() => { setFind(null); setHighlightedMessageId(null); }}>Close</Button>
       </div> : null}
       {navigationUnavailable ? <p role="status" className="px-3 py-2 text-xs text-muted-foreground">Ember could not find this linked message in the available history. Use Refresh in the session menu to try again, or select an available passage for a new annotation.</p> : null}
@@ -1017,7 +1028,10 @@ function Transcript({
         onPointerEnter={() => holdReceipt(true)} onPointerLeave={() => holdReceipt(false)}
         onFocusCapture={() => { setToastReleased(false); setToastFocused(true); }}
         onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setToastFocused(false); setToastReleased(true); } }}
-        className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-secondary px-3 py-1 text-xs text-secondary-foreground shadow-sm">
+        className={cn(
+          'absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-secondary px-3 py-1 text-xs text-secondary-foreground shadow-sm',
+          following ? 'bottom-3' : 'bottom-12'
+        )}>
         <span role="status" key={receipt.version}>{receipt.kind === 'read' ? 'Marked read' : 'Marked unread'}</span>
         {/* Undo belongs to the read receipt: it restores the acknowledgement. "Marked unread" needs
             no undo — the control that reverses it is the reply's own mark-as-read dot. */}

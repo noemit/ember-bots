@@ -95,7 +95,8 @@ export const MessageFooter = ({
   const tokens = message.tokens;
   const tps = showMetadata ? tokensPerSecond(message) : null;
   const cost = showMetadata && showCost && message.cost !== undefined ? message.cost : null;
-  const received = showMetadata ? message.completedAt ?? message.createdAt : undefined;
+  const rawReceived = showMetadata ? message.completedAt ?? message.createdAt : undefined;
+  const received = rawReceived !== undefined && rawReceived > 0 ? rawReceived : undefined;
   if (!model && !duration && !cache && tps === null && cost === null && received === undefined) {
     return null;
   }

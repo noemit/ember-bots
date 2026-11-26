@@ -30,6 +30,7 @@ export const PermissionCard = ({
 }) => {
   const [busy, setBusy] = React.useState<PermissionReply | null>(null);
   const [similarOpen, setSimilarOpen] = React.useState(false);
+  const statusRef = React.useRef<HTMLParagraphElement>(null);
   const similarTrigger = React.useRef<HTMLButtonElement>(null);
   const [remembered, setRemembered] = React.useState(false);
   const detail = permissionDetail(request) || approvalCommand(request);
@@ -42,7 +43,7 @@ export const PermissionCard = ({
   };
 
   if (remembered) {
-    return <p role="status" className="p-3 text-sm text-muted-foreground">Kiln saved the rule and allowed this command once.</p>;
+    return <p ref={statusRef} tabIndex={-1} role="status" className="p-3 text-sm text-muted-foreground outline-none">Kiln saved the rule and allowed this command once.</p>;
   }
   return (
     <motion.div
@@ -100,10 +101,13 @@ export const PermissionCard = ({
             <SimilarPermissionDialog
               request={request}
               onClose={() => setSimilarOpen(false)}
-              onReturnFocus={() => similarTrigger.current?.focus()}
+              onReturnFocus={() => {
+                if (similarTrigger.current) similarTrigger.current.focus();
+                else statusRef.current?.focus();
+              }}
               onSaved={() => {
                 setRemembered(true);
-                window.dispatchEvent(new Event('ember:permission-rules-changed'));
+                window.dispatchEvent(new CustomEvent('ember:permission-rules-changed', { detail: { id: request.id, instanceId: request.instanceId } }));
               }}
             />
           ) : null}

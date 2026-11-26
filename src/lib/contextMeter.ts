@@ -125,7 +125,7 @@ const unknownReason = (state: Extract<ContextMeterState, { kind: 'unknown' }>): 
     case 'no-current-context':
       return 'the host is refreshing the active context estimate; previous turn totals are not current context';
     case 'no-window':
-      return `${modelName(state.turnModel)} reports no context window, so there's no percentage to show`;
+      return `${modelName(state.turnModel ?? state.selectedModel)} reports no context window, so there's no percentage to show`;
   }
 };
 

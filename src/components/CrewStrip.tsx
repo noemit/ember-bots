@@ -97,7 +97,7 @@ const WorkerBrick = React.memo(function WorkerBrick({
   identityFor?: (session: Session) => AvatarIdentity | undefined;
 }) {
   // A promoted brick is a link to the peer fork; without the peer loaded it still opens the worker.
-  const promoted = worker.promotedTo !== undefined && !worker.task;
+  const promoted = worker.promotedTo !== undefined;
   const linkTarget = worker.task ? worker : peer ?? worker;
   // Only promoted bots draw an avatar. Resolve the same identity their workspace uses;
   // the thread chip's inherited leader tint must not recolour that bot.
