@@ -1139,7 +1139,7 @@ function Transcript({
             ) : null}
           </AnimatePresence>
 
-          <SessionStatusLine status={statusLine} className="-mt-0.5 px-5 sm:px-7" />
+          <SessionStatusLine status={statusLine} className="-mt-0.5 pl-9 pr-5 sm:pl-10 sm:pr-7" />
 
           {messages.length === 0 && !blocked && !activity ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center text-[12px] text-muted-foreground">

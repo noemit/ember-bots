@@ -1,10 +1,19 @@
 import * as React from 'react';
 import { useReducedMotion } from 'motion/react';
 import { Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 /** A generous hit target around a small unread bubble; acknowledgement stays local to the message. */
-export default function MessageReadButton({ unread, onRead }: { unread: boolean; onRead: () => void }) {
+export default function MessageReadButton({
+  unread,
+  onRead,
+  className,
+}: {
+  unread: boolean;
+  onRead: () => void;
+  className?: string;
+}) {
   const reducedMotion = useReducedMotion();
   const [confirming, setConfirming] = React.useState(false);
   // Keep the check mounted for the full visual sequence while the read mark updates immediately.
@@ -24,7 +33,10 @@ export default function MessageReadButton({ unread, onRead }: { unread: boolean;
           aria-label={confirming ? 'Message marked as read' : 'Mark this message as read'}
           aria-disabled={confirming}
           data-read-confirming={confirming || undefined}
-          className="group/read absolute -right-3 -top-4 z-10 flex size-11 items-center justify-center rounded-full outline-none transition-colors hover:bg-highlight/10 focus-visible:bg-highlight/10 focus-visible:ring-2 focus-visible:ring-highlight"
+          className={cn(
+            'group/read absolute -left-12 -top-[3px] z-10 flex size-11 items-center justify-center rounded-full outline-none transition-colors hover:bg-highlight/10 focus-visible:bg-highlight/10 focus-visible:ring-2 focus-visible:ring-highlight sm:-left-[50px]',
+            className
+          )}
           onClick={() => {
             if (confirming) return;
             setConfirming(true);
@@ -42,7 +54,7 @@ export default function MessageReadButton({ unread, onRead }: { unread: boolean;
           )}
         </button>
       </TooltipTrigger>
-      {!confirming ? <TooltipContent side="right" sideOffset={6}>Mark as read</TooltipContent> : null}
+      {!confirming ? <TooltipContent side="top" sideOffset={6}>Mark as read</TooltipContent> : null}
     </Tooltip>
   );
 }

@@ -54,7 +54,7 @@ test('native drag and double-click selection do not acknowledge a reply', async 
   await expect(message.locator('[data-unread-dot]')).toHaveCount(0);
 });
 
-test('top Copy sits before the first line; copy, reply and reasoning controls remain independent of reading', async ({ page, context }) => {
+test('top Copy sits before the first line; copy, reply and reasoning controls remain independent of reading', async ({ page, context }, testInfo) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const column = await openHabit(page);
   const message = column.locator('[data-message-id="e2"]');
@@ -66,7 +66,8 @@ test('top Copy sits before the first line; copy, reply and reasoning controls re
   await expect(copy).toHaveCSS('opacity', '1');
   const button = await copy.boundingBox();
   const firstWord = await message.locator('p').evaluate(el => {
-    const node = el.firstChild!;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const node = walker.nextNode()!;
     const range = document.createRange();
     range.setStart(node, 0);
     range.setEnd(node, 5);
@@ -76,7 +77,11 @@ test('top Copy sits before the first line; copy, reply and reasoning controls re
   expect(button!.x + button!.width).toBeLessThanOrEqual(firstWord.x);
   expect(firstWord.x - (button!.x + button!.width)).toBeLessThanOrEqual(12);
   expect(Math.abs(button!.y + button!.height / 2 - (firstWord.y + firstWord.height / 2))).toBeLessThan(8);
-  await page.screenshot({ path: '/tmp/ember-message-read-placement.png' });
+  const unreadDot = await message.locator('[data-unread-dot]').boundingBox();
+  expect(unreadDot).not.toBeNull();
+  expect(unreadDot!.x + unreadDot!.width).toBeLessThanOrEqual(button!.x);
+  expect(Math.abs(unreadDot!.y + unreadDot!.height / 2 - (firstWord.y + firstWord.height / 2))).toBeLessThan(8);
+  await page.screenshot({ path: testInfo.outputPath('ember-message-read-placement.png') });
   await copy.click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Found a regression: the step counter shows **3/2** on the last step.');
   const footer = message.locator('[data-message-footer]');

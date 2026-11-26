@@ -264,7 +264,7 @@ export const MessageRow = React.memo(function MessageRow({
 
   const renderGutter = (horizontalClass: string) =>
     copyable ? (
-      <div className={cn('absolute top-2 flex flex-col gap-1', horizontalClass)}>
+      <div className={cn('absolute top-2 z-20 flex flex-col gap-1', horizontalClass)}>
         <CopyAsMarkdown message={message} />
       </div>
     ) : null;
@@ -356,7 +356,7 @@ export const MessageRow = React.memo(function MessageRow({
       }}
       onDoubleClick={() => window.clearTimeout(readClickTimer.current)}
       className={cn(
-        'group/message relative isolate mx-auto flex w-full flex-col gap-1.5 rounded-xl px-5 sm:px-7'
+        'group/message relative isolate mx-auto flex w-full flex-col gap-1.5 rounded-xl pl-9 pr-5 sm:pl-10 sm:pr-7'
       )}
     >
       {highlighted ? <span key={highlightRequest} aria-hidden="true" className="message-jump-highlight" /> : null}
@@ -375,7 +375,7 @@ export const MessageRow = React.memo(function MessageRow({
             expandToolCalls,
             hideToolCalls,
             streaming,
-            index === textBlockIndex ? renderGutter('-left-6') : undefined,
+            index === textBlockIndex ? renderGutter('-left-5') : undefined,
             onReasoningToggle,
             viewer ? openImage : undefined,
             index === textBlockIndex ? unreadBadge : undefined,
@@ -410,8 +410,10 @@ export const MessageRow = React.memo(function MessageRow({
       </div>
       {textBlockIndex < 0 ? (
         <>
-          {renderGutter('left-0')}
-          {unreadBadge}
+          {renderGutter('left-4')}
+          {message.role === 'assistant' && onMarkRead ? (
+            <MessageReadButton unread={unread} onRead={() => onMarkRead(message)} className="left-0.5 -top-1 sm:left-0.5" />
+          ) : null}
         </>
       ) : null}
     </motion.div>
