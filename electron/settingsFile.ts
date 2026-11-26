@@ -311,7 +311,14 @@ export const reconcilePiInstanceSnapshot = <T extends { id: string; label: strin
   return snapshot.flatMap<T>((instance) => {
     if (instance.kind !== 'pi') return [instance];
     const updated = byId.get(instance.id);
-    if (updated) return [{ ...instance, label: updated.label, url: updated.url }];
+    if (updated) {
+      // A replacement host must not inherit the previous host’s ready state or version notice.
+      const changedHost = updated.url !== instance.url;
+      return [{
+        ...instance, label: updated.label, url: updated.url,
+        ...(changedHost ? { status: 'checking', attachable: false, version: undefined, bundledKiln: undefined } : {}),
+      }];
+    }
     if (instance.id === 'pi:local' && keepLocalStarting) return [instance];
     return [];
   });

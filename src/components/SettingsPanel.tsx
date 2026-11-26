@@ -10,6 +10,7 @@ import Blob from '../blob/Blob';
 import ModelPicker from './ModelPicker';
 import EndpointsSettings from './EndpointsSettings';
 import KilnSharing from './KilnSharing';
+import KilnUpdates from './KilnUpdates';
 import { SETTINGS_SECTIONS, settingsSection, type SettingsView } from '../lib/settingsNavigation';
 import LocalTokenSettings from './LocalTokenSettings';
 import ProvidersSettings from './ProvidersSettings';
@@ -74,8 +75,8 @@ type Props = {
   onChange: (patch: EmberSettingsPatch) => void | Promise<unknown>;
   onOpenChange: (open: boolean) => void;
   onViewChange: (view: SettingsView) => void;
-  /** Reprobe instances after the endpoint list changes, so a new Hearth attaches promptly. */
-  onRefreshInstances?: () => void;
+  /** A versions-only reprobe leaves dismissed connection warnings alone. */
+  onRefreshInstances?: (purpose?: 'versions') => void;
   /**
    * Reload one host's model list. Threaded into Providers settings so that changing a credential
    * refreshes the pickers straight away: a provider's models only appear once it has a credential,
@@ -726,10 +727,7 @@ export default function SettingsPanel({
                   <DesktopUpdates placement="settings" />
                 </CardContent>
               </Card> : null}
-              <section aria-label="Kiln updates" className="rounded-lg border p-5 text-sm">
-                <h3 className="font-medium">Kiln updates</h3>
-                <p className="mt-2 text-muted-foreground">The included Kiln updates with Ember. Ember cannot update a remote Kiln here: update the Ember app on its computer, update standalone Tinder, or redeploy the container. Connecting does not give Ember ownership of that process.</p>
-              </section>
+              <KilnUpdates instances={instances} onRefreshInstances={onRefreshInstances} />
             </TabsContent>
 
             <TabsContent value="appearance" className="mt-0 flex flex-col gap-5">

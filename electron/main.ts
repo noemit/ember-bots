@@ -116,7 +116,9 @@ type Instance = {
   url?: string;
   status: InstanceStatus;
   attachable: boolean;
-  /** Hearth build id (git SHA) from `/health`, for pi endpoints. */
+  /** This Ember started the serving process; its saved connection may have a custom id. */
+  bundledKiln?: true;
+  /** Kiln release from `/health`, or a legacy commit-only display identifier. */
   version?: string;
 };
 
@@ -685,7 +687,8 @@ const loadInstances = async (refresh = true): Promise<Instance[]> => {
     // Broadcast only when the visible snapshot actually changed; the 60s watchdog runs this
     // function on a timer and shouldn't flicker "checking" badges for identical results.
     const snapshotSignature = (list: Instance[]): string =>
-      list.map((entry) => `${entry.id}:${entry.status}:${entry.attachable}:${entry.label}:${entry.url ?? ''}`).join('|');
+      JSON.stringify(list.map(({ id, kind, status, attachable, label, url, version, bundledKiln }) =>
+        [id, kind, status, attachable, label, url, version, bundledKiln]));
     const previousSignature = snapshotSignature(instanceSnapshot);
     const announceIfChanged = () => {
       if (snapshotSignature(instanceSnapshot) !== previousSignature) {
@@ -866,6 +869,9 @@ const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Inst
     endpoints.map(async (endpoint) => {
       const startingLocal = isLocalHarnessStarting() && endpoint.id === 'pi:local';
       const info = await piClient.probe(endpoint);
+      // mergeLocalHarnessEndpoint preserves a configured alias's id but sets its URL to the
+      // actual local address. Do not infer ownership for other loopback URLs (e.g. an SSH tunnel).
+      const bundledKiln = canManageLocalToken(localHarnessState) && 'url' in localHarnessState && localHarnessState.url === endpoint.url;
       return {
         id: endpoint.id,
         label: endpoint.label,
@@ -873,6 +879,7 @@ const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Inst
         url: endpoint.url,
         status: startingLocalHarnessStatus(info.healthy, startingLocal),
         attachable: info.healthy,
+        ...(bundledKiln ? { bundledKiln: true as const } : {}),
         ...(info.version || info.commit ? { version: info.version ?? info.commit } : {}),
       };
     })

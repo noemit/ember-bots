@@ -33,7 +33,9 @@ export type Instance = {
   url?: string;
   status: InstanceStatus;
   attachable: boolean;
-  /** Hearth build id (git SHA) from `/health`, for pi endpoints. */
+  /** This Ember started the serving process; its saved connection may have a custom id. */
+  bundledKiln?: true;
+  /** Kiln release from `/health`, or a legacy commit-only display identifier. */
   version?: string;
 };
 

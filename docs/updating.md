@@ -20,6 +20,23 @@ not idle/checking status or background check failures. Ember never downloads, in
 automatically. There is no closed-app background service. Development, Canary and unsupported
 packages retain the eligibility rules below.
 
+## Connected Kilns: check here, update on the host
+
+The included Kiln updates with this Ember installation. For other connected Kilns, open **Settings →
+Computers and Containers → Kiln updates**. Ember compares the version a host reports during its normal
+connection check with the Kiln **bundled with this copy of Ember**, not with the Ember app version,
+a minimum required version, or the latest release online. An older stable Kiln is marked in the
+instances menu; a newer host does not need to downgrade. If a host is offline, reports only a commit,
+or runs a preview build, Ember cannot compare it. A notice does not block existing sessions.
+
+Ask the person who manages the named host to wait for active work to finish and back up its data.
+For an Ember-managed host, update **Ember on that computer**. For standalone Tinder, use the official
+[release downloads](../RELEASES.md) for the host platform and verify the matching checksum before
+replacing its executable. For a container, redeploy the intended trusted image with the same persistent
+data volume. Keep the previous executable/image and backup until the host is healthy. Once it’s running,
+choose **Refresh versions** in that settings section to see the version it actually reports. Connecting to a Kiln does not
+give this Ember permission to install software or restart that host.
+
 ## Supported packages
 
 Updates use `electron-updater` and the public GitHub **stable** releases of

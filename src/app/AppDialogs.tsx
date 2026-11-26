@@ -110,7 +110,7 @@ type AppDialogsProps = {
   recentModelsByInstance: Record<string, string[]>;
   projectUsageByInstance: Record<string, ProjectUsage[]>;
   handleSettings: (patch: EmberSettingsPatch, options?: { preserveActionError?: boolean }) => Promise<EmberSettings>;
-  refreshInstances: () => Promise<void>;
+  refreshInstances: (purpose?: 'versions') => Promise<void>;
   refreshModels: (instanceId: string, options?: { upstream?: boolean; providers?: readonly string[] }) => Promise<void>;
 
   onboardingOpen: boolean;
@@ -352,7 +352,7 @@ export function AppDialogs({
               setSettingsView(next);
             }}
             {...(providerEndpointId ? { providerEndpointId } : {})}
-            onRefreshInstances={() => void refreshInstances()}
+            onRefreshInstances={(purpose) => void refreshInstances(purpose)}
             onRefreshModels={(id, options) => refreshModels(id, { upstream: true, ...options })}
           />
         </React.Suspense>

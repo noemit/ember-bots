@@ -235,18 +235,20 @@ export function useInstancePollingAndStreams({
     setInstancesLoaded(true);
   });
 
-  const refreshInstances = React.useCallback(async function refreshInstances() {
+  const refreshInstances = React.useCallback(async function refreshInstances(purpose?: 'versions') {
     setRefreshing(true);
     showActionError(null);
-    // Asking again is asking again: an explicit reprobe re-arms every dismissed warning, so a
-    // host someone silenced can never be stuck silent because they looked from somewhere else.
-    if (settingsRef.current.dismissedOutages.length > 0) void handleSettings({ dismissedOutages: [] });
+    // A connection retry re-arms dismissed outages. Reading versions is not a request to
+    // bring those warnings back (or write settings from the remote browser).
+    if (purpose !== 'versions' && settingsRef.current.dismissedOutages.length > 0) {
+      void handleSettings({ dismissedOutages: [] });
+    }
     try {
       await readInstances();
     } catch (err) {
       showActionError(
         err instanceof Error ? err.message : 'Could not reprobe instances.',
-        () => void refreshInstances()
+        () => void refreshInstances(purpose)
       );
     } finally {
       setRefreshing(false);

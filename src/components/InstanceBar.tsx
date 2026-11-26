@@ -1,10 +1,11 @@
 import DesktopUpdates from './DesktopUpdates';
 import { scheduledBadgeTitle } from '../lib/scheduledView';
 import * as React from 'react';
-import { BarChart3, CalendarClock, ChevronDown, MessagesSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings } from 'lucide-react';
+import { BarChart3, CalendarClock, ChevronDown, CircleArrowUp, MessagesSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { shortcutLabel } from '@/lib/shortcuts';
 import { readyInstanceCount } from '@/lib/instanceHealth';
+import { kilnUpdateState } from '@/lib/kilnUpdateNotice';
 import { instanceMenuState } from '@/lib/instanceMenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -151,6 +152,11 @@ export default function InstanceBar({
   // Same predicate the dropdown's per-row dot and `statusLabel` use: a host in its probe grace
   // period (`status: 'unreachable'`, `attachable: true`) counts as not connected in both places.
   const connected = readyInstanceCount(instances);
+  const olderKilns = new Set(instances.filter((instance) => kilnUpdateState(instance) === 'older'));
+  const updateNotice = olderKilns.size > 0
+    ? `Kiln update recommended on ${olderKilns.size} ${olderKilns.size === 1 ? 'host' : 'hosts'}. Open Instances for details.`
+    : undefined;
+  const updateNoticeId = React.useId();
   const nativeTitlebar = isMac && window.ember.capabilities?.dockIcon;
   const railAction = railMode === 'mini' ? 'Show the normal session list'
     : railMode === 'normal' ? 'Widen the session list' : 'Collapse the session list';
@@ -271,14 +277,23 @@ export default function InstanceBar({
             type="button"
             className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border bg-muted/60 px-2.5 text-[12px] transition-colors hover:bg-muted"
             aria-label="Instances"
+            aria-describedby={updateNotice ? updateNoticeId : undefined}
+            title={updateNotice}
           >
             <span className={cn('size-1.5 flex-none rounded-full', connected > 0 ? 'bg-success' : 'bg-muted-foreground/50')} />
             <span className="truncate tabular-nums">
               {instances.length === 0 ? 'No instances' : `${connected}/${instances.length} instances`}
             </span>
-            <ChevronDown className="size-3.5 flex-none text-muted-foreground" />
+            {updateNotice ? (
+              <span className="flex flex-none items-center gap-1 text-[11px] font-medium">
+                <CircleArrowUp aria-hidden="true" className="size-3.5" />
+                <span className="hidden lg:inline">Kiln update recommended</span>
+              </span>
+            ) : null}
+            <ChevronDown aria-hidden="true" className={cn('size-3.5 flex-none text-muted-foreground', updateNotice && 'hidden lg:block')} />
           </button>
         </DropdownMenuTrigger>
+        {updateNotice ? <span id={updateNoticeId} className="sr-only">{updateNotice}</span> : null}
 
         <DropdownMenuContent align="end" className="w-[min(320px,calc(100vw-1rem))]">
           {instances.length === 0 ? (
@@ -290,6 +305,7 @@ export default function InstanceBar({
               <DropdownMenuLabel className="text-[11px] text-muted-foreground">
                 Connected instances show their sessions; untick one to hide it. Forget removes one
                 you no longer have, whether or not it still answers.
+                {updateNotice ? ' For update steps, see Kiln updates in Instance settings.' : ''}
               </DropdownMenuLabel>
               {instances.map((instance) => {
                 const row = instanceMenuState(instance, hidden);
@@ -321,6 +337,12 @@ export default function InstanceBar({
                               : 'polling'
                             : statusLabel[instance.status]}
                         </span>
+                        {olderKilns.has(instance) ? (
+                          <span className="flex items-center gap-1 text-[11px] font-medium">
+                            <CircleArrowUp aria-hidden="true" className="size-3" />
+                            Update recommended
+                          </span>
+                        ) : null}
                       </span>
                     </DropdownMenuCheckboxItem>
                     {row.canForget ? (
