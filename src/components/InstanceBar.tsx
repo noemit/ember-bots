@@ -1,7 +1,7 @@
 import DesktopUpdates from './DesktopUpdates';
 import { scheduledBadgeTitle } from '../lib/scheduledView';
 import * as React from 'react';
-import { ChevronDown, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings } from 'lucide-react';
+import { BarChart3, CalendarClock, ChevronDown, MessagesSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { shortcutLabel } from '@/lib/shortcuts';
 import { readyInstanceCount } from '@/lib/instanceHealth';
@@ -203,12 +203,11 @@ export default function InstanceBar({
       </button></TooltipTrigger><TooltipContent>{shortcutLabel('Search sessions and notes · Mod+K')}</TooltipContent></Tooltip>
 
       {banner ? (
-        <div className="no-drag flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+        <div className="no-drag hidden min-w-0 flex-1 items-center gap-1.5 overflow-x-auto md:flex">
           {banner}
         </div>
-      ) : (
-        <div className="flex-1" />
-      )}
+      ) : null}
+      <div className={cn('flex-1', banner && 'md:hidden')} />
 
       <DesktopUpdates />
 
@@ -231,6 +230,7 @@ export default function InstanceBar({
           active={!usageActive && !scheduledActive}
           onClick={onShowSessions}
           label="Sessions"
+          icon={<MessagesSquare className="size-3.5" aria-hidden="true" />}
           ariaLabel="Sessions — the workspace and its columns"
           title="The workspace: open sessions and their columns"
         />
@@ -238,6 +238,7 @@ export default function InstanceBar({
           active={usageActive}
           onClick={onShowUsage}
           label="Usage"
+          icon={<BarChart3 className="size-3.5" aria-hidden="true" />}
           ariaLabel="Usage — model calls and reported cost"
           title="What each model has been doing"
         />
@@ -246,6 +247,7 @@ export default function InstanceBar({
             active={scheduledActive}
             onClick={onShowScheduled}
             label="Scheduled"
+            icon={<CalendarClock className="size-3.5" aria-hidden="true" />}
             ariaLabel="Scheduled — runs and recurring plans"
             title="Scheduled runs, newest first, and the plans that trigger them"
             badge={

@@ -187,8 +187,6 @@ html.motion-paused *::after {
 }
 
 .mobile-rail {
-  top: calc(2.75rem + env(safe-area-inset-top));
-  bottom: 0;
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;

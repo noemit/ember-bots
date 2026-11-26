@@ -962,65 +962,73 @@ export default function SettingsPanel({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3 p-3">
-                  <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-                    <div className="flex min-w-0 items-start gap-2.5">
-                      <KeyRound className="mt-0.5 size-4 flex-none text-muted-foreground" />
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <span className="font-medium">Allow Ember browser access over Tailscale</span>
-                        <span className="text-[11px] text-muted-foreground">
-                          Serves the password-protected Ember browser UI on port 57821: directly on your tailnet, or loopback-only when a reviewed HTTPS proxy is configured. This does not share the Kiln API.
-                        </span>
-                      </div>
-                    </div>
-                    <Toggle
-                      pressed={settings.remoteAccessEnabled}
-                      disabled={!settings.remotePasswordConfigured}
-                      onPressedChange={(enabled) => onChange({ remoteAccessEnabled: enabled })}
-                      variant="outline"
-                      size="sm"
-                      aria-label="Allow Ember browser access over Tailscale"
-                    >
-                      {settings.remoteAccessEnabled ? 'On' : 'Off'}
-                    </Toggle>
-                  </div>
-                  <RemoteListenerStatus state={settings.remoteAccessState} enabled={settings.remoteAccessEnabled} proxyOrigin={settings.remoteAccessProxyOrigin} />
-                  <RemoteHttpsSetup origin={settings.remoteAccessProxyOrigin} onChange={onChange} />
-                  {settings.settingsRecovered ? (
-                    <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-[11px] text-warning">
-                      Ember could not read its settings file, so it started from defaults and kept the old
-                      file next to it (named settings.json.corrupt-…). Your appearance and workspace choices
-                      may need setting again. Drafts and notes are still in that file.
+                  {window.ember.capabilities?.endpointManagement === false ? (
+                    <p className="rounded-md border border-dashed bg-muted/20 p-3 text-xs text-muted-foreground">
+                      Browser access is {settings.remoteAccessEnabled ? 'on' : 'off'}. Open Ember on that computer to change remote access or password settings.
                     </p>
-                  ) : null}
-                  <form className="flex items-center gap-2" onSubmit={saveRemotePassword}>
-                    <SecretInput
-                      value={remotePassword}
-                      onChange={(event) => setRemotePassword(event.target.value)}
-                      placeholder={settings.remotePasswordConfigured ? 'Enter a new password' : 'Set a password'}
-                      minLength={REMOTE_PASSWORD_MIN}
-                      maxLength={256}
-                      aria-label="Remote access password"
-                    />
-                    <Button type="submit" variant="secondary" size="sm" disabled={remotePassword.length < REMOTE_PASSWORD_MIN}>
-                      {settings.remotePasswordConfigured ? 'Change' : 'Set password'}
-                    </Button>
-                  </form>
-                  <p className="text-[11px] text-muted-foreground">
-                    {settings.remotePasswordConfigured
-                      ? `At least ${REMOTE_PASSWORD_MIN} characters.`
-                      : `At least ${REMOTE_PASSWORD_MIN} characters. Required before enabling browser access. Ember stores a hash, never the password itself.`}
-                  </p>
-                  {settings.remotePasswordConfigured ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="self-start text-muted-foreground"
-                      onClick={() => onChange({ remoteAccessEnabled: false, remotePassword: null })}
-                    >
-                      Remove password and disable access
-                    </Button>
-                  ) : null}
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                        <div className="flex min-w-0 items-start gap-2.5">
+                          <KeyRound className="mt-0.5 size-4 flex-none text-muted-foreground" />
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="font-medium">Allow Ember browser access over Tailscale</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              Serves the password-protected Ember browser UI on port 57821: directly on your tailnet, or loopback-only when a reviewed HTTPS proxy is configured. This does not share the Kiln API.
+                            </span>
+                          </div>
+                        </div>
+                        <Toggle
+                          pressed={settings.remoteAccessEnabled}
+                          disabled={!settings.remotePasswordConfigured}
+                          onPressedChange={(enabled) => onChange({ remoteAccessEnabled: enabled })}
+                          variant="outline"
+                          size="sm"
+                          aria-label="Allow Ember browser access over Tailscale"
+                        >
+                          {settings.remoteAccessEnabled ? 'On' : 'Off'}
+                        </Toggle>
+                      </div>
+                      <RemoteListenerStatus state={settings.remoteAccessState} enabled={settings.remoteAccessEnabled} proxyOrigin={settings.remoteAccessProxyOrigin} />
+                      <RemoteHttpsSetup origin={settings.remoteAccessProxyOrigin} onChange={onChange} />
+                      {settings.settingsRecovered ? (
+                        <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-[11px] text-warning">
+                          Ember could not read its settings file, so it started from defaults and kept the old
+                          file next to it (named settings.json.corrupt-…). Your appearance and workspace choices
+                          may need setting again. Drafts and notes are still in that file.
+                        </p>
+                      ) : null}
+                      <form className="flex items-center gap-2" onSubmit={saveRemotePassword}>
+                        <SecretInput
+                          value={remotePassword}
+                          onChange={(event) => setRemotePassword(event.target.value)}
+                          placeholder={settings.remotePasswordConfigured ? 'Enter a new password' : 'Set a password'}
+                          minLength={REMOTE_PASSWORD_MIN}
+                          maxLength={256}
+                          aria-label="Remote access password"
+                        />
+                        <Button type="submit" variant="secondary" size="sm" disabled={remotePassword.length < REMOTE_PASSWORD_MIN}>
+                          {settings.remotePasswordConfigured ? 'Change' : 'Set password'}
+                        </Button>
+                      </form>
+                      <p className="text-[11px] text-muted-foreground">
+                        {settings.remotePasswordConfigured
+                          ? `At least ${REMOTE_PASSWORD_MIN} characters.`
+                          : `At least ${REMOTE_PASSWORD_MIN} characters. Required before enabling browser access. Ember stores a hash, never the password itself.`}
+                      </p>
+                      {settings.remotePasswordConfigured ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="self-start text-muted-foreground"
+                          onClick={() => onChange({ remoteAccessEnabled: false, remotePassword: null })}
+                        >
+                          Remove password and disable access
+                        </Button>
+                      ) : null}
+                    </>
+                  )}
                 </CardContent>
               </Card>
               <KilnSharing />

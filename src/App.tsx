@@ -968,11 +968,17 @@ export default function App() {
                   mobileNavigationOpen={mobileRailOpen}
                   railMode={settings.railMode}
                   onCycleRailMode={workspace.cycleRailMode}
-                  onOpenCommandPalette={() => navigateWithAnnotations(() => setCommandPaletteOpen(true))}
+                  onOpenCommandPalette={() =>
+                    navigateWithAnnotations(() => {
+                      setMobileRailOpen(false);
+                      setCommandPaletteOpen(true);
+                    })
+                  }
                   onRefresh={() => void streams.refreshInstances()}
                   onShowSessions={workspace.showSessions}
                   onShowUsage={() =>
                     navigateWithAnnotations(() => {
+                      setMobileRailOpen(false);
                       setScheduledOpen(false);
                       setUsageOpen(true);
                     })
@@ -980,6 +986,7 @@ export default function App() {
                   usageActive={usageOpen}
                   onShowScheduled={() =>
                     navigateWithAnnotations(() => {
+                      setMobileRailOpen(false);
                       setUsageOpen(false);
                       setScheduledOpen(true);
                     })
@@ -997,12 +1004,19 @@ export default function App() {
                     })
                   }
                   onOpenInstanceSettings={() => {
+                    setMobileRailOpen(false);
                     setProviderEndpointId(undefined);
                     setSettingsView('computers');
                     setSettingsActivated(true);
                     setSettingsOpen(true);
                   }}
                 />
+
+                {feedbackBanner ? (
+                  <div className="flex flex-none items-center gap-1.5 overflow-x-auto border-b bg-background px-3 py-1.5 md:hidden">
+                    {feedbackBanner}
+                  </div>
+                ) : null}
 
                 <InstanceOutageToasts
                   entries={selectors.silentInstancesList}
@@ -1023,10 +1037,10 @@ export default function App() {
 
                 <div className="relative flex min-h-0 flex-1">
                   {/* The workspace keeps its rail available even when every column is closed. */}
-                  {mobileRailOpen ? (
+                  {mobileRailOpen && !usageOpen && !scheduledOpen ? (
                     <button
                       type="button"
-                      className="fixed inset-x-0 bottom-0 top-[calc(2.75rem+env(safe-area-inset-top))] z-30 bg-black/35 backdrop-blur-[1px] md:hidden"
+                      className="absolute inset-0 z-30 bg-black/35 backdrop-blur-[1px] md:hidden"
                       onClick={() => setMobileRailOpen(false)}
                       aria-label="Close sessions sidebar"
                     />

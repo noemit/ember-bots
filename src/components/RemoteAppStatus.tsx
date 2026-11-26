@@ -70,10 +70,16 @@ export function RemoteAppStatus() {
     window.location.reload();
   };
 
+  const [copyState, setCopyState] = React.useState<'idle' | 'copied' | 'manual'>('idle');
   const signOut = async () => {
     if (hasUnsentRemoteDraft() && !window.confirm('Signing out leaves unsent drafts and attachments behind. Copy anything you need before signing out. Continue?')) return;
     try {
       const response = await fetch('/remote/logout', { method: 'POST', credentials: 'same-origin' });
+      if (response.status === 401) {
+        reportRemoteConnection('expired');
+        setState('expired');
+        return;
+      }
       if (!response.ok) { setState((current) => current === 'expired' || isRemoteExpired() ? 'expired' : 'unavailable'); return; }
       await clearRemoteShell().catch(() => {});
       composerMemory.clear();
@@ -85,12 +91,27 @@ export function RemoteAppStatus() {
     } catch { setState((current) => current === 'expired' || isRemoteExpired() ? 'expired' : 'unavailable'); }
   };
 
-  if (state === 'expired') return <section className="remote-auth-cover" role="alert">
-    <h1 ref={recoveryHeading} tabIndex={-1}>Sign in to Ember again</h1>
-    <p>Ember ended this session. Conversations are hidden. Unsent drafts remain here until you leave this page; attachments cannot be recovered after leaving.</p>
-    <button onClick={() => void copyText(remoteUnsentText())}>Copy unsent text</button>
-    <button onClick={() => window.location.assign('/remote/login')}>Go to sign in</button>
-  </section>;
+  if (state === 'expired') {
+    const unsentText = remoteUnsentText();
+    return <section className="remote-auth-cover" role="alert">
+      <h1 ref={recoveryHeading} tabIndex={-1}>Sign in to Ember again</h1>
+      <p>Ember ended this session. Conversations are hidden. Unsent drafts remain here until you leave this page; attachments cannot be recovered after leaving.</p>
+      {unsentText ? (
+        <>
+          <button
+            type="button"
+            onClick={() => void copyText(unsentText).then((ok) => setCopyState(ok ? 'copied' : 'manual'))}
+          >
+            {copyState === 'copied' ? 'Copied' : 'Copy unsent text'}
+          </button>
+          {copyState === 'manual' ? (
+            <textarea readOnly value={unsentText} rows={4} aria-label="Unsent text" />
+          ) : null}
+        </>
+      ) : null}
+      <button type="button" onClick={() => window.location.assign('/remote/login')}>Go to sign in</button>
+    </section>;
+  }
 
   return <aside className="remote-app-status" aria-label="Remote app">
     {state !== 'online' && <p role="status">{state === 'offline' ? 'This phone is offline.' : 'The Ember computer is not answering.'} Keep this app open to preserve unsent drafts and attachments. Unsent drafts are not uploaded automatically; messages already accepted by the host may still run. Check your private connection and that Ember is running.</p>}

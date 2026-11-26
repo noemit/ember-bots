@@ -656,7 +656,7 @@ export default function LeftRail({
         if (docked && (event.key === 'Enter' || event.key === ' ') && event.target instanceof Element && event.target.closest('button')?.querySelector('.blob')) focusDock.current = true;
       }}
       className={cn(
-        'mobile-rail fixed left-0 z-40 flex w-[min(88vw,320px)] flex-none flex-col border-r bg-card transition-transform duration-200 md:static md:z-auto md:translate-x-0',
+        'mobile-rail absolute inset-y-0 left-0 z-40 flex w-[min(88vw,320px)] flex-none flex-col border-r bg-card transition-transform duration-200 md:static md:z-auto md:translate-x-0',
         // Collapsible: the study’s 272px rail, a compact dock, or about half the window so a row can show the
         // latest message. The ceiling keeps the text at a readable measure.
         'md:transition-[width] md:duration-200',
