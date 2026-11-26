@@ -362,7 +362,7 @@ export const InstanceDefaultsSettings = ({
       </div>
 
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="w-[440px] sm:max-w-[440px]">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[440px] overflow-y-auto sm:max-w-[440px]">
           <DialogHeader className="text-left">
             <DialogTitle>{editingInstance?.label ?? 'Connection'} defaults</DialogTitle>
             <DialogDescription>Applies to new conversations on this Kiln. Existing chats keep their settings.</DialogDescription>
@@ -651,6 +651,13 @@ export default function SettingsPanel({
               <h2 className="text-2xl font-semibold tracking-tight">{SETTINGS_SECTIONS.find(section => section.id === settingsSection(view))?.label}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{SETTINGS_SECTIONS.find(section => section.id === settingsSection(view))?.description}</p>
             </header>
+            {settings.settingsRecovered ? (
+              <p role="alert" className="mb-5 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                Ember could not read its settings file, so it started from defaults and kept the old
+                file next to it (named settings.json.corrupt-…). Your appearance and workspace choices
+                may need setting again. Drafts and notes are still in that file.
+              </p>
+            ) : null}
             <TabsContent value="providers" className="mt-0 flex flex-col gap-4">
                   <ProvidersSettings
                     inventory
@@ -991,13 +998,6 @@ export default function SettingsPanel({
                       </div>
                       <RemoteListenerStatus state={settings.remoteAccessState} enabled={settings.remoteAccessEnabled} proxyOrigin={settings.remoteAccessProxyOrigin} />
                       <RemoteHttpsSetup origin={settings.remoteAccessProxyOrigin} onChange={onChange} />
-                      {settings.settingsRecovered ? (
-                        <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-[11px] text-warning">
-                          Ember could not read its settings file, so it started from defaults and kept the old
-                          file next to it (named settings.json.corrupt-…). Your appearance and workspace choices
-                          may need setting again. Drafts and notes are still in that file.
-                        </p>
-                      ) : null}
                       <form className="flex items-center gap-2" onSubmit={saveRemotePassword}>
                         <SecretInput
                           value={remotePassword}

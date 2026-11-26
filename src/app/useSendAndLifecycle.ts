@@ -1452,9 +1452,9 @@ export function useSendAndLifecycle({
     }
   });
 
-  const handleArchive = async (session: Session, archived: boolean) => {
+  const handleArchive = async (session: Session, archived: boolean): Promise<boolean> => {
     const key = sessionKey(session);
-    if (archivingKeys.has(key)) return;
+    if (archivingKeys.has(key)) return false;
     showActionError(null);
     setActionNotice(null);
     setArchivingKeys((current) => new Set(current).add(key));
@@ -1465,7 +1465,7 @@ export function useSendAndLifecycle({
           sessionVisibilityFailure(instances.find((entry) => entry.id === session.instanceId)?.label, archived),
           () => void handleArchive(session, archived)
         );
-        return;
+        return false;
       }
       const wasActive = archived && activeSessionRef.current === key;
       const remainingAfterClose = openSessionsRef.current.filter((entry) => entry !== key);
@@ -1499,8 +1499,8 @@ export function useSendAndLifecycle({
               actionLabel: 'Undo',
               action: () => {
                 void (async () => {
-                  await handleArchive(session, false);
-                  if (wasOpen) {
+                  const unarchived = await handleArchive(session, false);
+                  if (unarchived && wasOpen) {
                     openSession({ instanceId: session.instanceId, sessionId: session.id }, session);
                   }
                 })();
@@ -1509,11 +1509,13 @@ export function useSendAndLifecycle({
           : { message: 'Session unhidden.' }
       );
       if (archived) void stopProcessesOnHide(session);
+      return true;
     } catch {
       showActionError(
         sessionVisibilityFailure(instances.find((entry) => entry.id === session.instanceId)?.label, archived),
         () => void handleArchive(session, archived)
       );
+      return false;
     } finally {
       setArchivingKeys((current) => {
         const next = new Set(current);
@@ -1760,7 +1762,8 @@ export function useSendAndLifecycle({
 
   /** From the archive screen: restore, then open the session as a column. */
   const handleRestoreAndOpen = async (session: Session) => {
-    await handleArchive(session, false);
+    const ok = await handleArchive(session, false);
+    if (!ok) return;
     openSession({ instanceId: session.instanceId, sessionId: session.id }, session);
     setArchiveOpen(false);
   };

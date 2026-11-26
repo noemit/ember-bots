@@ -71,7 +71,7 @@ type AppDialogsProps = {
   setArchiveConfirmKey: React.Dispatch<React.SetStateAction<string | null>>;
   crewWorkers: Map<string, Session[]>;
   moods: Record<string, BallMood>;
-  handleArchive: (session: Session, archived: boolean) => Promise<void>;
+  handleArchive: (session: Session, archived: boolean) => Promise<unknown>;
 
   threadModalKey: string | null;
   setThreadModalKey: React.Dispatch<React.SetStateAction<string | null>>;

@@ -12,6 +12,7 @@ import * as React from 'react';
 import { AnimatePresence, LayoutGroup } from 'motion/react';
 import {
   AlarmClock,
+  AlarmClockOff,
   Box,
   ChevronDown,
   Plus,
@@ -341,25 +342,23 @@ export default function LeftRail({
   }, [needle, entries, activeMatches, projectsByInstance, snoozedKeys]);
 
   React.useLayoutEffect(() => {
-    if (followBottom.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [railEntries]);
+    if (!scroller.current) return;
+    if (needle) scroller.current.scrollTop = 0;
+    else if (followBottom.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [needle, railEntries]);
 
   const hasItems = railEntries.length > 0 || archivedMatches.length > 0;
 
-  /**
-   * The "widen the search" actions: reachable whether or not the current scope already found
-   * something. They used to render only inside the empty state, so a search for "audit" that hit
-   * one recent session hid the buttons that would reveal the five older and archived matches —
-   * the reader was told, by omission, that those did not exist.
-   *
-   * Each button is offered only when widening would actually add a row.
-   */
+  const activeMatchKeySet = React.useMemo(
+    () => new Set(activeMatches.map((session) => sessionKey(session))),
+    [activeMatches]
+  );
   const canSearchAllTime =
     Boolean(needle) &&
     !searchAllTime &&
-    activeEverywhere.length > activeMatches.length;
+    activeEverywhere.some((session) => !activeMatchKeySet.has(sessionKey(session)) && matchesSession(session));
   const canSearchArchived =
-    Boolean(needle) && !searchArchived && archivedEverywhere.length > 0;
+    Boolean(needle) && !searchArchived && archivedEverywhere.some(matchesSession);
   /** Set while the reader is inside a search, which is what gives these buttons room to breathe. */
   const breadthControls =
     canSearchAllTime || canSearchArchived ? (
@@ -629,10 +628,12 @@ export default function LeftRail({
           {previews[key] ? <span className="mt-1 block max-w-[280px] text-inherit">{previews[key]}</span> : null}
         </TooltipContent>
       </Tooltip>
-      <Button variant="ghost" size="icon-xs" className="absolute -right-1 top-0 z-10 bg-card opacity-0 group-hover/mini:opacity-100 group-focus-within/mini:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(hover:none)]:opacity-100"
-        aria-label={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
-        title={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
-        onClick={() => snoozeSession?.(session, !snoozedKeys.has(key))}><AlarmClock className="size-3" /></Button>
+      {snoozeSession ? (
+        <Button variant="ghost" size="icon-xs" className="absolute -right-1 top-0 z-10 bg-card opacity-0 group-hover/mini:opacity-100 group-focus-within/mini:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(hover:none)]:opacity-100"
+          aria-label={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
+          title={snoozedKeys.has(key) ? 'Unsnooze session' : 'Snooze session'}
+          onClick={() => snoozeSession(session, !snoozedKeys.has(key))}>{snoozedKeys.has(key) ? <AlarmClockOff className="size-3" /> : <AlarmClock className="size-3" />}</Button>
+      ) : null}
       </span></ContextMenuTrigger><SessionContextMenuContent session={session}
         reloading={reloadingKeys.has(key)} archiving={archivingKeys.has(key)}
         onReload={reloadSession} onArchive={archiveSession} onCustomizeAppearance={customizeAppearance}

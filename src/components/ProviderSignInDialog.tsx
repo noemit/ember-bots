@@ -200,7 +200,7 @@ export default function ProviderSignInDialog({
 
   const device = deviceEvent(events);
   const linkEvent = events.find((event): event is Extract<PiLoginEvent, { type: 'auth_url' }> => event.type === 'auth_url');
-  const progress = events.find((event) => event.type === 'progress' || event.type === 'info');
+  const progress = [...events].reverse().find((event) => event.type === 'progress' || event.type === 'info');
 
   const copyCode = async () => {
     if (!device) return;
@@ -224,6 +224,7 @@ export default function ProviderSignInDialog({
     >
       <DialogContent
         className="w-[420px] sm:max-w-[420px]"
+        showCloseButton={done || Boolean(error)}
         onInteractOutside={(event) => {
           if (!done && !error) event.preventDefault();
         }}

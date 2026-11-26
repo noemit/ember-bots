@@ -48,7 +48,9 @@ export const visibleColumns = (
   if (!splitView) return [preferred];
   if (!Number.isFinite(width) || width <= 0 || minWidth <= 0) return candidates;
   const capacity = Math.max(1, Math.floor(width / minWidth));
-  const ordered = [preferred, ...candidates.filter((key) => key !== preferred)];
+  const ordered = candidates.slice(0, capacity).includes(preferred)
+    ? candidates
+    : [preferred, ...candidates.filter((key) => key !== preferred)];
   return ordered.slice(0, Math.min(capacity, ordered.length));
 };
 

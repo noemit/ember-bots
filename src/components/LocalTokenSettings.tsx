@@ -100,9 +100,11 @@ export default function LocalTokenSettings({ canRotate, loadToken, onRefreshInst
     try {
       const answer = await runLoadToken({ rotate: true });
       setState(answer);
-      setRevealed(true);
       if (!answer.ok) setError(answer.reason ?? "Kiln didn't accept a new token.");
-      else onRefreshInstances?.();
+      else {
+        setRevealed(true);
+        onRefreshInstances?.();
+      }
     } catch (err) {
       setError(
         err instanceof Error

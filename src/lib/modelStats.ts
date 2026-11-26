@@ -121,11 +121,19 @@ export const clearModelStats = async (): Promise<void> => {
 
 export const retryModelStats = async (): Promise<void> => { await flush(); await refreshModelStats(); };
 
-export const useModelStats = (): { records: ModelObservation[]; error: string | null } => {
+export const useModelStats = (): { records: ModelObservation[]; error: string | null; loading: boolean } => {
   const current = React.useSyncExternalStore(subscribe, snapshot, snapshot);
   const currentError = React.useSyncExternalStore(subscribe, () => error, () => error);
-  React.useEffect(() => { if (Date.now() - lastLoadedAt > 60_000) void refreshModelStats(); }, []);
-  return { records: current, error: currentError };
+  const [loading, setLoading] = React.useState(() => lastLoadedAt === 0 && Boolean(window.ember.getModelStats));
+  React.useEffect(() => {
+    if (Date.now() - lastLoadedAt > 60_000) {
+      setLoading(true);
+      void refreshModelStats().finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, []);
+  return { records: current, error: currentError, loading };
 };
 
 const median = (values: number[]): number | undefined => {

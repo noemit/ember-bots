@@ -10,14 +10,16 @@ export default function ModelScorecard({ model, instanceId, directory }: {
 }) {
   const { records, error } = useModelStats();
   const [scope, setScope] = React.useState(directory ? 'project' : instanceId ? 'instance' : 'all');
+  const effectiveScope =
+    scope === 'project' && !directory ? (instanceId ? 'instance' : 'all') : scope === 'instance' && !instanceId ? 'all' : scope;
   const [days, setDays] = React.useState(30);
   const rows = React.useMemo(() => records.filter((row) =>
     row.providerID === model.providerID && row.modelID === model.modelID &&
     (row.variant ?? '') === (model.variant ?? '') &&
     row.completedAt >= Date.now() - days * 86_400_000 &&
-    (scope === 'all' || row.instanceId === instanceId) &&
-    (scope !== 'project' || row.directory === directory)
-  ), [records, model.providerID, model.modelID, model.variant, days, scope, instanceId, directory]);
+    (effectiveScope === 'all' || row.instanceId === instanceId) &&
+    (effectiveScope !== 'project' || row.directory === directory)
+  ), [records, model.providerID, model.modelID, model.variant, days, effectiveScope, instanceId, directory]);
   const stats = React.useMemo(() => summarizeModel(rows), [rows]);
   const number = (value: number | undefined, unit: string) => value === undefined ? 'Unknown' : `${value.toFixed(1)}${unit}`;
   const facts = [

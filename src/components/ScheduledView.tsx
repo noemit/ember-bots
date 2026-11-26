@@ -248,6 +248,11 @@ export default function ScheduledView({
                             </span>
                           ) : null}
                         </div>
+                        {failed && task.state.lastError ? (
+                          <p className="mt-0.5 truncate text-[11px] text-destructive" title={task.state.lastError}>
+                            {task.state.lastError}
+                          </p>
+                        ) : null}
                         <div className="flex flex-none items-center gap-1">
                           <Button
                             type="button"

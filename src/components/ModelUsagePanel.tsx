@@ -26,13 +26,15 @@ const cost = (usage: ModelUsage) =>
  * dialog if one is ever wanted again.
  */
 export default function ModelUsagePanel({ instances, modelsByInstance }: Props) {
-  const { records, error } = useModelStats();
+  const { records, error, loading } = useModelStats();
   const [instanceId, setInstanceId] = React.useState(ALL);
   const [days, setDays] = React.useState(30);
+  const effectiveInstanceId =
+    instanceId === ALL || instances.some((instance) => instance.id === instanceId) ? instanceId : ALL;
 
   const usage = React.useMemo(
-    () => summarizeUsage(records, { days, instanceId: instanceId === ALL ? undefined : instanceId }),
-    [records, days, instanceId]
+    () => summarizeUsage(records, { days, instanceId: effectiveInstanceId === ALL ? undefined : effectiveInstanceId }),
+    [records, days, effectiveInstanceId]
   );
   const catalogue = React.useMemo(() => {
     const map = new Map<string, { label: string; provider: string }>();
@@ -67,7 +69,7 @@ export default function ModelUsagePanel({ instances, modelsByInstance }: Props) 
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={instanceId} onValueChange={setInstanceId}>
+        <Select value={effectiveInstanceId} onValueChange={setInstanceId}>
           <SelectTrigger size="sm" className="w-[170px] text-xs" aria-label="Instance">
             <SelectValue />
           </SelectTrigger>
@@ -107,12 +109,16 @@ export default function ModelUsagePanel({ instances, modelsByInstance }: Props) 
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {usage.length === 0 ? (
+        {loading && records.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-center text-[12px] text-muted-foreground">
+            Loading model usage…
+          </div>
+        ) : usage.length === 0 && !error ? (
           <div className="flex flex-col items-center gap-2 py-12 text-center text-[12px] text-muted-foreground">
             <ChartColumn className="size-5" />
             No model calls observed in this range.
           </div>
-        ) : (
+        ) : usage.length === 0 ? null : (
           <ul className="flex flex-col gap-1.5">
             {usage.map((entry) => {
               const key = modelRefKey(entry);

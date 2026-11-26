@@ -1,4 +1,6 @@
 import {
+  AlarmClock,
+  AlarmClockOff,
   Box,
   CircleDashed,
   CircleDollarSign,
@@ -6,7 +8,6 @@ import {
   Folder,
   MessageCircleQuestion,
   Minus,
-  Moon,
   RefreshCw,
   ShieldAlert,
   UserPlus,
@@ -240,8 +241,9 @@ export function SessionHeader({
                   onClick={onSnooze}
                   aria-label={snoozed ? 'Unsnooze session' : 'Snooze session'}
                   aria-pressed={snoozed}
+                  className={snoozed ? 'text-highlight' : undefined}
                 >
-                  <Moon className="size-3.5" />
+                  {snoozed ? <AlarmClockOff className="size-3.5" /> : <AlarmClock className="size-3.5" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>

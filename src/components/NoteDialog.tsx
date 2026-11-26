@@ -147,7 +147,7 @@ export default function NoteDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            disabled={busy || !canSend || !clean}
+            disabled={busy || !canSend || !clean || stale}
             onClick={() => {
               if (clean) onSend(text, { modelId, variant });
             }}

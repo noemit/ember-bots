@@ -407,14 +407,16 @@ export function useWorkspaceColumns({
       const slot = numberShortcutSlot(event);
       if (slot === null) return;
       if (threadModalKeyRef.current) return;
-      const key = openSessionsRef.current[slot];
+      const key = (columnsRef.current[slot] ?? openSessionsRef.current[slot]);
       if (!key) return;
       event.preventDefault();
+      setUsageOpen(false);
+      setScheduledOpen(false);
       activateSession(key);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activateSession]);
+  }, [activateSession, setScheduledOpen, setUsageOpen]);
 
   // Persist the workspace after the initial restore. The guarded ref keeps the first render
   // (empty defaults) from clobbering what main just handed back.
@@ -515,9 +517,10 @@ export function useWorkspaceColumns({
     setScheduledOpen(false);
     const open = openSessionsRef.current;
     if (open.length === 0) {
+      const hidden = new Set(settingsRef.current.hiddenInstances);
       const top = Object.values(sessionsByInstanceRef.current)
         .flat()
-        .filter((session) => !session.archived && session.kind !== 'worker')
+        .filter((session) => !hidden.has(session.instanceId) && !session.archived && !isWorker(session))
         .sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))[0];
       if (top) openSession({ instanceId: top.instanceId, sessionId: top.id }, top);
       return;
@@ -530,7 +533,7 @@ export function useWorkspaceColumns({
       open[0];
     // activateSession clears the sticky minimized flag, which is what brings the tab back.
     if (target) activateSession(target);
-  }, [activateSession, openSession, sessionsByInstanceRef, setScheduledOpen, setUsageOpen]);
+  }, [activateSession, openSession, sessionsByInstanceRef, setScheduledOpen, setUsageOpen, settingsRef]);
 
   return {
     openSessions,

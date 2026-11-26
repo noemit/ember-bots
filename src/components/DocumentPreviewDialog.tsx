@@ -328,7 +328,13 @@ export function DocumentPreviewSurface({
   const scrollToFragment = React.useCallback((rawFrag: string) => {
     const container = scrollContainerRef.current;
     if (!container || !rawFrag) return;
-    const cleaned = decodeURIComponent(rawFrag.replace(/^#/, '')).trim().toLowerCase();
+    let decoded = rawFrag.replace(/^#/, '');
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // Keep raw fragment when malformed %-escapes appear.
+    }
+    const cleaned = decoded.trim().toLowerCase();
     if (!cleaned) return;
     const targetId = cleaned.startsWith('user-content-') ? cleaned : `user-content-${cleaned}`;
     const headings = container.querySelectorAll('[id]');
@@ -896,9 +902,11 @@ export function DocumentPopoutView() {
     };
   }, [initialInfo]);
 
+  const loadSeqRef = React.useRef(0);
   const loadPath = React.useCallback(
     async (targetPath: string, opts?: { basePath?: string; fragment?: string; pushHistory?: boolean }) => {
       if (!state.instanceId || !state.sessionId) return;
+      const seq = ++loadSeqRef.current;
       setState((prev) => ({
         ...prev,
         path: targetPath,
@@ -919,6 +927,7 @@ export function DocumentPopoutView() {
         state.hostLabel,
         opts?.basePath
       );
+      if (seq !== loadSeqRef.current) return;
       setState((prev) => {
         if (prev.wiped) return prev;
         return res.ok

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowRight, MessageSquare, Plus, Search } from 'lucide-react';
+import { ArrowRight, MessageSquare, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Command,
@@ -19,7 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { springTransition } from '@/lib/animation';
 import { notesKeyForSession } from '@/lib/projectGroups';
-import { endpointState, paletteEmptyCopy } from '@/lib/instanceHealth';
+import { endpointState, instanceReady, paletteEmptyCopy } from '@/lib/instanceHealth';
 import { projectForSession } from '../blob/seed';
 import type { BallState, EmberSettings, Instance, Project, Session } from '../types';
 import { sessionKey } from '../types';
@@ -101,7 +101,7 @@ export default function CommandPalette({
         };
       });
     const agentItems = instances
-      .filter((instance) => instance.attachable)
+      .filter(instanceReady)
       .map((instance): PaletteItem => ({
         type: 'new-agent',
         id: `new:${instance.id}`,
@@ -146,17 +146,14 @@ export default function CommandPalette({
           shouldFilter={false}
           className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
         >
-          <div className="relative border-b px-2.5 py-2.5">
-            <Search className="pointer-events-none absolute top-1/2 left-5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <CommandInput
-              ref={searchRef}
-              value={query}
-              onValueChange={(value: string) => setQuery(value)}
-              placeholder="Search sessions, folders, notes, or type “new bot”…"
-              aria-label="Search commands"
-              className="h-10 border-none bg-transparent pl-9 text-sm shadow-none outline-none focus-visible:ring-0"
-            />
-          </div>
+          <CommandInput
+            ref={searchRef}
+            value={query}
+            onValueChange={(value: string) => setQuery(value)}
+            placeholder="Search sessions, folders, notes, or type “new bot”…"
+            aria-label="Search commands"
+            className="h-10 border-none bg-transparent text-sm shadow-none outline-none focus-visible:ring-0"
+          />
 
           <CommandList className="max-h-[420px] overflow-y-auto p-1.5">
             <AnimatePresence>

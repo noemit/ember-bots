@@ -6,10 +6,12 @@ import type { ModelRefreshOptions } from '../lib/providerSharing';
 import type { Instance, PiEndpoint } from '../types';
 import ProviderSharing from './ProviderSharing';
 
+export type CommitEndpointsResult = { ok: boolean; error?: string };
+
 type Props = {
   instances: Instance[];
   endpoints: PiEndpoint[];
-  onSave: (endpoints: PiEndpoint[]) => void;
+  onSave: (endpoints: PiEndpoint[]) => Promise<CommitEndpointsResult> | CommitEndpointsResult | void;
   onProviderChange?: (endpointId: string, options?: ModelRefreshOptions) => Promise<unknown> | void;
 };
 type Review = { endpoint: PiEndpoint; summary: AlignmentSummary | null };
@@ -66,7 +68,13 @@ export default function InstanceAlignment({ endpoints, instances, onSave, onProv
       // Use the latest settings when applying discoveries, preserving changes made during the request.
       const next = mergeConnections(latest.current, connections);
       const localAdded = next.length - latest.current.length;
-      if (localAdded) onSave(next);
+      if (localAdded) {
+        const saved = await onSave(next);
+        if (saved && !saved.ok) {
+          setNotice(saved.error ?? 'Ember could not save the aligned connections. Check settings and try again.');
+          return;
+        }
+      }
       const portable = next.filter(portableConnection);
       for (const row of ready) {
         try {

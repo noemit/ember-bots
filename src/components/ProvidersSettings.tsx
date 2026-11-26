@@ -156,6 +156,8 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
   const notifyChanged = useStableCallback((id: string, options?: ModelRefreshOptions) => onProviderChange?.(id, options));
 
   const notifyCatalog = useStableCallback((id: string, providers: PiProviderInfo[]) => onProviderCatalog?.(id, providers));
+  const endpointsRef = React.useRef(endpoints);
+  endpointsRef.current = endpoints;
 
   const load = React.useCallback(async (id: string): Promise<PiProviderInfo[] | null> => {
     if (!mounted.current) return null;
@@ -178,7 +180,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
       setSelectedOpenCode(new Set());
       knownOpenCodeIds.current = new Set();
       notifyCatalog(id, []);
-      setError((endpoints.find(endpoint => endpoint.id === id)?.label ?? 'This Kiln') + ' did not return its providers. Check its connection in Computers and Containers, then use Refresh providers above.');
+      setError((endpointsRef.current.find(endpoint => endpoint.id === id)?.label ?? 'This Kiln') + ' did not return its providers. Check its connection in Computers and Containers, then use Refresh providers above.');
       setLoading(false);
       return null;
     }
@@ -201,7 +203,7 @@ function HostProvidersSettings({ inventory = false, onboarding = false, endpoint
     setDefaultModel(catalog.default ? `${catalog.default.provider} / ${catalog.default.modelId}` : null);
     setLoading(false);
     return catalog.providers;
-  }, [notifyCatalog, endpoints]);
+  }, [notifyCatalog]);
 
   React.useEffect(() => {
     void load(endpointId);

@@ -273,6 +273,7 @@ export function StandingInstructionsDialog({
         <DialogFooter className="gap-2">
           <Button
             variant="ghost"
+            disabled={instructionsLoading}
             onClick={() => {
               setInstructionsDraft('');
               if (draftInstanceId) setInstructions('');

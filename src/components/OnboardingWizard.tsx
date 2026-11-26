@@ -276,7 +276,7 @@ export default function OnboardingWizard({
                 ) : null}
 
                 {step.id === 'token' ? (
-                  <Token state={state} compact={isCompactStep('token', state)} loadToken={loadToken} />
+                  <Token state={state} compact={isCompactStep('token', state)} loadToken={loadToken} onRefreshInstances={onRefreshInstances} />
                 ) : null}
 
                 {step.id === 'providers' && providersReady ? (
@@ -529,10 +529,12 @@ function Token({
   state,
   compact,
   loadToken,
+  onRefreshInstances,
 }: {
   state: OnboardingState;
   compact: boolean;
   loadToken?: (options?: { rotate?: boolean }) => Promise<LocalHarnessToken>;
+  onRefreshInstances?: () => void;
 }) {
   const [expanded, setExpanded] = React.useState(!compact);
   return (
@@ -555,6 +557,7 @@ function Token({
       ) : (
         <LocalTokenSettings
           canRotate={state.canRotate}
+          onRefreshInstances={onRefreshInstances}
           {...(loadToken ? { loadToken } : {})}
         />
       )}

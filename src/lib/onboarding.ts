@@ -94,7 +94,7 @@ export type StepDone =
  */
 export const stepStates = (state: OnboardingState, problem?: string | null): Record<OnboardingStepId, StepDone> => ({
   welcome: { kind: 'done' },
-  connection: state.localReady ? { kind: 'done' } : problem ? { kind: 'failed', problem } : { kind: 'pending' },
+  connection: state.localReady || state.remoteReady ? { kind: 'done' } : problem ? { kind: 'failed', problem } : { kind: 'pending' },
   token: state.localReady ? { kind: 'done' } : { kind: 'pending' },
   providers: { kind: 'pending' },
   'first-agent': { kind: 'pending' },
