@@ -56,7 +56,7 @@ export const observationsFor = (instanceId: string, sessionId: string, directory
   });
 
 export const refreshModelStats = async (): Promise<void> => {
-  if (!window.ember.getModelStats) return;
+  if (typeof window === 'undefined' || !window.ember?.getModelStats) return;
   const startedAt = revision;
   load ??= window.ember.getModelStats().then((next) => {
     if (revision !== startedAt) return;
@@ -124,7 +124,7 @@ export const retryModelStats = async (): Promise<void> => { await flush(); await
 export const useModelStats = (): { records: ModelObservation[]; error: string | null; loading: boolean } => {
   const current = React.useSyncExternalStore(subscribe, snapshot, snapshot);
   const currentError = React.useSyncExternalStore(subscribe, () => error, () => error);
-  const [loading, setLoading] = React.useState(() => lastLoadedAt === 0 && Boolean(window.ember.getModelStats));
+  const [loading, setLoading] = React.useState(() => lastLoadedAt === 0 && typeof window !== 'undefined' && Boolean(window.ember?.getModelStats));
   React.useEffect(() => {
     if (Date.now() - lastLoadedAt > 60_000) {
       setLoading(true);
