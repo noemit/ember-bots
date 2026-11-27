@@ -607,9 +607,11 @@ describe('models, approvals, questions, inbox', () => {
     const queued = piInboxToQueuedMessages(
       'hearth',
       12,
-      [{ id: 7, mode: 'followUp', content: [{ type: 'image', data: PNG, mimeType: 'image/png' }] }],
+      [{ id: 7, mode: 'followUp', text: '[image]', content: [{ type: 'image', data: PNG, mimeType: 'image/png' }] }],
       { providerID: 'opencode-go', modelID: 'glm-5.3-flash' }
     );
+    expect(queued[0].text).toBe('');
+    expect(queued[0].content).toBe('');
     expect(queued[0].attachments).toEqual([
       { filename: 'image.png', mimeType: 'image/png', dataUrl: `data:image/png;base64,${PNG}` },
     ]);

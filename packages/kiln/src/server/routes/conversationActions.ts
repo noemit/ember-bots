@@ -20,7 +20,7 @@ import { injectContextForInput } from "../../context";
 import { markWorkerStopped } from "../../crew";
 import { blindModelReason, contentPreviewOf, inputTextOf } from "../../images";
 import { MetaDoc } from "../../meta";
-import { parkInputs, parkedInputs, parkRequestId } from "../../parking";
+import { parkInputs, parkedInputs, parkRequestId, reorderQueuedInputs } from "../../parking";
 import {
   QueueConfigDoc,
   applyRunQueueConfigsInTx,
@@ -302,43 +302,17 @@ export const handleConversationAction = async (
     const body = await readBody(request);
     const ids = Array.isArray(body.itemIds) ? body.itemIds.map((value) => String(value)) : null;
     if (!ids || ids.length === 0) return badRequest("itemIds is required");
-    const [inbox, queueConfig] = await Promise.all([
-      harness.snapshot(InboxDoc, conversationId, context),
-      harness.snapshot(QueueConfigDoc, conversationId, context),
-    ]);
-    const queued = (inbox?.items ?? []).filter(
-      (item): item is Extract<InboxItem, { mode: "steer" | "followUp" }> =>
-        item.mode === "steer" || item.mode === "followUp"
-    );
-    const byId = new Map(queued.map((item) => [String(item.id), item]));
-    if (ids.length !== queued.length || new Set(ids).size !== ids.length || ids.some((id) => !byId.has(id))) {
-      return badRequest("itemIds must list every queued message, once");
-    }
-    for (const item of queued) await harness.abortSubmission(item.id, context, conversationId);
-    await parkInputs(
+    const result = await reorderQueuedInputs(
       (change) => conversation.commit(change, context),
       conversationId,
-      ids.map((id) => {
-        const item = byId.get(id)!;
-        const sendConfig = queueConfig && Object.hasOwn(queueConfig.items, id) ? queueConfig.items[id] : undefined;
-        return {
-          mode: item.mode,
-          content: item.content,
-          id: String(item.id),
-          ...(sendConfig !== undefined ? { sendConfig } : {}),
-        } as const;
-      })
+      ids
     );
-    const replacements: Record<string, string> = {};
-    for (const id of ids) {
-      const replacement = await storage.submissionByRequest(
-        conversationId,
-        parkRequestId(conversationId as unknown as number, id),
-        context
-      );
-      if (replacement) replacements[id] = String(replacement.id);
-    }
-    return json({ revision: Date.now(), session: await queueSessionOf(harness, conversationId), replacements });
+    if (!result.ok) return badRequest(result.error);
+    return json({
+      revision: Date.now(),
+      session: await queueSessionOf(harness, conversationId),
+      replacements: result.replacements,
+    });
   }
 
   if (action === "fork" && request.method === "POST") {

@@ -324,10 +324,13 @@ const envCanonicalDir = (name: string): string | undefined => {
   return safeRealpath(value) ?? resolve(value);
 };
 
+const SCRATCH_EXEMPT_HOME_SEGMENTS = new Set([".ember", ".hearth"]);
+
 /**
  * Secret-segment and secret-root denylist (`D1`). Runs case-insensitively on canonical segments
  * and configured state/credential directories. Only the active conversation's own scratch dir
- * inside `$HEARTH_HOME` is exempted (and still checked against secret filenames/segments).
+ * inside `$HEARTH_HOME` is exempted (and its relative path is still checked against all secret
+ * filenames/segments).
  */
 export const isSecretPath = (
   targetPath: string,
@@ -338,9 +341,13 @@ export const isSecretPath = (
   const homeDir = homedir();
   const ownScratchResolved = resolve(scratchDirFor(configHome, conversationNumber));
   const ownScratchReal = safeRealpath(ownScratchResolved);
-  const inOwnScratch =
-    isPathInside(canonical, ownScratchResolved) ||
-    (ownScratchReal !== undefined && isPathInside(canonical, ownScratchReal));
+  const ownScratchRoot =
+    ownScratchReal !== undefined && isPathInside(canonical, ownScratchReal)
+      ? ownScratchReal
+      : isPathInside(canonical, ownScratchResolved)
+        ? ownScratchResolved
+        : undefined;
+  const inOwnScratch = ownScratchRoot !== undefined;
 
   const hearthHomes = [
     resolve(configHome),
@@ -371,10 +378,25 @@ export const isSecretPath = (
   ].filter((value): value is string => value !== undefined);
 
   for (const dir of forbiddenDataDirs) {
-    if (isPathInsideOrEqual(canonical, dir)) return true;
+    if (!inOwnScratch) {
+      if (isPathInsideOrEqual(canonical, dir)) return true;
+    } else if (isPathInside(dir, ownScratchRoot) && isPathInsideOrEqual(canonical, dir)) {
+      return true;
+    }
   }
 
-  const segments = normalizedSegments(canonical).map((seg) => seg.toLowerCase());
+  if (inOwnScratch) {
+    // Allow `.ember` / `.hearth` (or `.config/ember`) only as ancestors of the verified scratch
+    // root itself; still reject other secret ancestor directories like `.ssh` or `.aws`.
+    const prefixSegments = normalizedSegments(ownScratchRoot).map((seg) => seg.toLowerCase());
+    for (const seg of prefixSegments) {
+      if (SECRET_EXACT_SEGMENTS.has(seg) && !SCRATCH_EXEMPT_HOME_SEGMENTS.has(seg)) return true;
+    }
+  }
+
+  const segments = normalizedSegments(
+    inOwnScratch ? relative(ownScratchRoot, canonical) : canonical
+  ).map((seg) => seg.toLowerCase());
   const hasConfigAncestor = segments.slice(0, -1).some((seg) => CONFIG_MARKER_SEGMENTS.has(seg));
 
   for (let i = 0; i < segments.length; i += 1) {

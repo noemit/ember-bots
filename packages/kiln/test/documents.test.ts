@@ -14,7 +14,7 @@ import { Approvals, setAutoAccept } from "../src/approvals";
 import { hearthCodemodeExtensions } from "../src/codemode";
 import { hearthConfig } from "../src/config";
 import { FileCredentialStore } from "../src/credentials";
-import { MAX_DOC_BYTES, MAX_RESOLVE_CANDIDATES } from "../src/documents";
+import { isSecretPath, MAX_DOC_BYTES, MAX_RESOLVE_CANDIDATES } from "../src/documents";
 import { scratchDirFor } from "../src/scratch";
 import { startHearthServer, type HearthServer } from "../src/server";
 import { View } from "../src/view";
@@ -661,6 +661,38 @@ describe("Kiln documents resolution, provenance & containment", () => {
     const doc = (await readNotes.json()) as { path: string; content: string };
     expect(doc.path).toBe(realpathSync(join(projectDir, "docs", "My Notes.md")));
     expect(doc.content).toContain("Line 3");
+  });
+
+  test("allows ordinary scratch reports under default .ember and .hearth homes while still blocking secrets and other chats", () => {
+    for (const defaultName of [".ember", ".hearth"]) {
+      const configHome = join(rootTemp, "fake-home", defaultName);
+      const ownScratch = scratchDirFor(configHome, 7);
+      const otherScratch = scratchDirFor(configHome, 8);
+      mkdirSync(ownScratch, { recursive: true });
+      mkdirSync(otherScratch, { recursive: true });
+
+      expect(isSecretPath(join(ownScratch, "report.md"), configHome, 7)).toBe(false);
+      expect(isSecretPath(join(ownScratch, "nested", "summary.html"), configHome, 7)).toBe(false);
+
+      // Still deny secret descendants inside own scratch.
+      expect(isSecretPath(join(ownScratch, ".env"), configHome, 7)).toBe(true);
+      expect(isSecretPath(join(ownScratch, ".env.local.md"), configHome, 7)).toBe(true);
+      expect(isSecretPath(join(ownScratch, "sub", ".ember", "leak.md"), configHome, 7)).toBe(true);
+      expect(isSecretPath(join(ownScratch, "sub", ".ssh", "id_rsa"), configHome, 7)).toBe(true);
+      expect(isSecretPath(join(ownScratch, "hearth.sqlite"), configHome, 7)).toBe(true);
+
+      // Still deny cross-conversation scratch and config-home state files.
+      expect(isSecretPath(join(otherScratch, "report.md"), configHome, 7)).toBe(true);
+      expect(isSecretPath(join(configHome, "settings.json"), configHome, 7)).toBe(true);
+      expect(isSecretPath(join(configHome, "auth.json"), configHome, 7)).toBe(true);
+    }
+
+    // Even when configHome is literally ~/.ember (the default desktop Kiln home), own scratch is allowed.
+    const realDefaultEmber = join(homedir(), ".ember");
+    const realOwnScratch = scratchDirFor(realDefaultEmber, 42);
+    expect(isSecretPath(join(realOwnScratch, "report.md"), realDefaultEmber, 42)).toBe(false);
+    expect(isSecretPath(join(realDefaultEmber, "settings.json"), realDefaultEmber, 42)).toBe(true);
+    expect(isSecretPath(join(scratchDirFor(realDefaultEmber, 43), "report.md"), realDefaultEmber, 42)).toBe(true);
   });
 });
 

@@ -1807,7 +1807,7 @@ export const enqueueMessage = async (
   instanceId: string,
   sessionId: string,
   directory: string,
-  { text, model, selectedModelId, mode, variant, attachments = [], replyContext, queuedContext = [], agentMention }: QueueMessageInput
+  { text, model, selectedModelId, mode, variant, attachments = [], replyContext, queuedContext = [], agentMention, requestId }: QueueMessageInput
 ): Promise<{ ok: boolean; status: number; data: MessageQueueMutation | null }> => {
     if (isPiInstance(instanceId)) {
     // Hearth owns the inbox server-side: a busy-conversation submit is a follow-up, and the
@@ -1822,6 +1822,7 @@ export const enqueueMessage = async (
       replyContext,
       queuedContext,
       agentMention,
+      requestId,
     });
     return { ok: sent.ok, status: sent.status, data: (sent.data as MessageQueueMutation | null) ?? null };
   }

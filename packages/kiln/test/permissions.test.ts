@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { backupDatabase } from "../src/backup";
+import { backupDatabase, verifyBackup } from "../src/backup";
 import { ensureHome, ensureToken, hearthConfig } from "../src/config";
 import { FileCredentialStore, FileModelsStore } from "../src/credentials";
 import { tightenPermissions, tightenSqlitePermissions } from "../src/permissions";
@@ -140,6 +140,52 @@ describe.skipIf(process.platform === "win32")("POSIX directory (0o700) and file 
     } finally {
       await storage.close(BACKGROUND_CONTEXT);
     }
+  });
+
+  test("D1: backupDatabase restores known rows, quarantines/replaces a 0-byte or corrupt snapshot, and preserves older backups on error", () => {
+    const root = tempRoot();
+    const dbPath = join(root, "hearth.sqlite");
+    const backupsDir = join(root, "backups");
+    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const { readdirSync, statSync, truncateSync, writeFileSync } = require("node:fs") as typeof import("node:fs");
+
+    const source = new DatabaseSync(dbPath);
+    try {
+      source.exec("CREATE TABLE items (id INTEGER PRIMARY KEY, note TEXT NOT NULL);");
+      source.exec("INSERT INTO items (id, note) VALUES (1, 'durable-row');");
+    } finally {
+      source.close();
+    }
+
+    const first = backupDatabase(dbPath, backupsDir);
+    expect(verifyBackup(first, ["items"])).toBe(true);
+    const verifyRead = (path: string) => {
+      const db = new DatabaseSync(path, { readOnly: true });
+      try {
+        return db.prepare("SELECT note FROM items WHERE id = 1").get() as { note: string } | undefined;
+      } finally {
+        db.close();
+      }
+    };
+    expect(verifyRead(first)?.note).toBe("durable-row");
+
+    // Truncate today's backup to 0 bytes (simulating a damaged/interrupted snapshot).
+    truncateSync(first, 0);
+    expect(statSync(first).size).toBe(0);
+    expect(verifyBackup(first, ["items"])).toBe(false);
+
+    // Re-running must quarantine the 0-byte file and replace it with a verified restorable backup.
+    const replaced = backupDatabase(dbPath, backupsDir);
+    expect(replaced).toBe(first);
+    expect(verifyBackup(replaced, ["items"])).toBe(true);
+    expect(verifyRead(replaced)?.note).toBe("durable-row");
+    expect(readdirSync(backupsDir).some((name) => name.includes(".corrupt-"))).toBe(true);
+
+    // Corrupting with random non-SQLite bytes is also detected and replaced.
+    writeFileSync(first, "not a sqlite file at all");
+    expect(verifyBackup(first, ["items"])).toBe(false);
+    const repaired = backupDatabase(dbPath, backupsDir);
+    expect(verifyRead(repaired)?.note).toBe("durable-row");
   });
 
   test("scratch directories enforce 0o700 and writeScratchFile enforces 0o600", () => {

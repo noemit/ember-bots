@@ -162,10 +162,11 @@ test('rail hover actions have an opaque surface separating them from the text', 
   expect(paint.background).not.toBe('rgba(0, 0, 0, 0)');
   expect(paint.background).not.toMatch(/rgba\([^)]*,\s*0(?:\.\d+)?\)/);
   expect(paint.shadow).not.toBe('none');
-  const title = await root.locator('[data-session-title]').boundingBox();
+  const rowBox = await row.boundingBox();
   const controls = await actions.boundingBox();
-  // Controls now occupy the metadata band above the full-width, two-line title.
-  expect(controls!.y + controls!.height).toBeLessThanOrEqual(title!.y + 1);
-  expect((await row.boundingBox())!.height).toBeCloseTo(before, 0);
+  // Controls overlay the top-right corner of the row without shifting its height.
+  expect(controls!.y).toBeGreaterThanOrEqual(rowBox!.y);
+  expect(controls!.x + controls!.width).toBeLessThanOrEqual(rowBox!.x + rowBox!.width + 1);
+  expect(rowBox!.height).toBeCloseTo(before, 0);
   await page.screenshot({ path: '/tmp/ember-rail-action-surface.png' });
 });

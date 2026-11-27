@@ -759,21 +759,21 @@ export const piEnqueueMessage = async (
   const context = await piWriteContexts(endpointId, conversationId, input);
   if (context) return context;
   const sendConfig = input.configured ? null : piSendConfigPayload(input);
-  const submitted = await request<{ submissionId?: number; status?: string; entry?: number; configured?: boolean }>(
-    endpointId,
-    `/conversations/${encodeURIComponent(conversationId)}/submit`,
-    {
-      method: 'POST',
-      body: {
-        type: 'input',
-        content: piInputContent(input.text, input.attachments),
-        whenBusy: 'followUp',
-        ...(sendConfig ?? {}),
-      },
-    }
-  );
+  const submitted = await submitRequest(endpointId, conversationId, {
+    type: 'input',
+    content: piInputContent(input.text, input.attachments),
+    whenBusy: 'followUp',
+    ...(sendConfig ?? {}),
+    ...(input.requestId ? { requestId: input.requestId } : {}),
+  });
   if (!submitted.ok) return submitted;
-  const outcome = submitOutcomeOf(submitted.data);
+  const submittedData = (submitted.data ?? null) as {
+    submissionId?: number;
+    status?: string;
+    entry?: number;
+    configured?: boolean;
+  } | null;
+  const outcome = submitOutcomeOf(submittedData);
   if (outcome.kind === 'failed') {
     return {
       ok: false,
@@ -782,20 +782,32 @@ export const piEnqueueMessage = async (
     };
   }
   // Return the refreshed queue as a mutation so the optimistic local row is replaced by the
-  // server item instead of lingering as "pending". If the inbox read races the submit, add the
-  // submitted item ourselves (its id is the submission id) so the row still reconciles.
+  // server item instead of lingering as "pending". If the inbox read races the submit or throws
+  // (e.g. on a remote bridge), keep the accepted receipt and synthesize the submitted item so the
+  // UI reconciles instead of inviting a duplicate resend.
   //
   // A *placed* submission is not queued at all: the host started it straight away, so there is no
   // row to adopt. Appending one put a phantom "Queue:" row on screen for a message that was already
   // running, and it vanished on the next read as if it had never been queued.
-  const status = typeof submitted.data?.status === 'string' ? submitted.data.status.toLowerCase() : '';
+  const status = typeof submittedData?.status === 'string' ? submittedData.status.toLowerCase() : '';
   const placed = status === 'placed';
-  if (sendConfig && placed && submitted.data?.configured !== true) {
-    const configure = await piConfigureForSend(endpointId, conversationId, input);
-    if (configure && !configure.ok) return configure;
+  if (sendConfig && placed && submittedData?.configured !== true) {
+    try {
+      await piConfigureForSend(endpointId, conversationId, input);
+    } catch {
+      // The host already placed the submission; do not turn a post-accept configure error into a retry.
+    }
   }
-  const submitId = placed ? '' : String(submitted.data?.submissionId ?? '');
-  const queue = await piLoadMessageQueue(endpointId);
+  const submitId = placed ? '' : String(submittedData?.submissionId ?? '');
+  let queue: Awaited<ReturnType<typeof piLoadMessageQueue>>;
+  let refreshFailed = false;
+  try {
+    queue = await piLoadMessageQueue(endpointId);
+    if (!queue) refreshFailed = true;
+  } catch {
+    queue = null;
+    refreshFailed = true;
+  }
   const session = queue?.sessions.find((entry) => entry.sessionId === conversationId) ?? {
     sessionId: conversationId,
     directory: '',
@@ -810,8 +822,12 @@ export const piEnqueueMessage = async (
         createdAt: Date.now(),
         content: input.text,
         text: input.text,
-        attachments: [],
-        context: [],
+        attachments: (input.attachments ?? []).map((file) => ({
+          filename: file.filename,
+          mimeType: file.mime,
+          dataUrl: file.url,
+        })),
+        context: input.queuedContext ?? [],
         sendConfig: {
           providerID: input.model?.providerID ?? '',
           modelID: input.model?.modelID ?? '',
@@ -820,7 +836,21 @@ export const piEnqueueMessage = async (
       },
     ];
   }
-  return { ok: true, status: submitted.status, data: { revision: queue?.revision ?? Date.now(), session, itemId: submitId, destination: submitted.data?.entry ? { kind: 'message', id: 'e' + submitted.data.entry } : submitted.data?.submissionId ? { kind: 'queue', id: String(submitted.data.submissionId) } : undefined } };
+  return {
+    ok: true,
+    status: submitted.status,
+    data: {
+      revision: queue?.revision ?? Date.now(),
+      session,
+      itemId: submitId,
+      destination: submittedData?.entry
+        ? { kind: 'message', id: 'e' + submittedData.entry }
+        : submittedData?.submissionId
+          ? { kind: 'queue', id: String(submittedData.submissionId) }
+          : undefined,
+      ...(refreshFailed ? { refreshFailed: true } : {}),
+    },
+  };
 };
 
 // ---- Queue ---------------------------------------------------------------------------

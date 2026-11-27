@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { enqueueMessage, errorMessageOf, loadMessageQueue, removeQueuedMessage, reorderQueuedMessages, takeQueuedMessage } from '../src/api';
+import { mergeMutationSession } from '../src/hooks/useMessageQueue';
 import { rememberPiInstances } from '../src/piApi';
 import type { ModelOption } from '../src/types';
 
@@ -469,6 +470,101 @@ test('a 2xx submit body naming a refused status fails enqueue instead of claimin
     });
     expect(result.ok).toBe(false);
     expect(errorMessageOf(result.data)).toBe('inbox is full');
+  } finally {
+    (window.ember as { piRequest: unknown }).piRequest = previous;
+  }
+});
+
+test('U6: takeQueuedMessage preserves full 1,000-character content instead of Kiln 500-char preview', async () => {
+  const previous = window.ember.piRequest;
+  const fullInstruction = 'A'.repeat(980) + ' FINAL_MARKER_XYZ';
+  const preview = fullInstruction.slice(0, 499) + '…';
+  (window.ember as { piRequest: unknown }).piRequest = async (_endpointId: string, path: string) => {
+    if (path === '/queue') {
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          revision: 9,
+          sessions: [
+            {
+              sessionId: '51',
+              directory: '/repo',
+              model: { provider: 'opencode-go', modelId: 'glm-5.3-flash' },
+              sendingId: null,
+              items: [{ id: 88, mode: 'followUp', text: preview, content: fullInstruction }],
+            },
+          ],
+        },
+      };
+    }
+    if (path.includes('/abort')) return { ok: true, status: 200, data: { ok: true } };
+    return { ok: false, status: 404, data: null };
+  };
+  try {
+    const taken = await takeQueuedMessage('pi:test', '51', '88');
+    expect(taken.ok).toBe(true);
+    expect(taken.data?.item.text).toBe(fullInstruction);
+    expect(taken.data?.item.content).toBe(fullInstruction);
+    expect(taken.data?.item.text).toContain('FINAL_MARKER_XYZ');
+  } finally {
+    (window.ember as { piRequest: unknown }).piRequest = previous;
+  }
+});
+
+test('U1: enqueueMessage forwards requestId and keeps accepted receipt when post-submit queue refresh throws', async () => {
+  const previous = window.ember.piRequest;
+  const seenBodies: Array<Record<string, unknown>> = [];
+  (window.ember as { piRequest: unknown }).piRequest = async (
+    _endpointId: string,
+    path: string,
+    init?: { method?: string; body?: Record<string, unknown> }
+  ) => {
+    if (path.endsWith('/submit')) {
+      seenBodies.push(init?.body ?? {});
+      return { ok: true, status: 201, data: { submissionId: 99, status: 'queued' } };
+    }
+    if (path === '/queue') {
+      throw new Error('Remote connection interrupted during queue refresh');
+    }
+    return { ok: false, status: 404, data: null };
+  };
+  try {
+    const result = await enqueueMessage('pi:test', '51', '', {
+      text: 'do not duplicate me',
+      model,
+      selectedModelId: 'opencode-go/glm-5.3-flash',
+      requestId: 'req-stable-42',
+    });
+    expect(seenBodies).toHaveLength(1);
+    expect(seenBodies[0]?.requestId).toBe('req-stable-42');
+    expect(result.ok).toBe(true);
+    expect(result.data?.itemId).toBe('99');
+    expect(result.data?.refreshFailed).toBe(true);
+    expect(result.data?.session.items.map((item) => item.id)).toEqual(['99']);
+
+    // Partial merge keeps previously visible server items alongside the newly accepted item.
+    const merged = mergeMutationSession(
+      {
+        sessionId: '51',
+        directory: '/repo',
+        sendingId: null,
+        items: [
+          {
+            id: '50',
+            createdAt: 1,
+            content: 'earlier item',
+            text: 'earlier item',
+            attachments: [],
+            context: [],
+            sendConfig: { providerID: 'opencode-go', modelID: 'glm-5.3-flash' },
+          },
+        ],
+      },
+      result.data!.session,
+      true
+    );
+    expect(merged.items.map((item) => item.id)).toEqual(['50', '99']);
   } finally {
     (window.ember as { piRequest: unknown }).piRequest = previous;
   }

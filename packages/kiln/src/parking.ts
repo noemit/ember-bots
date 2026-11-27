@@ -145,3 +145,82 @@ export const parkInputs = async (
     return kept;
   });
 };
+
+export type ReorderResult =
+  | { readonly ok: true; readonly replacements: Record<string, string> }
+  | { readonly ok: false; readonly status: 400; readonly error: string };
+
+/**
+ * Atomically reorder all queued input items (`steer` and `followUp`) in a single durable
+ * transaction. Validates `orderedIds` against the live `InboxDoc`, settles the original queued
+ * submissions as aborted, creates replacement queued submissions in the requested order (since
+ * `pi-durable` drains inbox items by ascending submission ID), migrates `QueueConfigDoc` entries,
+ * and leaves non-input inbox items (`write`) untouched.
+ *
+ * Because withdrawal and replacement share one commit, a crash leaves either the exact old order
+ * or the exact new order, and a concurrent turn boundary that already placed an item rejects the
+ * stale reorder instead of re-parking a duplicate.
+ */
+export const reorderQueuedInputs = async (
+  commit: <T>(change: (tx: Tx) => T | Promise<T>) => Promise<T>,
+  conversationId: ConversationId,
+  orderedIds: readonly string[]
+): Promise<ReorderResult> =>
+  commit(async (tx) => {
+    const inbox = await tx.doc(InboxDoc, conversationId);
+    const queueConfig = await tx.doc(QueueConfigDoc, conversationId);
+    const queued = inbox.items.filter(
+      (item): item is Extract<InboxItem, { mode: "steer" | "followUp" }> =>
+        item.mode === "steer" || item.mode === "followUp"
+    );
+    const byId = new Map(queued.map((item) => [String(item.id), item]));
+    if (
+      orderedIds.length !== queued.length ||
+      new Set(orderedIds).size !== orderedIds.length ||
+      orderedIds.some((id) => !byId.has(id))
+    ) {
+      return { ok: false, status: 400, error: "itemIds must list every queued message, once" };
+    }
+
+    // All table reads must precede the commit's first table write.
+    const existing = await Promise.all(
+      orderedIds.map((id) =>
+        tx.submissionByRequest(conversationId, parkRequestId(conversationId as unknown as number, id))
+      )
+    );
+
+    const keptOther = inbox.items.filter((item) => item.mode !== "steer" && item.mode !== "followUp");
+    const savedConfigs = orderedIds.map((id) =>
+      Object.hasOwn(queueConfig.items, id) ? queueConfig.items[id] : undefined
+    );
+
+    const nextQueued: InboxItem[] = [];
+    const replacements: Record<string, string> = {};
+
+    for (const [index, id] of orderedIds.entries()) {
+      const item = byId.get(id)!;
+      const cfg = savedConfigs[index];
+      let replacementId = existing[index]?.id;
+      if (replacementId === undefined) {
+        const created = await tx.createSubmission({
+          conversationId,
+          requestId: parkRequestId(conversationId as unknown as number, id),
+          type: "input",
+          status: "queued",
+        });
+        replacementId = created.id;
+      }
+      const nextIdStr = String(replacementId);
+      if (nextIdStr !== id) delete queueConfig.items[id];
+      if (cfg !== undefined) queueConfig.items[nextIdStr] = cfg;
+      replacements[id] = nextIdStr;
+      nextQueued.push({ id: replacementId, mode: item.mode, content: item.content as JsonValue } as InboxItem);
+    }
+
+    for (const item of queued) {
+      tx.settleSubmission(item.id, { status: "unanswered", reason: "aborted" });
+    }
+
+    inbox.items.splice(0, inbox.items.length, ...keptOther, ...nextQueued);
+    return { ok: true, replacements };
+  });

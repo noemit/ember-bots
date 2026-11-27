@@ -3,7 +3,16 @@ import { questionDrafts } from '../src/lib/asyncQuestionDrafts';
 import { composerMemory } from '../src/lib/composerDrafts';
 import { reconcileFullTranscript } from '../src/lib/transcriptReconciliation';
 import type { ChatMessage } from '../src/types';
-import { canReloadRemote, remoteAuxiliaryDrafts, remoteUnsentText, resetRemoteLifecycleForTest, setRemoteActiveWork, setRemoteDraftBlocker } from '../src/lib/remoteLifecycle';
+import {
+  canReloadRemote,
+  recordRemoteRefusedSend,
+  REMOTE_UNSENT_CHANGED_EVENT,
+  remoteAuxiliaryDrafts,
+  remoteUnsentText,
+  resetRemoteLifecycleForTest,
+  setRemoteActiveWork,
+  setRemoteDraftBlocker,
+} from '../src/lib/remoteLifecycle';
 
 // All traffic is stubbed. This test never probes a running Ember or changes network settings.
 test('remote resume repairs reads, preserves private drafts and never replays an uncertain send', async () => {
@@ -196,6 +205,18 @@ test('remote resume repairs reads, preserves private drafts and never replays an
     expect(recovered).toContain(sideQuestion);
     expect(recovered).toContain(fullQuote);
     expect(recovered).toContain(fullReply);
+
+    // U2: expiry discovered on Send after composerMemory already cleared still surfaces refused text
+    // and notifies RemoteAppStatus to re-render Copy unsent text.
+    remoteAuxiliaryDrafts.clear();
+    expect(remoteUnsentText()).toBe('');
+    let unsentNotified = 0;
+    win.addEventListener(REMOTE_UNSENT_CHANGED_EVENT, () => { unsentNotified += 1; });
+    recordRemoteRefusedSend('optimistic-send-1', 'Do not lose this message sent right as session expired');
+    expect(unsentNotified).toBe(1);
+    expect(canReloadRemote()).toBe(false);
+    expect(remoteUnsentText()).toBe('Do not lose this message sent right as session expired');
+
     finish(Response.json({ composerDrafts: {} }));
     await expect(late).rejects.toMatchObject({ kind: 'session-expired' });
     const count = calls.length;

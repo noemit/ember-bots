@@ -223,7 +223,8 @@ const SessionRow = React.memo(function SessionRow({
   const archiveLabel = archived ? 'Unhide session' : 'Hide session';
   const archiveBusyLabel = archived ? 'Unhiding…' : 'Hiding…';
   const ArchiveIcon = archived ? Eye : EyeOff;
-  const actionsAlwaysVisible = Boolean(archiving || scheduledRunning || onArchiveMany);
+  const actionsAlwaysVisible = Boolean(archiving || scheduledRunning);
+  const rowTooltip = [title, session.directory || projectName, instanceLabel].filter(Boolean).join(' · ');
 
   return (
     <motion.div
@@ -241,6 +242,7 @@ const SessionRow = React.memo(function SessionRow({
             whileTap={{ scale: 0.985 }}
             data-selected={selected}
             aria-current={selected ? 'true' : undefined}
+            title={rowTooltip}
             onClick={() => onSelect(session)}
             className={cn(
               'flex w-full items-stretch rounded-lg px-2.5 text-left transition-colors duration-150',
@@ -248,10 +250,8 @@ const SessionRow = React.memo(function SessionRow({
               selected ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
             )}
           >
-            {/* Keep a dedicated action band above both the blob and the full-width folder.
-                Reserving action width on every wrapped line made long folder names needlessly tall,
-                and applying clearance only to the heading left blobs pinned above the text stack. */}
-            <div className="flex min-w-0 flex-1 items-center gap-2.5 pt-[30px]">
+            {/* Hover actions overlay the top-right corner without reserving vertical headroom. */}
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
               <div
                 className="relative flex flex-none"
                 data-session-key={key}
@@ -313,27 +313,17 @@ const SessionRow = React.memo(function SessionRow({
                   </span>
                 </div>
                 <RailDescription preview={preview} timestamp={session.updated} compact={!expanded} />
-                {mood === 'input' || mood === 'question' || mood === 'error' || (!topMeta && instanceLabel) ? (
+                {mood === 'input' || mood === 'question' || mood === 'error' ? (
                   <span className="flex items-center gap-1 truncate text-[10.5px] text-muted-foreground">
                     {mood === 'input' || mood === 'question' ? (
                       <Badge variant="outline" className="flex-none border-highlight/40 px-1 py-0 text-[10px] font-medium text-highlight">
                         Needs input
                       </Badge>
-                    ) : mood === 'error' ? (
+                    ) : (
                       <Badge variant="outline" className="flex-none border-destructive/40 px-1 py-0 text-[10px] font-medium text-destructive">
                         Failed
                       </Badge>
-                    ) : null}
-                    {!topMeta &&
-                    (mood === 'input' || mood === 'question' || mood === 'error') &&
-                    instanceLabel ? (
-                      <span aria-hidden>·</span>
-                    ) : null}
-                    {!topMeta && instanceLabel ? (
-                      <>
-                        <span className="truncate">{instanceLabel}</span>
-                      </>
-                    ) : null}
+                    )}
                   </span>
                 ) : null}
               </div>
@@ -364,7 +354,9 @@ const SessionRow = React.memo(function SessionRow({
         data-rail-actions=""
         className={cn(
           'absolute top-1.5 right-2 z-20 flex items-center gap-0.5 rounded-md border bg-card p-0.5 shadow-sm transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
-          actionsAlwaysVisible ? 'opacity-100' : 'opacity-0 [@media(pointer:coarse)]:opacity-100 [@media(hover:none)]:opacity-100'
+          actionsAlwaysVisible
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-hover:pointer-events-auto [@media(pointer:coarse)]:hidden [@media(hover:none)]:hidden'
         )}
       >
         {onSnooze && !archived && session.kind !== 'worker' ? (

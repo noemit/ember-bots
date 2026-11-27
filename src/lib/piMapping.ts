@@ -1399,18 +1399,19 @@ export type PiInboxItem = {
 };
 
 /**
- * A queued item's displayable text: Hearth's own bounded preview when it sent one (it names an
- * image as `[image]`), else the content's text parts, else a write entry's data.
+ * A queued item's canonical text: the full content payload when Hearth sent it (preserving text
+ * past the 500-character preview cap and keeping image-only items free of a synthetic `[image]`
+ * string), else a write entry's text, else Hearth's bounded preview fallback.
  */
 export const piInboxItemText = (item: PiInboxItem): string => {
-  if (typeof item.text === 'string' && item.text) return item.text;
-  const content = item.content;
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((block) => (block && typeof block === 'object' && (block as PiBlock).type === 'text' ? (block as PiBlock).text ?? '' : ''))
-      .join('')
-      .trim();
+  if ('content' in item && item.content !== undefined) {
+    const content = item.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((block) => (block && typeof block === 'object' && (block as PiBlock).type === 'text' ? (block as PiBlock).text ?? '' : ''))
+        .join('');
+    }
   }
   if (item.entry && typeof item.entry === 'object') {
     const data = (item.entry as { data?: unknown }).data;
@@ -1418,6 +1419,7 @@ export const piInboxItemText = (item: PiInboxItem): string => {
       return (data as { text: string }).text;
     }
   }
+  if (typeof item.text === 'string' && item.text) return item.text;
   return '';
 };
 

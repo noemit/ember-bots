@@ -19,7 +19,21 @@ export const DEFAULT_KILN_PORT = 3002;
 
 // Service managers do not necessarily inherit the environment of `tinder setup`.
 // Capture only the supported opt-out, never arbitrary shell input in a service file.
-const kilnSystemCA = (): '0' | '1' => process.env.NODE_USE_SYSTEM_CA === '0' ? '0' : '1';
+const kilnSystemCA = (env: NodeJS.ProcessEnv = process.env): '0' | '1' => env.NODE_USE_SYSTEM_CA === '0' ? '0' : '1';
+
+/** Shared launch environment for both source `ember serve` and compiled `tinder serve`. */
+export const buildServeEnv = (
+  flags: Pick<CliFlags, 'home' | 'port' | 'workspace' | 'bind'>,
+  baseEnv: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv => ({
+  ...baseEnv,
+  NODE_USE_SYSTEM_CA: kilnSystemCA(baseEnv),
+  HEARTH_HOME: flags.home,
+  EMBER_HOME: flags.home,
+  HEARTH_PORT: String(flags.port),
+  HEARTH_WORKSPACE: flags.workspace,
+  ...(flags.bind ? { HEARTH_BIND: flags.bind } : {}),
+});
 
 export type ServicePlatform = 'linux' | 'darwin' | 'win32';
 
@@ -768,9 +782,8 @@ export const runCli = async (argv: readonly string[] = process.argv.slice(2)): P
       ? path.join(flags.harnessDir, 'src', 'index.ts')
       : fileURLToPath(new URL('../packages/kiln/src/index.ts', import.meta.url));
     const child = spawn(process.execPath, ['run', entry], {
-      stdio: 'inherit', env: { ...process.env, NODE_USE_SYSTEM_CA: kilnSystemCA(), HEARTH_HOME: flags.home, EMBER_HOME: flags.home,
-        HEARTH_PORT: String(flags.port), HEARTH_WORKSPACE: flags.workspace,
-        ...(flags.bind ? { HEARTH_BIND: flags.bind } : {}) },
+      stdio: 'inherit',
+      env: buildServeEnv(flags, process.env),
     });
     const forward = () => child.kill('SIGTERM');
     process.once('SIGTERM', forward);

@@ -27,11 +27,15 @@ async function expectRowGeometry(row: Locator, expectedSize: number) {
   await row.hover();
   const root = row.locator('..');
   const actions = (await root.locator('[data-rail-actions]').boundingBox())!;
-  const heading = (await row.locator('[data-rail-folder]').boundingBox())!;
+  const rowBox = (await row.boundingBox())!;
   expect(
-    actions.y + actions.height,
-    'hover actions stay in their band above the folder heading',
-  ).toBeLessThanOrEqual(heading.y + 1);
+    actions.y,
+    'hover actions overlay the top-right corner of the row without reserved headroom',
+  ).toBeGreaterThanOrEqual(rowBox.y);
+  expect(
+    actions.x + actions.width,
+    'hover actions stay within the right edge of the row',
+  ).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
 
   const wrapper = (await row.locator('[data-session-key]').boundingBox())!;
   const blob = (await row.locator('.blob').first().boundingBox())!;

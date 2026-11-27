@@ -588,6 +588,8 @@ export type MessageQueueMutation = {
   replacements?: Record<string, string>;
   /** Exact host destination when enqueue races an idle conversation. */
   destination?: { kind: 'message' | 'queue'; id: string };
+  /** True when the host accepted the submission but the follow-up queue read failed. */
+  refreshFailed?: boolean;
   revision: number;
   session: MessageQueueSession;
   itemId?: string;

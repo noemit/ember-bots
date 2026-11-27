@@ -3,8 +3,19 @@ import { composerMemory } from './composerDrafts';
 // Recovery is not a send preview: retain the exact annotation, quote and whitespace.
 export type RemoteAuxiliaryDraft = { question: string; annotationDraft: string; annotationQuote: string };
 export const remoteAuxiliaryDrafts = new Map<string, RemoteAuxiliaryDraft>();
+/** Unacknowledged sends refused on remote session expiry, held in page memory for explicit copy only. */
+export const remoteRefusedSends = new Map<string, string>();
+export const REMOTE_UNSENT_CHANGED_EVENT = 'ember:remote-unsent-changed';
+export const recordRemoteRefusedSend = (id: string, text: string) => {
+  if (!text.trim()) return;
+  remoteRefusedSends.set(id, text);
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent(REMOTE_UNSENT_CHANGED_EVENT));
+  }
+};
 export const remoteUnsentText = () => [...new Set([
   ...[...composerMemory.values()].map((draft) => draft.text),
+  ...[...remoteRefusedSends.values()],
   ...questionDrafts.unsentTexts(),
   ...[...remoteAuxiliaryDrafts.values()].flatMap((draft) => [draft.question,
     draft.annotationDraft || draft.annotationQuote
@@ -27,6 +38,7 @@ export const isRemoteBrowser = () => remote;
 export const isRemoteExpired = () => expired;
 /** Update prompts must call this at click time, not just when displaying the prompt. */
 export const canReloadRemote = () => !activeWork && requests === 0 && draftBlockers.size === 0 && remoteAuxiliaryDrafts.size === 0 &&
+  remoteRefusedSends.size === 0 &&
   !questionDrafts.hasUnsent() &&
   ![...composerMemory.values()].some((draft) => draft.text.length || draft.attachments.length || draft.replyContext);
 export const setRemoteActiveWork = (active: boolean) => { activeWork = active; };
@@ -59,4 +71,5 @@ export const resetRemoteLifecycleForTest = () => {
   activeWork = false;
   requests = 0;
   draftBlockers.clear();
+  remoteRefusedSends.clear();
 };

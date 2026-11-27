@@ -2,7 +2,14 @@ import * as React from 'react';
 import { questionDrafts } from '../lib/asyncQuestionDrafts';
 import { composerMemory } from '../lib/composerDrafts';
 import { copyText } from '../lib/clipboard';
-import { isRemoteExpired, remoteAuxiliaryDrafts, remoteUnsentText, reportRemoteConnection } from '../lib/remoteLifecycle';
+import {
+  isRemoteExpired,
+  REMOTE_UNSENT_CHANGED_EVENT,
+  remoteAuxiliaryDrafts,
+  remoteRefusedSends,
+  remoteUnsentText,
+  reportRemoteConnection,
+} from '../lib/remoteLifecycle';
 import { clearRemoteShell } from '../lib/remoteShell';
 
 export const hasUnsentRemoteDraft = () => Boolean(remoteUnsentText()) || questionDrafts.hasUnsent() || [...composerMemory.values()].some((draft) =>
@@ -15,6 +22,7 @@ export function RemoteAppStatus() {
   const [waiting, setWaiting] = React.useState<ServiceWorker | null>(null);
   const [updateReady, setUpdateReady] = React.useState(false);
   const [blocked, setBlocked] = React.useState(false);
+  const [, bumpUnsent] = React.useReducer((count: number) => count + 1, 0);
   const secure = window.isSecureContext;
   const recoveryHeading = React.useRef<HTMLHeadingElement>(null);
   React.useEffect(() => {
@@ -34,6 +42,7 @@ export function RemoteAppStatus() {
     window.addEventListener('ember:remote-connection', connection);
     window.addEventListener('offline', offline);
     window.addEventListener('ember:session-expired', expired);
+    window.addEventListener(REMOTE_UNSENT_CHANGED_EVENT, bumpUnsent);
     let disposed = false;
     if (secure && 'serviceWorker' in navigator) {
       void navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).then((registration) => {
@@ -52,6 +61,7 @@ export function RemoteAppStatus() {
       window.removeEventListener('ember:remote-connection', connection);
       window.removeEventListener('offline', offline);
       window.removeEventListener('ember:session-expired', expired);
+      window.removeEventListener(REMOTE_UNSENT_CHANGED_EVENT, bumpUnsent);
     };
   }, [secure]);
 
@@ -83,6 +93,7 @@ export function RemoteAppStatus() {
       if (!response.ok) { setState((current) => current === 'expired' || isRemoteExpired() ? 'expired' : 'unavailable'); return; }
       await clearRemoteShell().catch(() => {});
       composerMemory.clear();
+      remoteRefusedSends.clear();
       questionDrafts.clear();
       remoteAuxiliaryDrafts.clear();
       reportRemoteConnection('expired');

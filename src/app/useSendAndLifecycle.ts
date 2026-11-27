@@ -78,7 +78,7 @@ import { nextSessionAfterArchive } from '../lib/projectGroups';
 import { promoteFailureText } from '../lib/promoteFailure';
 import { createQuoteLinkId } from '../lib/quoteLinks';
 import { hasUnreadMessages } from '../lib/sessionUnread';
-import { isRemoteBrowser } from '../lib/remoteLifecycle';
+import { isRemoteBrowser, isRemoteExpired, recordRemoteRefusedSend } from '../lib/remoteLifecycle';
 import { classifyFullReadFailure, RepairBudget, type FullReadFailure, type RepairHalt } from '../lib/repairBudget';
 import { applyScheduledModelSelection, type ScheduledModelTarget } from '../lib/scheduledView';
 import {
@@ -777,6 +777,14 @@ export function useSendAndLifecycle({
         return { uiHeld: !options.onAccepted, serverAccepted: false, messageId: optimisticId };
       }
       if (!accepted) {
+        const sessionExpired =
+          isRemoteExpired() ||
+          Boolean(err && typeof err === 'object' && 'kind' in err && err.kind === 'session-expired');
+        if (isRemoteBrowser() && sessionExpired) {
+          // RemoteAppBoundary unmounts the transcript synchronously on expiry; keep the refused
+          // text in page memory so the locked recovery cover still offers Copy unsent text.
+          recordRemoteRefusedSend(optimisticId, input.text);
+        }
         const reason = err instanceof Error ? err.message : 'Message could not be sent.';
         if (options.retainOnFailure === true) {
           retained = true;
@@ -955,6 +963,14 @@ export function useSendAndLifecycle({
         title: pending.title,
       });
     } catch (err) {
+      const sessionExpired =
+        isRemoteExpired() ||
+        Boolean(err && typeof err === 'object' && 'kind' in err && err.kind === 'session-expired');
+      if (isRemoteBrowser() && sessionExpired) {
+        for (const msg of pending.messages) {
+          recordRemoteRefusedSend(msg.id, msg.input.text);
+        }
+      }
       failNewSessionCreate(id, err);
       return;
     }

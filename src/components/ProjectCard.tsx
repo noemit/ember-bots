@@ -1,7 +1,7 @@
 import { useAvatarSize } from '../blob/size';
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { Box, Plus, EyeOff } from 'lucide-react';
+import { Plus, EyeOff } from 'lucide-react';
 import { blobStripLayout } from '@/lib/projectGroups';
 import { ARCHIVE_AGE_OPTIONS, bulkArchiveTargets } from '@/lib/bulkArchive';
 import {
@@ -114,6 +114,7 @@ export default function ProjectCard({
       role="button"
       tabIndex={0}
       aria-label={`Open ${project.name}`}
+      title={[project.name, project.path, instanceLabel].filter(Boolean).join(' · ')}
       onClick={onOpenProject}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -127,7 +128,7 @@ export default function ProjectCard({
       <div className="flex flex-wrap items-start gap-1.5 px-1">
         <span
           data-rail-folder=""
-          title={project.path}
+          title={[project.path, instanceLabel].filter(Boolean).join(' · ') || undefined}
           aria-label={project.path ? project.name + ' — ' + project.path : project.name}
           className="min-w-0 basis-full whitespace-normal text-[11.5px] leading-4 font-semibold text-foreground [overflow-wrap:anywhere]"
           data-instance-marker={markerColor}
@@ -140,12 +141,6 @@ export default function ProjectCard({
         >
           {project.name}
         </span>
-        {instanceLabel ? (
-          <span className="flex min-w-0 items-center gap-0.5 text-[10px] text-muted-foreground">
-            <Box className="size-2.5 flex-none" aria-hidden="true" />
-            <span className="truncate">{instanceLabel}</span>
-          </span>
-        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <button

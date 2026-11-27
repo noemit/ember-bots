@@ -113,8 +113,9 @@ for (const compact of [false, true]) {
     await row.hover();
     await hierarchy(row, folder, longName);
     const actions = (await row.locator('..').locator('[data-rail-actions]').boundingBox())!;
-    const heading = (await row.locator('[data-rail-folder]').boundingBox())!;
-    expect(actions.y + actions.height, 'hover actions stay in their band above the complete folder').toBeLessThanOrEqual(heading.y + 1);
+    const rowBox = (await row.boundingBox())!;
+    expect(actions.y, 'hover actions overlay the top-right corner inside the row').toBeGreaterThanOrEqual(rowBox.y);
+    expect(actions.x + actions.width, 'hover actions stay inside the right edge of the row').toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
     await blobCenteredWithText(row);
     await page.screenshot({ path: `/tmp/ember-rail-text-normal-${compact}.png` });
     await page.keyboard.press('ControlOrMeta+b');

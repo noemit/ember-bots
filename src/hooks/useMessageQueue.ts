@@ -11,6 +11,8 @@ import {
 } from '../api';
 import { isPiInstance } from '../piApi';
 import { modelRefKey } from '../types';
+import { randomId } from '../lib/randomId';
+import { isRemoteBrowser, isRemoteExpired, recordRemoteRefusedSend } from '../lib/remoteLifecycle';
 import { shareValue } from '../lib/structuralSharing';
 import { selectedModelError } from '../lib/modelSelection';
 import {
@@ -115,12 +117,29 @@ export const resolveQueueReplaceTargets = (
  */
 export const mergeMutationSession = (
   previous: MessageQueueSession | undefined,
-  incoming: MessageQueueSession
+  incoming: MessageQueueSession,
+  partial = false
 ): MessageQueueSession => {
   if (!previous) return incoming;
-  const serverIds = new Set(incoming.items.map((item) => item.id));
+  const incomingIds = new Set(incoming.items.map((item) => item.id));
+  if (partial) {
+    // Post-accept queue refresh failed: preserve previously known settled items and pending/errored
+    // local items, appending any newly accepted items that are not already present.
+    const previousSettled = previous.items.filter((item) => !item.pending && !item.error);
+    const previousSettledIds = new Set(previousSettled.map((item) => item.id));
+    const addedSettled = incoming.items.filter((item) => !previousSettledIds.has(item.id));
+    const remainingLocals = previous.items.filter(
+      (item) => (item.pending || item.error) && !incomingIds.has(item.id)
+    );
+    return {
+      ...previous,
+      ...incoming,
+      directory: incoming.directory || previous.directory,
+      items: [...previousSettled, ...addedSettled, ...remainingLocals],
+    };
+  }
   const remainingLocals = previous.items.filter(
-    (item) => (item.pending || item.error) && !serverIds.has(item.id)
+    (item) => (item.pending || item.error) && !incomingIds.has(item.id)
   );
   if (remainingLocals.length === 0) return incoming;
   return {
@@ -313,12 +332,12 @@ export const useMessageQueue = ({
   modelsByInstanceRef.current = modelsByInstance;
 
   const applyQueueMutation = React.useCallback(
-    (instanceId: string, mutation: { session: MessageQueueSession } | null) => {
+    (instanceId: string, mutation: { session: MessageQueueSession; refreshFailed?: boolean } | null) => {
       if (!mutation) return;
       setQueuesByInstance((prev) => {
         const existing = prev[instanceId] ?? [];
         const previous = existing.find((queue) => queue.sessionId === mutation.session.sessionId);
-        const merged = mergeMutationSession(previous, mutation.session);
+        const merged = mergeMutationSession(previous, mutation.session, Boolean(mutation.refreshFailed));
         const without = existing.filter((queue) => queue.sessionId !== mutation.session.sessionId);
         return {
           ...prev,
@@ -553,6 +572,12 @@ export const useMessageQueue = ({
       if (serverId) rememberLandedId(localId, serverId);
       removeLocalItem(target, localId);
       applyQueueMutation(instanceId, queued.data);
+      if (queued.data.refreshFailed) {
+        showActionError(
+          'Your follow-up was queued, but Ember couldn’t refresh the queue view.',
+          refreshQueues ? () => void refreshQueues([instanceId]) : undefined
+        );
+      }
       if (queued.data.destination?.kind === 'message') {
         target.onPlaced?.();
       }
@@ -570,6 +595,12 @@ export const useMessageQueue = ({
       return queued.data;
     } catch (err) {
       console.error('Queue failed', err);
+      const sessionExpired =
+        isRemoteExpired() ||
+        Boolean(err && typeof err === 'object' && 'kind' in err && err.kind === 'session-expired');
+      if (isRemoteBrowser() && sessionExpired) {
+        recordRemoteRefusedSend(localId, input.text);
+      }
       deferredEditsRef.current.delete(localId);
       patchLocalItem(target, localId, {
         pending: false,
@@ -596,6 +627,7 @@ export const useMessageQueue = ({
       const item = buildStagedQueuedMessage(entry, model);
       pendingInputsRef.current.set(item.id, {
         ...entry.input,
+        requestId: entry.input.requestId ?? randomId(),
         ...(model ? { model } : {}),
       });
       return item;
@@ -718,7 +750,11 @@ export const useMessageQueue = ({
     }
 
     const localId = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const queuedInput: QueueMessageInput = { ...input, model };
+    const queuedInput: QueueMessageInput = {
+      ...input,
+      model,
+      requestId: input.requestId ?? randomId(),
+    };
     pendingInputsRef.current.set(localId, queuedInput);
     insertLocalItem(target.ref, target.session?.directory, {
       id: localId,
