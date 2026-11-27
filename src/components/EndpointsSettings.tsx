@@ -1,9 +1,12 @@
 import * as React from 'react';
-import { Trash2 } from 'lucide-react';
+import { ArrowUpCircle, Check, Copy, Trash2 } from 'lucide-react';
 import InstanceAlignment from './InstanceAlignment';
 import EndpointForm from './EndpointForm';
+import SshEndpointSetup from './SshEndpointSetup';
 import { Button } from '@/components/ui/button';
+import { copyText } from '@/lib/clipboard';
 import { endpointError, endpointTestCopy, removeEndpoint, upsertEndpoint, type EndpointDraft } from '@/lib/endpoints';
+import { kilnUpdateState } from '@/lib/kilnUpdateNotice';
 import type { ModelRefreshOptions } from '@/lib/providerSharing';
 import type { EmberSettingsPatch, Instance, PiEndpoint } from '../types';
 
@@ -88,11 +91,13 @@ export default function EndpointsSettings({
   onRefreshModels,
   initialRemovingId = null,
 }: EndpointsSettingsProps) {
-  const [location, setLocation] = React.useState<'local' | 'remote'>(() => initialEndpointLocation(endpoints));
+  const [location, setLocation] = React.useState<'local' | 'remote' | 'ssh'>(() => initialEndpointLocation(endpoints));
   const [draft, setDraft] = React.useState<EndpointDraft>(empty);
   const [editing, setEditing] = React.useState<string | null>(null);
   const [removing, setRemoving] = React.useState<string | null>(initialRemovingId);
   const [removingInFlight, setRemovingInFlight] = React.useState<string | null>(null);
+  const [updatingSshId, setUpdatingSshId] = React.useState<string | null>(null);
+  const [copiedUninstallId, setCopiedUninstallId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState('');
   const [removeError, setRemoveError] = React.useState('');
@@ -172,17 +177,65 @@ export default function EndpointsSettings({
       if (key !== 'draft' || revision.current === version) setResults(prev => ({ ...prev, [key]: endpointTestCopy(value.label, 'unreachable') }));
     } finally { setTesting(null); }
   };
+  const canSsh = desktop && typeof window.ember?.setupSshKiln === 'function';
+  const handleSshConnected = async (endpoint: PiEndpoint, message: string) => {
+    const next = upsertEndpoint(endpoints, endpoint);
+    await commit(next);
+    if (mounted.current) {
+      setResults((prev) => ({ ...prev, [endpoint.id]: message }));
+    }
+  };
+  const updateSshEndpoint = async (endpoint: PiEndpoint) => {
+    if (!endpoint.ssh || !window.ember?.setupSshKiln || updatingSshId !== null) return;
+    setUpdatingSshId(endpoint.id);
+    try {
+      const result = await window.ember.setupSshKiln({
+        target: endpoint.ssh.target,
+        label: endpoint.label,
+        lifetime: endpoint.ssh.lifetime,
+        remotePort: endpoint.ssh.remotePort,
+        mode: 'update',
+        remoteHome: endpoint.ssh.remoteHome,
+        binaryPath: endpoint.ssh.binaryPath,
+        existingEndpointId: endpoint.id,
+      });
+      if (!mounted.current) return;
+      if (result.ok) {
+        await handleSshConnected(result.endpoint, result.message);
+      } else {
+        setResults((prev) => ({ ...prev, [endpoint.id]: result.message }));
+      }
+    } catch {
+      if (mounted.current) {
+        setResults((prev) => ({
+          ...prev,
+          [endpoint.id]: `Ember couldn’t update Kiln on ${endpoint.label} over SSH. Check the SSH connection and try again.`,
+        }));
+      }
+    } finally {
+      if (mounted.current) setUpdatingSshId(null);
+    }
+  };
+  const sshUninstallCommandFor = (endpoint: PiEndpoint): string => {
+    const bin = endpoint.ssh?.binaryPath || '$HOME/.local/bin/tinder';
+    return `systemctl --user disable --now ember-kiln.service 2>/dev/null; rm -f "$HOME/.config/systemd/user/ember-kiln.service" "${bin}"`;
+  };
   return <div className="flex flex-col gap-4">
     <section aria-label="Add connection" className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Add computer or container</h3>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Where is Kiln running?">
         <Button size="sm" variant={location === 'local' ? 'secondary' : 'outline'} aria-pressed={location === 'local'} onClick={() => setLocation('local')}>On this computer</Button>
         <Button size="sm" variant={location === 'remote' ? 'secondary' : 'outline'} aria-pressed={location === 'remote'} onClick={() => setLocation('remote')}>On another computer or container</Button>
+        {canSsh ? (
+          <Button size="sm" variant={location === 'ssh' ? 'secondary' : 'outline'} aria-pressed={location === 'ssh'} onClick={() => setLocation('ssh')}>Over SSH</Button>
+        ) : null}
       </div>
       {location === 'local' ? <>
         <p className="text-xs text-muted-foreground">Ember includes a local Kiln. No network setup is needed. It starts with Ember and stops when you quit Ember, not when you close its window on macOS.</p>
         <details className="text-xs"><summary className="cursor-pointer py-2">Connect a separate local Kiln</summary><p className="mb-2 text-muted-foreground">A Tinder-managed Kiln has its own lifetime. Use its local URL and bearer token; quitting Ember leaves it running.</p><Button size="sm" variant="outline" onClick={() => { setEditing(null); changeDraft({ ...empty, url: 'http://127.0.0.1:3003' }); setLocation('remote'); }}>Enter local connection details</Button></details>
-      </> : <>
+      </> : location === 'ssh' ? (
+        <SshEndpointSetup onConnected={handleSshConnected} />
+      ) : <>
         <p className="text-xs text-muted-foreground">Enter the Kiln URL and bearer token. In the other Ember, open Settings → Remote access → Share this Kiln. For Tinder, ask its owner for connection details. Connecting never changes that host’s network.</p>
         {!desktop ? <p className="text-xs">Open Ember on the desktop to add, edit or test connections. This browser cannot read or change their credentials.</p> : <>
           {editing && <p className="text-xs font-medium">Editing connection</p>}
@@ -195,10 +248,19 @@ export default function EndpointsSettings({
     </section>
     {endpoints.length > 0 && <section aria-label="Computers and containers" className="flex flex-col gap-2 border-t pt-3">
       <h3 className="text-xs font-medium">Computers and containers</h3>
-      {endpoints.map(endpoint => <div data-endpoint={endpoint.id} key={endpoint.id} className="rounded-lg border p-3 text-xs">
-        <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{endpoint.label}</span><span className="text-muted-foreground">{({ ready: 'Connected', checking: 'Checking connection', unreachable: 'Not answering', unsupported: 'Needs a compatible Kiln' })[instances.find(i => i.id === endpoint.id)?.status ?? 'checking']}</span>
+      {endpoints.map(endpoint => {
+        const instance = instances.find(i => i.id === endpoint.id);
+        const updateOlder = Boolean(endpoint.ssh && canSsh && instance && kilnUpdateState(instance) === 'older');
+        return <div data-endpoint={endpoint.id} key={endpoint.id} className="rounded-lg border p-3 text-xs">
+        <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{endpoint.label}</span><span className="text-muted-foreground">{({ ready: 'Connected', checking: 'Checking connection', unreachable: 'Not answering', unsupported: 'Needs a compatible Kiln' })[instance?.status ?? 'checking']}</span>
           {desktop && <>
             <Button size="xs" variant="ghost" disabled={testing !== null} onClick={() => void test(endpoint, endpoint.id)}>{testing === endpoint.id ? 'Testing…' : 'Test'}</Button>
+            {updateOlder ? (
+              <Button size="xs" variant="outline" disabled={updatingSshId !== null} onClick={() => void updateSshEndpoint(endpoint)}>
+                <ArrowUpCircle className="size-3" aria-hidden="true" />
+                {updatingSshId === endpoint.id ? 'Updating via SSH…' : 'Update via SSH'}
+              </Button>
+            ) : null}
             <Button size="xs" variant="ghost" disabled={saving || removingInFlight !== null} onClick={() => { setRemoving(null); setRemoveError(''); changeDraft(endpoint); setEditing(endpoint.id); setLocation('remote'); }}>Edit {endpoint.label}</Button>
             {canRemoveEndpoint(endpoint) && (
               <Button
@@ -219,13 +281,43 @@ export default function EndpointsSettings({
             )}
           </>}
         </div>
-        <p className="mt-1 break-all text-muted-foreground">{endpoint.url}</p>
+        <p className="mt-1 break-all text-muted-foreground">
+          {endpoint.ssh
+            ? `via SSH (${endpoint.ssh.target} · ${endpoint.ssh.lifetime === 'ephemeral' ? 'This session only' : 'Background service'}) · ${endpoint.url}`
+            : endpoint.url}
+        </p>
         {results[endpoint.id] && <p className="mt-2" role="status">{results[endpoint.id]}</p>}
         {desktop && canRemoveEndpoint(endpoint) && removing === endpoint.id ? (
           <div className="mt-2 space-y-2 border-t pt-2" role="group" aria-label={`Remove ${endpoint.label}`}>
             <p className="text-muted-foreground">
-              Remove {endpoint.label} and its saved credentials from this Ember? {endpoint.label} keeps running, and its conversations stay on that host.
+              Remove {endpoint.label} and its saved credentials from this Ember?{' '}
+              {endpoint.ssh?.lifetime === 'ephemeral'
+                ? `Its session-only SSH tunnel will close; conversations remain on ${endpoint.ssh.target}.`
+                : `${endpoint.label} keeps running, and its conversations stay on that host.`}
             </p>
+            {endpoint.ssh?.lifetime === 'service' ? (
+              <div className="space-y-1 rounded bg-muted/40 p-2">
+                <p className="text-muted-foreground">
+                  To uninstall Tinder from {endpoint.ssh.target} yourself later, run:
+                </p>
+                <div className="flex items-center gap-2 font-mono text-[11px]">
+                  <code className="min-w-0 flex-1 break-all">{sshUninstallCommandFor(endpoint)}</code>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      void copyText(sshUninstallCommandFor(endpoint)).then((ok) => {
+                        if (ok && mounted.current) setCopiedUninstallId(endpoint.id);
+                      });
+                    }}
+                  >
+                    {copiedUninstallId === endpoint.id ? <Check className="size-3" /> : <Copy className="size-3" />}
+                    {copiedUninstallId === endpoint.id ? 'Copied' : 'Copy'}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             {removeError ? <p role="alert" className="text-destructive">{removeError}</p> : null}
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -247,7 +339,8 @@ export default function EndpointsSettings({
             </div>
           </div>
         ) : null}
-      </div>)}
+      </div>;
+      })}
     </section>}
     <InstanceAlignment instances={instances} endpoints={endpoints} onSave={commit} onProviderChange={onRefreshModels} />
   </div>;

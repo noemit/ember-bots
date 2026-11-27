@@ -5,6 +5,123 @@ export type InstanceKind = 'local' | 'remote' | 'ssh' | 'relay' | 'pi';
 
 export type InstanceStatus = 'checking' | 'ready' | 'unreachable' | 'unsupported';
 
+export type SshLifetime = 'service' | 'ephemeral';
+
+export type SshEndpointConfig = {
+  target: string;
+  remotePort: number;
+  lifetime: SshLifetime;
+  remoteHome?: string;
+  binaryPath?: string;
+};
+
+export type SshHostCandidate = {
+  alias: string;
+  hostName?: string;
+  user?: string;
+  port?: number;
+  proxyJump?: string;
+  source: 'ssh-config';
+};
+
+export type SshHostKeyEntry = {
+  host: string;
+  keyType: string;
+  fingerprint: string;
+  knownHostsLine: string;
+};
+
+export type SshExistingKiln = {
+  running: boolean;
+  port: number;
+  version?: string;
+  home?: string;
+  binaryPath?: string;
+  hasToken: boolean;
+};
+
+export type SshProbeResult =
+  | {
+      outcome: 'ok';
+      target: string;
+      os: 'linux' | 'macos' | 'unsupported';
+      rawOs: string;
+      arch: 'x64' | 'arm64' | 'unsupported';
+      rawArch: string;
+      supported: boolean;
+      releaseAsset?: string;
+      checksumAsset?: string;
+      serviceManager: 'systemd-user' | 'launchd' | 'none';
+      remoteHomeDir: string;
+      existingKiln?: SshExistingKiln;
+    }
+  | {
+      outcome: 'host-key-unknown';
+      target: string;
+      hostName: string;
+      port: number;
+      keys: SshHostKeyEntry[];
+      message: string;
+    }
+  | {
+      outcome: 'auth-required';
+      target: string;
+      message: string;
+      unlockCommand: string;
+    }
+  | {
+      outcome: 'unreachable' | 'ssh-missing' | 'invalid-target' | 'error';
+      target: string;
+      message: string;
+    };
+
+export type SshSetupMode = 'install' | 'adopt' | 'update';
+
+export type SshSetupRequest = {
+  target: string;
+  label?: string;
+  lifetime: SshLifetime;
+  remotePort?: number;
+  mode: SshSetupMode;
+  remoteHome?: string;
+  binaryPath?: string;
+  existingEndpointId?: string;
+};
+
+export type SshSetupResult =
+  | {
+      ok: true;
+      endpoint: PiEndpoint;
+      deliveryMethod?: 'remote-download' | 'ssh-stream' | 'adopted';
+      uninstallCommand: string;
+      message: string;
+    }
+  | {
+      ok: false;
+      code:
+        | 'invalid-target'
+        | 'unsupported-platform'
+        | 'host-key-unknown'
+        | 'auth-required'
+        | 'service-unavailable'
+        | 'checksum-failed'
+        | 'download-failed'
+        | 'token-missing'
+        | 'error';
+      message: string;
+      unlockCommand?: string;
+    };
+
+export type SshTunnelStatus = {
+  endpointId: string;
+  target: string;
+  lifetime: SshLifetime;
+  state: 'connecting' | 'connected' | 'disconnected' | 'error';
+  localPort: number;
+  remotePort: number;
+  detail?: string;
+};
+
 export type PiEndpoint = {
   id: string;
   label: string;
@@ -20,6 +137,8 @@ export type PiEndpoint = {
   hasToken?: boolean;
   access?: { clientId: string; clientSecret: string };
   hasAccessSecret?: boolean;
+  /** Present when Ember reaches this Kiln through a managed loopback SSH tunnel. */
+  ssh?: SshEndpointConfig;
 };
 
 export type KilnSharingStatus = { state: 'ready' | 'off' | 'blocked'; message: string; url?: string; enabled: boolean; canChange?: boolean; instructions?: string };
@@ -932,6 +1051,11 @@ export type EmberBridge = {
    */
   retryLocalHarness?(): Promise<unknown>;
   testPiEndpoint?(draft: EndpointTestDraft): Promise<EndpointTestResult>;
+  listSshHosts?(): Promise<SshHostCandidate[]>;
+  probeSshHost?(target: string): Promise<SshProbeResult>;
+  trustSshHost?(lines: string[]): Promise<{ ok: true; added: number } | { ok: false; message: string }>;
+  setupSshKiln?(request: SshSetupRequest): Promise<SshSetupResult>;
+  sshTunnelStatus?(): Promise<Record<string, SshTunnelStatus>>;
   kilnSharing?(action: 'inspect' | 'enable' | 'disable'): Promise<KilnSharingStatus>;
   kilnSharingDetails?(): Promise<{ url: string; token: string } | null>;
   localHarnessToken?(options?: { rotate?: boolean }): Promise<LocalHarnessToken>;

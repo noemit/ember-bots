@@ -24,6 +24,11 @@ const ember = {
    * sender is the remotely served page rather than the app's own window.
    */
   testPiEndpoint: (draft: unknown) => ipcRenderer.invoke('ember:pi:test', draft),
+  listSshHosts: () => ipcRenderer.invoke('ember:ssh:list-hosts'),
+  probeSshHost: (target: string) => ipcRenderer.invoke('ember:ssh:probe', target),
+  trustSshHost: (lines: string[]) => ipcRenderer.invoke('ember:ssh:trust-host', lines),
+  setupSshKiln: (request: unknown) => ipcRenderer.invoke('ember:ssh:setup', request),
+  sshTunnelStatus: () => ipcRenderer.invoke('ember:ssh:tunnel-status'),
   kilnSharing: (action: 'inspect' | 'enable' | 'disable') => ipcRenderer.invoke('ember:kiln:sharing', action),
   kilnSharingDetails: () => ipcRenderer.invoke('ember:kiln:sharing-details'),
   retryLocalHarness: (): Promise<unknown> => ipcRenderer.invoke('ember:local-harness-retry'),

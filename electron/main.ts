@@ -11,6 +11,9 @@ import type { UpdateAction } from './updates';
 import { createKilnSharing } from './kilnSharing';
 import { fileShareOwnerStore } from './kilnSharingOwner';
 import { testPiEndpoint } from './piConnection';
+import { discoverSshConfigHosts } from './sshConfig';
+import { probeSshHost, setupSshKiln, trustSshHostKeys, type SshSetupRequest } from './sshBootstrap';
+import { allocateFreeLoopbackPort, SshTunnelManager } from './sshTunnelManager';
 import { fileUrlToLocalPath, openTarget as openTargetWithShell } from './openTarget';
 import { isAllowedDocPopoutUrl } from './docPopout';
 import { unlockEndpointSecrets, canCacheUnlockedEndpoints, maskEndpointSecrets, restoreEndpointSecrets } from './endpointSecrets';
@@ -861,8 +864,16 @@ const synthesizedLocalEndpointInfo = (root: Record<string, unknown>): { url: str
  * it here is what makes it appear on the first launch without racing a settings write. The merge
  * rule itself lives in `localHarness.ts` so it can be tested without a settings file.
  */
+const sshTunnels = new SshTunnelManager({
+  onStatusChange: () => {
+    broadcast({ instanceId: '*', type: 'ember:instances-updated' });
+  },
+});
+
 const piEndpoints = (): PiEndpoint[] =>
-  mergeLocalHarnessEndpoint(readEmberSettings().piEndpoints, localHarnessEndpointInfo());
+  sshTunnels.effectiveEndpoints(
+    mergeLocalHarnessEndpoint(readEmberSettings().piEndpoints, localHarnessEndpointInfo())
+  );
 
 const piInstanceRecords = async (endpoints: readonly PiEndpoint[]): Promise<Instance[]> =>
   Promise.all(
@@ -1200,6 +1211,7 @@ const applySettingsPatch = async (patch: unknown): Promise<EmberSettings> => {
     canCacheUnlockedEndpoints(nextConfigured) ? nextConfigured : undefined
   );
   if (Array.isArray(value.piEndpoints)) {
+    sshTunnels.sync(mergeLocalHarnessEndpoint(readEmberSettings().piEndpoints, localHarnessEndpointInfo()));
     const nextEndpoints = piEndpoints();
     const previousPiById = new Map(
       instanceSnapshot
@@ -1404,6 +1416,63 @@ ipcMain.handle('ember:kiln:sharing-details', async (event) => {
   const token = canManageLocalToken(localHarnessState) && 'token' in localHarnessState ? localHarnessState.token : undefined;
   return status.state === 'ready' && status.url && token ? { url: status.url, token } : null;
 });
+ipcMain.handle('ember:ssh:list-hosts', (event) => {
+  assertTrustedSender(event);
+  return discoverSshConfigHosts();
+});
+ipcMain.handle('ember:ssh:probe', async (event, target: unknown) => {
+  assertTrustedSender(event);
+  return probeSshHost(typeof target === 'string' ? target : '');
+});
+ipcMain.handle('ember:ssh:trust-host', (event, lines: unknown) => {
+  assertTrustedSender(event);
+  const list = Array.isArray(lines) ? lines.filter((line): line is string => typeof line === 'string') : [];
+  return trustSshHostKeys(list);
+});
+ipcMain.handle('ember:ssh:tunnel-status', (event) => {
+  assertTrustedSender(event);
+  return sshTunnels.statusSnapshot();
+});
+ipcMain.handle('ember:ssh:setup', async (event, raw: unknown) => {
+  assertTrustedSender(event);
+  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const mode = input.mode === 'adopt' || input.mode === 'update' ? input.mode : 'install';
+  const lifetime = input.lifetime === 'ephemeral' ? 'ephemeral' : 'service';
+  const req: SshSetupRequest = {
+    target: typeof input.target === 'string' ? input.target : '',
+    label: typeof input.label === 'string' ? input.label : undefined,
+    lifetime,
+    remotePort: typeof input.remotePort === 'number' ? input.remotePort : undefined,
+    mode,
+    remoteHome: typeof input.remoteHome === 'string' ? input.remoteHome : undefined,
+    binaryPath: typeof input.binaryPath === 'string' ? input.binaryPath : undefined,
+    existingEndpointId: typeof input.existingEndpointId === 'string' ? input.existingEndpointId : undefined,
+  };
+  const result = await setupSshKiln(req, {
+    allocateLocalPort: () => allocateFreeLoopbackPort(),
+  });
+  if (!result.ok) return result;
+
+  // Persist the SSH endpoint (updating any existing entry with the same id or SSH target),
+  // start its loopback tunnel, and wait briefly for local forward readiness before returning.
+  const current = readEmberSettings().piEndpoints;
+  const existingIndex = current.findIndex(
+    (entry) =>
+      entry.id === result.endpoint.id ||
+      (entry.ssh && entry.ssh.target === result.endpoint.ssh?.target && entry.ssh.remotePort === result.endpoint.ssh?.remotePort)
+  );
+  const endpointToSave: PiEndpoint =
+    existingIndex >= 0 ? { ...result.endpoint, id: current[existingIndex]!.id } : result.endpoint;
+  const nextList =
+    existingIndex >= 0
+      ? current.map((entry, idx) => (idx === existingIndex ? endpointToSave : entry))
+      : [...current, endpointToSave];
+
+  await applySettingsPatch({ piEndpoints: nextList });
+  await sshTunnels.ensureStarted(endpointToSave, 8_000);
+  void loadInstances(true);
+  return { ...result, endpoint: endpointToSave };
+});
 
 ipcMain.handle('ember:pi:request', (event, args: unknown) => {
   assertTrustedSender(event);
@@ -1524,6 +1593,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     },
   });
   isLocalHarnessStarting = harnessBoot.isStarting;
+  sshTunnels.sync(readEmberSettings().piEndpoints);
   refreshRemoteServer();
   createWindow();
   let stableDistribution = false;
@@ -1620,6 +1690,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     void dailyUpdateChecks?.check().catch(() => {});
     eventStreams.restartAll();
+    sshTunnels.restartAll();
     piClient.restartAll();
     void loadInstances(true);
     // Tailscale is often still reconnecting when the lid opens. A resume is a good moment to
@@ -1641,6 +1712,7 @@ app.on('will-quit', () => {
   dailyUpdateChecks?.dispose();
   updateController?.dispose();
   remoteListener.dispose();
+  sshTunnels.dispose();
   piClient.closeAll();
   eventStreams.stopAll();
 });

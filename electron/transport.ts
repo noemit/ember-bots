@@ -290,6 +290,21 @@ export const parseSnoozedSessions = (value: unknown): string[] => {
   }), 10_000);
 };
 
+export type SshLifetime = 'service' | 'ephemeral';
+
+export type SshEndpointConfig = {
+  /** SSH alias from ~/.ssh/config or user@host. Never starts with '-'. */
+  target: string;
+  /** Remote loopback port where Kiln listens on 127.0.0.1 (1..65535). */
+  remotePort: number;
+  /** Persistent user service (default) or ephemeral session tied to the SSH tunnel. */
+  lifetime: SshLifetime;
+  /** Optional remote Kiln home directory. */
+  remoteHome?: string;
+  /** Optional remote Tinder binary path. */
+  binaryPath?: string;
+};
+
 export type PiEndpoint = {
   id: string;
   label: string;
@@ -297,6 +312,41 @@ export type PiEndpoint = {
   token: string;
   access?: { clientId: string; clientSecret: string };
   hasAccessSecret?: boolean;
+  /** Present when Ember reaches this Kiln through a managed loopback SSH tunnel. */
+  ssh?: SshEndpointConfig;
+};
+
+const parseSshEndpointConfig = (raw: unknown): SshEndpointConfig | undefined => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const entry = raw as Record<string, unknown>;
+  const target = typeof entry.target === 'string' ? entry.target.trim() : '';
+  if (
+    !target ||
+    target.length > 255 ||
+    target.startsWith('-') ||
+    /[\s\r\n\0'"`$|;&<>()\\]/.test(target) ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9._:@[\]-]{0,254}$/.test(target)
+  ) {
+    return undefined;
+  }
+  const remotePort = Number(entry.remotePort);
+  if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) return undefined;
+  const lifetime: SshLifetime = entry.lifetime === 'ephemeral' ? 'ephemeral' : 'service';
+  const cleanOptPath = (val: unknown): string | undefined => {
+    if (typeof val !== 'string') return undefined;
+    const trimmed = val.trim();
+    if (!trimmed || trimmed.length > 400 || /[\r\n\0]/.test(trimmed)) return undefined;
+    return trimmed;
+  };
+  const remoteHome = cleanOptPath(entry.remoteHome);
+  const binaryPath = cleanOptPath(entry.binaryPath);
+  return {
+    target,
+    remotePort,
+    lifetime,
+    ...(remoteHome ? { remoteHome } : {}),
+    ...(binaryPath ? { binaryPath } : {}),
+  };
 };
 
 /** Trusted Hearth endpoints: ids unique and namespaced with `pi:`, URLs http(s), tokens bounded. */
@@ -334,7 +384,16 @@ export const parsePiEndpoints = (value: unknown, limit = 20): PiEndpoint[] => {
       rawAccess.clientId.length <= 4096 && rawAccess.clientSecret.length <= 4096 &&
       !/[\r\n]/.test(rawAccess.clientId + rawAccess.clientSecret)
       ? { clientId: rawAccess.clientId, clientSecret: rawAccess.clientSecret } : undefined;
-    out.push({ id, label, url, token, ...(access ? { access } : {}), ...((raw.hasAccessSecret === true || (raw.access !== undefined && !access)) ? { hasAccessSecret: true } : {}) });
+    const ssh = parseSshEndpointConfig(raw.ssh);
+    out.push({
+      id,
+      label,
+      url,
+      token,
+      ...(access ? { access } : {}),
+      ...((raw.hasAccessSecret === true || (raw.access !== undefined && !access)) ? { hasAccessSecret: true } : {}),
+      ...(ssh ? { ssh } : {}),
+    });
     if (out.length >= limit) break;
   }
   return out;
@@ -917,7 +976,7 @@ export type EmberSettings = {
   /** Manually minimized sessions; sticky across resizes and restarts. */
   minimizedSessions: string[];
   /** Hearth endpoints: the pi transition target. */
-  piEndpoints: Array<{ id: string; label: string; url: string; token: string }>;
+  piEndpoints: PiEndpoint[];
   /**
    * Whether this app should run the harness it ships with on first launch. Absent means yes: an
    * install that has never touched the switch gets a working local host.
@@ -982,11 +1041,11 @@ export type RemoteAccessState = {
  * and turned a shared 8-character secret into permanent full authority over every Hearth. The
  * remote surface gets the shape of an endpoint and whether a token exists, never the token.
  */
-export const redactRemoteSettings = <T extends { piEndpoints?: Array<{ id: string; label: string; url: string; token: string }> }>(
+export const redactRemoteSettings = <T extends { piEndpoints?: Array<{ id: string; label: string; url: string; token: string; ssh?: SshEndpointConfig }> }>(
   settings: T
-): Omit<T, 'piEndpoints'> & { piEndpoints: Array<{ id: string; label: string; url: string; token: string; hasToken: boolean }> } => ({
+): Omit<T, 'piEndpoints'> & { piEndpoints: Array<{ id: string; label: string; url: string; token: string; hasToken: boolean; ssh?: SshEndpointConfig }> } => ({
   ...settings,
-  piEndpoints: (settings.piEndpoints ?? []).map(({ id, label, url, token }) => ({
+  piEndpoints: (settings.piEndpoints ?? []).map(({ id, label, url, token, ssh }) => ({
     id,
     label,
     url,
@@ -994,6 +1053,7 @@ export const redactRemoteSettings = <T extends { piEndpoints?: Array<{ id: strin
     // and `hasToken` is what a client should branch on.
     token: '',
     hasToken: Boolean(token),
+    ...(ssh ? { ssh } : {}),
   })),
 });
 

@@ -19,7 +19,15 @@ export const PI_ENDPOINT_PREFIX = 'pi:';
 
 export const isPiEndpointId = (id: string): boolean => id.startsWith(PI_ENDPOINT_PREFIX);
 
-export type EndpointDraft = { id?: string; label: string; url: string; token: string; hasAccessSecret?: boolean; access?: { clientId: string; clientSecret: string } };
+export type EndpointDraft = {
+  id?: string;
+  label: string;
+  url: string;
+  token: string;
+  hasAccessSecret?: boolean;
+  access?: { clientId: string; clientSecret: string };
+  ssh?: PiEndpoint['ssh'];
+};
 
 const slug = (value: string): string =>
   value
@@ -92,7 +100,19 @@ export const upsertEndpoint = (
   const url = normalizeEndpointUrl(draft.url);
   if (!url) return [...endpoints];
   const id = draft.id ?? endpointIdFrom(draft.label, url, endpoints.map((endpoint) => endpoint.id));
-  const next: PiEndpoint = { id, label: draft.label.trim(), url, token: draft.token.trim(), ...(draft.access ? { access: { clientId: draft.access.clientId.trim(), clientSecret: draft.access.clientSecret.trim() }, ...(draft.hasAccessSecret ? { hasAccessSecret: true } : {}) } : {}) };
+  const next: PiEndpoint = {
+    id,
+    label: draft.label.trim(),
+    url,
+    token: draft.token.trim(),
+    ...(draft.access
+      ? {
+          access: { clientId: draft.access.clientId.trim(), clientSecret: draft.access.clientSecret.trim() },
+          ...(draft.hasAccessSecret ? { hasAccessSecret: true } : {}),
+        }
+      : {}),
+    ...(draft.ssh ? { ssh: draft.ssh } : {}),
+  };
   const index = endpoints.findIndex((endpoint) => endpoint.id === id);
   if (index === -1) return [...endpoints, next];
   return endpoints.map((endpoint, position) => (position === index ? next : endpoint));
