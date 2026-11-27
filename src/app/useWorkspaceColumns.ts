@@ -223,6 +223,8 @@ export function useWorkspaceColumns({
     if (owned.length === 0) {
       projectLayoutsRef.current.delete(projectKey);
       setActiveSession(null);
+      setDraftPendingId(null);
+      setDraftAppearance(null);
       setNewSessionInstanceId(instanceId);
       setNewSessionDirectory(project.path ?? null);
       return;
@@ -272,6 +274,8 @@ export function useWorkspaceColumns({
   }, [
     saveCurrentLayout,
     setActiveSession,
+    setDraftAppearance,
+    setDraftPendingId,
     setMinimizedSessions,
     setNewSessionDirectory,
     setNewSessionInstanceId,

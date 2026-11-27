@@ -1,7 +1,12 @@
 import { normalizeEndpointUrl, upsertEndpoint } from './endpoints';
 import type { PiEndpoint } from '../types';
 
-export type AlignmentSummary = { apiKeys: string[]; signIns: number; peers: Array<{ id: string; label: string; url: string }> };
+export type AlignmentSummary = {
+  apiKeys: string[];
+  signIns: number;
+  peers: Array<{ id: string; label: string; url: string }>;
+  peersRevision?: string;
+};
 
 /** Never teach another machine that its own loopback is a different machine. */
 export const portableConnection = (endpoint: PiEndpoint): boolean => {

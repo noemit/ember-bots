@@ -178,7 +178,37 @@ export default function LeftRail({
   const composerConnection = useWorkspaceConnection();
   const docked = Boolean(composerConnection.activeKey && selectedSession);
   const scroller = React.useRef<HTMLDivElement>(null);
+  const asideRef = React.useRef<HTMLElement>(null);
   const dockElement = React.useRef<HTMLDivElement>(null);
+  const [narrowViewport, setNarrowViewport] = React.useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 767px)').matches
+      : false
+  );
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia('(max-width: 767px)');
+    const sync = () => setNarrowViewport(mql.matches);
+    sync();
+    mql.addEventListener('change', sync);
+    return () => mql.removeEventListener('change', sync);
+  }, []);
+  const mobileDrawerHidden = narrowViewport && !mobileOpen;
+  const prevMobileOpen = React.useRef(mobileOpen);
+  React.useEffect(() => {
+    const wasOpen = prevMobileOpen.current;
+    prevMobileOpen.current = mobileOpen;
+    if (!narrowViewport) return;
+    if (!wasOpen && mobileOpen) {
+      asideRef.current?.focus({ preventScroll: true });
+    } else if (wasOpen && !mobileOpen) {
+      const active = document.activeElement;
+      if (!active || active === document.body || asideRef.current?.contains(active)) {
+        const toggle = document.querySelector<HTMLElement>('[aria-controls="session-sidebar"]');
+        toggle?.focus({ preventScroll: true });
+      }
+    }
+  }, [mobileOpen, narrowViewport]);
   // Preserve composer-centre alignment unless the full folder needs more vertical room.
   // Measure the dock itself, not a guessed line count: folder names have no length limit.
   const [dockHeight, setDockHeight] = React.useState(0);
@@ -648,7 +678,11 @@ export default function LeftRail({
     <LayoutGroup id="rail-connection"><AvatarTransitionContext.Provider value={docked && !needle}>
     <NotificationSizeContext.Provider value={10}>
     <aside
+      ref={asideRef}
       id="session-sidebar"
+      tabIndex={narrowViewport && mobileOpen ? -1 : undefined}
+      aria-hidden={mobileDrawerHidden || undefined}
+      inert={mobileDrawerHidden}
       // Mobile safe-area padding must not lift the desktop dock off the composer's bottom edge.
       style={{ '--mini-rail-width': `${miniAvatarSize + 24}px`, paddingBottom: docked ? 0 : undefined } as React.CSSProperties}
       data-testid="session-rail"
@@ -738,6 +772,7 @@ export default function LeftRail({
               onKeyDown={(event) => {
                 if (event.key === 'Escape' && query) {
                   event.preventDefault();
+                  event.stopPropagation();
                   setQuery('');
                 }
               }}

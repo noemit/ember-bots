@@ -624,7 +624,7 @@ export default function App() {
   React.useEffect(() => {
     if (!mobileRailOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileRailOpen(false);
+      if (event.key === 'Escape' && !event.defaultPrevented) setMobileRailOpen(false);
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);

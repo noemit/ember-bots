@@ -120,7 +120,7 @@ test('Retry starts a missing bundled Kiln; isolated profiles have different port
     // Connection setup now uses reviewed URL/token entry; sharing is deliberate on the host,
     // not a generic Tailscale shell prompt copied from first-run setup.
     await expect(otherWindow.getByText(/included Kiln can be shared deliberately from Settings/)).toBeVisible();
-    await expect(otherWindow.getByRole('group', { name: 'Where will Kiln run?' })).toBeVisible();
+    await expect(otherWindow.getByRole('group', { name: 'Where is Kiln running?' })).toBeVisible();
     await otherWindow.screenshot({ path: test.info().outputPath('onboarding-where.png') });
     await otherWindow.getByRole('button', { name: /First bot/ }).click();
     // This offline profile has no provider/default model: setup must not claim to be finished.

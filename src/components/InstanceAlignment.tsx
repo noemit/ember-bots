@@ -59,11 +59,38 @@ export default function InstanceAlignment({ endpoints, instances, onSave, onProv
     let peersAdded = 0;
     try {
       const ready = review.filter(r => r.summary);
+      let driftedHost: string | null = null;
       for (const row of ready) {
         try {
-          const data = await request<{ peers: PiEndpoint[] }>(row.endpoint.id, '/alignment/connections', {});
-          connections = mergeConnections(connections, data.peers);
+          const reviewedPeers = row.summary!.peers;
+          const reviewedKeys = new Set(reviewedPeers.map(p => `${p.id}\0${p.url.replace(/\/+$/, '')}`));
+          if (!window.ember.piRequest) throw new Error('bridge unavailable');
+          const response = await window.ember.piRequest<{ peers: PiEndpoint[] }>(
+            row.endpoint.id,
+            '/alignment/connections',
+            {
+              method: 'POST',
+              body: {
+                ...(row.summary!.peersRevision ? { expectedRevision: row.summary!.peersRevision } : {}),
+                peerIds: reviewedPeers.map(p => p.id),
+              },
+            }
+          );
+          if (response.status === 409) {
+            driftedHost = row.endpoint.label;
+            break;
+          }
+          if (!response.ok) throw new Error('host unavailable');
+          const approved = (response.data?.peers ?? []).filter(p =>
+            reviewedKeys.has(`${p.id}\0${p.url.replace(/\/+$/, '')}`)
+          );
+          connections = mergeConnections(connections, approved);
         } catch { failures.add(row.endpoint.label); }
+      }
+      if (driftedHost) {
+        setReview(null);
+        setNotice(`Connections on ${driftedHost} changed since your review. Review connections again before aligning.`);
+        return;
       }
       // Use the latest settings when applying discoveries, preserving changes made during the request.
       const next = mergeConnections(latest.current, connections);

@@ -1041,31 +1041,47 @@ export type RemoteAccessState = {
  * and turned a shared 8-character secret into permanent full authority over every Hearth. The
  * remote surface gets the shape of an endpoint and whether a token exists, never the token.
  */
-export const redactRemoteSettings = <T extends { piEndpoints?: Array<{ id: string; label: string; url: string; token: string; ssh?: SshEndpointConfig }> }>(
+export const redactRemoteSettings = <T extends { piEndpoints?: Array<{ id: string; label: string; url: string; token: string; ssh?: SshEndpointConfig }>; composerDrafts?: unknown; composerDraftChanges?: unknown }>(
   settings: T
-): Omit<T, 'piEndpoints'> & { piEndpoints: Array<{ id: string; label: string; url: string; token: string; hasToken: boolean; ssh?: SshEndpointConfig }> } => ({
-  ...settings,
-  piEndpoints: (settings.piEndpoints ?? []).map(({ id, label, url, token, ssh }) => ({
-    id,
-    label,
-    url,
-    // Empty string, not `undefined`: the renderer's `maskToken` and its length checks expect one,
-    // and `hasToken` is what a client should branch on.
-    token: '',
-    hasToken: Boolean(token),
-    ...(ssh ? { ssh } : {}),
-  })),
-});
+): Omit<T, 'piEndpoints' | 'composerDrafts' | 'composerDraftChanges'> & {
+  piEndpoints: Array<{ id: string; label: string; url: string; token: string; hasToken: boolean; ssh?: SshEndpointConfig }>;
+  composerDrafts: Record<string, never>;
+} => {
+  const { piEndpoints: rawEndpoints, composerDrafts: _drafts, composerDraftChanges: _draftChanges, ...rest } = settings;
+  return {
+    ...(rest as Omit<T, 'piEndpoints' | 'composerDrafts' | 'composerDraftChanges'>),
+    composerDrafts: {},
+    piEndpoints: (rawEndpoints ?? []).map(({ id, label, url, token, ssh }) => ({
+      id,
+      label,
+      url,
+      // Empty string, not `undefined`: the renderer's `maskToken` and its length checks expect one,
+      // and `hasToken` is what a client should branch on.
+      token: '',
+      hasToken: Boolean(token),
+      ...(ssh ? { ssh } : {}),
+    })),
+  };
+};
 
 /**
- * Endpoint tokens are desktop-only. A remote client that posts `piEndpoints` would send the
- * redacted `''` back, and `parsePiEndpoints` requires a non-empty token — so accepting the
- * field from remote would silently delete every Hearth endpoint. Strip it instead. Browser
- * exposure, proxy trust and its password are desktop-only too: a browser session must not be
- * able to move the host's listener or choose a different trusted proxy origin.
+ * Endpoint tokens, desktop drafts, and host-network controls are desktop-only. A remote client that
+ * posts `piEndpoints` would send the redacted `''` back, and `parsePiEndpoints` requires a non-empty
+ * token — so accepting the field from remote would silently delete every Hearth endpoint. Desktop
+ * `composerDrafts` / `composerDraftChanges` are also excluded in both directions so remote browsers
+ * can neither read nor overwrite unsent desktop drafts.
  */
 export const withoutDesktopOnlySettings = (patch: unknown): unknown => {
   if (!patch || typeof patch !== 'object') return patch;
-  const { piEndpoints: _ignored, remoteAccessProxyOrigin: _proxy, remoteAccessEnabled: _remote, remotePassword: _password, automaticUpdateChecks: _updates, ...rest } = patch as Record<string, unknown>;
+  const {
+    piEndpoints: _ignored,
+    composerDrafts: _drafts,
+    composerDraftChanges: _draftChanges,
+    remoteAccessProxyOrigin: _proxy,
+    remoteAccessEnabled: _remote,
+    remotePassword: _password,
+    automaticUpdateChecks: _updates,
+    ...rest
+  } = patch as Record<string, unknown>;
   return rest;
 };

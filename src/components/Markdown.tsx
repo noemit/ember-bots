@@ -1,6 +1,6 @@
 import { ThreadLinkContext, threadIdFromLink, type ThreadLinks } from './threadLinkContext';
 import * as React from 'react';
-import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Element, Root, RootContent } from 'hast';
 import { cn } from '@/lib/utils';
@@ -9,7 +9,7 @@ import { useImageViewer, type ImageViewerApi } from './imageViewerContext';
 import CopyButton from './CopyButton';
 import { rehypeQuotePositions } from '../lib/quoteMarkdown';
 import { registerQuoteMarkdown, unregisterQuoteMarkdown } from '../lib/quoteDom';
-import { isSafeRasterDataImageUrl } from '../lib/staticHtmlPreview';
+import { codeSource, safeMarkdownUrlTransform } from '../lib/markdownHelpers';
 import {
   hasActiveTextSelection,
   isExternalWebHref,
@@ -19,25 +19,10 @@ import {
   type DocumentExplorationContextValue,
 } from '../lib/documentExploration';
 
+export { codeSource, safeMarkdownUrlTransform };
+
 const SKIP_TAGS = new Set(['a', 'code', 'pre']);
 const InsidePreContext = React.createContext(false);
-
-export const safeMarkdownUrlTransform = (url: string, key: string): string => {
-  const trimmed = url.trim();
-  if (key === 'src') {
-    return isSafeRasterDataImageUrl(trimmed) ? trimmed.replace(/\s+/g, '') : defaultUrlTransform(url);
-  }
-  if (key === 'href') {
-    const allowed = defaultUrlTransform(url);
-    if (allowed) return allowed;
-    if (isExternalWebHref(trimmed)) return trimmed;
-    if (/^file:\/\//i.test(trimmed) && parseDocCandidate(trimmed, { allowSpaces: true })) {
-      return trimmed;
-    }
-    return '';
-  }
-  return defaultUrlTransform(url);
-};
 
 const collectHastText = (node: Element | undefined): string => {
   if (!node) return '';
@@ -110,24 +95,6 @@ const openLink = (event: React.MouseEvent<HTMLAnchorElement>) => {
 /** A `src` an `<img>` can show and the viewer can open (data URL or http(s)). */
 const renderableSrc = (value: unknown): value is string =>
   typeof value === 'string' && /^(data:|https?:\/\/)/.test(value);
-
-/**
- * The raw source of a code block: the string child of its `code` element, never the rendered text.
- *
- * `textContent` would do for a block with no inline markup — which is the common case — but a syntax
- * highlight or a linkified token would then paste its own annotations, and the whole point of a copy
- * button here is that the fence's contents survive a paste byte for byte.
- */
-export const codeSource = (node: Element | undefined): string => {
-  const collect = (element: Element): string =>
-    element.children
-      .map((child) => (child.type === 'text' ? child.value : child.type === 'element' ? collect(child) : ''))
-      .join('');
-  const code = node?.children.find(
-    (child): child is Element => child.type === 'element' && child.tagName === 'code'
-  );
-  return code ? collect(code) : '';
-};
 
 const InlineCodeSpan = ({
   node,

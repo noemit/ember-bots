@@ -132,13 +132,33 @@ export const mostRecentOccurrence = (schedule: ScheduleSpec, now: number): numbe
   if (schedule.kind === "daily") {
     const today = wallClock(now, timeZone);
     const todayAt = wallClockToEpoch(today.year, today.month, today.day, parsed.hour, parsed.minute, timeZone);
-    return todayAt <= now ? todayAt : todayAt - DAY_MS;
+    if (todayAt <= now) return todayAt;
+    // D4: step back by local calendar date, never `todayAt - 24h`, so fall DST transitions
+    // resolve yesterday's true wall-clock instant instead of creating a phantom second slot.
+    const yesterday = new Date(Date.UTC(today.year, today.month - 1, today.day - 1));
+    return wallClockToEpoch(
+      yesterday.getUTCFullYear(),
+      yesterday.getUTCMonth() + 1,
+      yesterday.getUTCDate(),
+      parsed.hour,
+      parsed.minute,
+      timeZone
+    );
   }
-  // weekly: walk back up to a week for the most recent listed weekday.
-  for (let back = 0; back < 7; back += 1) {
-    const clock = wallClock(now - back * DAY_MS, timeZone);
-    if (!schedule.weekdays.includes(clock.weekday)) continue;
-    const at = wallClockToEpoch(clock.year, clock.month, clock.day, parsed.hour, parsed.minute, timeZone);
+  // weekly: walk back up to 7 local calendar dates for the most recent listed weekday.
+  const today = wallClock(now, timeZone);
+  for (let back = 0; back <= 7; back += 1) {
+    const weekday = (((today.weekday - back) % 7) + 7) % 7;
+    if (!schedule.weekdays.includes(weekday)) continue;
+    const candidate = new Date(Date.UTC(today.year, today.month - 1, today.day - back));
+    const at = wallClockToEpoch(
+      candidate.getUTCFullYear(),
+      candidate.getUTCMonth() + 1,
+      candidate.getUTCDate(),
+      parsed.hour,
+      parsed.minute,
+      timeZone
+    );
     if (at <= now) return at;
   }
   return undefined;

@@ -7,6 +7,8 @@ export type TranscriptReconciliation = {
   messages: ChatMessage[];
   reconciledOptimisticIds: string[];
   needsFullFetch: boolean;
+  /** True when a newer non-overlapping tail was glued past held history, leaving an interior gap. */
+  hasGap?: boolean;
 };
 
 /**
@@ -266,6 +268,7 @@ export function reconcileTranscriptTail(
     messages: shareMessageReferences(current, kept),
     reconciledOptimisticIds: reconciledIds,
     needsFullFetch: false,
+    ...(afterWindow ? { hasGap: true } : {}),
   };
 }
 

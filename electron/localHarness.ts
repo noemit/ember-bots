@@ -23,6 +23,7 @@
  *   because "no instances" for a missing binary is the exact dead end the copy rules forbid.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -195,12 +196,52 @@ export const harnessIsReady = async (
   return { ready: true, token, ...(answer.version ? { version: answer.version } : {}) };
 };
 
-const defaultProbe = async (
+const verifyHealthChallenge = async (
   url: string,
-  token: string | undefined
-): Promise<{ ok: boolean; version?: string; occupied?: boolean }> => {
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<'verified' | 'unsupported' | 'failed' | 'unreachable'> => {
+  const nonce = randomBytes(16).toString('hex');
   try {
-    const response = await fetch(`${url}/health`, {
+    const response = await fetchFn(`${url}/health/challenge?nonce=${nonce}`, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(1_500),
+    });
+    if (response.status === 401 || response.status === 404) return 'unsupported';
+    if (!response.ok) return 'failed';
+    const body = (await response.json().catch(() => ({}))) as { service?: unknown; proof?: unknown };
+    if (body.service !== 'hearth' || typeof body.proof !== 'string' || !/^[a-f0-9]{64}$/i.test(body.proof)) {
+      return 'failed';
+    }
+    const expected = createHmac('sha256', token).update(`kiln-health:${nonce}`).digest('hex');
+    const actualBuf = Buffer.from(body.proof.toLowerCase(), 'hex');
+    const expectedBuf = Buffer.from(expected, 'hex');
+    if (actualBuf.length !== expectedBuf.length || !timingSafeEqual(actualBuf, expectedBuf)) {
+      return 'failed';
+    }
+    return 'verified';
+  } catch {
+    return 'unreachable';
+  }
+};
+
+export const defaultProbe = async (
+  url: string,
+  token: string | undefined,
+  options?: { allowLegacyAuthProbe?: boolean; fetchFn?: typeof fetch }
+): Promise<{ ok: boolean; version?: string; occupied?: boolean }> => {
+  const fetchFn = options?.fetchFn ?? fetch;
+  try {
+    if (token) {
+      // Prove the local listener already holds our private token BEFORE transmitting it (S3).
+      const challenge = await verifyHealthChallenge(url, token, fetchFn);
+      if (challenge === 'unreachable') return { ok: false };
+      if (challenge === 'failed') return { ok: false, occupied: true };
+      if (challenge === 'unsupported' && !options?.allowLegacyAuthProbe) {
+        return { ok: false, occupied: true };
+      }
+    }
+    const response = await fetchFn(`${url}/health`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
       redirect: 'error',
       signal: AbortSignal.timeout(1_500),
@@ -360,9 +401,12 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
 
   const readToken = options.readToken ?? (() => readHarnessToken(home));
 
+  // Respect the disabled setting before probing any local listener or reading credentials (S3).
+  if (options.disabled === true) return { state: { kind: 'disabled' }, stop: async () => {} };
+
   // 1. Something already answering is not ours. This is the service the CLI installed, a container,
-  //    or a second Ember window; either way, quitting must not stop it. It is only adopted when we
-  //    can authenticate to it — a host whose answer we cannot use is not a host we can list.
+  //    or a second Ember window; either way, quitting must not stop it. It is only adopted when it
+  //    proves it already holds our local token (challenge-response before sending the credential).
   const existing = await harnessIsReady(probe, readToken, url);
   if (existing.ready) {
     return {
@@ -371,7 +415,6 @@ export const startLocalHarness = async (options: LocalHarnessOptions): Promise<{
     };
   }
 
-  if (options.disabled === true) return { state: { kind: 'disabled' }, stop: async () => {} };
   if (existing.occupied) return {
     state: { kind: 'failed', reason: `another server is using port ${port}, and Ember could not authenticate it as Kiln. Add that Kiln's URL and token in Settings → Computers and Containers, or stop the server and select Retry` },
     stop: async () => {},

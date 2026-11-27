@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AgentsDoc, writePeersMirror, type PeerEndpoint } from "../../agents";
 import {
   alignmentProviders,
@@ -202,11 +203,25 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
       const registered = registeredProviders();
       const providers = store ? (await alignmentProviders(store, deps.alignmentConfig)).filter(p => registered.has(p.providerId)) : [];
       const credentials = providers.filter(p => p.source === "stored");
+      const portable = (state?.peers ?? []).flatMap((p) => {
+        const peer = portablePeer(p);
+        return peer ? [peer] : [];
+      });
+      const peersRevision = createHash("sha256")
+        .update(
+          [...portable]
+            .sort((a, b) => a.id.localeCompare(b.id) || a.url.localeCompare(b.url))
+            .map((p) => `${p.id}\0${p.label}\0${p.url}\0${p.token}`)
+            .join("\n")
+        )
+        .digest("hex")
+        .slice(0, 24);
       return json({
         providers,
         apiKeys: credentials.filter((c) => c.type === "api_key").map((c) => c.providerId),
         signIns: credentials.filter((c) => c.type === "oauth").length,
-        peers: (state?.peers ?? []).filter((p) => portablePeer(p)).map(({ id, label, url }) => ({ id, label, url })),
+        peers: portable.map(({ id, label, url }) => ({ id, label, url })),
+        peersRevision,
       });
     } catch {
       return json(
@@ -216,12 +231,33 @@ export const handleProviderRoutes = async (ctx: RouteContext): Promise<Response 
     }
   }
   if (path === "/alignment/connections" && request.method === "POST") {
+    const body = await readBody(request);
     const state = await harness.snapshot(AgentsDoc, context);
+    const portable = (state?.peers ?? []).flatMap((p) => {
+      const peer = portablePeer(p);
+      return peer ? [peer] : [];
+    });
+    const peersRevision = createHash("sha256")
+      .update(
+        [...portable]
+          .sort((a, b) => a.id.localeCompare(b.id) || a.url.localeCompare(b.url))
+          .map((p) => `${p.id}\0${p.label}\0${p.url}\0${p.token}`)
+          .join("\n")
+      )
+      .digest("hex")
+      .slice(0, 24);
+    if (typeof body.expectedRevision === "string" && body.expectedRevision && body.expectedRevision !== peersRevision) {
+      return json(
+        { error: "Connections on this Kiln changed since your review. Review connections again before aligning." },
+        409
+      );
+    }
+    const allowedIds = Array.isArray(body.peerIds)
+      ? new Set(body.peerIds.filter((id): id is string => typeof id === "string"))
+      : null;
     return json({
-      peers: (state?.peers ?? []).flatMap((p) => {
-        const peer = portablePeer(p);
-        return peer ? [peer] : [];
-      }),
+      peersRevision,
+      peers: allowedIds ? portable.filter((p) => allowedIds.has(p.id)) : portable,
     });
   }
   if (path === "/alignment/import" && request.method === "POST") {

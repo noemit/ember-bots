@@ -25,7 +25,7 @@ import {
 import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import CopyButton from './CopyButton';
-import { codeSource, safeMarkdownUrlTransform } from './Markdown';
+import { codeSource, safeMarkdownUrlTransform } from '../lib/markdownHelpers';
 import {
   closeDocumentPreview,
   decodePopoutPointerFromLocation,

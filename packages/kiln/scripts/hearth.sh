@@ -182,6 +182,19 @@ stop() {
   rm -f "$PIDFILE"
 }
 
+restart() {
+  local kind
+  if kind="$(supervisor_kind)" && [ -n "$kind" ]; then
+    echo "hearth is managed by the $kind launcher; restarting it there (port ${HEARTH_PORT})"
+    supervised "$kind" restart
+    for _ in $(seq 1 360); do health && break; sleep 0.25; done
+    health || { failed_to_start "$kind (restart)"; exit 1; }
+    echo "hearth restarted → $(url 2>/dev/null || true)"
+  else
+    stop; start
+  fi
+}
+
 # Pull the latest commit, install dependencies, and restart — the whole deploy in one command.
 # (With HEARTH_AUTORELOAD the restart is usually automatic after a pull; `update` is the explicit
 # path that also handles dependency changes, which auto-reload deliberately leaves alone.)
@@ -242,17 +255,7 @@ provider() {
 case "${1:-status}" in
   start) start ;;
   stop) stop ;;
-  restart)
-    if kind="$(supervisor_kind)" && [ -n "$kind" ]; then
-      echo "hearth is managed by the $kind launcher; restarting it there (port ${HEARTH_PORT})"
-      supervised "$kind" restart
-      for _ in $(seq 1 360); do health && break; sleep 0.25; done
-      health || { failed_to_start "$kind (restart)"; exit 1; }
-      echo "hearth restarted → $(url 2>/dev/null || true)"
-    else
-      stop; start
-    fi
-    ;;
+  restart) restart ;;
   update) update ;;
   prune) shift; prune "$@" ;;
   status) status ;;

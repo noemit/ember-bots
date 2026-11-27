@@ -211,7 +211,7 @@ follow durable tool-task ancestry; descriptive source text must never be parsed 
 - `bun run test` — Bun regression tests for API pagination/failures, transport security, and theme contrast.
 - `bun run check` — typecheck + lint + test; run this before committing.
 - `bun run build` — typecheck the renderer, build it to `dist/`, and emit electron main/preload to `dist-electron/`.
-- `bun.lock` is intentionally untracked (`packageManager` pins the Bun version instead).
+- Both `bun.lock` and `packages/kiln/bun.lock` are tracked; dependency updates include their lockfile changes alongside `package.json`.
 
 ## Completion
 

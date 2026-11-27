@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import type { Credential } from "@earendil-works/pi-ai";
 import { attachCurrentContextTracking } from "./currentContext";
 import { createLoginSupervisor, type LoginProvider } from "./login";
@@ -154,6 +155,16 @@ export const startHearthServer = (deps: ServerDeps): HearthServer => {
         (request.method === "GET" && (path === "/tasks/stream" || /^\/conversations\/[^/]+\/events$/.test(path)));
       if (request.headers.get("origin") !== null && (isMutating || isWebSocketUpgrade)) {
         return forbiddenOrigin();
+      }
+      // Unauthenticated peer-ownership challenge: proves this listener holds the private token
+      // without the client transmitting the reusable bearer secret first (S3).
+      if (request.method === "GET" && path === "/health/challenge") {
+        const nonce = url.searchParams.get("nonce") ?? "";
+        if (!/^[a-f0-9]{16,128}$/i.test(nonce)) {
+          return json({ error: "invalid nonce" }, 400);
+        }
+        const proof = createHmac("sha256", token).update(`kiln-health:${nonce}`).digest("hex");
+        return json({ service: "hearth", proof });
       }
       if (!authorized(request, token)) return json({ error: "unauthorized" }, 401);
 

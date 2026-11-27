@@ -107,12 +107,12 @@ export class FileCredentialStore implements CredentialStore {
     return this.loaded;
   }
 
-  private persist(): void {
+  private persist(candidate: ReadonlyMap<string, Credential>): void {
     const directory = dirname(this.file);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     tightenPermissions(directory, 0o700);
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(Object.fromEntries(this.credentials), null, 2)}\n`, { mode: 0o600 });
+    const tmp = `${this.file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(Object.fromEntries(candidate), null, 2)}\n`, { mode: 0o600 });
     tightenPermissions(tmp, 0o600);
     renameSync(tmp, this.file);
   }
@@ -154,8 +154,10 @@ export class FileCredentialStore implements CredentialStore {
       const current = this.credentials.get(canonical);
       const next = await fn(current);
       if (next === undefined) return current;
+      const candidate = new Map(this.credentials);
+      candidate.set(canonical, next);
+      this.persist(candidate);
       this.credentials.set(canonical, next);
-      this.persist();
       return next;
     });
   }
@@ -164,7 +166,11 @@ export class FileCredentialStore implements CredentialStore {
     const canonical = normalizeProviderId(providerId);
     return this.enqueue(canonical, async () => {
       await this.load();
-      if (this.credentials.delete(canonical)) this.persist();
+      if (!this.credentials.has(canonical)) return;
+      const candidate = new Map(this.credentials);
+      candidate.delete(canonical);
+      this.persist(candidate);
+      this.credentials.delete(canonical);
     });
   }
 }
@@ -298,12 +304,12 @@ export class FileModelsStore implements ModelsStore {
     return this.loaded;
   }
 
-  private persist(): void {
+  private persist(candidate: ReadonlyMap<string, ModelsStoreEntry>): void {
     const directory = dirname(this.file);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     tightenPermissions(directory, 0o700);
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(Object.fromEntries(this.entries), null, 2)}\n`, { mode: 0o600 });
+    const tmp = `${this.file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(Object.fromEntries(candidate), null, 2)}\n`, { mode: 0o600 });
     tightenPermissions(tmp, 0o600);
     renameSync(tmp, this.file);
   }
@@ -320,8 +326,10 @@ export class FileModelsStore implements ModelsStore {
     const canonical = normalizeProviderId(providerId);
     return this.enqueue(async () => {
       await this.load();
+      const candidate = new Map(this.entries);
+      candidate.set(canonical, entry);
+      this.persist(candidate);
       this.entries.set(canonical, entry);
-      this.persist();
     });
   }
 
@@ -329,9 +337,15 @@ export class FileModelsStore implements ModelsStore {
     const canonical = normalizeProviderId(providerId);
     return this.enqueue(async () => {
       await this.load();
-      const deletedCanonical = this.entries.delete(canonical);
-      const deletedRaw = canonical !== providerId && this.entries.delete(providerId);
-      if (deletedCanonical || deletedRaw) this.persist();
+      const hasCanonical = this.entries.has(canonical);
+      const hasRaw = canonical !== providerId && this.entries.has(providerId);
+      if (!hasCanonical && !hasRaw) return;
+      const candidate = new Map(this.entries);
+      candidate.delete(canonical);
+      if (canonical !== providerId) candidate.delete(providerId);
+      this.persist(candidate);
+      this.entries.delete(canonical);
+      if (canonical !== providerId) this.entries.delete(providerId);
     });
   }
 }

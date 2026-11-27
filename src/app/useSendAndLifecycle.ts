@@ -899,9 +899,12 @@ export function useSendAndLifecycle({
     usageOpen: false,
   });
   draftPaneRef.current = { pendingId: draftPendingId, activeSession, newSessionInstanceId, usageOpen };
-  const paneShowsPending = (id: string): boolean => {
+  const paneShowsPending = (id: string, instanceId?: string): boolean => {
     const pane = draftPaneRef.current;
-    return pane.pendingId === id && pane.newSessionInstanceId !== null && !pane.activeSession && !pane.usageOpen;
+    if (pane.pendingId !== id || pane.newSessionInstanceId === null || pane.activeSession || pane.usageOpen) {
+      return false;
+    }
+    return instanceId === undefined || pane.newSessionInstanceId === instanceId;
   };
 
   /** The name a new conversation gets before the host ever answers. Local, deterministic. */
@@ -1025,7 +1028,7 @@ export function useSendAndLifecycle({
         updatedAt: now,
       },
     });
-    const showing = paneShowsPending(id);
+    const showing = paneShowsPending(id, options.instanceId);
     const hostLabel = instanceLabelOf(options.instanceId);
     const target = queueTargetFor(ref, session);
     void handOffPendingMessages({

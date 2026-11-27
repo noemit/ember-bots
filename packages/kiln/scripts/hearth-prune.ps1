@@ -20,9 +20,11 @@ param(
   [int]$ImageDays = 7,
   [int]$ArchiveDays = 7,
   [int]$KeepBackups = 5,
+  [switch]$Apply,
   [switch]$DryRun
 )
 
+$isDryRun = $DryRun -or (-not $Apply)
 $ErrorActionPreference = "Continue"
 $log = Join-Path $HearthHome "hearth-prune.log"
 
@@ -32,7 +34,7 @@ function Write-PruneLog([string]$Message) {
   try { Add-Content -Path $log -Value $line } catch { }
 }
 
-Write-PruneLog ("prune started (image_days={0} archive_days={1} dry={2})" -f $ImageDays, $ArchiveDays, [bool]$DryRun)
+Write-PruneLog ("prune started (image_days={0} archive_days={1} dry={2})" -f $ImageDays, $ArchiveDays, [bool]$isDryRun)
 
 # 1. stop Hearth -------------------------------------------------------------
 try {
@@ -71,7 +73,7 @@ if (-not $python) {
   } else {
     $argv = @($script, "--home", $HearthHome, "--image-days", $ImageDays,
               "--archive-days", $ArchiveDays, "--keep-backups", $KeepBackups)
-    if (-not $DryRun) { $argv += "--apply" }
+    if (-not $isDryRun) { $argv += "--apply" }
     try {
       $out = & $python @argv 2>&1
       foreach ($line in $out) { Write-PruneLog ("  " + $line) }
@@ -83,7 +85,7 @@ if (-not $python) {
 }
 
 # 3. always bring Hearth back -----------------------------------------------
-if (-not $DryRun) {
+if (-not $isDryRun) {
   try {
     Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop
     Write-PruneLog "hearth task '$TaskName' started"

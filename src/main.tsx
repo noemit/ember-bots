@@ -1,11 +1,14 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import { DocumentPopoutView } from './components/DocumentPreviewDialog';
 import { RemoteAppStatus } from './components/RemoteAppStatus';
 import { RemoteAppBoundary } from './components/RemoteAppBoundary';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import './styles.css';
+
+const LazyDocumentPopoutView = React.lazy(() =>
+  import('./components/DocumentPreviewDialog').then((mod) => ({ default: mod.DocumentPopoutView }))
+);
 
 const boot = async () => {
   const remote = !window.ember && !import.meta.env.DEV;
@@ -22,7 +25,9 @@ const boot = async () => {
         <RemoteAppBoundary remote={remote}>
           {isDocPopout ? (
             <TooltipProvider delayDuration={300}>
-              <DocumentPopoutView />
+              <React.Suspense fallback={null}>
+                <LazyDocumentPopoutView />
+              </React.Suspense>
             </TooltipProvider>
           ) : (
             <App />

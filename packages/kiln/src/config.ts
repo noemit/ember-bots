@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import packageInfo from "../package.json";
 import { tightenPermissions } from "./permissions";
 import { generateToken, isUsableToken } from "./token";
@@ -125,22 +125,58 @@ export const ensureHome = (config: HearthConfig): boolean => {
   return fresh;
 };
 
+/** Walk upward from `dir` to locate the owning `.git` directory, supporting worktree `.git` files. */
+const resolveGitDir = (startDir: string): { gitDir: string; commonDir: string } | null => {
+  let cursor = resolve(startDir);
+  while (true) {
+    const dotGit = join(cursor, ".git");
+    if (existsSync(dotGit)) {
+      const stats = statSync(dotGit);
+      if (stats.isDirectory()) {
+        return { gitDir: dotGit, commonDir: dotGit };
+      }
+      if (stats.isFile()) {
+        const pointer = readFileSync(dotGit, "utf8").trim();
+        const match = /^gitdir:\s*(.+)$/i.exec(pointer);
+        if (match?.[1]) {
+          const gitDir = resolve(cursor, match[1].trim());
+          const commondirFile = join(gitDir, "commondir");
+          const commonDir = existsSync(commondirFile)
+            ? resolve(gitDir, readFileSync(commondirFile, "utf8").trim())
+            : gitDir;
+          return { gitDir, commonDir };
+        }
+      }
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return null;
+    cursor = parent;
+  }
+};
+
 /** Best-effort short git SHA of the checkout, so `/health` names the running build.
- *  Reads `.git` directly — the `git` CLI can be missing or refuse a foreign-owned checkout
- *  on Windows, which silently yielded no build id. */
+ *  Walks upward to the owning repository (including worktrees) and reads `.git` directly —
+ *  the `git` CLI can be missing or refuse a foreign-owned checkout on Windows. */
 export const hearthBuild = (dir: string): string | undefined => {
   try {
-    const head = readFileSync(join(dir, ".git", "HEAD"), "utf8").trim();
+    const found = resolveGitDir(dir);
+    if (!found) return undefined;
+    const head = readFileSync(join(found.gitDir, "HEAD"), "utf8").trim();
     if (/^[0-9a-f]{40}$/i.test(head)) return head.slice(0, 7); // detached HEAD
     const ref = head.startsWith("ref: ") ? head.slice(5).trim() : "";
     if (!ref) return undefined;
-    const refPath = join(dir, ".git", ref);
-    if (existsSync(refPath)) {
-      const sha = readFileSync(refPath, "utf8").trim();
-      if (/^[0-9a-f]{40}$/i.test(sha)) return sha.slice(0, 7);
+    for (const root of [found.gitDir, found.commonDir]) {
+      const refPath = join(root, ref);
+      if (existsSync(refPath)) {
+        const sha = readFileSync(refPath, "utf8").trim();
+        if (/^[0-9a-f]{40}$/i.test(sha)) return sha.slice(0, 7);
+      }
     }
-    for (const line of readFileSync(join(dir, ".git", "packed-refs"), "utf8").split("\n")) {
-      if (line.endsWith(` ${ref}`)) return line.split(" ")[0].slice(0, 7);
+    const packedPath = join(found.commonDir, "packed-refs");
+    if (existsSync(packedPath)) {
+      for (const line of readFileSync(packedPath, "utf8").split("\n")) {
+        if (line.endsWith(` ${ref}`)) return line.split(" ")[0]!.slice(0, 7);
+      }
     }
   } catch {
     // not a git checkout

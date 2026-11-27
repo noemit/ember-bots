@@ -165,7 +165,89 @@ def apply_images(conn: sqlite3.Connection, victims, dry_run: bool) -> int:
 # policy 2: archive whole stale conversations
 # --------------------------------------------------------------------------
 
-ARCHIVE_TABLES = ("conversations", "entries", "tasks", "submissions", "documents", "record_ids")
+ARCHIVE_TABLES = (
+    "conversations",
+    "entries",
+    "tasks",
+    "submissions",
+    "documents",
+    "document_revisions",
+    "record_ids",
+)
+
+ACTIVE_DOC_KINDS = (
+    "hearth.questions",
+    "hearth.approvals",
+    "pi.inbox",
+    "pi.live",
+    "hearth.stop-queue",
+)
+
+
+def _doc_has_active_state(kind: str, conn: sqlite3.Connection, doc_id: int) -> bool:
+    """Return True (fail-closed) if a live document may still hold pending questions/inputs/runs."""
+    rows = conn.execute(
+        "select kind, content from document_revisions where document_id = ? order by seq asc",
+        (doc_id,),
+    ).fetchall()
+    if not rows:
+        return False
+    # Reconstruct base state; if later delta revisions exist for a sensitive doc, fail closed
+    # rather than risking archiving a conversation with a pending question or queued direction.
+    if any(rkind != "base" for rkind, _ in rows):
+        return True
+    try:
+        state = json.loads(rows[-1][1])
+    except Exception:
+        return True
+    if not isinstance(state, dict):
+        return True
+    if kind == "pi.inbox":
+        return bool(state.get("items"))
+    if kind == "pi.live":
+        return bool(state.get("run"))
+    if kind == "hearth.stop-queue":
+        return bool(state.get("active") or state.get("items") or state.get("pending"))
+    if kind in ("hearth.questions", "hearth.approvals"):
+        items = state.get("items") or state.get("pending") or state.get("questions") or state.get("approvals")
+        if isinstance(items, dict):
+            return any(
+                isinstance(v, dict) and v.get("status") in (None, "pending", "open", "waiting")
+                for v in items.values()
+            )
+        if isinstance(items, list):
+            return any(
+                isinstance(v, dict) and v.get("status") in (None, "pending", "open", "waiting")
+                for v in items
+            )
+        return bool(items)
+    return False
+
+
+def conversation_has_live_work(conn: sqlite3.Connection, cid: int) -> bool:
+    """True if the conversation has non-terminal tasks, unsettled submissions, or pending decisions."""
+    if conn.execute(
+        "select 1 from tasks where conversation_id = ? and status != 'terminal' limit 1",
+        (cid,),
+    ).fetchone():
+        return True
+    if conn.execute(
+        "select 1 from submissions where conversation_id = ? and status in ('queued', 'placed') limit 1",
+        (cid,),
+    ).fetchone():
+        return True
+    tables = {r[0] for r in conn.execute("select name from sqlite_master where type = 'table'")}
+    if "documents" in tables and "document_revisions" in tables:
+        placeholders = ",".join("?" for _ in ACTIVE_DOC_KINDS)
+        docs = conn.execute(
+            f"select id, kind from documents where scope_kind = 'conversation' and owner_id = ? "
+            f"and retired_at is null and kind in ({placeholders})",
+            (cid, *ACTIVE_DOC_KINDS),
+        ).fetchall()
+        for doc_id, kind in docs:
+            if _doc_has_active_state(kind, conn, doc_id):
+                return True
+    return False
 
 
 def conversation_ages(conn: sqlite3.Connection) -> dict[int, tuple[int, float]]:
@@ -187,11 +269,11 @@ def conversation_ages(conn: sqlite3.Connection) -> dict[int, tuple[int, float]]:
 
 
 def plan_archive(conn: sqlite3.Connection, days: float) -> list[tuple[int, int]]:
-    """(conversation_id, entry_count) for conversations idle longer than `days`."""
+    """(conversation_id, entry_count) for truly idle conversations older than `days`."""
     cutoff = now_ms() - days * 86_400_000
     stale = []
     for cid, (count, newest) in conversation_ages(conn).items():
-        if newest and newest < cutoff:
+        if newest and newest < cutoff and not conversation_has_live_work(conn, cid):
             stale.append((cid, count))
     stale.sort(key=lambda x: -x[1])
     return stale
@@ -209,32 +291,94 @@ def ensure_archive_schema(archive: sqlite3.Connection) -> None:
 
 
 def apply_archive(live: sqlite3.Connection, stale, archive_path: Path, dry_run: bool) -> tuple[int, int]:
-    """Copy stale conversations to the archive DB, then delete them from live."""
+    """Copy stale conversations (including submissions and documents) to archive DB, then delete."""
     if dry_run or not stale:
         return 0, 0
+    tables = {r[0] for r in live.execute("select name from sqlite_master where type = 'table'")}
+    has_docs = "documents" in tables and "document_revisions" in tables
     archive = sqlite3.connect(archive_path)
     try:
         ensure_archive_schema(archive)
         moved = 0
+        expected_counts: dict[int, tuple[int, int, int, int]] = {}
+        doc_ids_by_cid: dict[int, list[int]] = {}
+        sub_ids_by_cid: dict[int, list[int]] = {}
         for cid, count in stale:
+            if conversation_has_live_work(live, cid):
+                continue
+            conv_row = live.execute(
+                "select id, record from conversations where id = ?", (cid,)
+            ).fetchone()
+            if not conv_row:
+                continue
+            entries = [
+                {"id": eid, "conversation_id": cid, "head": head,
+                 "commit_seq": seq, "record": rec}
+                for eid, head, seq, rec in live.execute(
+                    "select id, head, commit_seq, record from entries where conversation_id = ?",
+                    (cid,))
+            ]
+            tasks = [
+                {"id": tid, "kind": kind, "status": status, "record": rec}
+                for tid, kind, status, rec in live.execute(
+                    "select id, kind, status, record from tasks where conversation_id = ?",
+                    (cid,))
+            ]
+            submissions = [
+                {"id": sid, "conversation_id": cid, "request_id": req_id, "status": status, "record": rec}
+                for sid, req_id, status, rec in live.execute(
+                    "select id, request_id, status, record from submissions where conversation_id = ?",
+                    (cid,))
+            ]
+            sub_ids_by_cid[cid] = [s["id"] for s in submissions]
+            task_ids = [t["id"] for t in tasks]
+            documents = []
+            document_revisions = []
+            if has_docs:
+                doc_rows = list(live.execute(
+                    "select id, kind, family, key_value, scope_kind, owner_id, created_at, retired_at, record "
+                    "from documents where scope_kind = 'conversation' and owner_id = ?",
+                    (cid,),
+                ))
+                if task_ids:
+                    t_placeholders = ",".join("?" for _ in task_ids)
+                    doc_rows.extend(live.execute(
+                        f"select id, kind, family, key_value, scope_kind, owner_id, created_at, retired_at, record "
+                        f"from documents where scope_kind = 'task' and owner_id in ({t_placeholders})",
+                        task_ids,
+                    ))
+                documents = [
+                    {
+                        "id": did, "kind": kind, "family": fam, "key_value": kv,
+                        "scope_kind": sk, "owner_id": oid, "created_at": cat,
+                        "retired_at": rat, "record": rec,
+                    }
+                    for did, kind, fam, kv, sk, oid, cat, rat, rec in doc_rows
+                ]
+                doc_ids = [d["id"] for d in documents]
+                doc_ids_by_cid[cid] = doc_ids
+                if doc_ids:
+                    d_placeholders = ",".join("?" for _ in doc_ids)
+                    document_revisions = [
+                        {"document_id": did, "seq": seq, "kind": kind, "version": ver, "content": content}
+                        for did, seq, kind, ver, content in live.execute(
+                            f"select document_id, seq, kind, version, content "
+                            f"from document_revisions where document_id in ({d_placeholders}) order by document_id, seq",
+                            doc_ids,
+                        )
+                    ]
+            else:
+                doc_ids_by_cid[cid] = []
+
             payload = {
-                "conversation": live.execute(
-                    "select record from conversations where id = ?", (cid,)
-                ).fetchone()[0],
-                "entries": [
-                    {"id": eid, "conversation_id": cid, "head": head,
-                     "commit_seq": seq, "record": rec}
-                    for eid, head, seq, rec in live.execute(
-                        "select id, head, commit_seq, record from entries where conversation_id = ?",
-                        (cid,))
-                ],
-                "tasks": [
-                    {"id": tid, "kind": kind, "status": status, "record": rec}
-                    for tid, kind, status, rec in live.execute(
-                        "select id, kind, status, record from tasks where conversation_id = ?",
-                        (cid,))
-                ],
+                "conversation": conv_row[1],
+                "entries": entries,
+                "tasks": tasks,
+                "submissions": submissions,
+                "documents": documents,
+                "document_revisions": document_revisions,
             }
+            expected_counts[cid] = (len(entries), len(tasks), len(submissions), len(documents))
             archive.execute(
                 "insert or replace into archived_conversations values (?,?,?,?)",
                 (cid, dt.datetime.now().isoformat(timespec="seconds"), count,
@@ -243,14 +387,26 @@ def apply_archive(live: sqlite3.Connection, stale, archive_path: Path, dry_run: 
             moved += 1
         archive.commit()
 
-        # Read back before deleting anything: if the archive did not persist,
-        # the live rows must stay.
-        stored = {row[0] for row in archive.execute(
-            "select conversation_id from archived_conversations")}
-        verified = [cid for cid, _ in stale if cid in stored]
-        if len(verified) != len(stale):
+        # Read back and verify every archived payload deserializes with matching counts before deleting.
+        verified: list[int] = []
+        for cid, exp in expected_counts.items():
+            row = archive.execute(
+                "select payload from archived_conversations where conversation_id = ?", (cid,)
+            ).fetchone()
+            if not row:
+                continue
+            parsed = json.loads(row[0])
+            got = (
+                len(parsed.get("entries", [])),
+                len(parsed.get("tasks", [])),
+                len(parsed.get("submissions", [])),
+                len(parsed.get("documents", [])),
+            )
+            if got == exp and "conversation" in parsed:
+                verified.append(cid)
+        if len(verified) != len(expected_counts):
             raise RuntimeError(
-                f"archive verification failed: {len(verified)}/{len(stale)} stored; nothing deleted")
+                f"archive verification failed: {len(verified)}/{len(expected_counts)} verified; nothing deleted")
 
         deleted_entries = 0
         for cid in verified:
@@ -261,10 +417,16 @@ def apply_archive(live: sqlite3.Connection, stale, archive_path: Path, dry_run: 
             task_ids = [r[0] for r in live.execute("select id from tasks where conversation_id = ?", (cid,))]
             live.executemany("delete from record_ids where id = ?", [(i,) for i in task_ids])
             live.execute("delete from tasks where conversation_id = ?", (cid,))
+            sub_ids = sub_ids_by_cid.get(cid, [])
+            live.executemany("delete from record_ids where id = ?", [(i,) for i in sub_ids])
             live.execute("delete from submissions where conversation_id = ?", (cid,))
-            conv_id = cid
-            live.execute("delete from record_ids where id = ? and record_type = 'conversation'", (conv_id,))
-            live.execute("delete from conversations where id = ?", (conv_id,))
+            doc_ids = doc_ids_by_cid.get(cid, [])
+            if has_docs and doc_ids:
+                d_placeholders = ",".join("?" for _ in doc_ids)
+                live.execute(f"delete from document_revisions where document_id in ({d_placeholders})", doc_ids)
+                live.execute(f"delete from documents where id in ({d_placeholders})", doc_ids)
+            live.execute("delete from record_ids where id = ? and record_type = 'conversation'", (cid,))
+            live.execute("delete from conversations where id = ?", (cid,))
         live.commit()
         return len(verified), deleted_entries
     finally:

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Bell, BellOff, MoreHorizontal } from 'lucide-react';
-import { formatCost } from './Transcript';
+import { formatCost } from './transcript/MessageMetadata';
 import { presetFor } from '../lib/instructionPresets';
 import { COST_UNKNOWN_LABEL, COST_UNKNOWN_TITLE } from '../lib/sessionCost';
 import { Button } from '@/components/ui/button';

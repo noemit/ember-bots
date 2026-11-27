@@ -88,10 +88,11 @@ server/database startup, calls a host tool from QuickJS, times out an infinite l
 host responsiveness, and verifies a subsequent execution succeeds. It needs no provider or installed
 `node_modules`, creates no user profile, and the test kills a stuck executable after 20 seconds.
 Run this regression natively on macOS, Linux and Windows for their respective releases. The shared
-build script supports native targets only and rejects extra arguments, including target/skip flags.
-If cross-compilation is added later, any cannot-execute exception must be explicit and documented;
-the artifact must still pass this check on its target platform before release. Never interpret a
-launch failure as a reason to silently skip verification. `tests/packagingGate.test.ts` also checks
+build script (`scripts/build-binaries.mjs`) accepts explicit `--target` and `--out` flags (rejecting
+unknown or skip flags) and runs `--self-test-codemode` on every built artifact — using Wine when
+cross-compiling a Windows binary on Linux. Any cross-compiled artifact must still pass native checks
+on its target platform before release. Never interpret a launch failure as a reason to silently skip
+verification. `tests/packagingGate.test.ts` also checks
 the script's fail-closed behavior for both binaries and all three platform naming conventions. Upstream Bun limitations still apply to built-ins that do not poll QuickJS's interrupt flag.
 
 Install the browser before running Playwright suites:

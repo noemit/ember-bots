@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
@@ -108,30 +109,58 @@ export class HttpError extends Error {
   }
 }
 
-const tailscaleAddress = (): string | null => {
-  for (const [name, interfaces] of Object.entries(os.networkInterfaces())) {
-    for (const entry of interfaces ?? []) {
-      if (entry.family !== 'IPv4' || entry.internal) continue;
-      const octets = entry.address.split('.').map(Number);
-      const value = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
-      if (value < TAILSCALE_MIN || value > TAILSCALE_MAX) continue;
-      // Prefer the adapter Tailscale actually creates. A 100.64/10 address also shows up on
-      // ISP CGNAT links, and binding that one would put this listener on the ISP-facing NIC.
-      if (/tailscale/i.test(name)) return entry.address;
-    }
-  }
-  // No adapter named like Tailscale: fall back to the range only for the address we would
-  // otherwise be unable to serve, but say so through the listener state (`detail`).
-  for (const interfaces of Object.values(os.networkInterfaces())) {
-    for (const entry of interfaces ?? []) {
-      if (entry.family !== 'IPv4' || entry.internal) continue;
-      const octets = entry.address.split('.').map(Number);
-      const value = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
-      if (value >= TAILSCALE_MIN && value <= TAILSCALE_MAX) return entry.address;
+const isTailscaleRangeIpv4 = (address: string): boolean => {
+  const parts = address.trim().split('.');
+  if (parts.length !== 4) return false;
+  const octets = parts.map(Number);
+  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const value = ((octets[0]! << 24) | (octets[1]! << 16) | (octets[2]! << 8) | octets[3]!) >>> 0;
+  return value >= TAILSCALE_MIN && value <= TAILSCALE_MAX;
+};
+
+const queryLocalTailscaleDaemonIp = (): string | null => {
+  const candidates =
+    process.platform === 'darwin'
+      ? ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']
+      : ['tailscale'];
+  for (const bin of candidates) {
+    try {
+      const stdout = execFileSync(bin, ['ip', '-4'], {
+        encoding: 'utf8',
+        timeout: 1_500,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      const first = stdout.split(/\r?\n/).map((line) => line.trim()).find((line) => isTailscaleRangeIpv4(line));
+      if (first) return first;
+    } catch {
+      // Try next candidate or fail closed below.
     }
   }
   return null;
 };
+
+/**
+ * Resolve the local Tailscale IPv4 address only when the local Tailscale daemon confirms it and
+ * the address is present on an active non-internal network interface. Never falls back to an
+ * unverified `100.64.0.0/10` CGNAT/VPN adapter.
+ */
+export const resolveVerifiedTailscaleAddress = (deps?: {
+  interfaces?: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+  readDaemonIp?: () => string | null;
+}): string | null => {
+  const daemonIp = (deps?.readDaemonIp ?? queryLocalTailscaleDaemonIp)()?.trim() ?? null;
+  if (!daemonIp || !isTailscaleRangeIpv4(daemonIp)) return null;
+  const ifaces = deps?.interfaces ?? os.networkInterfaces();
+  for (const entries of Object.values(ifaces)) {
+    for (const entry of entries ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal) continue;
+      if (entry.address === daemonIp) return daemonIp;
+    }
+  }
+  return null;
+};
+
+const tailscaleAddress = (): string | null => resolveVerifiedTailscaleAddress();
 
 const json = (response: http.ServerResponse, status: number, value: unknown, headers: Record<string, string> = {}): void => {
   if (response.headersSent) {

@@ -388,6 +388,7 @@ export function useTranscriptStore({
       }
       if (outcome.needsFullFetch) requestFullRepair(key);
       else transcriptVersion.current.set(key, version ?? 0);
+      return { hasGap: 'hasGap' in outcome && outcome.hasGap === true };
     }
   );
 
@@ -541,12 +542,14 @@ export function useTranscriptStore({
         }
         const tailLimit = held.length === 0 ? OPEN_MESSAGE_TAIL_LIMIT : MESSAGE_TAIL_LIMIT;
         const tail = await loadMessageTailPage(ref.instanceId, ref.sessionId, directory ?? meta.directory, tailLimit);
-        commitFetchedTranscript(key, tail.messages, 'tail', meta.updated);
+        const committed = commitFetchedTranscript(key, tail.messages, 'tail', meta.updated);
         observeModels(observationsFor(ref.instanceId, ref.sessionId, directory ?? meta.directory, tail.messages));
         setTranscripts((prev) => {
           const current = prev[key];
           if (!current) return prev;
-          const historyComplete = current.historyComplete === true || tail.complete;
+          // U8: a non-overlapping tail appended past held history creates an interior gap;
+          // mark history incomplete so Find and "Load earlier" can fetch the missing range.
+          const historyComplete = committed?.hasGap ? false : (current.historyComplete === true || tail.complete);
           if (current.historyComplete === historyComplete) return prev;
           return { ...prev, [key]: { ...current, historyComplete } };
         });

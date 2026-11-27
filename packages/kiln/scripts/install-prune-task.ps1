@@ -22,6 +22,7 @@ param(
   [int]$ImageDays = 7,
   [int]$ArchiveDays = 7,
   [int]$KeepBackups = 5,
+  [switch]$Apply,
   [switch]$DryRun,
   [switch]$Uninstall
 )
@@ -44,7 +45,7 @@ if (-not (Test-Path $script)) { throw "missing prune script: $script" }
 $args = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" " +
         "-HearthHome `"$HearthHome`" -Port $Port -TaskName `"$TaskName`" -Repo `"$Repo`" " +
         "-ImageDays $ImageDays -ArchiveDays $ArchiveDays -KeepBackups $KeepBackups"
-if ($DryRun) { $args += " -DryRun" }
+if ($Apply -and (-not $DryRun)) { $args += " -Apply" } else { $args += " -DryRun" }
 
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $args
 $trigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddHours($Hour).AddMinutes($Minute))

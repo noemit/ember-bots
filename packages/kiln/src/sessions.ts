@@ -580,6 +580,8 @@ export const submitCrewMessage = async (
     if (!current || current.conversationId !== entry.conversationId || (expectedTask !== undefined && threadTask(current) !== expectedTask)) return false;
     if (current.lastMessageRequestId === requestId) return false;
     const prior = await tx.submissionByRequest(entry.conversationId, requestId);
+    // D5: an older replayed requestId must never rearm or overwrite newer assignment/completion state.
+    if (prior) return false;
     const liveBefore = await tx.doc(LiveDoc, entry.conversationId);
     const wasBusy = liveBefore.run !== undefined;
     const wasFailed = Boolean(liveBefore.runFailure);

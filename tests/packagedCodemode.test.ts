@@ -3,8 +3,12 @@ import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { binaryName } from '../scripts/artifact-names.mjs';
 
-for (const [script, artifact] of [['build:harness', 'build/harness/kiln'], ['dist:cli', `release/tinder-${process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'}-${process.arch}${process.platform === 'win32' ? '.exe' : ''}`]] as const) {
+for (const [script, artifact] of [
+  ['build:harness', join('build', 'harness', binaryName('kiln'))],
+  ['dist:cli', join('release', binaryName('tinder'))],
+] as const) {
   test(`${script} embeds a working, timeout-isolated codemode sandbox`, async () => {
     const folder = await mkdtemp(join(tmpdir(), 'ember-codemode-'));
     const name = process.platform === 'win32' ? 'standalone.exe' : 'standalone';
@@ -17,7 +21,7 @@ for (const [script, artifact] of [['build:harness', 'build/harness/kiln'], ['dis
       // The packaging command itself must execute the diagnostic, not merely compile it.
       expect(build.stdout).toContain('Codemode self-test passed: callback, worker timeout');
       expect(build.stdout).toContain('recovery.');
-      await copyFile(resolve(artifact + (process.platform === 'win32' ? '.exe' : '')), binary);
+      await copyFile(resolve(artifact), binary);
       // Run only the copied production binary. No PATH, NODE_PATH, Bun options or credentials;
       // preserve Windows' system directory so its OS libraries remain discoverable.
       const home = join(folder, 'unused-home');

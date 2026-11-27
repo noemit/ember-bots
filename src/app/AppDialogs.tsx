@@ -3,9 +3,9 @@ import type { ModelList } from '../api';
 import { resolveAvatarIdentity } from '../blob/seed';
 import { effectiveBlobStyle } from '../blob/styles';
 import ArchiveSessionDialog from '../components/ArchiveSessionDialog';
-import { DocumentPreviewDialogHost } from '../components/DocumentPreviewDialog';
 import PromoteWorkerDialog from '../components/PromoteWorkerDialog';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../components/ui/dialog';
+import { useActiveDocumentPreview } from '../lib/documentExploration';
 import type { ViewerImage } from '../lib/gallery';
 import { effectiveInstanceDefaultModel } from '../lib/instanceDefaultModel';
 import type { OnboardingState } from '../lib/onboarding';
@@ -134,6 +134,20 @@ type AppDialogsProps = {
 /**
  * Houses all lazy-loaded dialogs, confirmation prompts, and the worker thread inspection modal.
  */
+const LazyDocumentPreviewDialogHost = React.lazy(() =>
+  import('../components/DocumentPreviewDialog').then((mod) => ({ default: mod.DocumentPreviewDialogHost }))
+);
+
+function LazyDocumentPreviewMount() {
+  const active = useActiveDocumentPreview();
+  if (!active) return null;
+  return (
+    <React.Suspense fallback={null}>
+      <LazyDocumentPreviewDialogHost />
+    </React.Suspense>
+  );
+}
+
 export function AppDialogs({
   commandPaletteOpen,
   setCommandPaletteOpen,
@@ -470,7 +484,7 @@ export function AppRootOverlays({
           />
         </React.Suspense>
       ) : null}
-      <DocumentPreviewDialogHost />
+      <LazyDocumentPreviewMount />
     </>
   );
 }
